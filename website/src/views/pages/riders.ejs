@@ -1,0 +1,117 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<section class="page-hero rider-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow">Ride with Foodbela</p>
+    <h1 data-i18n="riderHeroTitle">নিজের শহরে ডেলিভারি করে আয় করুন।</h1>
+    <p data-i18n="riderHeroCopy">Foodbela রাইডারদের জন্য শুধু মোবাইল অ্যাপ। পিকআপ, ড্রপ-অফ, কাস্টমার নোট আর অর্ডারের অবস্থা সব মোবাইল অ্যাপেই থাকবে।</p>
+    <div class="hero-actions">
+      <a class="btn-main hover-trigger" href="#apply" data-i18n="riderApplyBtn">রাইডার হিসেবে আবেদন করুন</a>
+      <a class="btn-main btn-light hover-trigger" href="#rider-flow" data-i18n="seeProcess">প্রসেস দেখুন</a>
+    </div>
+  </div>
+</section>
+
+<section class="platform-preview-section rider-app-section">
+  <div class="platform-preview-copy gs-fade">
+    <p class="eyebrow" data-i18n="riderAppEyebrow">রাইডার মোবাইল অ্যাপ</p>
+    <h2 data-i18n="riderAppTitle">রাইডারের কাজ শুধু মোবাইল অ্যাপ থেকেই চলবে।</h2>
+    <p data-i18n="riderAppCopy">অর্ডার গ্রহণ, পিকআপ লোকেশন, ড্রপ-অফ নির্দেশনা, কাস্টমার নোট আর স্ট্যাটাস আপডেট—সব এক সহজ মোবাইল অ্যাপে। ওয়েব প্যানেল দরকার নেই।</p>
+    <div class="platform-points">
+      <span data-i18n="riderAppPointOne">পিকআপ ও ড্রপ-অফ রুট</span>
+      <span data-i18n="riderAppPointTwo">লাইভ স্ট্যাটাস আপডেট</span>
+      <span data-i18n="riderAppPointThree">আয়ের ও অর্ডারের সারাংশ</span>
+    </div>
+  </div>
+  <div class="rider-mobile-visual gs-fade" aria-label="Foodbela rider mobile app preview">
+    <div class="rider-preview-phone">
+      <div class="owner-phone-notch"></div>
+      <small data-i18n="riderPhoneSmall">নতুন ডেলিভারি</small>
+      <strong data-i18n="riderPhoneTitle">পিকআপ: পার্টনার কিচেন</strong>
+      <div class="rider-route-line">
+        <span></span>
+        <i></i>
+        <span></span>
+      </div>
+      <p data-i18n="riderPhoneCopy">ড্রপ-অফ পর্যন্ত ১৮ মিনিট</p>
+      <button type="button" tabindex="-1" data-i18n="riderPhoneAction">অর্ডার গ্রহণ</button>
+    </div>
+  </div>
+</section>
+
+<section class="ecosystem-section">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="riderToolkitTitle">রাইডারদের জন্য পরিষ্কার ডেলিভারি ফ্লো</h2>
+    <p data-i18n="riderToolkitCopy">নিজের সুবিধামতো কাজের সময়, মোবাইল অ্যাপে পরিষ্কার রুট নির্দেশনা আর সহজ স্ট্যাটাস আপডেট দিয়ে কাজ এগিয়ে নিন।</p>
+  </div>
+  <div class="cards-grid">
+    <% benefits.forEach((benefit, index) => { %>
+      <article class="bento-card hover-trigger gs-fade">
+        <div class="card-icon">🛵</div>
+        <div>
+          <h3 data-i18n="riderBenefitTitle<%= index %>"><%= benefit.title %></h3>
+          <p data-i18n="riderBenefitCopy<%= index %>"><%= benefit.copy %></p>
+        </div>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<section class="process-section" id="rider-flow">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="riderProcessTitle">আবেদন থেকে প্রথম ডেলিভারি</h2>
+  </div>
+  <div class="cards-grid">
+    <article class="bento-card gs-fade">
+      <div class="card-icon">01</div>
+      <h3 data-i18n="riderProcessOneTitle">আবেদন করুন</h3>
+      <p data-i18n="riderProcessOneCopy">ফোন নম্বর, এলাকা এবং যানবাহনের ধরন দিয়ে রাইডার ফর্ম জমা দিন।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">02</div>
+      <h3 data-i18n="riderProcessTwoTitle">ভেরিফাই করুন</h3>
+      <p data-i18n="riderProcessTwoCopy">পরিচয়, সার্ভিস এলাকা এবং কাজের সময় Foodbela অনবোর্ডিং টিম যাচাই করবে।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">03</div>
+      <h3 data-i18n="riderProcessThreeTitle">ডেলিভারি শুরু</h3>
+      <p data-i18n="riderProcessThreeCopy">মোবাইল অ্যাপে অর্ডার গ্রহণ করুন, পিকআপ নির্দেশনা অনুসরণ করুন এবং স্ট্যাটাস আপডেট দিন।</p>
+    </article>
+  </div>
+</section>
+
+<section class="form-section" id="apply">
+  <div class="form-intro gs-fade">
+    <p class="eyebrow">Rider application</p>
+    <h2 data-i18n="riderFormTitle">আপনার রাইডার তথ্য পাঠান।</h2>
+    <p data-i18n="riderFormCopy">আবেদন দেখা শেষ হলে Foodbela টিম সার্ভিস এলাকা, ডকুমেন্ট এবং অ্যাক্টিভেশনের বিস্তারিত জানাবে।</p>
+  </div>
+  <%- include("../partials/lead-form", {
+    type: "rider",
+    eyebrow: "Start earning",
+    heading: "রাইডার আবেদন",
+    copy: "প্রয়োজনীয় তথ্য দিন, টিম আপনাকে পরের ধাপ জানাবে।",
+    buttonLabel: "রাইডার আবেদন পাঠান"
+  }) %>
+</section>
+
+<section class="faq-section">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="riderFaqTitle">রাইডারদের প্রশ্ন</h2>
+  </div>
+  <div class="faq-list">
+    <% faqs.forEach((item, index) => { %>
+      <article class="faq-item gs-fade">
+        <button type="button" data-faq-toggle aria-expanded="<%= index === 0 ? 'true' : 'false' %>">
+          <span data-i18n="riderFaqQuestion<%= index %>"><%= item.question %></span>
+          <strong>+</strong>
+        </button>
+        <div class="faq-answer">
+          <p data-i18n="riderFaqAnswer<%= index %>"><%= item.answer %></p>
+        </div>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

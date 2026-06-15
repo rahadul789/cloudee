@@ -1,0 +1,41 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(api_proxy) {
+	handle /api/* {
+		reverse_proxy backend:5000
+	}
+
+	handle /socket.io/* {
+		reverse_proxy backend:5000
+	}
+}
+
+foodbela.com, www.foodbela.com {
+	import api_proxy
+
+	handle {
+		reverse_proxy website:4200
+	}
+}
+
+api.foodbela.com {
+	reverse_proxy backend:5000
+}
+
+owner.foodbela.com {
+	import api_proxy
+
+	handle {
+		reverse_proxy restaurant-owner-web:80
+	}
+}
+
+admin.foodbela.com {
+	import api_proxy
+
+	handle {
+		reverse_proxy admin-web:80
+	}
+}

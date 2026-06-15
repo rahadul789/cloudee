@@ -1,0 +1,108 @@
+<%- include("../partials/document-start", { title, description, seo }) %>
+
+<%
+  const areaName = area.name || "আপনার এলাকা";
+  const isActive = area.status === "active";
+  const areaStatusLabel = isActive
+    ? "লাইভ"
+    : area.status === "coming_soon"
+      ? "শিগগির আসছে"
+      : "সাময়িক বিরতিতে";
+  const areaSlug = String(areaName)
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\u0980-\u09FF]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const baseAreaPath = `/areas/${areaSlug}-food-delivery`;
+  const localCuisines = cuisines || [];
+  const localSearches = popularSearches || [];
+%>
+
+<section class="page-hero area-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow">Foodbela local coverage</p>
+    <h1><%= areaName %> এলাকায় Foodbela খাবার ডেলিভারি</h1>
+    <p>
+      <%= isActive
+        ? `${areaName} এলাকায় কাছের রেস্টুরেন্ট থেকে খাবার অর্ডার, লাইভ ট্র্যাকিং, রেস্টুরেন্ট পার্টনারশিপ এবং রাইডার অনবোর্ডিং এক জায়গায় পাবেন।`
+        : `${areaName} এলাকায় Foodbela কভারেজের আগ্রহ জানাতে কভারেজ রিকোয়েস্ট পাঠান। বেশি আগ্রহ পাওয়া গেলে টিম launch planning-এ এই এলাকা review করবে।` %>
+    </p>
+    <div class="hero-actions">
+      <a class="btn-main hover-trigger" href="/download">অ্যাপ ডাউনলোড</a>
+      <a class="btn-ghost hover-trigger" href="/contact?topic=coverage#coverage-request">কভারেজ রিকোয়েস্ট</a>
+    </div>
+  </div>
+</section>
+
+<nav class="local-area-tabs gs-fade" aria-label="<%= areaName %> local pages">
+  <a class="active" href="<%= baseAreaPath %>" data-i18n="areaLinkDelivery">খাবার ডেলিভারি</a>
+  <a href="<%= baseAreaPath %>/restaurants" data-i18n="areaLinkRestaurants">রেস্টুরেন্ট</a>
+  <a href="<%= baseAreaPath %>/restaurant-partner" data-i18n="areaLinkPartner">পার্টনার</a>
+  <a href="<%= baseAreaPath %>/riders" data-i18n="areaLinkRiders">রাইডার</a>
+</nav>
+
+<section class="local-seo-section">
+  <div class="local-status-card gs-fade">
+    <div>
+      <p class="eyebrow">Area status</p>
+      <h2><%= areaName %> কভারেজ: <%= areaStatusLabel %></h2>
+      <p><%= area.note || "Foodbela টিম এই এলাকার সার্ভিস, রেস্টুরেন্ট এবং রাইডার availability নিয়মিত review করছে।" %></p>
+    </div>
+    <% if ((area.postalCodes || []).length) { %>
+      <div class="postal-list" aria-label="Postal codes">
+        <% area.postalCodes.forEach((code) => { %>
+          <span><%= code %></span>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+
+  <div class="local-intent-grid">
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">01</span>
+      <h3><%= areaName %> food delivery</h3>
+      <p>Foodbela app দিয়ে আপনার এলাকার পছন্দের খাবার খুঁজুন, অর্ডার করুন এবং রাইডারের live update দেখুন।</p>
+      <a class="card-link" href="<%= baseAreaPath %>/restaurants">লোকাল রেস্টুরেন্ট দেখুন <span>→</span></a>
+    </article>
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">02</span>
+      <h3>রেস্টুরেন্ট পার্টনার</h3>
+      <p><%= areaName %> এলাকার restaurant owner হলে mobile app ও restaurant panel দিয়ে order, menu এবং earning manage করতে পারবেন।</p>
+      <a class="card-link" href="<%= baseAreaPath %>/restaurant-partner">পার্টনারশিপ জানুন <span>→</span></a>
+    </article>
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">03</span>
+      <h3>রাইডার অনবোর্ডিং</h3>
+      <p>রাইডার হিসেবে Foodbela mobile app দিয়ে pickup, delivery status এবং route update সহজে manage করুন।</p>
+      <a class="card-link" href="<%= baseAreaPath %>/riders">রাইডার হিসেবে যুক্ত হন <span>→</span></a>
+    </article>
+  </div>
+</section>
+
+<section class="local-keyword-section">
+  <div class="sec-title gs-fade">
+    <p class="eyebrow">Local food intent</p>
+    <h2><%= areaName %> এলাকার জনপ্রিয় খাবার ও সার্চ</h2>
+  </div>
+  <div class="keyword-panels">
+    <div class="keyword-panel gs-fade">
+      <h3>খাবারের ধরন</h3>
+      <div class="keyword-list">
+        <% localCuisines.forEach((item) => { %>
+          <span><%= item %></span>
+        <% }) %>
+      </div>
+    </div>
+    <div class="keyword-panel gs-fade">
+      <h3>যে সার্চগুলোতে Foodbela useful</h3>
+      <div class="keyword-list">
+        <% localSearches.forEach((item) => { %>
+          <span><%= item %></span>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

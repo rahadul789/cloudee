@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <%
+      const seoData = typeof seo !== "undefined" && seo ? seo : {};
+      const pageTitle = seoData.title || title || "Foodbela";
+      const pageDescription = seoData.description || description || "Foodbela food delivery, restaurant partners, and rider onboarding.";
+      const canonicalUrl = seoData.canonicalUrl || "";
+      const documentWebsiteSettings = typeof websiteSettings !== "undefined" && websiteSettings ? websiteSettings : {};
+      const siteBaseUrl = (documentWebsiteSettings.siteUrl || "https://foodbela.com").replace(/\/+$/, "");
+      const ogImageUrl = seoData.ogImageUrl || `${siteBaseUrl}/images/foodbela-og.png`;
+      const robotsContent = seoData.robots || "index,follow";
+      const seoKeywords = seoData.keywords || "Foodbela, Food Bela, Food Bella, Foodblea, Fodbela, Foodbila, Fudbela, Foodbelaa, Foodvela, food delivery, Netrakona food delivery, Netrokona food delivery";
+    %>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="<%= pageDescription %>" />
+    <meta name="keywords" content="<%= seoKeywords %>" />
+    <meta name="robots" content="<%= robotsContent %>" />
+    <meta name="theme-color" content="#FFB84C" />
+    <% if (seoData.googleSiteVerification) { %>
+      <meta name="google-site-verification" content="<%= seoData.googleSiteVerification %>" />
+    <% } %>
+    <title><%= pageTitle %></title>
+    <% if (canonicalUrl) { %>
+      <link rel="canonical" href="<%= canonicalUrl %>" />
+    <% } %>
+    <meta property="og:site_name" content="<%= seoData.siteName || 'Foodbela' %>" />
+    <meta property="og:type" content="<%= seoData.ogType || 'website' %>" />
+    <meta property="og:title" content="<%= pageTitle %>" />
+    <meta property="og:description" content="<%= pageDescription %>" />
+    <% if (canonicalUrl) { %>
+      <meta property="og:url" content="<%= canonicalUrl %>" />
+    <% } %>
+    <meta property="og:image" content="<%= ogImageUrl %>" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Foodbela food delivery app preview" />
+    <meta property="og:locale" content="<%= seoData.locale || 'bn_BD' %>" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="<%= pageTitle %>" />
+    <meta name="twitter:description" content="<%= pageDescription %>" />
+    <meta name="twitter:image" content="<%= ogImageUrl %>" />
+    <meta name="application-name" content="Foodbela" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon-48x48.png" sizes="48x48" />
+    <link rel="icon" type="image/svg+xml" href="/images/Foodbela.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;600;800;900&family=Outfit:wght@300;400;600;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/css/main.css" />
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"
+      defer
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"
+      defer
+    ></script>
+    <% if (seoData.structuredDataJson) { %>
+      <script type="application/ld+json"><%- seoData.structuredDataJson %></script>
+    <% } %>
+  </head>
+  <body>
+    <div class="cursor-dot" id="cursor-dot" aria-hidden="true"></div>
+    <div class="cursor-outline" id="cursor-outline" aria-hidden="true"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <%- include("nav") %>
+    <%- include("site-banner") %>
+    <main id="main">

@@ -1,0 +1,21 @@
+.env
+.env.*
+!.env.example
+
+# Secrets / service-account credentials (never commit)
+*firebase-adminsdk*.json
+*-adminsdk-*.json
+*.serviceaccount.json
+service-account*.json
+
+node_modules
+dist
+dist-ssr
+logs
+*.log
+.docker-config/
+
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/d/cloudee/backend/**)",
+      "Bash(npm run *)"
+    ]
+  }
+}

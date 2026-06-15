@@ -1,0 +1,213 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-admin@foodbela.com}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - website
+      - backend
+      - restaurant-owner-web
+      - admin-web
+    networks:
+      - foodbela
+
+  website:
+    build:
+      context: ./website
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      NODE_ENV: production
+      PORT: 4200
+      WEBSITE_BASE_URL: ${WEBSITE_BASE_URL:-https://foodbela.com}
+      BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL:-http://backend:5000/api/v1}
+    networks:
+      - foodbela
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:4200/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ${APP_ENV_FILE:-./.env}
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: ${MONGODB_URI:?Set your MongoDB Atlas MONGODB_URI in .env}
+    networks:
+      - foodbela
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const prefix=process.env.API_PREFIX || '/api/v1'; fetch('http://127.0.0.1:5000' + prefix + '/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+  health-alerts:
+    build:
+      context: ./backend
+    command: ["node", "dist/scripts/health-alert-worker.js"]
+    restart: unless-stopped
+    logging: *default-logging
+    env_file:
+      - ${APP_ENV_FILE:-./.env}
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      ALERT_METRICS_URL: ${ALERT_METRICS_URL:-http://backend:5000/metrics}
+    depends_on:
+      - backend
+    networks:
+      - foodbela
+
+  restaurant-owner-web:
+    build:
+      context: ./restaurant-owner-web
+      args:
+        VITE_API_BASE_URL: ${OWNER_VITE_API_BASE_URL:-/api/v1}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - foodbela
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  admin-web:
+    build:
+      context: ./admin-web
+      args:
+        VITE_API_BASE_URL: ${ADMIN_VITE_API_BASE_URL:-/api/v1}
+        VITE_ENABLE_ADMIN_BOOTSTRAP: ${VITE_ENABLE_ADMIN_BOOTSTRAP:-false}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - foodbela
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:v3.5.3
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - foodbela
+
+  loki:
+    image: grafana/loki:3.7.1
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${LOKI_PORT:-3100}:3100"
+    networks:
+      - foodbela
+
+  alloy:
+    image: grafana/alloy:v1.12.1
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "run"
+      - "--server.http.listen-addr=0.0.0.0:12345"
+      - "--storage.path=/var/lib/alloy/data"
+      - "/etc/alloy/config.alloy"
+    volumes:
+      - ./monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    ports:
+      - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${ALLOY_PORT:-12345}:12345"
+    depends_on:
+      - loki
+    networks:
+      - foodbela
+
+  grafana:
+    image: grafana/grafana:13.0.1
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_METRICS_ENABLED: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${MONITORING_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - foodbela
+
+networks:
+  foodbela:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  loki_data:
+  alloy_data:
+  grafana_data:

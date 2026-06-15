@@ -1,0 +1,98 @@
+<%- include("../partials/document-start", { title, description, seo }) %>
+
+<%
+  const allAreas = (areas || []).filter((area) => area && area.name);
+  const coverageRewardAmount = Number(websiteSettings.coverageRewardAmount || 2000).toLocaleString("en-US");
+  const areaPath = (name) => {
+    const slug = String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9\u0980-\u09FF]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return `/areas/${slug}-food-delivery`;
+  };
+  const statusLabel = (status, lang = "bn") => {
+    if (status === "active") return lang === "en" ? "Live" : "লাইভ";
+    if (status === "coming_soon") return lang === "en" ? "Soon" : "শিগগির আসছে";
+    return lang === "en" ? "Paused" : "বিরতিতে";
+  };
+  const defaultAreaNote = (area, lang = "bn") => {
+    const name = area.name || "এই এলাকা";
+    if (lang === "en") {
+      if (area.status === "active") return area.note || `${name} is an active Foodbela coverage area.`;
+      if (area.status === "coming_soon") return area.note || `${name} is on the upcoming Foodbela coverage plan.`;
+      return area.note || `${name} coverage is temporarily paused.`;
+    }
+    if (area.status === "active") return `${name} এলাকায় Foodbela কভারেজ চালু আছে।`;
+    if (area.status === "coming_soon") return `${name} এলাকা Foodbela launch planning-এ আছে।`;
+    return `${name} এলাকায় Foodbela কভারেজ আপাতত বিরতিতে আছে।`;
+  };
+%>
+
+<section class="page-hero area-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow" data-i18n="areasHeroEyebrow">Foodbela সার্ভিস এলাকা</p>
+    <h1 data-i18n="areasHeroTitle">Foodbela কোন কোন এলাকায় কাজ করছে?</h1>
+    <p data-i18n="areasHeroCopy">লাইভ খাবার ডেলিভারি, নতুন কভারেজ প্ল্যানিং এবং রেস্টুরেন্ট/রাইডার অনবোর্ডিং এলাকা এক জায়গায় দেখুন।</p>
+    <div class="hero-actions">
+      <a class="btn-main hover-trigger" href="/download" data-i18n="downloadApp">অ্যাপ ডাউনলোড</a>
+    </div>
+  </div>
+</section>
+
+<section class="area-reward-section gs-fade">
+  <div class="area-reward-card">
+    <div class="reward-orbit" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+    <div class="area-reward-copy">
+      <p class="eyebrow" data-i18n="areasRewardEyebrow">কভারেজ রিওয়ার্ড</p>
+      <h2 data-i18n="areasRewardTitle">সম্ভাবনাময় এলাকা জানালে বোনাস পাওয়ার সুযোগ</h2>
+      <p data-i18n="areasRewardCopy">
+        আপনার পরিচিত এমন কোনো জায়গা থাকলে যেখানে Foodbela চালু হলে ভালো চাহিদা তৈরি হতে পারে, আমাদের জানান।
+        আমরা এলাকাটি review list-এ রাখব, আর service চালু হলে আপনি বোনাস পাবেন।
+      </p>
+    </div>
+    <div class="area-reward-amount">
+      <small data-i18n="areasRewardAmountLabel">বোনাস</small>
+      <strong>+<%= coverageRewardAmount %>tk</strong>
+    </div>
+    <a class="btn-main hover-trigger" href="/contact?topic=coverage#coverage-request" data-i18n="areasSuggestButton">এলাকা জানিয়ে দিন</a>
+  </div>
+</section>
+
+<section class="local-seo-section">
+  <div class="sec-title gs-fade">
+    <p class="eyebrow" data-i18n="areasDirectoryEyebrow">কভারেজ ডিরেক্টরি</p>
+    <h2 data-i18n="areasDirectoryTitle">Foodbela কভারেজ এলাকা</h2>
+  </div>
+  <div class="area-directory-grid">
+    <% allAreas.forEach((area) => { %>
+      <% const bnNote = area.noteBn || defaultAreaNote(area, "bn"); %>
+      <% const enNote = area.noteEn || defaultAreaNote(area, "en"); %>
+      <article class="area-directory-card gs-fade">
+        <div>
+          <span
+            class="area-status-pill area-<%= area.status %>"
+            data-i18n-admin
+            data-bn-text="<%= statusLabel(area.status, 'bn') %>"
+            data-en-text="<%= statusLabel(area.status, 'en') %>"
+          ><%= statusLabel(area.status, "bn") %></span>
+          <h3><%= area.name %></h3>
+          <p data-i18n-admin data-bn-text="<%= bnNote %>" data-en-text="<%= enNote %>"><%= bnNote %></p>
+        </div>
+        <div class="area-directory-links">
+          <a href="<%= areaPath(area.name) %>" data-i18n="areaLinkDelivery">খাবার ডেলিভারি</a>
+          <a href="<%= areaPath(area.name) %>/restaurants" data-i18n="areaLinkRestaurants">রেস্টুরেন্ট</a>
+          <a href="<%= areaPath(area.name) %>/restaurant-partner" data-i18n="areaLinkPartner">পার্টনার</a>
+          <a href="<%= areaPath(area.name) %>/riders" data-i18n="areaLinkRiders">রাইডার</a>
+        </div>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

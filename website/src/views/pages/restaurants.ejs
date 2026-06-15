@@ -1,0 +1,128 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<section class="page-hero restaurant-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow">Foodbela for Restaurants</p>
+    <h1 data-i18n="restaurantHeroTitle">আপনার কিচেনকে অনলাইনে আরও শক্তিশালী করুন।</h1>
+    <p data-i18n="restaurantHeroCopy">Foodbela আপনাকে এলাকার কাস্টমারের কাছে পৌঁছাতে, অর্ডার সামলাতে এবং মোবাইল অ্যাপ ও ওয়েব প্যানেল দিয়ে পেমেন্টের হিসাব পরিষ্কার রাখতে সাহায্য করবে।</p>
+    <div class="hero-actions">
+      <a class="btn-main hover-trigger" href="#apply" data-i18n="restaurantApplyBtn">রেস্টুরেন্ট হিসেবে আবেদন করুন</a>
+      <a class="btn-main btn-light hover-trigger" href="#how-it-works" data-i18n="seeProcess">প্রসেস দেখুন</a>
+    </div>
+  </div>
+</section>
+
+<section class="platform-preview-section owner-platform-section">
+  <div class="platform-preview-copy gs-fade">
+    <p class="eyebrow" data-i18n="restaurantPlatformEyebrow">রেস্টুরেন্ট টুলস</p>
+    <h2 data-i18n="restaurantPlatformTitle">মোবাইল অ্যাপ ও ওয়েব প্যানেল—দুই জায়গা থেকেই রেস্টুরেন্ট ম্যানেজ করুন।</h2>
+    <p data-i18n="restaurantPlatformCopy">কিচেনে থাকলে ওয়েব প্যানেল, বাইরে থাকলে মোবাইল অ্যাপ। নতুন অর্ডার, প্রস্তুতির আপডেট, মেন্যু আর পেমেন্ট হিসাব একই Foodbela সিস্টেমে একসাথে আপডেট থাকবে।</p>
+    <div class="platform-points">
+      <span data-i18n="restaurantPlatformPointOne">নতুন অর্ডার গ্রহণ</span>
+      <span data-i18n="restaurantPlatformPointTwo">প্রস্তুতি ও স্ট্যাটাস আপডেট</span>
+      <span data-i18n="restaurantPlatformPointThree">মেন্যু, অফার ও পেমেন্ট হিসাব</span>
+    </div>
+  </div>
+  <div class="owner-platform-visual gs-fade" aria-label="Restaurant web and mobile order management preview">
+    <div class="owner-web-panel">
+      <div class="owner-web-top">
+        <span></span><span></span><span></span>
+        <strong data-i18n="restaurantWebPreviewTitle">ওয়েব প্যানেল</strong>
+      </div>
+      <div class="owner-web-body">
+        <div>
+          <small data-i18n="restaurantWebMetricOne">আজকের রেভিনিউ</small>
+          <strong>9,755 tk</strong>
+        </div>
+        <div>
+          <small data-i18n="restaurantWebMetricTwo">মোট অর্ডার</small>
+          <strong>25</strong>
+        </div>
+        <p data-i18n="restaurantWebMetricThree">৪টি অর্ডার রান্না চলছে</p>
+      </div>
+    </div>
+    <div class="owner-mobile-panel">
+      <div class="owner-phone-notch"></div>
+      <strong data-i18n="restaurantMobilePreviewTitle">মোবাইল অ্যাপ</strong>
+      <p data-i18n="restaurantMobilePreviewCopy">নতুন অর্ডার এসেছে</p>
+      <span data-i18n="restaurantMobilePreviewAction">স্ট্যাটাস আপডেট</span>
+    </div>
+  </div>
+</section>
+
+<section class="ecosystem-section">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="restaurantToolkitTitle">রেস্টুরেন্ট বড় করার টুলকিট</h2>
+    <p data-i18n="restaurantToolkitCopy">প্রথম দিন থেকেই অনবোর্ডিং, মেন্যু সেটআপ এবং মোবাইল অ্যাপ ও ওয়েব প্যানেলে অর্ডার পরিচালনা যেন সহজ থাকে।</p>
+  </div>
+  <div class="cards-grid four-grid">
+    <% benefits.forEach((benefit, index) => { %>
+      <article class="bento-card hover-trigger gs-fade">
+        <div class="card-icon">✦</div>
+        <div>
+          <h3 data-i18n="restaurantBenefitTitle<%= index %>"><%= benefit.title %></h3>
+          <p data-i18n="restaurantBenefitCopy<%= index %>"><%= benefit.copy %></p>
+        </div>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<section class="process-section" id="how-it-works">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="restaurantProcessTitle">আবেদন থেকে প্রথম অর্ডার পর্যন্ত</h2>
+  </div>
+  <div class="cards-grid">
+    <article class="bento-card gs-fade">
+      <div class="card-icon">01</div>
+      <h3 data-i18n="restaurantProcessOneTitle">অনলাইনে আবেদন</h3>
+      <p data-i18n="restaurantProcessOneCopy">রেস্টুরেন্টের নাম, মালিকের ফোন নম্বর, এলাকা এবং খাবারের ধরন জানান।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">02</div>
+      <h3 data-i18n="restaurantProcessTwoTitle">মেন্যু ও প্রোফাইল সেটআপ</h3>
+      <p data-i18n="restaurantProcessTwoCopy">Foodbela টিম মেন্যু, ছবি, সময়সূচি এবং ডেলিভারি কভারেজ সাজাতে সাহায্য করবে।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">03</div>
+      <h3 data-i18n="restaurantProcessThreeTitle">লাইভ হয়ে যান</h3>
+      <p data-i18n="restaurantProcessThreeCopy">মোবাইল অ্যাপ বা ওয়েব প্যানেল থেকে অর্ডার নিন, প্রস্তুতির আপডেট দিন এবং পারফরম্যান্স দেখুন।</p>
+    </article>
+  </div>
+</section>
+
+<section class="form-section" id="apply">
+  <div class="form-intro gs-fade">
+    <p class="eyebrow">Partner application</p>
+    <h2 data-i18n="restaurantFormTitle">আপনার রেস্টুরেন্ট সম্পর্কে বলুন।</h2>
+    <p data-i18n="restaurantFormCopy">আবেদন পাঠালে Foodbela টিম আপনার রেস্টুরেন্ট যাচাই করে মেন্যু সেটআপ, মোবাইল অ্যাপ/ওয়েব প্যানেল অ্যাক্সেস এবং অনবোর্ডিংয়ের পরের ধাপ জানাবে।</p>
+  </div>
+  <%- include("../partials/lead-form", {
+    type: "restaurant",
+    eyebrow: "Start partnership",
+    heading: "রেস্টুরেন্ট পার্টনার আবেদন",
+    copy: "প্রয়োজনীয় তথ্য দিন, Foodbela টিম আপনার সাথে যোগাযোগ করবে।",
+    buttonLabel: "রেস্টুরেন্ট আবেদন পাঠান"
+  }) %>
+</section>
+
+<section class="faq-section">
+  <div class="sec-title gs-fade">
+    <h2 data-i18n="restaurantFaqTitle">রেস্টুরেন্ট পার্টনারদের প্রশ্ন</h2>
+  </div>
+  <div class="faq-list">
+    <% faqs.forEach((item, index) => { %>
+      <article class="faq-item gs-fade">
+        <button type="button" data-faq-toggle aria-expanded="<%= index === 0 ? 'true' : 'false' %>">
+          <span data-i18n="restaurantFaqQuestion<%= index %>"><%= item.question %></span>
+          <strong>+</strong>
+        </button>
+        <div class="faq-answer">
+          <p data-i18n="restaurantFaqAnswer<%= index %>"><%= item.answer %></p>
+        </div>
+      </article>
+    <% }) %>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

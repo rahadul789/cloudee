@@ -1,0 +1,425 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<%
+  const appInstallUrl = websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "/download";
+  const appInstallIsExternal = appInstallUrl.startsWith("http");
+  const qrInstallTarget = appInstallUrl.startsWith("http") ? appInstallUrl : `https://foodbela.com${appInstallUrl}`;
+  const qrInstallUrl = encodeURIComponent(qrInstallTarget);
+  const coverageRewardAmount = Number(websiteSettings.coverageRewardAmount || 2000).toLocaleString("en-US");
+%>
+
+<section class="hero">
+  <div class="hero-live-layer" aria-hidden="true">
+    <div class="hero-route-line">
+      <span class="hero-flow-packet"></span>
+    </div>
+    <div class="hero-flow-popups">
+      <div class="hero-status-popup popup-order">
+        <small data-i18n="heroPopupOrderSmall">মোবাইল অ্যাপ</small>
+        <strong data-i18n="heroPopupOrderTitle">অর্ডার প্লেসড</strong>
+      </div>
+      <div class="hero-status-popup popup-accepted">
+        <small data-i18n="heroPopupAcceptedSmall">রেস্টুরেন্ট</small>
+        <strong data-i18n="heroPopupAcceptedTitle">অর্ডার গ্রহণ</strong>
+      </div>
+      <div class="hero-status-popup popup-preparing">
+        <small data-i18n="heroPopupPreparingSmall">কিচেন</small>
+        <strong data-i18n="heroPopupPreparingTitle">রান্না চলছে</strong>
+      </div>
+      <div class="hero-status-popup popup-ready">
+        <small data-i18n="heroPopupReadySmall">কিচেন</small>
+        <strong data-i18n="heroPopupReadyTitle">পিকআপের জন্য প্রস্তুত</strong>
+      </div>
+      <div class="hero-status-popup popup-pickup">
+        <small data-i18n="heroPopupPickupSmall">রাইডার</small>
+        <strong data-i18n="heroPopupPickupTitle">পিকআপ সম্পন্ন</strong>
+      </div>
+      <div class="hero-status-popup popup-delivered">
+        <small data-i18n="heroPopupDeliveredSmall">কাস্টমার</small>
+        <strong data-i18n="heroPopupDeliveredTitle">ডেলিভারি সম্পন্ন</strong>
+      </div>
+    </div>
+    <div class="hero-signal-card signal-order">
+      <span class="signal-dot"></span>
+      <small data-i18n="heroLiveOrderLabel">লাইভ অর্ডার</small>
+      <strong data-i18n="heroLiveOrderText">মোবাইল থেকে অর্ডার প্লেস হচ্ছে</strong>
+    </div>
+    <div class="hero-signal-card signal-kitchen">
+      <span class="signal-dot"></span>
+      <small data-i18n="heroKitchenLabel">পার্টনার কিচেন</small>
+      <strong data-i18n="heroKitchenText">গ্রহণ → রান্না → প্রস্তুত</strong>
+      <div class="signal-step-row">
+        <span data-i18n="heroKitchenStepOne">গ্রহণ</span>
+        <span data-i18n="heroKitchenStepTwo">রান্না</span>
+        <span data-i18n="heroKitchenStepThree">প্রস্তুত</span>
+      </div>
+    </div>
+    <div class="hero-signal-card signal-rider">
+      <span class="signal-dot"></span>
+      <small data-i18n="heroRiderLabel">রাইডার আপডেট</small>
+      <strong data-i18n="heroRiderText">পিকআপ → পথে → ডেলিভারড</strong>
+    </div>
+    <div class="hero-phone-preview">
+      <div class="phone-topbar"></div>
+      <div class="phone-brand">Foodbela</div>
+      <div class="phone-food-card">
+        <span>🍔</span>
+        <div>
+          <strong data-i18n="heroPhoneTitle">ক্রেভিং ম্যাচড</strong>
+          <small data-i18n="heroPhoneCopy">আপনার এলাকার রেস্টুরেন্ট</small>
+        </div>
+      </div>
+      <div class="phone-status-stack">
+        <span class="phone-status phone-status-order" data-i18n="heroPhoneStatusOrder">অর্ডার প্লেসড</span>
+        <span class="phone-status phone-status-delivered" data-i18n="heroPhoneStatusDelivered">ডেলিভারি সম্পন্ন</span>
+      </div>
+      <div class="phone-progress">
+        <span></span>
+      </div>
+      <div class="phone-map-chip" data-i18n="heroPhoneChip">রাইডার পথে</div>
+    </div>
+  </div>
+  <div class="hero-content">
+    <p class="hero-kicker gs-up" data-i18n="heroKicker">আপনার শহরের ফুড ডেলিভারি নেটওয়ার্ক</p>
+    <h1 class="gs-up" data-i18n-admin data-bn-text="<%= websiteSettings.heroTitle %>" data-en-text="<%= websiteSettings.heroTitleEn || 'Order food, grow restaurants, and power riders with Foodbela.' %>"><%= websiteSettings.heroTitle %></h1>
+    <p class="gs-up" data-admin-hero-copy data-i18n-admin data-bn-text="<%= websiteSettings.heroSubtitle %>" data-en-text="<%= websiteSettings.heroSubtitleEn || 'Your local favorites, live tracking, and fast delivery in one app.' %>"><%= websiteSettings.heroSubtitle %></p>
+  </div>
+  <div class="lifecycle-demo is-playing" aria-label="Foodbela অর্ডার লাইফসাইকেল ডেমো">
+    <div class="lifecycle-grid" aria-hidden="true"></div>
+    <svg class="lifecycle-route-svg" viewBox="0 0 1000 520" aria-hidden="true" preserveAspectRatio="none">
+      <path class="flow-path path-order" d="M150 282 C248 148 386 146 500 244" />
+      <path class="flow-path path-package" d="M500 244 C614 146 752 148 860 282" />
+      <path class="flow-path path-delivery" d="M860 332 C724 494 378 502 150 332" />
+    </svg>
+    <div class="lifecycle-route route-customer-restaurant" aria-hidden="true">
+      <span class="route-pulse route-pulse-order"></span>
+    </div>
+    <div class="lifecycle-route route-restaurant-rider" aria-hidden="true">
+      <span class="route-package">📦</span>
+    </div>
+    <div class="lifecycle-route route-rider-customer" aria-hidden="true"></div>
+
+    <article class="lifecycle-device lifecycle-phone customer-preview">
+      <div class="device-topbar"></div>
+      <div class="device-brand">Foodbela</div>
+      <div class="food-ticket">
+        <span class="food-emoji">🍔</span>
+        <div>
+          <strong data-i18n="lifeCustomerMeal">বার্গার কম্বো</strong>
+          <small data-i18n="lifeCustomerStore">Haor Bangla Kitchen</small>
+        </div>
+      </div>
+      <button class="order-tap" type="button" tabindex="-1" data-i18n="lifeCustomerButton">অর্ডার করুন</button>
+      <div class="device-status-stack">
+        <span class="device-status status-customer-start" data-i18n="lifeCustomerStart">খাবার সিলেক্টেড</span>
+        <span class="device-status status-customer-placed" data-i18n="lifeCustomerPlaced">অর্ডার প্লেসড</span>
+        <span class="device-status status-customer-delivered" data-i18n="lifeCustomerDelivered">ডেলিভারড</span>
+      </div>
+      <div class="device-pop device-pop-customer" data-i18n="lifePopOrder">অর্ডার প্লেসড</div>
+    </article>
+
+    <article class="lifecycle-device restaurant-preview">
+      <div class="restaurant-browser-bar" aria-hidden="true">
+        <span></span><span></span><span></span>
+        <b data-i18n="lifeRestaurantPanel">রেস্টুরেন্ট প্যানেল</b>
+      </div>
+      <div class="restaurant-panel-body">
+        <aside class="restaurant-side">
+          <strong data-i18n="lifeRestaurantStore">Haor Bangla Kitchen</strong>
+          <span data-i18n="lifeRestaurantLive">লাইভ</span>
+          <small data-i18n="lifeRestaurantQueue">৩টি অর্ডার চলছে</small>
+        </aside>
+        <main class="restaurant-main">
+          <div class="restaurant-head">
+            <span class="restaurant-dot"></span>
+            <div>
+              <small data-i18n="lifeRestaurantSmall">রেস্টুরেন্ট প্যানেল</small>
+              <strong data-i18n="lifeRestaurantTitle">নতুন অর্ডার এসেছে</strong>
+            </div>
+          </div>
+          <div class="restaurant-order-card">
+            <div>
+              <small>#FB-2048</small>
+              <strong data-i18n="lifeRestaurantItem">বার্গার কম্বো × ১</strong>
+            </div>
+            <span data-i18n="lifeRestaurantEta">১৮ মিনিট</span>
+          </div>
+          <div class="restaurant-step-list">
+            <span class="restaurant-step step-accepted" data-i18n="lifeAccepted">গ্রহণ</span>
+            <span class="restaurant-step step-preparing" data-i18n="lifePreparing">রান্না চলছে</span>
+            <span class="restaurant-step step-ready" data-i18n="lifeReady">প্রস্তুত</span>
+          </div>
+        </main>
+      </div>
+      <div class="device-pop device-pop-accepted" data-i18n="lifePopAccepted">গ্রহণ করা হয়েছে</div>
+      <div class="device-pop device-pop-preparing" data-i18n="lifePopPreparing">রান্না চলছে</div>
+      <div class="device-pop device-pop-ready" data-i18n="lifePopReady">পিকআপের জন্য প্রস্তুত</div>
+      <div class="device-pop device-pop-earning"><strong data-i18n="lifeRestaurantEarning">+750tk</strong></div>
+    </article>
+
+    <article class="lifecycle-device lifecycle-phone rider-preview">
+      <div class="device-topbar"></div>
+      <div class="device-brand" data-i18n="lifeRiderBrand">রাইডার অ্যাপ</div>
+      <div class="rider-map">
+        <span class="map-node node-pickup"></span>
+        <span class="map-node node-drop"></span>
+        <i></i>
+        <b><img class="rider-bike-symbol" src="/images/foodbela-icon.png" alt="" loading="lazy" /></b>
+      </div>
+      <div class="device-status-stack rider-status-stack">
+        <span class="device-status status-rider-wait" data-i18n="lifeRiderWait">রেডি অর্ডার পাওয়া গেছে</span>
+        <span class="device-status status-rider-pickup" data-i18n="lifeRiderPickup">পিকআপ হয়েছে</span>
+        <span class="device-status status-rider-going" data-i18n="lifeRiderGoing">রাইডার পথে</span>
+      </div>
+      <div class="device-pop device-pop-pickup" data-i18n="lifePopPickup">পিকআপ হয়েছে</div>
+      <div class="device-pop device-pop-rider-route" data-i18n="lifePopRiderRoute">রাইডার পথে</div>
+    </article>
+
+    <div class="delivery-rider" aria-hidden="true">
+      <img class="delivery-rider-symbol" src="/images/foodbela-icon.png" alt="" loading="lazy" />
+    </div>
+    <div class="lifecycle-complete" data-i18n="lifeComplete">কাস্টমারের কাছে ডেলিভারড</div>
+  </div>
+</section>
+
+<section class="coverage-section gs-fade" id="coverage">
+  <div class="coverage-shell">
+    <div class="coverage-copy">
+      <p class="eyebrow" data-i18n="coverageEyebrow">সার্ভিস কভারেজ</p>
+      <h2 data-i18n="coverageTitle">Foodbela কোন এলাকায় কাজ করছে?</h2>
+    </div>
+    <div class="coverage-area-list">
+      <% (websiteSettings.serviceAreas || []).forEach((area) => { %>
+        <% const areaSlug = String(area.name || "").trim().toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9\u0980-\u09FF]+/g, "-").replace(/^-+|-+$/g, ""); %>
+        <a class="area-chip area-<%= area.status %>" href="/areas/<%= areaSlug %>-food-delivery">
+          <strong><%= area.name %></strong>
+          <small><%= area.status === "active" ? "Live" : area.status === "coming_soon" ? "Soon" : "Paused" %></small>
+        </a>
+      <% }) %>
+    </div>
+    <div class="coverage-request-card">
+      <div>
+        <div class="coverage-request-title">
+          <strong data-i18n="coverageRequestTitle">আপনার এলাকায় Foodbela চান?</strong>
+          <details class="coverage-info">
+            <summary aria-label="Coverage request details">i</summary>
+            <p data-i18n="coverageInfoCopy">এই request থেকে আমরা বুঝি কোন এলাকায় customer, restaurant partner এবং rider interest বেশি। টিম coverage planning করার সময় এই request review করবে।</p>
+          </details>
+        </div>
+        <p class="coverage-reward-copy">
+          <span data-i18n="coverageRewardBefore">আপনার suggested এলাকা যদি আমরা service coverage-এ যুক্ত করি, তাহলে ধন্যবাদ উপহার হিসেবে পাবেন</span>
+          <strong class="coverage-reward-amount">+<%= coverageRewardAmount %>tk</strong>
+          <span data-i18n="coverageRewardAfter">।</span>
+        </p>
+      </div>
+      <a class="btn-main hover-trigger" href="/contact?topic=coverage#coverage-request" data-i18n="coverageRequestButton">কভারেজ রিকোয়েস্ট করুন</a>
+    </div>
+  </div>
+</section>
+
+<section class="join-path-section" id="join">
+  <div class="sec-title gs-fade">
+    <p class="eyebrow" data-i18n="joinEyebrow">আপনার Foodbela পথ বেছে নিন</p>
+    <h2 data-i18n="joinTitle">আপনি কীভাবে Foodbela-তে যুক্ত হতে চান?</h2>
+    <p data-i18n="joinCopy">খাবার অর্ডার, রেস্টুরেন্ট বড় করা বা রাইডার হিসেবে আয়—Foodbela-তে প্রত্যেকের জন্য আলাদা, পরিষ্কার ও দ্রুত পথ আছে।</p>
+  </div>
+  <div class="join-grid">
+    <a class="join-card hover-trigger gs-fade" href="/download">
+      <span>📱</span>
+      <strong data-i18n="joinCustomerTitle">আমি খাবার অর্ডার করতে চাই</strong>
+      <p data-i18n="joinCustomerCopy">কাছের রেস্টুরেন্ট, অফার, লাইভ ট্র্যাকিং ও সাপোর্ট—সব এক অ্যাপে।</p>
+    </a>
+    <a class="join-card hover-trigger gs-fade" href="<%= websiteSettings.restaurantApplyUrl || '/restaurants#apply' %>">
+      <span>🍽️</span>
+      <strong data-i18n="joinRestaurantTitle">আমি রেস্টুরেন্ট পার্টনার হতে চাই</strong>
+      <p data-i18n="joinRestaurantCopy">অনলাইন অর্ডার, প্রচারণা সহায়তা, মেন্যু সেটআপ ও পরিষ্কার পেমেন্ট হিসাব।</p>
+    </a>
+    <a class="join-card hover-trigger gs-fade" href="<%= websiteSettings.riderApplyUrl || '/riders#apply' %>">
+      <span>🛵</span>
+      <strong data-i18n="joinRiderTitle">আমি রাইডার হিসেবে যুক্ত হতে চাই</strong>
+      <p data-i18n="joinRiderCopy">নিজের এলাকায় ফ্লেক্সিবল সময়, পরিষ্কার পিকআপ নির্দেশনা ও ডেলিভারি আয়ের সুযোগ।</p>
+    </a>
+  </div>
+</section>
+
+<section id="magic" class="magic-scroll-container">
+  <div class="floating-food-scene" aria-hidden="true">
+    <div class="scene-layer is-active" data-scene="img1">
+      <span class="float-item item-a">🍕</span>
+      <span class="float-item item-b">🍔</span>
+      <span class="float-item item-c">🍟</span>
+      <span class="float-item item-d">🌮</span>
+      <span class="float-item item-e">🍩</span>
+      <span class="float-item item-f">🥤</span>
+      <span class="float-item item-g">🍣</span>
+      <span class="float-item item-h">🥗</span>
+      <span class="float-item item-i">🍦</span>
+    </div>
+    <div class="scene-layer" data-scene="img2">
+      <span class="float-item item-a">🔥</span>
+      <span class="float-item item-b">👨‍🍳</span>
+      <span class="float-item item-c">🍳</span>
+      <span class="float-item item-d">🥘</span>
+      <span class="float-item item-e">🧂</span>
+      <span class="float-item item-f">🍜</span>
+      <span class="float-item item-g">⏱️</span>
+      <span class="float-item item-h">🧾</span>
+      <span class="float-item item-i">🍲</span>
+    </div>
+    <div class="scene-layer" data-scene="img3">
+      <span class="float-item item-a">🛵</span>
+      <span class="float-item item-b">📍</span>
+      <span class="float-item item-c">🗺️</span>
+      <span class="float-item item-d">📦</span>
+      <span class="float-item item-e">⚡</span>
+      <span class="float-item item-f">🏠</span>
+      <span class="float-item item-g">🧭</span>
+      <span class="float-item item-h">✅</span>
+      <span class="float-item item-i">🛍️</span>
+    </div>
+  </div>
+
+  <div class="scroll-texts">
+    <div class="step-block active" data-color="#FFF3CF" data-img="img1">
+      <h2 data-i18n="stepOneTitle">১. আপনার ক্রেভিং খুঁজুন 🍔</h2>
+      <p data-i18n="stepOneCopy">শহরের সেরা রেস্টুরেন্ট, হাজারো মেন্যু, লোকাল অফার এবং পছন্দের খাবার মাত্র কয়েক ক্লিকে আপনার হাতের মুঠোয়।</p>
+      <div class="step-mobile-visual step-mobile-qr" aria-hidden="true">
+        <div class="mobile-visual-phone">
+          <span class="mobile-visual-pill">Foodbela app</span>
+          <strong>Scan & order</strong>
+          <img
+            src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&margin=8&data=<%= qrInstallUrl %>"
+            alt=""
+            loading="lazy"
+          />
+          <small>Play Store link</small>
+        </div>
+      </div>
+    </div>
+    <div class="step-block" data-color="#FFE6F0" data-img="img2">
+      <h2 data-i18n="stepTwoTitle">২. কিচেন ম্যাজিক 🔥</h2>
+      <p data-i18n="stepTwoCopy">অর্ডার এলেই রেস্টুরেন্ট তা সঙ্গে সঙ্গে দেখতে পায়। মোবাইল অ্যাপ বা ওয়েব প্যানেল—দুই জায়গা থেকেই অর্ডার গ্রহণ, প্রস্তুতির আপডেট আর স্ট্যাটাস ম্যানেজ করা যায়।</p>
+      <div class="step-mobile-visual step-mobile-dashboard" aria-hidden="true">
+        <div class="mobile-dashboard-shell">
+          <div class="mobile-dashboard-bar"><span></span><span></span><span></span></div>
+          <div class="mobile-dashboard-kpis">
+            <span><strong>9,755 tk</strong><small>Revenue</small></span>
+            <span><strong>25</strong><small>Orders</small></span>
+            <span><strong>4 live</strong><small>Status</small></span>
+          </div>
+          <div class="mobile-dashboard-wave"></div>
+        </div>
+      </div>
+    </div>
+    <div class="step-block" data-color="#F3FFF8" data-img="img3">
+      <h2 data-i18n="stepThreeTitle">৩. সুপারফাস্ট ডেলিভারি 🚀</h2>
+      <p data-i18n="stepThreeCopy">রাইডার পিকআপ থেকে দরজায় পৌঁছে দেওয়া পর্যন্ত পরিষ্কার নির্দেশনা পায়, আর কাস্টমার লাইভ ট্র্যাকিংয়ে পুরো অর্ডার জার্নি দেখতে পারে।</p>
+      <div class="step-mobile-visual step-mobile-delivery" aria-hidden="true">
+        <div class="mobile-delivery-shell">
+          <span class="mobile-delivery-pin pickup"></span>
+          <span class="mobile-delivery-pin dropoff"></span>
+          <i></i>
+          <b>🛵</b>
+          <strong>Rider on route</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scroll-visual">
+    <div class="visual-wrapper">
+      <div class="visual-glow" aria-hidden="true"></div>
+      <div id="img1" class="magic-img magic-device-scene qr-phone-scene active">
+        <div class="scene-phone">
+          <div class="phone-notch"></div>
+          <div class="scene-phone-screen">
+            <span class="scene-mini-label" data-i18n="qrSceneSmall">Foodbela অ্যাপ</span>
+            <strong data-i18n="qrSceneTitle">স্ক্যান করে অর্ডার শুরু করুন</strong>
+            <div class="scene-qr-box">
+              <img
+                src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=10&data=<%= qrInstallUrl %>"
+                alt="Foodbela app install QR code"
+                loading="lazy"
+              />
+            </div>
+            <small data-i18n="qrSceneCopy">Play Store link খুলবে</small>
+          </div>
+        </div>
+      </div>
+      <div id="img2" class="magic-img magic-device-scene dashboard-scene">
+        <div class="desktop-device">
+          <div class="desktop-topbar">
+            <span></span><span></span><span></span>
+            <strong data-i18n="dashboardSceneTitle">রেস্টুরেন্ট ড্যাশবোর্ড</strong>
+          </div>
+          <div class="dashboard-screen">
+            <aside>
+              <b>Store</b>
+              <span></span><span></span><span></span>
+            </aside>
+            <main>
+              <div class="dashboard-actions">
+                <i></i><i></i><i></i>
+              </div>
+              <div class="dashboard-kpis">
+                <span><b>9,755 tk</b><em data-i18n="dashboardKpiEarnings">আজকের রেভিনিউ</em></span>
+                <span><b>25</b><em data-i18n="dashboardKpiOrders">মোট অর্ডার</em></span>
+                <span><b data-i18n="dashboardKpiStatusValue">৪টি রান্না চলছে</b><em data-i18n="dashboardKpiStatus">লাইভ স্ট্যাটাস</em></span>
+              </div>
+              <div class="dashboard-platforms">
+                <span>
+                  <strong data-i18n="dashboardMobileTitle">মোবাইল অ্যাপ</strong>
+                  <small data-i18n="dashboardMobileCopy">চলতে চলতে অর্ডার আপডেট</small>
+                </span>
+                <span>
+                  <strong data-i18n="dashboardWebTitle">ওয়েব প্যানেল</strong>
+                  <small data-i18n="dashboardWebCopy">কিচেন বা কাউন্টার থেকে ম্যানেজ</small>
+                </span>
+              </div>
+              <div class="dashboard-chart">
+                <svg viewBox="0 0 320 120" aria-hidden="true">
+                  <path d="M0 98 C58 98 72 96 104 94 C138 91 151 35 191 43 C234 52 230 98 320 98" />
+                  <path d="M0 98 C58 98 72 96 104 94 C138 91 151 35 191 43 C234 52 230 98 320 98 L320 120 L0 120 Z" />
+                </svg>
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+      <div id="img3" class="magic-img magic-device-scene delivery-scene">
+        <div class="delivery-map-card">
+          <div class="map-route">
+            <span class="map-pin pickup"></span>
+            <span class="map-pin dropoff"></span>
+            <i></i>
+          </div>
+          <img src="https://cdn-icons-png.flaticon.com/512/2065/2065224.png" alt="Delivery rider" />
+          <div class="delivery-status">
+            <small data-i18n="deliverySceneSmall">লাইভ ট্র্যাকিং</small>
+            <strong data-i18n="deliverySceneTitle">রাইডার পথে আছে</strong>
+            <span data-i18n="deliverySceneEta">১৮-২৫ মিনিট</span>
+          </div>
+        </div>
+      </div>
+      <div class="magic-status-card">
+        <span data-i18n="magicStatusSmall">লাইভ অর্ডার জার্নি</span>
+        <strong data-magic-status data-i18n="magicStatusOne">পছন্দের খাবার মিলেছে</strong>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="step-block reset-step" data-color="#F8F9FA" data-img="none"></div>
+
+<section class="partner-cta gs-fade">
+  <div class="partner-content">
+    <h2 data-i18n="partnerCtaTitle">আপনার ব্যবসাকে পরবর্তী ধাপে নিয়ে যান 📈</h2>
+    <p data-i18n="partnerCtaCopy">হাজারো নতুন কাস্টমারের কাছে পৌঁছাতে আজই Foodbela পার্টনার নেটওয়ার্কে যুক্ত হোন। আমরা টেকনোলজি দিব, আপনি শুধু দারুণ খাবার বানাবেন।</p>
+    <a href="<%= websiteSettings.restaurantApplyUrl || '/restaurants#apply' %>" class="btn-main hover-trigger" data-i18n="bePartner">পার্টনার হোন</a>
+  </div>
+  <img src="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?q=80&w=800" class="partner-bg-img" alt="Foodbela partner restaurant" />
+</section>
+
+<%- include("../partials/app-download") %>
+
+<%- include("../partials/document-end") %>

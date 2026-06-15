@@ -1,0 +1,88 @@
+<%
+  const modalEnabled = websiteSettings.websiteModalEnabled !== false;
+  const modalModes = ["image", "image_text", "image_text_button"];
+  const modalMode = modalModes.includes(websiteSettings.websiteModalMode)
+    ? websiteSettings.websiteModalMode
+    : "image_text_button";
+  const modalCtaUrl = websiteSettings.websiteModalCtaUrl || websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "#";
+  const modalCtaIsExternal = /^https?:\/\//i.test(modalCtaUrl);
+  const modalInstallTarget = modalCtaUrl && modalCtaUrl !== "#"
+    ? modalCtaUrl
+    : websiteSettings.playStoreUrl || "https://play.google.com/store/apps/details?id=com.foodbela.app";
+  const modalQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=12&data=${encodeURIComponent(modalInstallTarget)}`;
+  const modalImageUrl = websiteSettings.websiteModalImageUrl || modalQrUrl;
+  const showModalText = modalMode !== "image";
+  const showModalButton = modalMode === "image_text_button" && modalCtaUrl && modalCtaUrl !== "#";
+  const modalDelay = Math.max(0, Number(websiteSettings.websiteModalDelaySeconds || 0));
+  const modalFrequency = ["always", "session", "daily"].includes(websiteSettings.websiteModalFrequency)
+    ? websiteSettings.websiteModalFrequency
+    : "session";
+  const modalIdSource = [
+    modalMode,
+    modalImageUrl,
+    websiteSettings.websiteModalTitle,
+    websiteSettings.websiteModalTitleEn,
+    modalCtaUrl,
+  ].join("|");
+  const modalId = encodeURIComponent(modalIdSource).slice(0, 90);
+%>
+
+<% if (modalEnabled) { %>
+  <div
+    class="website-modal"
+    data-website-modal
+    data-modal-id="<%= modalId %>"
+    data-modal-delay="<%= modalDelay %>"
+    data-modal-frequency="<%= modalFrequency %>"
+    aria-hidden="true"
+  >
+    <div class="website-modal-backdrop" data-website-modal-close></div>
+    <section
+      class="website-modal-dialog modal-mode-<%= modalMode %>"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Foodbela announcement"
+    >
+      <button
+        class="website-modal-close hover-trigger"
+        type="button"
+        data-website-modal-close
+        aria-label="Close Foodbela announcement"
+      >×</button>
+
+      <% if (modalImageUrl) { %>
+        <div class="website-modal-visual">
+          <img src="<%= modalImageUrl %>" alt="Foodbela app QR code" loading="lazy" />
+        </div>
+      <% } %>
+
+      <% if (showModalText) { %>
+        <div class="website-modal-copy">
+          <small>Foodbela</small>
+          <h2
+            data-i18n-admin
+            data-bn-text="<%= websiteSettings.websiteModalTitle || 'Foodbela অ্যাপ ইনস্টল করুন' %>"
+            data-en-text="<%= websiteSettings.websiteModalTitleEn || 'Install the Foodbela app' %>"
+          ><%= websiteSettings.websiteModalTitle || 'Foodbela অ্যাপ ইনস্টল করুন' %></h2>
+          <p
+            data-i18n-admin
+            data-bn-text="<%= websiteSettings.websiteModalDescription || 'ফোন দিয়ে QR code স্ক্যান করে Play Store থেকে Foodbela অ্যাপ ইনস্টল করুন।' %>"
+            data-en-text="<%= websiteSettings.websiteModalDescriptionEn || 'Scan the QR code with your phone and install Foodbela from Play Store.' %>"
+          ><%= websiteSettings.websiteModalDescription || 'ফোন দিয়ে QR code স্ক্যান করে Play Store থেকে Foodbela অ্যাপ ইনস্টল করুন।' %></p>
+
+          <% if (showModalButton) { %>
+            <a
+              class="btn-main hover-trigger"
+              href="<%= modalCtaUrl %>"
+              <%= modalCtaIsExternal ? 'target="_blank" rel="noopener noreferrer"' : "" %>
+              data-website-modal-cta
+              data-i18n-admin
+              data-bn-text="<%= websiteSettings.websiteModalCtaLabel || 'Google Play থেকে ডাউনলোড' %>"
+              data-en-text="<%= websiteSettings.websiteModalCtaLabelEn || 'Download from Google Play' %>"
+            ><%= websiteSettings.websiteModalCtaLabel || 'Google Play থেকে ডাউনলোড' %></a>
+          <% } %>
+        </div>
+      <% } %>
+    </section>
+  </div>
+<% } %>

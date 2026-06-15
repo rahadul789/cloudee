@@ -1,0 +1,25 @@
+<%
+  const bannerEnabled = websiteSettings.websiteBannerEnabled === true;
+  const bannerUrl = websiteSettings.websiteBannerCtaUrl || websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "#";
+  const bannerIsExternal = /^https?:\/\//i.test(bannerUrl);
+%>
+
+<% if (bannerEnabled) { %>
+  <aside class="site-banner" aria-label="Foodbela announcement">
+    <p
+      data-i18n-admin
+      data-bn-text="<%= websiteSettings.websiteBannerText || 'Foodbela অ্যাপ এখন Play Store-এ পাওয়া যাচ্ছে.' %>"
+      data-en-text="<%= websiteSettings.websiteBannerTextEn || 'Foodbela app is now available on Play Store.' %>"
+    ><%= websiteSettings.websiteBannerText || 'Foodbela অ্যাপ এখন Play Store-এ পাওয়া যাচ্ছে.' %></p>
+    <% if (bannerUrl && bannerUrl !== "#") { %>
+      <a
+        class="hover-trigger"
+        href="<%= bannerUrl %>"
+        <%= bannerIsExternal ? 'target="_blank" rel="noopener noreferrer"' : "" %>
+        data-i18n-admin
+        data-bn-text="<%= websiteSettings.websiteBannerCtaLabel || 'অ্যাপ ডাউনলোড' %>"
+        data-en-text="<%= websiteSettings.websiteBannerCtaLabelEn || 'Download app' %>"
+      ><%= websiteSettings.websiteBannerCtaLabel || 'অ্যাপ ডাউনলোড' %></a>
+    <% } %>
+  </aside>
+<% } %>

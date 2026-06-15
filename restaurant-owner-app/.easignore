@@ -1,0 +1,33 @@
+# dependencies
+/node_modules/
+
+# local/dev state
+/.expo/
+/.vscode/
+/.env
+/.env*.local
+expo-env.d.ts
+*.tsbuildinfo
+.metro-health-check*
+
+# generated/native build output
+/android/
+/ios/
+/dist/
+/web-build/
+**/build/
+**/.gradle/
+**/.kotlin/
+*.orig.*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# credentials and server-only secrets
+*-firebase-adminsdk-*.json
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem

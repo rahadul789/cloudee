@@ -1,0 +1,72 @@
+<%
+  const selectableAreas = (websiteSettings.serviceAreas || []).filter((area) => area && area.name);
+%>
+
+<form class="lead-form" data-lead-form<% if (typeof formId !== "undefined" && formId) { %> id="<%= formId %>"<% } %> novalidate>
+  <input type="hidden" name="type" value="<%= type %>" />
+  <div class="form-heading">
+    <p class="eyebrow"><%= eyebrow %></p>
+    <h2 data-i18n="<%= type %>LeadHeading"><%= heading %></h2>
+    <p data-i18n="<%= type %>LeadCopy"><%= copy %></p>
+  </div>
+
+  <% if (type === "restaurant") { %>
+    <label>
+      <span data-i18n="formBusinessName">রেস্টুরেন্টের নাম</span>
+      <input name="businessName" type="text" autocomplete="organization" placeholder="যেমন: Bella Kitchen" data-i18n-placeholder="formBusinessPlaceholder" required />
+    </label>
+  <% } %>
+
+  <label>
+    <span data-i18n="formName">আপনার নাম</span>
+    <input name="name" type="text" autocomplete="name" placeholder="পূর্ণ নাম" data-i18n-placeholder="formNamePlaceholder" required />
+  </label>
+
+  <label>
+    <span data-i18n="formPhone">ফোন নম্বর</span>
+    <input name="phone" type="tel" autocomplete="tel" placeholder="01XXXXXXXXX" required />
+  </label>
+
+  <% if (type !== "contact") { %>
+    <label>
+      <span data-i18n="formArea">শহর বা এলাকা</span>
+      <select name="area" autocomplete="address-level2" required>
+        <option value="" data-i18n="formChooseArea">একটি সার্ভিস এলাকা বেছে নিন</option>
+        <% selectableAreas.forEach((area) => { %>
+          <option value="<%= area.name %>"><%= area.name %></option>
+        <% }) %>
+      </select>
+    </label>
+  <% } %>
+
+  <% if (type === "restaurant") { %>
+    <label>
+      <span data-i18n="formCuisine">খাবারের ধরন</span>
+      <input name="cuisineType" type="text" placeholder="বার্গার, বিরিয়ানি, ডেজার্ট, ক্যাফে..." data-i18n-placeholder="formCuisinePlaceholder" />
+    </label>
+  <% } %>
+
+  <% if (type === "rider") { %>
+    <label>
+      <span data-i18n="formVehicle">যানবাহনের ধরন</span>
+      <select name="vehicleType" required>
+        <option value="" data-i18n="formChooseOne">একটি বেছে নিন</option>
+        <option value="bike" data-i18n="vehicleBike">বাইক</option>
+        <option value="cycle" data-i18n="vehicleCycle">সাইকেল</option>
+        <option value="scooter" data-i18n="vehicleScooter">স্কুটার</option>
+      </select>
+    </label>
+  <% } %>
+
+  <label>
+    <span data-i18n="<%= type === 'contact' ? 'formHelp' : 'formMessage' %>"><%= type === "contact" ? "কীভাবে সাহায্য করতে পারি?" : "আর কিছু জানাতে চান?" %></span>
+    <textarea name="message" rows="4" placeholder="<%= type === 'contact' ? 'আপনার প্রয়োজনটি লিখুন।' : 'আপনার লোকেশন, টিম, সময় বা প্রশ্ন লিখুন।' %>" data-i18n-placeholder="<%= type === 'contact' ? 'formHelpPlaceholder' : 'formMessagePlaceholder' %>"></textarea>
+  </label>
+
+  <div class="form-status" data-form-status role="status" aria-live="polite"></div>
+
+  <button class="btn-main form-submit hover-trigger" type="submit">
+    <span data-submit-label data-i18n="<%= type %>LeadButton"><%= buttonLabel %></span>
+    <span aria-hidden="true">+</span>
+  </button>
+</form>

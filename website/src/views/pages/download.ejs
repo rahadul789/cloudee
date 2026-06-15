@@ -1,0 +1,131 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<%
+  const appInstallUrl = websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "/download";
+  const appInstallIsExternal = appInstallUrl.startsWith("http");
+  const qrInstallTarget = appInstallUrl.startsWith("http") ? appInstallUrl : `https://foodbela.com${appInstallUrl}`;
+  const qrInstallUrl = encodeURIComponent(qrInstallTarget);
+  const videoOrientation = websiteSettings.customerVideoOrientation === "landscape" ? "landscape" : "portrait";
+%>
+
+<section class="download-guide-hero">
+  <div class="download-guide-copy">
+    <p class="hero-kicker" data-i18n="downloadGuideKicker">Foodbela কাস্টমার অ্যাপ</p>
+    <h1 data-i18n="downloadGuideTitle">Play Store থেকে Foodbela অ্যাপ ডাউনলোড করুন।</h1>
+    <p data-i18n="downloadGuideCopy">
+      কাছের রেস্টুরেন্ট খুঁজুন, অফার ব্যবহার করুন, অর্ডার ট্র্যাক করুন এবং সাপোর্ট নিন
+      এক স্মার্ট কাস্টমার অ্যাপে।
+    </p>
+    <div class="hero-actions">
+      <a href="<%= appInstallUrl %>" class="btn-main btn-play hover-trigger" <%= appInstallIsExternal ? 'target="_blank" rel="noopener noreferrer"' : "" %>>
+        <svg class="google-play-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#34A853" d="M7.2 4.8c-.8.8-1.2 2-1.2 3.6v31.2c0 1.6.4 2.8 1.2 3.6l.2.2L25 24 7.4 4.6l-.2.2Z"/>
+          <path fill="#FBBC04" d="m30.8 17.6-5.8 6.4 5.8 6.4.1-.1 6.9-3.9c2-1.1 2-3 0-4.2l-6.9-3.9-.1-.7Z"/>
+          <path fill="#4285F4" d="M30.9 17.7 25 24 7.2 43.2c1.2 1.3 3.1 1.4 5.2.2l18.5-10.5 6.9-3.9c2-1.1 2-3 0-4.2l-6.9-3.9Z"/>
+          <path fill="#EA4335" d="m30.9 17.7-18.5-10.5C10.3 6 8.4 6.1 7.2 7.4L25 24l5.9-6.3Z"/>
+        </svg>
+        <span data-i18n="downloadGuideButton">Google Play থেকে ডাউনলোড</span>
+      </a>
+      <button class="btn-main btn-light hover-trigger" type="button" data-video-open data-i18n="downloadGuideVideo">
+        ভিডিও গাইড দেখুন
+      </button>
+    </div>
+  </div>
+
+  <div class="download-guide-visual">
+    <div class="download-qr-card gs-fade">
+      <img
+        src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=12&data=<%= qrInstallUrl %>"
+        alt="Foodbela app install QR code"
+        loading="lazy"
+      />
+      <div>
+        <small data-i18n="downloadQrSmall">দ্রুত স্ক্যান</small>
+        <strong data-i18n="downloadQrTitle">মোবাইল দিয়ে স্ক্যান করে অ্যাপ ইনস্টল করুন</strong>
+        <p data-i18n="downloadQrCopy">Play Store লিংক সরাসরি খুলবে।</p>
+      </div>
+    </div>
+    <button class="download-video-card hover-trigger" type="button" data-video-open aria-label="Open Foodbela app guide video">
+      <span class="video-play">▶</span>
+      <div>
+        <small data-i18n="downloadVideoSmall">১ মিনিটের গাইড</small>
+        <strong data-i18n="downloadVideoTitle">ডাউনলোড থেকে প্রথম অর্ডার পর্যন্ত</strong>
+      </div>
+    </button>
+  </div>
+</section>
+
+<section class="download-steps-section">
+  <div class="sec-title gs-fade">
+    <p class="eyebrow" data-i18n="downloadStepsEyebrow">সহজ শুরু</p>
+    <h2 data-i18n="downloadStepsTitle">তিন ধাপে Foodbela ব্যবহার শুরু করুন।</h2>
+  </div>
+  <div class="download-steps-grid">
+    <article class="download-step gs-fade">
+      <span>১</span>
+      <h3 data-i18n="downloadStepOneTitle">Play Store খুলুন</h3>
+      <p data-i18n="downloadStepOneCopy">Google Play Store-এ Foodbela সার্চ করুন, অথবা এই পেজের ডাউনলোড বাটন ব্যবহার করুন।</p>
+    </article>
+    <article class="download-step gs-fade">
+      <span>২</span>
+      <h3 data-i18n="downloadStepTwoTitle">অ্যাপ ইনস্টল করুন</h3>
+      <p data-i18n="downloadStepTwoCopy">ইনস্টল বাটনে ট্যাপ করুন, অ্যাপ খুলুন, তারপর ফোন নম্বর দিয়ে অ্যাকাউন্ট সেটআপ করুন।</p>
+    </article>
+    <article class="download-step gs-fade">
+      <span>৩</span>
+      <h3 data-i18n="downloadStepThreeTitle">প্রথম অর্ডার দিন</h3>
+      <p data-i18n="downloadStepThreeCopy">আপনার এলাকা বেছে নিন, রেস্টুরেন্ট নির্বাচন করুন, ভাউচার ব্যবহার করুন এবং লাইভ ট্র্যাকিং দেখুন।</p>
+    </article>
+  </div>
+</section>
+
+<% if (websiteSettings.customerOfferEnabled && websiteSettings.customerOfferTitle) { %>
+  <section class="customer-offer-section gs-fade">
+    <div>
+      <p class="eyebrow" data-i18n="downloadOfferEyebrow">বর্তমান অফার</p>
+      <h2><%= websiteSettings.customerOfferTitle %></h2>
+      <p><%= websiteSettings.customerOfferDescription %></p>
+    </div>
+    <a class="btn-main hover-trigger" href="<%= websiteSettings.customerOfferCtaUrl || '#' %>">
+      <%= websiteSettings.customerOfferCtaLabel || 'অফার দেখুন' %>
+    </a>
+  </section>
+<% } %>
+
+<section class="download-feature-section">
+  <div class="cards-grid">
+    <article class="bento-card gs-fade">
+      <div class="card-icon">🎟️</div>
+      <h3 data-i18n="downloadFeatureVoucherTitle">ভাউচার ও অফার</h3>
+      <p data-i18n="downloadFeatureVoucherCopy">চলতি অফার দেখুন, ভাউচার ব্যবহার করুন এবং অর্ডারের আগে মোট খরচ বুঝে নিন।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">📍</div>
+      <h3 data-i18n="downloadFeatureTrackingTitle">লাইভ ট্র্যাকিং</h3>
+      <p data-i18n="downloadFeatureTrackingCopy">রেস্টুরেন্টের প্রস্তুতি থেকে রাইডারের ড্রপ-অফ পর্যন্ত অর্ডারের পুরো পথ দেখুন।</p>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">💬</div>
+      <h3 data-i18n="downloadFeatureSupportTitle">সহজ সাপোর্ট</h3>
+      <p data-i18n="downloadFeatureSupportCopy">অর্ডার, পেমেন্ট বা রিফান্ড নিয়ে সাহায্য দরকার হলে Foodbela সাপোর্টের সাথে যোগাযোগ করুন।</p>
+    </article>
+  </div>
+</section>
+
+<div class="video-modal" data-video-modal aria-hidden="true">
+  <div class="video-backdrop" data-video-close></div>
+  <div class="video-dialog video-<%= videoOrientation %>" role="dialog" aria-modal="true" aria-label="Foodbela app guide video">
+    <button class="video-close hover-trigger" type="button" data-video-close aria-label="Close video">×</button>
+    <iframe
+      data-video-frame
+      src=""
+      data-src="<%= websiteSettings.customerYoutubeUrl || 'https://www.youtube.com/watch?v=JuA6Whwd37U' %>"
+      title="Foodbela app guide"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen
+    ></iframe>
+  </div>
+</div>
+
+<%- include("../partials/document-end") %>

@@ -1,0 +1,54 @@
+{
+  "ownerAccount": {
+    "ownerName": "string",
+    "phone": "string",
+    "pendingPhone": "string",
+    "email": "string",
+    "profileImageUrl": "string",
+    "createdAt": "ISO-8601",
+    "lastLoginAt": "ISO-8601 | null",
+    "isAuthenticated": true,
+    "isPhoneVerified": true
+  },
+  "restaurantLifecycleStatus": "account_created | phone_verified | onboarding_in_progress | submitted | under_review | approved | rejected",
+  "onboardingDraft": {
+    "currentStep": "basic_info | location | hours | payout_setup | review_submit",
+    "completedSteps": [],
+    "skippedSteps": [],
+    "draftSavedAt": "ISO-8601 | null",
+    "submittedAt": "ISO-8601 | null",
+    "reviewNote": "string",
+    "reviewIssues": [
+      {
+        "section": "basic_info | location | hours | payout_setup",
+        "title": "string",
+        "fields": ["string"],
+        "note": "string"
+      }
+    ],
+    "resubmissionCount": 0
+  },
+  "restaurantProfile": {
+    "storeSettings": {},
+    "openingHours": {},
+    "isRestaurantOnline": true
+  },
+  "catalog": {
+    "categories": [],
+    "menuItems": []
+  },
+  "operations": {
+    "orders": [],
+    "notifications": [],
+    "reviews": [],
+    "supportCases": []
+  },
+  "commercial": {
+    "vouchers": []
+  },
+  "finance": {
+    "payoutMethod": {},
+    "payouts": [],
+    "payoutTransactions": []
+  }
+}

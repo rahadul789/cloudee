@@ -1,0 +1,32 @@
+<%
+  const appDownloadUrl = websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "#";
+  const appDownloadIsExternal = appDownloadUrl.startsWith("http");
+%>
+
+<section class="download-band" id="apps" data-reveal>
+  <div class="download-copy">
+    <p class="eyebrow" data-i18n="downloadEyebrow">Foodbela অ্যাপস</p>
+    <h2 data-i18n="downloadTitle">এক ব্র্যান্ড, তিনটি সহজ অ্যাপ অভিজ্ঞতা।</h2>
+    <p data-i18n="downloadCopy">কাস্টমার অর্ডার করবে, রেস্টুরেন্ট অর্ডার সামলাবে, আর রাইডার ডেলিভারি করবে একই সংযুক্ত ইকোসিস্টেমে।</p>
+  </div>
+  <div class="download-actions">
+    <a class="store-button play-store hover-trigger" href="<%= appDownloadUrl %>" <%= appDownloadIsExternal ? 'target="_blank" rel="noopener noreferrer"' : "" %> aria-label="Download Foodbela from Play Store">
+      <svg class="google-play-icon" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#34A853" d="M7.2 4.8c-.8.8-1.2 2-1.2 3.6v31.2c0 1.6.4 2.8 1.2 3.6l.2.2L25 24 7.4 4.6l-.2.2Z"/>
+        <path fill="#FBBC04" d="m30.8 17.6-5.8 6.4 5.8 6.4.1-.1 6.9-3.9c2-1.1 2-3 0-4.2l-6.9-3.9-.1-.7Z"/>
+        <path fill="#4285F4" d="M30.9 17.7 25 24 7.2 43.2c1.2 1.3 3.1 1.4 5.2.2l18.5-10.5 6.9-3.9c2-1.1 2-3 0-4.2l-6.9-3.9Z"/>
+        <path fill="#EA4335" d="m30.9 17.7-18.5-10.5C10.3 6 8.4 6.1 7.2 7.4L25 24l5.9-6.3Z"/>
+      </svg>
+      <span>
+        <span class="store-kicker" data-i18n="playStoreSmall">GET IT ON</span>
+        <strong data-i18n="playStoreBig">Google Play</strong>
+      </span>
+    </a>
+    <a class="store-button onboarding-rzn hover-trigger" href="<%= websiteSettings.restaurantApplyUrl || '/restaurants#apply' %>">
+      <span>
+        <span class="store-kicker" data-i18n="partnerAppsSmall">পার্টনার অ্যাপস</span>
+        <strong data-i18n="partnerAppsBig">অনবোর্ডিং শুরু করুন</strong>
+      </span>
+    </a>
+  </div>
+</section>

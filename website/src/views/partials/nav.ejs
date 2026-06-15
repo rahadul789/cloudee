@@ -1,0 +1,71 @@
+<%
+  const navDownloadUrl = websiteSettings.playStoreUrl || websiteSettings.appDownloadUrl || "#download";
+  const navDownloadIsExternal = navDownloadUrl.startsWith("http");
+  const navPath = activePath || "/";
+  const isNavActive = (paths) =>
+    paths.some((path) =>
+      path === "/" ? navPath === "/" : navPath === path || navPath.startsWith(`${path}/`),
+    );
+%>
+
+<nav class="site-nav" data-site-nav>
+  <div class="nav-shell">
+    <a class="logo hover-trigger" href="/" aria-label="Foodbela home">
+      <span class="logo-mark logo-mark-image" aria-hidden="true">
+        <img src="/images/Foodbela.svg" alt="" />
+      </span>
+      <span class="logo-word"><span class="logo-food">Food</span><span class="logo-bela">bela</span><span class="logo-dot">.</span></span>
+    </a>
+
+    <button
+      class="nav-toggle"
+      type="button"
+      data-nav-toggle
+      aria-expanded="false"
+      aria-controls="site-menu"
+      aria-label="Toggle menu"
+    >
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <div class="nav-links" id="site-menu" data-nav-menu>
+      <a class="hover-trigger <%= isNavActive(['/download']) ? 'is-active' : '' %>" href="/download" data-i18n="navHow"
+        >কীভাবে অর্ডার করবেন</a
+      >
+      <a class="hover-trigger <%= isNavActive(['/areas']) ? 'is-active' : '' %>" href="/areas" data-i18n="navService"
+        >সার্ভিস এলাকা</a
+      >
+      <a class="hover-trigger <%= isNavActive(['/restaurants']) ? 'is-active' : '' %>" href="/restaurants" data-i18n="navRestaurant"
+        >রেস্টুরেন্ট</a
+      >
+      <a class="hover-trigger <%= isNavActive(['/riders']) ? 'is-active' : '' %>" href="/riders" data-i18n="navRider">রাইডার</a>
+      <a class="hover-trigger <%= isNavActive(['/contact']) ? 'is-active' : '' %>" href="/contact" data-i18n="navContact"
+        >যোগাযোগ</a
+      >
+    </div>
+
+    <div class="nav-actions">
+      <div class="language-switch" aria-label="Language switch">
+        <button
+          class="hover-trigger is-active"
+          type="button"
+          data-lang-switch="bn"
+        >
+          BN
+        </button>
+        <button class="hover-trigger" type="button" data-lang-switch="en">
+          EN
+        </button>
+      </div>
+      <a
+        class="btn-main playstore-btn hover-trigger"
+        href="<%= navDownloadUrl %>"
+        <%= navDownloadIsExternal ? 'target="_blank" rel="noopener noreferrer"' : "" %>
+        data-i18n="downloadApp"
+        >অ্যাপ ডাউনলোড</a
+      >
+    </div>
+  </div>
+</nav>

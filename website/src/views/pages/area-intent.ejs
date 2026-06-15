@@ -1,0 +1,140 @@
+<%- include("../partials/document-start", { title, description, seo }) %>
+
+<%
+  const areaName = area.name || "আপনার এলাকা";
+  const areaSlug = String(areaName)
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\u0980-\u09FF]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const baseAreaPath = `/areas/${areaSlug}-food-delivery`;
+  const localCuisines = cuisines || [];
+  const localSearches = popularSearches || [];
+  const isRestaurantIntent = intent === "restaurants";
+  const isPartnerIntent = intent === "partner";
+  const heroTitle = isRestaurantIntent
+    ? `${areaName} এলাকার Foodbela restaurants`
+    : isPartnerIntent
+      ? `${areaName} রেস্টুরেন্ট পার্টনারশিপ`
+      : `${areaName} Foodbela rider application`;
+  const heroCopy = isRestaurantIntent
+    ? `${areaName} এলাকায় Foodbela app দিয়ে local restaurant, খাবারের ধরন এবং দ্রুত delivery coverage খুঁজে নিন।`
+    : isPartnerIntent
+      ? `${areaName} এলাকার restaurant owner হলে Foodbela restaurant panel এবং mobile app দিয়ে order, menu, status এবং earning এক জায়গায় manage করুন।`
+      : `${areaName} এলাকায় rider হিসেবে Foodbela mobile app দিয়ে pickup, route এবং delivery status manage করে কাজ শুরু করুন।`;
+%>
+
+<section class="page-hero area-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow"><%= isRestaurantIntent ? "Local restaurant discovery" : isPartnerIntent ? "Restaurant onboarding" : "Rider onboarding" %></p>
+    <h1><%= heroTitle %></h1>
+    <p><%= heroCopy %></p>
+    <div class="hero-actions">
+      <% if (isRestaurantIntent) { %>
+        <a class="btn-main hover-trigger" href="/download">Foodbela app ডাউনলোড</a>
+        <a class="btn-ghost hover-trigger" href="<%= baseAreaPath %>">Area overview</a>
+      <% } else if (isPartnerIntent) { %>
+        <a class="btn-main hover-trigger" href="/restaurants#apply">রেস্টুরেন্ট আবেদন</a>
+        <a class="btn-ghost hover-trigger" href="/restaurants">প্রসেস দেখুন</a>
+      <% } else { %>
+        <a class="btn-main hover-trigger" href="/riders#apply">রাইডার আবেদন</a>
+        <a class="btn-ghost hover-trigger" href="/riders">রাইডার গাইড</a>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<nav class="local-area-tabs gs-fade" aria-label="<%= areaName %> local pages">
+  <a href="<%= baseAreaPath %>" data-i18n="areaLinkDelivery">খাবার ডেলিভারি</a>
+  <a class="<%= isRestaurantIntent ? 'active' : '' %>" href="<%= baseAreaPath %>/restaurants" data-i18n="areaLinkRestaurants">রেস্টুরেন্ট</a>
+  <a class="<%= isPartnerIntent ? 'active' : '' %>" href="<%= baseAreaPath %>/restaurant-partner" data-i18n="areaLinkPartner">পার্টনার</a>
+  <a class="<%= !isRestaurantIntent && !isPartnerIntent ? 'active' : '' %>" href="<%= baseAreaPath %>/riders" data-i18n="areaLinkRiders">রাইডার</a>
+</nav>
+
+<% if (isRestaurantIntent) { %>
+  <section class="local-seo-section">
+    <div class="sec-title gs-fade">
+      <p class="eyebrow">Nearby restaurants</p>
+      <h2><%= areaName %> এলাকার খাবার খুঁজুন</h2>
+      <p>Foodbela app-এ live menu, offer এবং delivery status একসাথে দেখা যাবে।</p>
+    </div>
+    <% if ((restaurants || []).length) { %>
+      <div class="restaurant-directory-grid">
+        <% restaurants.forEach((restaurant) => { %>
+          <article class="restaurant-mini-card gs-fade">
+            <% if (restaurant.imageUrl) { %>
+              <img src="<%= restaurant.imageUrl %>" alt="<%= restaurant.name %>" loading="lazy" />
+            <% } %>
+            <div>
+              <span><%= restaurant.isOpen ? "Open" : "Closed now" %></span>
+              <h3><%= restaurant.name %></h3>
+              <p><%= restaurant.description || (restaurant.cuisines || []).slice(0, 3).join(", ") || "Foodbela partner restaurant" %></p>
+            </div>
+          </article>
+        <% }) %>
+      </div>
+    <% } else { %>
+      <div class="local-empty-card gs-fade">
+        <h3>Restaurant list শিগগির আপডেট হবে</h3>
+        <p>Foodbela app live হলে এই পেজে <%= areaName %> এলাকার discoverable restaurants, cuisine এবং offer signal দেখানো যাবে।</p>
+        <a class="btn-main hover-trigger" href="/download">App থেকে অর্ডার করুন</a>
+      </div>
+    <% } %>
+  </section>
+<% } %>
+
+<section class="local-seo-section local-content-band">
+  <div class="local-intent-grid">
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">✓</span>
+      <h3><%= isPartnerIntent ? "Restaurant panel + mobile app" : isRestaurantIntent ? "Live order tracking" : "Mobile app only" %></h3>
+      <p>
+        <%= isPartnerIntent
+          ? "কিচেন থেকে web panel, বাইরে থাকলে mobile app—দুই জায়গা থেকেই order status, menu এবং earning sync থাকবে।"
+          : isRestaurantIntent
+            ? "অর্ডার placed থেকে delivered পর্যন্ত Foodbela customer app-এ clear status update দেখাবে।"
+            : "রাইডারের জন্য web panel নয়; pickup, route, customer note এবং status update সব mobile app-এ থাকবে।" %>
+      </p>
+    </article>
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">↗</span>
+      <h3><%= areaName %> local growth</h3>
+      <p>
+        <%= isPartnerIntent
+          ? "Local customer demand, nearby delivery এবং restaurant operation এক flow-তে এনে আপনার kitchen-এর reach বাড়াতে সাহায্য করবে।"
+          : isRestaurantIntent
+            ? "Popular cuisine, nearby restaurants এবং delivery availability এক জায়গায় পাওয়ায় অর্ডার করা সহজ হয়।"
+            : "নিজের এলাকায় delivery কাজ করতে চাইলে Foodbela onboarding team আপনার area, document এবং activation review করবে।" %>
+      </p>
+    </article>
+    <article class="local-intent-card gs-fade">
+      <span class="local-card-icon">★</span>
+      <h3>Foodbela support</h3>
+      <p>কাস্টমার, restaurant owner এবং rider—সব journey-র জন্য Foodbela team onboarding ও support follow-up রাখবে।</p>
+    </article>
+  </div>
+</section>
+
+<section class="local-keyword-section">
+  <div class="keyword-panels">
+    <div class="keyword-panel gs-fade">
+      <h3><%= areaName %> cuisine signals</h3>
+      <div class="keyword-list">
+        <% localCuisines.forEach((item) => { %>
+          <span><%= item %></span>
+        <% }) %>
+      </div>
+    </div>
+    <div class="keyword-panel gs-fade">
+      <h3>Local searches</h3>
+      <div class="keyword-list">
+        <% localSearches.forEach((item) => { %>
+          <span><%= item %></span>
+        <% }) %>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

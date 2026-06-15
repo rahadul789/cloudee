@@ -1,0 +1,53 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<section class="page-hero contact-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow">Contact Foodbela</p>
+    <h1 data-i18n="contactHeroTitle">সাপোর্ট, অনবোর্ডিং বা পার্টনারশিপ নিয়ে কথা বলুন।</h1>
+    <p data-i18n="contactHeroCopy">আপনার অনুরোধ কাস্টমার, রেস্টুরেন্ট, রাইডার বা পার্টনারশিপ সাপোর্ট টিমের কাছে পৌঁছে দেওয়া হবে।</p>
+  </div>
+</section>
+
+<section class="contact-grid-section">
+  <div class="contact-cards">
+    <article class="bento-card gs-fade">
+      <div class="card-icon">💬</div>
+      <h3 data-i18n="contactCustomerTitle">কাস্টমার সাপোর্ট</h3>
+      <p data-i18n="contactCustomerCopy">অর্ডার, পেমেন্ট, রিফান্ড এবং অ্যাকাউন্ট সহায়তা।</p>
+      <a class="card-link" href="mailto:<%= websiteSettings.supportEmail || site.email %>"><%= websiteSettings.supportEmail || site.email %> <span>→</span></a>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">🍽️</div>
+      <h3 data-i18n="contactRestaurantTitle">রেস্টুরেন্ট সাপোর্ট</h3>
+      <p data-i18n="contactRestaurantCopy">মেন্যু, পেমেন্ট এবং পার্টনার অনবোর্ডিং সহায়তা।</p>
+      <a class="card-link" href="/restaurants#apply" data-i18n="contactRestaurantLink">রেস্টুরেন্ট আবেদন <span>→</span></a>
+    </article>
+    <article class="bento-card gs-fade">
+      <div class="card-icon">🛵</div>
+      <h3 data-i18n="contactRiderTitle">রাইডার সাপোর্ট</h3>
+      <p data-i18n="contactRiderCopy">আবেদন, এলাকা এবং ডেলিভারি কাজের সহায়তা।</p>
+      <a class="card-link" href="/riders#apply" data-i18n="contactRiderLink">রাইডার আবেদন <span>→</span></a>
+    </article>
+    <article class="bento-card contact-phone-card gs-fade">
+      <div class="card-icon">☎</div>
+      <h3 data-i18n="contactPhoneTitle">ফোন সাপোর্ট</h3>
+      <p data-i18n="contactPhoneCopy">জরুরি সাপোর্ট বা দ্রুত follow-up দরকার হলে সরাসরি কল করুন।</p>
+      <a
+        class="card-link"
+        href="tel:<%= (websiteSettings.supportPhone || site.phone).replace(/\s+/g, '') %>"
+        ><%= websiteSettings.supportPhone || site.phone %> <span>→</span></a
+      >
+    </article>
+  </div>
+
+  <%- include("../partials/lead-form", {
+    type: "contact",
+    formId: "coverage-request",
+    eyebrow: "General message",
+    heading: "মেসেজ পাঠান",
+    copy: "প্রয়োজনীয় তথ্য লিখুন, আমরা যোগাযোগ করবো।",
+    buttonLabel: "মেসেজ পাঠান"
+  }) %>
+</section>
+
+<%- include("../partials/document-end") %>
