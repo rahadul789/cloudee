@@ -426,8 +426,17 @@ export function OwnerAccountPage() {
   )
   const [passwordErrors, setPasswordErrors] =
     React.useState<OwnerProfileErrors>({})
+  const profileImagePreviewUrlRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
+    if (
+      profileImagePreviewUrlRef.current &&
+      ownerAccount.profileImageUrl !== profileImagePreviewUrlRef.current
+    ) {
+      URL.revokeObjectURL(profileImagePreviewUrlRef.current)
+      profileImagePreviewUrlRef.current = null
+    }
+
     setProfileForm({
       ownerName: ownerAccount.ownerName,
       phone: ownerAccount.phone,
@@ -441,6 +450,16 @@ export function OwnerAccountPage() {
     ownerAccount.phone,
     ownerAccount.profileImageUrl,
   ])
+
+  React.useEffect(
+    () => () => {
+      if (profileImagePreviewUrlRef.current) {
+        URL.revokeObjectURL(profileImagePreviewUrlRef.current)
+        profileImagePreviewUrlRef.current = null
+      }
+    },
+    []
+  )
 
   const profileCompletion = React.useMemo(
     () =>
@@ -489,13 +508,25 @@ export function OwnerAccountPage() {
       return
     }
 
+    if (profileImagePreviewUrlRef.current) {
+      URL.revokeObjectURL(profileImagePreviewUrlRef.current)
+    }
     const nextUrl = URL.createObjectURL(file)
+    profileImagePreviewUrlRef.current = nextUrl
     setProfileForm((current) => ({
       ...current,
       profileImageUrl: nextUrl,
     }))
     toast.success("Profile image updated.")
     event.target.value = ""
+  }
+
+  function removeProfileImagePreview() {
+    if (profileImagePreviewUrlRef.current) {
+      URL.revokeObjectURL(profileImagePreviewUrlRef.current)
+      profileImagePreviewUrlRef.current = null
+    }
+    handleProfileChange("profileImageUrl", "")
   }
 
   function validateProfile() {
@@ -940,7 +971,7 @@ export function OwnerAccountPage() {
         errors={profileErrors}
         onChange={handleProfileChange}
         onUpload={handleProfileImageUpload}
-        onRemoveImage={() => handleProfileChange("profileImageUrl", "")}
+        onRemoveImage={removeProfileImagePreview}
         onSave={saveProfile}
         isSaving={updateOwnerProfileMutation.isPending}
       />

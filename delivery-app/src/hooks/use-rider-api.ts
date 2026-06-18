@@ -11,6 +11,11 @@ import { apiDelete, apiGet, apiPost } from "@/src/lib/api";
 import { buildQueryString } from "@/src/lib/query-params";
 import type { RiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
 import {
+  resolvePlatformMapStyle,
+  type DeliveryMapStyleContext,
+  type PlatformMapStyleSettings,
+} from "@/src/lib/map-style";
+import {
   clearCurrentRiderExpoPushToken,
   getCurrentRiderExpoPushToken,
 } from "@/src/lib/rider-push-token-state";
@@ -61,6 +66,13 @@ export type RiderOrder = {
       accuracyMeters?: number | null;
     };
   };
+  routeToNext?: {
+    distanceKm: number;
+    durationMinutes: number;
+    polyline: string;
+    provider: "google" | "haversine";
+    trafficAware: boolean;
+  } | null;
   customer?: {
     name?: string;
     phone?: string;
@@ -209,6 +221,7 @@ type PlatformContentResponse = {
   operations?: {
     liveTracking?: RiderLiveTrackingPolicy;
     dispatch?: Partial<RiderDeliveryThresholds>;
+    mapStyles?: PlatformMapStyleSettings;
   };
   supportContact?: {
     phone?: string;
@@ -313,7 +326,7 @@ function mergeRiderOrder(current: RiderOrder | undefined, nextOrder: RiderOrder)
 export function patchRiderOrderCaches(
   queryClient: QueryClient,
   orderLike: Partial<RiderOrder> & { _id?: string; id?: string },
-  options?: { invalidateLiveMap?: boolean }
+  options?: { invalidateLiveMap?: boolean; patchScopedLists?: boolean }
 ) {
   const nextOrder = normalizeRiderOrder(orderLike);
   if (!nextOrder.id) {
@@ -323,19 +336,21 @@ export function patchRiderOrderCaches(
   queryClient.setQueryData<RiderOrder>(["rider", "order", nextOrder.id], (current) =>
     mergeRiderOrder(current, nextOrder)
   );
-  queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "active"], (current) =>
-    patchScopedOrdersList(current, nextOrder, ACTIVE_ORDER_STATUSES.has(nextOrder.status))
-  );
-  queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "history"], (current) =>
-    patchScopedOrdersList(current, nextOrder, HISTORY_ORDER_STATUSES.has(nextOrder.status))
-  );
-  queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "available"], (current) =>
-    patchScopedOrdersList(
-      current,
-      nextOrder,
-      nextOrder.status === "ReadyForPickup" && nextOrder.assignmentState !== "assigned_to_other"
-    )
-  );
+  if (options?.patchScopedLists !== false) {
+    queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "active"], (current) =>
+      patchScopedOrdersList(current, nextOrder, ACTIVE_ORDER_STATUSES.has(nextOrder.status))
+    );
+    queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "history"], (current) =>
+      patchScopedOrdersList(current, nextOrder, HISTORY_ORDER_STATUSES.has(nextOrder.status))
+    );
+    queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "available"], (current) =>
+      patchScopedOrdersList(
+        current,
+        nextOrder,
+        nextOrder.status === "ReadyForPickup" && nextOrder.assignmentState !== "assigned_to_other"
+      )
+    );
+  }
   if (options?.invalidateLiveMap) {
     void queryClient.invalidateQueries({ queryKey: ["rider", "live-map"] });
   }
@@ -523,6 +538,12 @@ export function useRiderLiveTrackingPolicyQuery() {
   return useRiderPlatformContentQuery((content) => content.operations?.liveTracking ?? null);
 }
 
+export function useRiderMapStyleQuery(context: DeliveryMapStyleContext) {
+  return useRiderPlatformContentQuery((content) =>
+    resolvePlatformMapStyle(content.operations?.mapStyles, context)
+  );
+}
+
 export function useRiderDeliveryThresholdsQuery() {
   return useRiderPlatformContentQuery((content) => {
       const dispatch = content.operations?.dispatch ?? {};
@@ -679,8 +700,20 @@ export function usePickupOrderMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (orderId: string) => {
-      const response = await apiPost<RiderOrder>(`/rider/orders/${orderId}/pickup`);
+    mutationFn: async (params: {
+      orderId: string;
+      location?: {
+        latitude: number;
+        longitude: number;
+        heading?: number;
+        accuracyMeters?: number;
+        speedKmph?: number;
+      };
+    }) => {
+      const response = await apiPost<RiderOrder>(
+        `/rider/orders/${params.orderId}/pickup`,
+        params.location,
+      );
       return response.data;
     },
     onSuccess: (data: RiderOrder) => {
@@ -758,7 +791,7 @@ export function useUpdateRiderLocationMutation(orderId?: string) {
       return response.data;
     },
     onSuccess: (data: RiderOrder) => {
-      patchRiderOrderCaches(queryClient, data);
+      patchRiderOrderCaches(queryClient, data, { patchScopedLists: false });
     },
   });
 }

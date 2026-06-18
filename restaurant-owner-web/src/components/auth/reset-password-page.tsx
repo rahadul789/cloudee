@@ -77,9 +77,12 @@ export function ResetPasswordPage() {
         verificationSessionId: passwordResetState.verificationSessionId,
         newPassword: newPassword.trim(),
       })
-      setPasswordResetState(getDefaultPasswordResetState())
+      // Navigate to sign-in first, then clear the reset state. Clearing before
+      // navigating re-renders ResetPasswordRoute with an empty session, whose
+      // guard redirects to /auth/forgot-password and wins the race.
       toast.success("Password reset successful. Sign in with the new password.")
       navigate("/auth/signin", { replace: true })
+      setPasswordResetState(getDefaultPasswordResetState())
     } catch (resetError) {
       const message =
         resetError instanceof Error

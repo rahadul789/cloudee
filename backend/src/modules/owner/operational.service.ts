@@ -16,6 +16,7 @@ import { sendPushToCustomer } from "../customer/push.service"
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service"
 import { grantReferralRewardForDeliveredOrder } from "../customer/referral.service"
 import { getPlatformContent } from "../public/content.service"
+import { getOrderRouteMetrics } from "../routing/routing.service"
 import { sendPushToRider } from "../rider/push.service"
 import { getServiceAreaDispatchOverrides } from "../service-area/service-area.service"
 import { syncOrderLedgerForFinalStatus } from "./finance.service"
@@ -36,6 +37,7 @@ import { buildDhakaPresetRange, type OwnerDateRange } from "./date-ranges"
 const liveStatuses = new Set(["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"])
 const historyStatuses = new Set(["Delivered", "Rejected", "Cancelled"])
 const MAX_ORDER_HISTORY_ENTRIES = 100
+const RIDER_NEAR_CUSTOMER_DISTANCE_KM = 0.26
 
 const ownerOrderTransitions: Record<string, string[]> = {
   New: ["Accepted", "Rejected"],
@@ -546,6 +548,38 @@ function getOrderActionTitle(nextStatus: string) {
   }
 }
 
+function getOrderActionTitleBn(nextStatus: string) {
+  switch (nextStatus) {
+    case "Accepted":
+      return "অর্ডার অ্যাকসেপ্ট হয়েছে"
+    case "Preparing":
+      return "অর্ডার প্রস্তুত হচ্ছে"
+    case "ReadyForPickup":
+      return "অর্ডার পিকআপের জন্য রেডি"
+    case "PickedUp":
+      return "রাইডার অর্ডার পিকআপ করেছে"
+    case "Delivered":
+      return "অর্ডার ডেলিভার হয়েছে"
+    case "Rejected":
+      return "অর্ডার রিজেক্ট হয়েছে"
+    case "Cancelled":
+      return "অর্ডার ক্যানসেল হয়েছে"
+    default:
+      return "অর্ডার আপডেট হয়েছে"
+  }
+}
+
+const ORDER_STATUS_LABEL_BN: Record<string, string> = {
+  New: "নতুন",
+  Accepted: "অ্যাকসেপ্টেড",
+  Preparing: "প্রস্তুত হচ্ছে",
+  ReadyForPickup: "রেডি",
+  PickedUp: "পিকড আপ",
+  Delivered: "ডেলিভার্ড",
+  Cancelled: "ক্যানসেলড",
+  Rejected: "রিজেক্টেড",
+}
+
 function getCustomerOrderStatusMessage(nextStatus: string) {
   switch (nextStatus) {
     case "Accepted":
@@ -701,6 +735,11 @@ export async function createOwnerNotification(params: {
   entityId: string
   title: string
   description: string
+  // Optional Bangla copy. When the owner's preferred language is Bangla and
+  // these are provided, they are stored instead of the English title/description
+  // so the in-app and web notification reads in Bangla.
+  titleBn?: string
+  descriptionBn?: string
   actionPath: string
   contentType?: "text" | "image" | "image_text"
   imageUrl?: string
@@ -708,6 +747,15 @@ export async function createOwnerNotification(params: {
   districtId?: string
   serviceAreaSnapshot?: Record<string, unknown>
 }) {
+  const owner = await OwnerModel.findById(params.ownerId)
+    .select("preferredLanguage")
+    .lean()
+  const useBangla =
+    owner?.preferredLanguage !== "en" && Boolean(params.titleBn || params.descriptionBn)
+  const title = useBangla && params.titleBn ? params.titleBn : params.title
+  const description =
+    useBangla && params.descriptionBn ? params.descriptionBn : params.description
+
   const notification = await NotificationModel.create({
     ownerId: params.ownerId,
     restaurantId: params.restaurantId,
@@ -715,8 +763,8 @@ export async function createOwnerNotification(params: {
     eventType: params.eventType,
     entityType: params.entityType,
     entityId: params.entityId,
-    title: params.title,
-    description: params.description,
+    title,
+    description,
     actionPath: params.actionPath,
     contentType: params.contentType ?? "text",
     imageUrl: params.imageUrl ?? "",
@@ -1886,6 +1934,10 @@ export async function transitionOrderBySystem(params: {
         entityId: updatedOrder.id,
         title: getOrderActionTitle(params.nextStatus),
         description: `Order ${updatedOrder.orderNumber} is now ${params.nextStatus}.`,
+        titleBn: getOrderActionTitleBn(params.nextStatus),
+        descriptionBn: `অর্ডার ${updatedOrder.orderNumber} এখন ${
+          ORDER_STATUS_LABEL_BN[params.nextStatus] ?? params.nextStatus
+        }।`,
         actionPath: `/orders?order=${updatedOrder.id}`
       })
     })
@@ -1994,6 +2046,27 @@ export async function updateOrderRiderLocation(params: {
     etaSpeedKmph: riderEtaSettings.speedKmph,
     routeFactor: riderEtaSettings.routeFactor
   })
+  const routeMetrics = await getOrderRouteMetrics({
+    orderId: order.id,
+    origin: { latitude: params.latitude, longitude: params.longitude },
+    destination: {
+      latitude: deliveryAddress.latitude,
+      longitude: deliveryAddress.longitude
+    },
+    source: "live_location",
+    sessionKey: "delivery_leg"
+  })
+  const remainingDistanceKm =
+    typeof routeMetrics?.distanceKm === "number"
+      ? routeMetrics.distanceKm
+      : trackingEstimate.routeDistanceKm
+  const remainingDurationMinutes =
+    typeof routeMetrics?.durationMinutes === "number"
+      ? routeMetrics.durationMinutes
+      : trackingEstimate.remainingDurationMinutes
+  const isNearCustomer =
+    trackingEstimate.directDistanceKm <= RIDER_NEAR_CUSTOMER_DISTANCE_KM ||
+    remainingDistanceKm <= RIDER_NEAR_CUSTOMER_DISTANCE_KM
 
   const trackingSnapshot = {
     isActive: true,
@@ -2006,13 +2079,15 @@ export async function updateOrderRiderLocation(params: {
       heading: params.heading ?? null,
       accuracyMeters: params.accuracyMeters ?? null
     },
-    remainingDistanceKm: trackingEstimate.routeDistanceKm,
+    remainingDistanceKm,
     directDistanceKm: trackingEstimate.directDistanceKm,
-    remainingDurationMinutes: trackingEstimate.remainingDurationMinutes,
+    remainingDurationMinutes,
     speedKmph: trackingEstimate.speedKmph,
-    isNearCustomer: trackingEstimate.isNearCustomer,
+    routeProvider: routeMetrics?.provider ?? null,
+    trafficAware: routeMetrics?.trafficAware ?? false,
+    isNearCustomer,
     nearCustomerNotifiedAt:
-      currentTracking.nearCustomerNotifiedAt ?? (trackingEstimate.isNearCustomer ? new Date() : null),
+      currentTracking.nearCustomerNotifiedAt ?? (isNearCustomer ? new Date() : null),
     history: [
       ...((currentTracking.history ?? []) as Array<Record<string, unknown>>),
       {
@@ -2055,13 +2130,13 @@ export async function updateOrderRiderLocation(params: {
     status: order.status,
   })
 
-  if (trackingEstimate.isNearCustomer && !currentTracking.nearCustomerNotifiedAt) {
+  if (isNearCustomer && !currentTracking.nearCustomerNotifiedAt) {
     enqueueBackgroundTask("owner.rider_near.customer_push", async () => {
       await sendPushToCustomer({
         customerId: order.customerId,
         payload: {
-          title: "📍 Rider is nearby",
-          body: "Your rider is almost there. Please be ready to receive your order.",
+          title: "Deliveryman nearby",
+          body: "Your deliveryman is almost there. Please be ready to receive your order.",
           data: {
             type: "rider_near",
             orderId: order.id,

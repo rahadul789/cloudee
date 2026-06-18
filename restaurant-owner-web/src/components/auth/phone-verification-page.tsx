@@ -41,6 +41,16 @@ export function PhoneVerificationPage() {
   const [error, setError] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
   const [secondsLeft, setSecondsLeft] = React.useState(RESEND_SECONDS)
+  const verifyTimerRef = React.useRef<number | null>(null)
+
+  React.useEffect(
+    () => () => {
+      if (verifyTimerRef.current !== null) {
+        window.clearTimeout(verifyTimerRef.current)
+      }
+    },
+    []
+  )
 
   React.useEffect(() => {
     if (secondsLeft <= 0) return
@@ -80,7 +90,11 @@ export function PhoneVerificationPage() {
     setError("")
     setIsLoading(true)
 
-    window.setTimeout(() => {
+    if (verifyTimerRef.current !== null) {
+      window.clearTimeout(verifyTimerRef.current)
+    }
+
+    verifyTimerRef.current = window.setTimeout(() => {
       if (payoutMethod.pendingAccountNumber) {
         setPayoutMethod((current) => ({
           ...current,
@@ -112,6 +126,7 @@ export function PhoneVerificationPage() {
         setRestaurantLifecycleStatus("phone_verified")
       }
       setIsLoading(false)
+      verifyTimerRef.current = null
       navigate(resolveNextPath())
     }, 650)
   }

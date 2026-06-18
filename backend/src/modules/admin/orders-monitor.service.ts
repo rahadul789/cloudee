@@ -429,6 +429,34 @@ function getOrderActionTitle(nextStatus: string) {
   }
 }
 
+function getOrderActionTitleBn(nextStatus: string) {
+  switch (nextStatus) {
+    case "Accepted":
+      return "অর্ডার অ্যাকসেপ্ট হয়েছে";
+    case "Preparing":
+      return "অর্ডার প্রস্তুত হচ্ছে";
+    case "ReadyForPickup":
+      return "অর্ডার পিকআপের জন্য রেডি";
+    case "Rejected":
+      return "অর্ডার রিজেক্ট হয়েছে";
+    case "Cancelled":
+      return "অর্ডার ক্যানসেল হয়েছে";
+    default:
+      return "অর্ডার আপডেট হয়েছে";
+  }
+}
+
+const ORDER_STATUS_LABEL_BN: Record<string, string> = {
+  New: "নতুন",
+  Accepted: "অ্যাকসেপ্টেড",
+  Preparing: "প্রস্তুত হচ্ছে",
+  ReadyForPickup: "রেডি",
+  PickedUp: "পিকড আপ",
+  Delivered: "ডেলিভার্ড",
+  Cancelled: "ক্যানসেলড",
+  Rejected: "রিজেক্টেড",
+};
+
 async function safeSendCustomerOrderStatusPush(params: {
   customerId: string;
   orderId: string;
@@ -3306,6 +3334,37 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
   const restaurantMap = new Map(
     restaurants.map((restaurant) => [restaurant._id.toString(), restaurant]),
   );
+  // Lightweight per-customer lifetime stats for just the customers on this page,
+  // so each order row can show a Repeat / VIP signal without an N+1 lookup.
+  const orderCustomerIds = [
+    ...new Set(
+      rawOrders.map((order) => String(order.customerId ?? "")).filter(Boolean),
+    ),
+  ];
+  const customerStatRows = orderCustomerIds.length
+    ? await OrderModel.aggregate<{
+        _id: string;
+        deliveredOrders: number;
+        deliveredSpend: number;
+      }>([
+        {
+          $match: {
+            customerId: { $in: orderCustomerIds },
+            status: "Delivered",
+          },
+        },
+        {
+          $group: {
+            _id: "$customerId",
+            deliveredOrders: { $sum: 1 },
+            deliveredSpend: { $sum: { $ifNull: ["$pricing.total", 0] } },
+          },
+        },
+      ])
+    : [];
+  const customerStatMap = new Map(
+    customerStatRows.map((row) => [String(row._id), row]),
+  );
   const summary = summaryRows[0] ?? {
     total: 0,
     newOrders: 0,
@@ -3318,13 +3377,23 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
     deliveredRevenue: 0,
   };
 
-  const mappedOrders = rawOrders.map((order) =>
-      mapAdminOrderListItem(
-        order,
-        restaurantMap.get(String(order.restaurantId ?? "")),
-        dispatchState,
-      ),
-  );
+  const mappedOrders = rawOrders.map((order) => {
+    const base = mapAdminOrderListItem(
+      order,
+      restaurantMap.get(String(order.restaurantId ?? "")),
+      dispatchState,
+    );
+    const stat = customerStatMap.get(String(order.customerId ?? ""));
+    const customerLifetimeOrders = stat ? Number(stat.deliveredOrders) : 0;
+    const customerLifetimeSpend = stat ? Number(stat.deliveredSpend) : 0;
+    const customerTier: "new" | "repeat" | "vip" =
+      customerLifetimeOrders >= 5 || customerLifetimeSpend >= 5000
+        ? "vip"
+        : customerLifetimeOrders >= 2
+          ? "repeat"
+          : "new";
+    return { ...base, customerLifetimeOrders, customerTier };
+  });
   const filteredOrders = shouldFilterRiderDelay
     ? mappedOrders.filter(
         (order) =>
@@ -6092,6 +6161,12 @@ export async function updateAdminOrderStatus(params: {
       description:
         params.note?.trim() ||
         `${updatedOrder.orderNumber} was moved to ${params.nextStatus} by admin.`,
+      pushTitleBn: getOrderActionTitleBn(params.nextStatus),
+      pushDescriptionBn:
+        params.note?.trim() ||
+        `${updatedOrder.orderNumber} অ্যাডমিন ${
+          ORDER_STATUS_LABEL_BN[params.nextStatus] ?? params.nextStatus
+        }-এ পরিবর্তন করেছে।`,
       actionPath: `/orders?orderId=${updatedOrder.id}`,
       ...orderNotificationScope(updatedOrderObject),
     });
@@ -6705,6 +6780,18 @@ function orderNotificationScope(order: Record<string, any> | null | undefined) {
   };
 }
 
+// Rider/delivery-side events that must NOT reach the restaurant owner. They are
+// routed to admin (operational alert) and the assigned rider (push) instead.
+const RIDER_RELATED_OWNER_SUPPRESSED_EVENTS = new Set<string>([
+  "order.rider_assignment_late",
+  "order.rider_response_late",
+  "order.rider_pickup_late",
+  "order.rider_tracking_stale",
+  "order.delivery_critical_after_pickup",
+  "order.delivery_late_after_pickup",
+  "order.delivery_watch_after_pickup",
+]);
+
 async function createOwnerSystemNotification(params: {
   restaurantId: string;
   entityId: string;
@@ -6722,6 +6809,12 @@ async function createOwnerSystemNotification(params: {
   pushTitleBn?: string;
   pushDescriptionBn?: string;
 }) {
+  // Rider/delivery-side delays are an admin + assigned-rider concern only — the
+  // restaurant owner must never receive rider-related notifications.
+  if (params.eventType && RIDER_RELATED_OWNER_SUPPRESSED_EVENTS.has(params.eventType)) {
+    return;
+  }
+
   const owner = await OwnerModel.findOne(
     { activeRestaurantId: params.restaurantId },
     { _id: 1, preferredLanguage: 1 },
@@ -6736,6 +6829,15 @@ async function createOwnerSystemNotification(params: {
     params.zoneId ?? stringValue((serviceAreaSnapshot as Record<string, unknown>).zoneId);
   const districtId =
     params.districtId ?? stringValue((serviceAreaSnapshot as Record<string, unknown>).districtId);
+  // Store the notification in the owner's preferred language. Falls back to the
+  // localized push copy, then to the English title/description.
+  const useBangla = owner.preferredLanguage !== "en";
+  const notificationTitle =
+    useBangla && (params.pushTitleBn || params.title) ? params.pushTitleBn ?? params.title : params.title;
+  const notificationDescription =
+    useBangla && params.pushDescriptionBn
+      ? params.pushDescriptionBn
+      : params.description;
   const notification = await NotificationModel.create({
     ownerId: owner._id,
     restaurantId: params.restaurantId,
@@ -6743,8 +6845,8 @@ async function createOwnerSystemNotification(params: {
     eventType: params.eventType ?? "order.auto_cancelled",
     entityType: "order",
     entityId: params.entityId,
-    title: params.title,
-    description: params.description,
+    title: notificationTitle,
+    description: notificationDescription,
     actionPath: params.actionPath,
     zoneId,
     districtId,
@@ -7250,6 +7352,42 @@ export async function processAdminOperationalAlerts() {
       });
       const expectedPrepMinutes = preparationTiming.totalMinutes;
       const lateByMinutes = Math.ceil((preparationTiming.lateBySeconds ?? 0) / 60);
+      const prepRemainingSeconds = preparationTiming.remainingSeconds;
+      if (
+        typeof prepRemainingSeconds === "number" &&
+        prepRemainingSeconds > 0 &&
+        prepRemainingSeconds <= 5 * 60
+      ) {
+        // One-time "5 minutes left" heads-up for the owner. The atomic guard on
+        // preparationMeta.prepEndingSoonNotifiedAt ensures it fires once per
+        // order even though this sweep runs every few seconds. This is an
+        // owner-only nudge, so it does not create an admin operational alert.
+        const guard = await OrderModel.updateOne(
+          {
+            _id: order._id,
+            status: "Preparing",
+            "preparationMeta.prepEndingSoonNotifiedAt": { $exists: false },
+          },
+          { $set: { "preparationMeta.prepEndingSoonNotifiedAt": new Date() } },
+        );
+        if (guard.modifiedCount > 0) {
+          await createOwnerSystemNotification({
+            restaurantId: String(order.restaurantId ?? ""),
+            entityId: orderId,
+            orderNumber,
+            title: "About 5 minutes left for prep",
+            description: `${orderNumber} should be ready in about 5 minutes. Please get it ready on time.`,
+            actionPath: `/orders/${orderId}`,
+            eventType: "order.prep_ending_soon",
+            sendPush: true,
+            pushTitleEn: "5 minutes left for prep",
+            pushDescriptionEn: `${orderNumber} should be ready in about 5 minutes. Please mark it ready soon.`,
+            pushTitleBn: "প্রস্তুতির আর প্রায় ৫ মিনিট বাকি",
+            pushDescriptionBn: `${orderNumber} আর প্রায় ৫ মিনিটের মধ্যে Ready হওয়ার কথা। দয়া করে সময়মতো Ready করুন।`,
+            ...orderNotificationScope(order),
+          }).catch(() => undefined);
+        }
+      }
       if (lateByMinutes >= settings.prepLateGraceMinutes) {
         const alertResult = await createAdminOperationalAlert({
           alertType: "food_prepare_late",

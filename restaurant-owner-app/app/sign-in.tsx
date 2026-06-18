@@ -34,6 +34,10 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function sanitizePhoneInput(value: string) {
+  return onlyDigits(value).slice(0, 11);
+}
+
 function isValidPhone(value: string) {
   return /^01\d{9}$/.test(onlyDigits(value));
 }
@@ -400,11 +404,15 @@ export default function SignInScreen() {
                 <Ionicons name="call-outline" size={18} color={palette.mutedForeground} />
                 <TextInput
                   value={phone}
-                  onChangeText={setPhone}
+                  onChangeText={(value) => {
+                    setPhone(sanitizePhoneInput(value));
+                    if (error) setError("");
+                  }}
                   placeholder="01XXXXXXXXX"
                   placeholderTextColor="#9A8D91"
                   style={styles.input}
                   keyboardType="phone-pad"
+                  maxLength={11}
                   autoCapitalize="none"
                   returnKeyType="next"
                   editable={!isBusy && step === "password"}

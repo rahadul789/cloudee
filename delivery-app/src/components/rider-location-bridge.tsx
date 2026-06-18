@@ -21,6 +21,8 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
   const trackingPolicy = normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data);
   const updateLocationMutation = useUpdateRiderProfileLocationMutation();
   const mutateProfileLocation = updateLocationMutation.mutate;
+  const pickedUpOrderId =
+    activeOrdersQuery.data?.find((order) => order.status === "PickedUp")?.id ?? null;
   const hasPickedUpOrder = Boolean(
     activeOrdersQuery.data?.some((order) => order.status === "PickedUp"),
   );
@@ -38,7 +40,7 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     }
 
     if (hasPickedUpOrder) {
-      void setRiderBackgroundTrackingOrderId(null);
+      void setRiderBackgroundTrackingOrderId(pickedUpOrderId);
       void startRiderBackgroundLocationAsync({
         timeIntervalMs: trackingPolicy.updateIntervalSeconds * 1000,
         distanceIntervalMeters: trackingPolicy.distanceIntervalMeters,
@@ -100,6 +102,7 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     rider?.id,
     rider?.isAvailableForAssignments,
     hasPickedUpOrder,
+    pickedUpOrderId,
     mutateProfileLocation,
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.passiveHeartbeatSeconds,

@@ -21,7 +21,8 @@ import {
   useOwnerStoreSettingsQuery,
   type OwnerPayoutSummary,
 } from "@/src/hooks/use-owner-api";
-import { useOwnerTranslation } from "@/src/i18n/translations";
+import { useOwnerTranslation, type TranslationKey } from "@/src/i18n/translations";
+import { localizeDigits } from "@/src/lib/format";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
@@ -37,9 +38,9 @@ export default function AccountScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const store = storeQuery.data;
   const payoutMethod = payoutQuery.data?.payoutMethod;
-  const payoutMethodStatus = getPayoutMethodStatus(payoutMethod);
-  const ownerName = owner?.fullName || "Owner";
-  const restaurantName = store?.name || "Restaurant";
+  const payoutMethodStatus = getPayoutMethodStatus(payoutMethod, t);
+  const ownerName = owner?.fullName || t("account.ownerFallback");
+  const restaurantName = store?.name || t("account.restaurantFallback");
   const initials = restaurantName
     .split(" ")
     .map((part) => part.trim().charAt(0))
@@ -101,10 +102,10 @@ export default function AccountScreen() {
                 {t("account.subtitle")}
               </Text>
               <View style={styles.heroPillRow}>
-                <InfoPill icon="call-outline" text={owner?.phone ?? "Phone unavailable"} />
+                <InfoPill icon="call-outline" text={owner?.phone ?? t("account.phoneUnavailable")} />
                 <InfoPill
                   icon="shield-checkmark-outline"
-                  text={owner?.isPhoneVerified ? "Verified" : "Phone pending"}
+                  text={owner?.isPhoneVerified ? t("account.verified") : t("account.phonePending")}
                 />
               </View>
             </View>
@@ -140,31 +141,31 @@ export default function AccountScreen() {
           <View style={styles.overviewGrid}>
             <OverviewCard
               icon="restaurant-outline"
-              label="Store"
+              label={t("account.overview.store")}
               value={store?.runtime?.isOnline ? t("status.online") : t("status.offline")}
-              caption={store?.name ?? "Restaurant"}
+              caption={store?.name ?? t("account.restaurantFallback")}
               tint="#FFF0F6"
             />
             <OverviewCard
               icon="wallet-outline"
-              label="Payout"
+              label={t("account.overview.payout")}
               value={payoutMethodStatus.label}
-              caption={payoutMethod?.accountNumber || "No active number"}
+              caption={payoutMethod?.accountNumber || t("account.overview.noActiveNumber")}
               tint="#EEF8F2"
               onPress={() => router.push("/payout-method" as never)}
             />
             <OverviewCard
               icon="shield-checkmark-outline"
-              label="Status"
-              value={lifecycleStatus || "Pending"}
-              caption="Restaurant lifecycle"
+              label={t("account.overview.status")}
+              value={lifecycleStatus || t("account.lifecyclePending")}
+              caption={t("account.overview.restaurantLifecycle")}
               tint="#EAF0FF"
             />
             <OverviewCard
               icon="call-outline"
-              label="Pickup phone"
-              value={store?.contact?.phone || "Not added"}
-              caption="Rider support"
+              label={t("account.overview.pickupPhone")}
+              value={store?.contact?.phone || t("account.overview.notAdded")}
+              caption={t("account.overview.riderSupport")}
               tint="#FFF6E3"
               onPress={() => router.push("/account-contact" as never)}
             />
@@ -180,47 +181,47 @@ export default function AccountScreen() {
             <AccountNavCard
               icon="call-outline"
               tint="#FFF6E3"
-              title="Restaurant contact"
-              caption={store?.contact?.phone || "Add pickup support number"}
+              title={t("account.manage.contactTitle")}
+              caption={store?.contact?.phone || t("account.manage.contactCaption")}
               onPress={() => router.push("/account-contact" as never)}
             />
             <AccountNavCard
               icon="phone-portrait-outline"
               tint="#FFF0F6"
-              title="Payout bKash"
-              caption={`${payoutMethod?.accountNumber || "No active number"} - ${payoutMethodStatus.label}`}
+              title={t("account.manage.payoutTitle")}
+              caption={`${payoutMethod?.accountNumber || t("account.overview.noActiveNumber")} - ${payoutMethodStatus.label}`}
               onPress={() => router.push("/payout-method" as never)}
             />
             <AccountNavCard
               icon="restaurant-outline"
               tint="#EEF8F2"
-              title="Preparation time"
+              title={t("account.manage.prepTitle")}
               caption={
                 typeof store?.preparationTimeMinutes === "number"
-                  ? `${store.preparationTimeMinutes} minutes default`
-                  : "No default estimate set"
+                  ? `${localizeDigits(String(store.preparationTimeMinutes))} ${t("account.manage.prepMinutesDefaultSuffix")}`
+                  : t("account.manage.prepNoEstimate")
               }
               onPress={() => router.push("/account-preparation-time" as never)}
             />
             <AccountNavCard
               icon="ticket-outline"
               tint="#FFF0F6"
-              title="Vouchers"
-              caption="Create, edit, and remove owner-funded offers"
+              title={t("account.manage.vouchersTitle")}
+              caption={t("account.manage.vouchersCaption")}
               onPress={() => router.push("/vouchers" as never)}
             />
             <AccountNavCard
               icon="notifications-outline"
               tint="#EAF0FF"
-              title="Notifications"
-              caption="Order, payout, and admin messages"
+              title={t("account.manage.notificationsTitle")}
+              caption={t("account.manage.notificationsCaption")}
               onPress={() => router.push("/notifications" as never)}
             />
             <AccountNavCard
               icon="desktop-outline"
               tint="#EAF0FF"
-              title="Owner web dashboard"
-              caption="Menu, reports, settings, and analytics"
+              title={t("account.manage.webTitle")}
+              caption={t("account.manage.webCaption")}
               onPress={() => router.push("/owner-web-link" as never)}
             />
           </View>
@@ -246,8 +247,8 @@ export default function AccountScreen() {
                 )}
               </View>
               <View style={styles.navCopy}>
-                <Text style={styles.logoutTitle}>Sign out</Text>
-                <Text style={styles.navCaption}>Leave owner app on this device</Text>
+                <Text style={styles.logoutTitle}>{t("account.signOut")}</Text>
+                <Text style={styles.navCaption}>{t("account.signOutCaption")}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
             </Pressable>
@@ -270,16 +271,16 @@ export default function AccountScreen() {
             <View style={styles.confirmIconWrap}>
               <Ionicons name="log-out-outline" size={26} color={palette.primary} />
             </View>
-            <Text style={styles.confirmTitle}>Sign out?</Text>
+            <Text style={styles.confirmTitle}>{t("account.signOutConfirmTitle")}</Text>
             <Text style={styles.confirmText}>
-              You can sign in again anytime with your owner account.
+              {t("account.signOutConfirmBody")}
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
                 style={styles.confirmSecondaryButton}
                 onPress={() => setLogoutConfirmVisible(false)}
               >
-                <Text style={styles.confirmSecondaryText}>Stay signed in</Text>
+                <Text style={styles.confirmSecondaryText}>{t("account.staySignedIn")}</Text>
               </Pressable>
               <Pressable
                 style={styles.confirmPrimaryButton}
@@ -292,7 +293,7 @@ export default function AccountScreen() {
                 {logoutMutation.isPending ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.confirmPrimaryText}>Sign out</Text>
+                  <Text style={styles.confirmPrimaryText}>{t("account.signOut")}</Text>
                 )}
               </Pressable>
             </View>
@@ -304,55 +305,30 @@ export default function AccountScreen() {
 }
 
 function getPayoutMethodStatus(
-  payoutMethod?: OwnerPayoutSummary["payoutMethod"],
-): { label: string; tone: "success" | "warning" | "danger"; detail: string } {
+  payoutMethod: OwnerPayoutSummary["payoutMethod"] | undefined,
+  t: (key: TranslationKey) => string,
+): { label: string; tone: "success" | "warning" | "danger" } {
   if (!payoutMethod) {
-    return {
-      label: "Setup needed",
-      tone: "warning",
-      detail: "Add a payout bKash number before admin sends payouts.",
-    };
+    return { label: t("payouts.method.setupNeeded"), tone: "warning" };
   }
 
   if (payoutMethod.pendingVerificationStatus === "otp_pending") {
-    return {
-      label: "OTP pending",
-      tone: "warning",
-      detail: `New number ${payoutMethod.pendingAccountNumber ?? ""} needs OTP verification.`,
-    };
+    return { label: t("payouts.method.otpPending"), tone: "warning" };
   }
 
   if (payoutMethod.pendingVerificationStatus === "admin_pending") {
-    return {
-      label: "Pending",
-      tone: "warning",
-      detail: `New number ${payoutMethod.pendingAccountNumber ?? ""} is waiting for admin approval.`,
-    };
+    return { label: t("payouts.method.pending"), tone: "warning" };
   }
 
   if (payoutMethod.pendingVerificationStatus === "rejected") {
-    return {
-      label: "Rejected",
-      tone: "danger",
-      detail: payoutMethod.pendingAdminNote
-        ? `Last request rejected: ${payoutMethod.pendingAdminNote}`
-        : "Last number change was rejected. Submit again when ready.",
-    };
+    return { label: t("payouts.method.rejected"), tone: "danger" };
   }
 
   if (payoutMethod.isVerified) {
-    return {
-      label: "Verified",
-      tone: "success",
-      detail: "This number is active for owner payout.",
-    };
+    return { label: t("payouts.method.verified"), tone: "success" };
   }
 
-  return {
-    label: "Unverified",
-    tone: "warning",
-    detail: "Verify the payout number to make it ready for admin payout.",
-  };
+  return { label: t("payouts.method.unverified"), tone: "warning" };
 }
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {

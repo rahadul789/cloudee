@@ -30,7 +30,10 @@ const listCustomersQuerySchema = z.object({
   preset: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
-  sortBy: z.enum(["newest", "recentLogin", "mostOrders", "highestSpend"]).optional(),
+  sortBy: z
+    .enum(["newest", "recentLogin", "mostOrders", "highestSpend", "repeatFirst"])
+    .optional(),
+  tier: z.enum(["all", "new", "repeat", "vip", "at_risk"]).optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
 });

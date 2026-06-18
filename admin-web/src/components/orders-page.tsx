@@ -2036,9 +2036,29 @@ export function OrdersPage() {
                     ) : null}
                     {columnVisibility.customer ? (
                       <TableCell>
-                        <div>{order.customerName}</div>
+                        <div className="flex items-center gap-2">
+                          <span>{order.customerName}</span>
+                          {order.customerTier === "vip" ? (
+                            <Badge
+                              variant="outline"
+                              className="h-5 border-amber-200 bg-amber-50 px-1.5 text-[10px] text-amber-700"
+                            >
+                              VIP
+                            </Badge>
+                          ) : order.customerTier === "repeat" ? (
+                            <Badge
+                              variant="outline"
+                              className="h-5 border-sky-200 bg-sky-50 px-1.5 text-[10px] text-sky-700"
+                            >
+                              Repeat
+                            </Badge>
+                          ) : null}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {order.customerPhone || "No phone"}
+                          {order.customerLifetimeOrders
+                            ? ` · ${order.customerLifetimeOrders} lifetime`
+                            : ""}
                         </div>
                       </TableCell>
                     ) : null}

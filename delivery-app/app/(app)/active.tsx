@@ -26,6 +26,11 @@ import { palette } from "@/src/theme/palette";
 import { RiderScreenHeader } from "@/src/components/rider-screen-header";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 
+function formatCompactMoney(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) return "--";
+  return `Tk ${Math.round(value).toLocaleString()}`;
+}
+
 export default function ActiveOrdersScreen() {
   const rider = useRiderAuthStore((state) => state.rider);
   const ordersQuery = useRiderOrdersQuery("active");
@@ -209,10 +214,29 @@ export default function ActiveOrdersScreen() {
           const paymentBadge = getPaymentMethodBadge(item.paymentMethod);
           const timingInfo = getOrderTimingInfo(item);
           const delaySignal = getRiderDelaySignal(item, deliveryThresholds, nowMs);
+          const isLateOrder =
+            delaySignal?.tone === "late" || delaySignal?.tone === "critical";
+          const legLabel =
+            item.status === "PickedUp" ? "To customer" : "To restaurant";
+          const legIcon = item.status === "PickedUp" ? "home-outline" : "storefront-outline";
+          const amountLabel = formatCompactMoney(item.pricing?.total);
           return (
-            <Pressable style={styles.card} onPress={() => router.push(`/orders/${item.id}`)}>
-              <View style={styles.row}>
-                <Text style={styles.orderNumber}>{item.orderNumber}</Text>
+            <Pressable
+              style={[styles.card, isLateOrder ? styles.cardLate : null]}
+              onPress={() => router.push(`/orders/${item.id}`)}
+            >
+              <View style={styles.cardTopRow}>
+                <View style={styles.orderIdentity}>
+                  <Text style={styles.orderNumber} numberOfLines={1}>
+                    {item.orderNumber}
+                  </Text>
+                  {item.isFocusedLiveTrip ? (
+                    <View style={styles.liveChip}>
+                      <View style={styles.liveDot} />
+                      <Text style={styles.liveText}>Live</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <View
                   style={[
                     styles.tripStatusChip,
@@ -227,32 +251,52 @@ export default function ActiveOrdersScreen() {
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.paymentBadge,
-                  {
-                    backgroundColor: paymentBadge.backgroundColor,
-                    borderColor: paymentBadge.borderColor,
-                  },
-                ]}
-              >
-                <Ionicons name={paymentBadge.icon} size={13} color={paymentBadge.color} />
-                <Text style={[styles.paymentBadgeText, { color: paymentBadge.color }]}>
-                  {paymentBadge.label}
-                </Text>
+
+              <View style={styles.routeLine}>
+                <View style={styles.routeIconWrap}>
+                  <Ionicons name={legIcon} size={15} color={palette.primary} />
+                </View>
+                <View style={styles.routeCopy}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {item.restaurant?.name ?? copy.common.restaurant}
+                  </Text>
+                  <Text style={styles.meta} numberOfLines={1}>
+                    {legLabel} • {item.customer?.name ?? copy.common.customer}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.name}>{item.restaurant?.name ?? copy.common.restaurant}</Text>
-              <Text style={styles.metaStrong}>{item.customer?.name ?? copy.common.customer}</Text>
-              <Text style={styles.meta}>
-                {item.status === "PickedUp" ? "Heading to customer" : "Heading to restaurant"}
-              </Text>
-              <View style={styles.timeRow}>
-                <Ionicons name="time-outline" size={14} color={palette.mutedForeground} />
-                <Text style={styles.meta}>
+
+              <View style={styles.cardMetaRow}>
+                <View
+                  style={[
+                    styles.paymentBadge,
+                    {
+                      backgroundColor: paymentBadge.backgroundColor,
+                      borderColor: paymentBadge.borderColor,
+                    },
+                  ]}
+                >
+                  <Ionicons name={paymentBadge.icon} size={12} color={paymentBadge.color} />
+                  <Text style={[styles.paymentBadgeText, { color: paymentBadge.color }]}>
+                    {paymentBadge.label}
+                  </Text>
+                </View>
+                <View style={styles.amountPill}>
+                  <Text style={styles.amountText}>{amountLabel}</Text>
+                </View>
+                <View style={styles.timePill}>
+                  <Ionicons name="time-outline" size={12} color={palette.mutedForeground} />
+                  <Text style={styles.timePillText} numberOfLines={1}>
+                    {timingInfo.value ? formatRelativeTime(timingInfo.value) : timingInfo.label}
+                  </Text>
+                </View>
+              </View>
+
+              {timingInfo.value ? (
+                <Text style={styles.timestampText} numberOfLines={1}>
                   {timingInfo.label}: {formatDateTime(timingInfo.value)}
-                  {timingInfo.value ? ` - ${formatRelativeTime(timingInfo.value)}` : ""}
                 </Text>
-              </View>
+              ) : null}
               <RiderDelayBanner signal={delaySignal} />
             </Pressable>
           );
@@ -299,27 +343,94 @@ const styles = StyleSheet.create({
   centered: { minHeight: 320, alignItems: "center", justifyContent: "center" },
   card: {
     backgroundColor: palette.surface,
-    borderRadius: 18,
-    padding: 16,
-    gap: 6,
+    borderRadius: 16,
+    padding: 13,
+    gap: 9,
     borderWidth: 1,
     borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
-  orderNumber: { fontSize: 16, fontWeight: "800", color: palette.foreground },
+  cardLate: {
+    borderWidth: 1.5,
+    borderColor: palette.warning,
+    backgroundColor: palette.warningSoft,
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+  orderIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  orderNumber: {
+    flexShrink: 1,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  liveChip: {
+    minHeight: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: palette.successSoft,
+    borderWidth: 1,
+    borderColor: "rgba(20,152,91,0.2)",
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: palette.success,
+  },
+  liveText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    color: palette.successText,
+  },
   tripStatusChip: {
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderWidth: 1,
   },
-  tripStatusText: { fontSize: 12, fontWeight: "800" },
+  tripStatusText: { fontSize: 11, fontWeight: "900" },
+  routeLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  routeIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  routeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
   paymentBadge: {
-    alignSelf: "flex-start",
+    minHeight: 28,
     borderRadius: 11,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -328,13 +439,65 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
-  name: { fontSize: 15, fontWeight: "700", color: palette.foreground },
-  metaStrong: { fontSize: 13, fontWeight: "700", color: palette.foreground },
-  meta: { fontSize: 13, color: palette.mutedForeground },
-  timeRow: {
+  name: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  meta: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  cardMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+  },
+  amountPill: {
+    minHeight: 28,
+    borderRadius: 11,
+    paddingHorizontal: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.foreground,
+  },
+  amountText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  timePill: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 28,
+    borderRadius: 11,
+    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  timePillText: {
+    flexShrink: 1,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  timestampText: {
+    marginTop: -2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    color: palette.mutedForeground,
   },
   emptyState: {
     flex: 1,

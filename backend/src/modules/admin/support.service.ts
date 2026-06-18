@@ -439,6 +439,7 @@ async function notifyRequester(supportCase: any, replyMessage: string) {
       entityType: "support_case",
       entityId: supportCase.id,
       title: "Support reply received",
+      titleBn: "সাপোর্ট রিপ্লাই এসেছে",
       description: replyMessage.slice(0, 140),
       actionPath: `/support?caseId=${supportCase.id}`,
     })

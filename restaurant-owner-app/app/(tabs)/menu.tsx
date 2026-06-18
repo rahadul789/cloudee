@@ -69,10 +69,14 @@ export default function MenuScreen() {
     () =>
       allMenuItems.filter(
         (item) =>
-          item.availability !== "unavailable" &&
-          item._id !== recommendationItem?._id,
+          item._id !== recommendationItem?._id &&
+          // Show available items plus any already-selected item (even if it is
+          // currently unavailable) so saved recommendations are never hidden and
+          // silently dropped when the editor reopens.
+          (item.availability !== "unavailable" ||
+            selectedRecommendationIds.includes(item._id)),
       ),
-    [allMenuItems, recommendationItem?._id],
+    [allMenuItems, recommendationItem?._id, selectedRecommendationIds],
   );
   const items = (menuQuery.data?.items ?? []).filter((item) => {
     const isAvailable = item.availability !== "unavailable";
@@ -103,7 +107,9 @@ export default function MenuScreen() {
 
   function openRecommendationEditor(item: OwnerMenuItem) {
     setRecommendationItem(item);
-    setSelectedRecommendationIds(item.recommendedItemIds ?? []);
+    // Normalize to plain strings — cached/socket payloads can carry ObjectId-like
+    // values, which would break selection matching against option ids.
+    setSelectedRecommendationIds((item.recommendedItemIds ?? []).map(String));
   }
 
   function closeRecommendationEditor() {
@@ -127,10 +133,17 @@ export default function MenuScreen() {
     try {
       await updateMutation.mutateAsync({
         id: recommendationItem._id,
-        recommendedItemIds: selectedRecommendationIds,
+        recommendedItemIds: selectedRecommendationIds.map(String),
       });
+      const savedCount = selectedRecommendationIds.length;
       setRecommendationItem(null);
       setSelectedRecommendationIds([]);
+      Alert.alert(
+        "Recommendations saved",
+        savedCount > 0
+          ? `${savedCount} item${savedCount > 1 ? "s" : ""} will show with this item in the cart.`
+          : "Cart recommendations cleared for this item.",
+      );
     } catch (error) {
       Alert.alert(
         "Recommendations not saved",

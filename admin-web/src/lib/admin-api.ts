@@ -199,6 +199,11 @@ export type AdminReportsResponse = {
     estimatedPlatformMargin: number
     newCustomers: number
     totalCustomers: number
+    activeUsersToday: number
+    activeUsersMonth: number
+    orderingCustomers: number
+    repeatCustomers: number
+    repeatRate: number
     activeRestaurants: number
     averageServiceMinutes: number
     reviewCount: number
@@ -1419,7 +1424,7 @@ export type AdminListResponse<T> = {
   page: number
   pageSize: number
   pageCount: number
-  summary?: Record<string, unknown>
+  summary?: Record<string, number>
 }
 
 export type AdminReferralStatus =
@@ -2356,6 +2361,7 @@ export type AdminRestaurantCreateInput = {
   payoutBkashNumber?: string
   cuisineTypes?: string[]
   tags?: string[]
+  documents?: AdminRestaurantDocumentAttachment[]
   address?: string
   city?: string
   latitude?: number | null
@@ -2364,6 +2370,17 @@ export type AdminRestaurantCreateInput = {
   preparationTimeMinutes?: number | null
   commissionRate?: number
   isVisible?: boolean
+}
+
+export type AdminRestaurantDocumentAttachment = {
+  type: "nid" | "trade_license" | "tin" | "bin_vat"
+  label: string
+  url: string
+  publicId?: string
+  fileName?: string
+  fileType?: string
+  resourceType?: string
+  uploadedAt?: string | null
 }
 
 export type AdminRestaurantOrderHistoryItem = {
@@ -2409,12 +2426,15 @@ export type AdminRestaurantOrderDateFilterPreset =
   | "lifetime"
   | "custom"
 
+export type AdminCustomerTier = "new" | "repeat" | "vip" | "at_risk"
+
 export type AdminCustomerSummary = {
   id: string
   fullName: string
   phone: string
   email: string
   status: "active" | "suspended" | "locked"
+  customerTier: AdminCustomerTier
   authProviders: string[]
   lastLoginAt: string | null
   createdAt: string | null
@@ -2471,6 +2491,13 @@ export type AdminCustomerBehaviorSummary = {
   }>
 }
 
+export type AdminCustomerTierBreakdown = {
+  new: number
+  repeat: number
+  vip: number
+  at_risk: number
+}
+
 export type AdminCustomerDirectorySummary = Record<string, unknown> & {
   total?: number
   active?: number
@@ -2478,6 +2505,7 @@ export type AdminCustomerDirectorySummary = Record<string, unknown> & {
   locked?: number
   pendingRequests?: number
   behavior?: AdminCustomerBehaviorSummary
+  tierBreakdown?: AdminCustomerTierBreakdown
 }
 
 export type AdminCustomerGroup = {
@@ -2848,6 +2876,8 @@ export type AdminOrderListItem = {
   autoCancel?: AdminOrderDetails["autoCancel"]
   preparationTiming?: AdminOrderDetails["preparationTiming"]
   operationalTiming?: AdminOrderDetails["operationalTiming"]
+  customerLifetimeOrders?: number
+  customerTier?: "new" | "repeat" | "vip"
 }
 
 export type AdminOrdersListResponse = AdminListResponse<AdminOrderListItem> & {
@@ -3196,6 +3226,7 @@ export type PlatformContentHomeRestaurantSection = {
   maxItems?: number
   position?: number
   layout?: "horizontal" | "vertical"
+  allowRepeatAcrossSections?: boolean
 }
 
 export type PlatformContentCartRecommendations = {
@@ -3436,6 +3467,30 @@ export type PlatformContent = {
       surchargeStartsAfterKm: number
       surchargeStepMeters: number
       surchargeAmountTaka: number
+    }
+    routing: {
+      provider: "google" | "haversine"
+      fallbackSpeedKmph: number
+      pickupBufferMinutes: number
+      costMode: "economy" | "balanced" | "precision"
+      googleMonthlyLimit: number
+      maxGoogleCallsPerOrder: number
+      routeSessionTtlMinutes: number
+      rerouteCooldownSeconds: number
+      offRouteThresholdMeters: number
+      offRouteConsecutiveUpdates: number
+      periodicRefreshMinutes: number
+      nearDestinationMeters: number
+    }
+    mapStyles: {
+      styles: Array<{
+        id: string
+        name: string
+        description: string
+        isActive: boolean
+        styleJson: Array<Record<string, unknown>>
+      }>
+      assignments: Record<string, string>
     }
     liveTracking: {
       mode: "balanced" | "battery_saver" | "high_accuracy"
@@ -4593,7 +4648,8 @@ export async function listAdminCustomers(params?: {
   preset?: string
   from?: string
   to?: string
-  sortBy?: "newest" | "recentLogin" | "mostOrders" | "highestSpend"
+  sortBy?: "newest" | "recentLogin" | "mostOrders" | "highestSpend" | "repeatFirst"
+  tier?: "all" | AdminCustomerTier
   page?: number
   pageSize?: number
   zoneId?: string
@@ -4613,6 +4669,7 @@ export async function listAdminCustomers(params?: {
   if (params?.from) searchParams.set("from", params.from)
   if (params?.to) searchParams.set("to", params.to)
   if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.tier && params.tier !== "all") searchParams.set("tier", params.tier)
   if (params?.page) searchParams.set("page", `${params.page}`)
   if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
   if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
@@ -4651,7 +4708,13 @@ export async function createAdminCustomerGroup(payload: {
     preset?: string
     from?: string
     to?: string
-    sortBy?: "newest" | "recentLogin" | "mostOrders" | "highestSpend"
+    sortBy?:
+      | "newest"
+      | "recentLogin"
+      | "mostOrders"
+      | "highestSpend"
+      | "repeatFirst"
+    tier?: "all" | AdminCustomerTier
     zoneId?: string
     districtId?: string
   }
@@ -6500,6 +6563,7 @@ export async function uploadAdminMedia(
   file: File,
   folder = "foodbela/admin/home-cms",
   context = "admin_media",
+  resourceType = "image",
 ) {
   const signatureResponse = await adminRequest<{
     cloudName: string
@@ -6511,7 +6575,7 @@ export async function uploadAdminMedia(
   }>("/media/upload-signature", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ folder, resourceType: "image" }),
+    body: JSON.stringify({ folder, resourceType }),
   })
   const signature = signatureResponse.data
   const formData = new FormData()
@@ -6527,6 +6591,7 @@ export async function uploadAdminMedia(
   const payload = (await response.json()) as {
     secure_url?: string
     public_id?: string
+    resource_type?: string
     error?: { message?: string }
   }
   if (!response.ok || !payload.secure_url) {
@@ -6536,7 +6601,7 @@ export async function uploadAdminMedia(
     url: payload.secure_url,
     publicId: payload.public_id ?? "",
     folder,
-    resourceType: signature.resourceType,
+    resourceType: payload.resource_type ?? signature.resourceType,
     context,
   }
   await recordAdminMediaAsset(asset).catch(() => undefined)

@@ -21,6 +21,13 @@ type LiveOrderMapProps = {
   riderName: string;
   riderAccentColor: string;
   riderVehicleIcon?: "bicycle-outline" | "rocket-outline";
+  riderHeading?: number | null;
+  routePolyline?: string | null;
+  routeDistanceKm?: number | null;
+  routeDurationMinutes?: number | null;
+  routeProvider?: "google" | "haversine" | null;
+  trafficAware?: boolean | null;
+  mapStyle?: unknown;
 };
 
 export const LiveOrderMap = memo(function LiveOrderMap({

@@ -30,6 +30,7 @@ import {
   getOwnerOrderDiscount,
   getOwnerOrderNetSales,
   getOwnerOrderSubtotal,
+  localizeDigits,
 } from "@/src/lib/format";
 import {
   formatAutoCancelCountdown,
@@ -103,8 +104,8 @@ export default function OrderDetailsScreen() {
       });
     } catch (error) {
       Alert.alert(
-        "Time update failed",
-        error instanceof Error ? error.message : "Please try again.",
+        t("orderDetails.timeUpdateFailed"),
+        error instanceof Error ? error.message : t("orders.updateFailedBody"),
       );
     } finally {
       setPendingExtension(null);
@@ -124,7 +125,7 @@ export default function OrderDetailsScreen() {
     title: string,
     nextStatus: "Rejected" | "Cancelled",
     note: string,
-    message = "This action will notify the customer.",
+    message = t("orderDetails.notifyCustomer"),
   ) {
     Alert.alert(title, message, [
       { text: t("orders.keepOrder"), style: "cancel" },
@@ -203,7 +204,7 @@ export default function OrderDetailsScreen() {
                 />
                 <InfoBlock
                   label={t("orderDetails.items")}
-                  value={`${order.itemsSnapshot?.length ?? 0} ${t("today.items")}`}
+                  value={`${localizeDigits(String(order.itemsSnapshot?.length ?? 0))} ${t("today.items")}`}
                   alignRight
                 />
               </View>
@@ -215,7 +216,7 @@ export default function OrderDetailsScreen() {
                   <Ionicons name="timer-outline" size={16} color={palette.danger} />
                   <Text style={styles.autoCancelNoticeText}>
                     {t("orderDetails.autoCancelIn")}{" "}
-                    {formatAutoCancelCountdown(autoCancelSeconds)}
+                    {localizeDigits(formatAutoCancelCountdown(autoCancelSeconds))}
                   </Text>
                 </View>
               ) : null}
@@ -225,6 +226,15 @@ export default function OrderDetailsScreen() {
                 pendingExtension={pendingExtension}
                 onExtend={extendPreparation}
               />
+              {getCustomerOrderNote(order) ? (
+                <View style={styles.notePanel}>
+                  <View style={styles.notePanelHeader}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
+                    <Text style={styles.notePanelTitle}>{t("orderDetails.customerNote")}</Text>
+                  </View>
+                  <Text style={styles.notePanelText}>{getCustomerOrderNote(order)}</Text>
+                </View>
+              ) : null}
               {hasOrderActions(order) ? (
                 <OrderActions
                   order={order}
@@ -251,17 +261,17 @@ export default function OrderDetailsScreen() {
             </View>
 
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Items</Text>
+              <Text style={styles.sectionTitle}>{t("orderDetails.items")}</Text>
               {order.itemsSnapshot?.map((item, index) => (
                 <View
                   key={`${item.itemId ?? item.name}-${index}`}
                   style={styles.itemRow}
                 >
                   <View style={styles.quantityPill}>
-                    <Text style={styles.quantityText}>{item.quantity ?? 1}x</Text>
+                    <Text style={styles.quantityText}>{localizeDigits(String(item.quantity ?? 1))}x</Text>
                   </View>
                   <View style={styles.itemBody}>
-                    <Text style={styles.itemName}>{item.name ?? "Item"}</Text>
+                    <Text style={styles.itemName}>{item.name ?? t("orderDetails.itemFallback")}</Text>
                     <Text style={styles.itemMeta}>
                       {formatCurrency(item.unitPrice)}
                       {formatOptionText(item) ? ` - ${formatOptionText(item)}` : ""}
@@ -272,20 +282,20 @@ export default function OrderDetailsScreen() {
             </View>
 
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Restaurant summary</Text>
+              <Text style={styles.sectionTitle}>{t("orderDetails.restaurantSummary")}</Text>
               <SummaryLine
-                label="Food subtotal"
+                label={t("orderDetails.foodSubtotal")}
                 value={formatCurrency(getOwnerOrderSubtotal(order))}
               />
               {getOwnerOrderDiscount(order) > 0 ? (
                 <SummaryLine
-                  label="Owner voucher/discount"
+                  label={t("orderDetails.ownerVoucherDiscount")}
                   value={`-${formatCurrency(getOwnerOrderDiscount(order))}`}
                 />
               ) : null}
               <View style={styles.summaryDivider} />
               <SummaryLine
-                label="Restaurant net sales"
+                label={t("orderDetails.restaurantNetSales")}
                 value={formatCurrency(getOwnerOrderNetSales(order))}
                 strong
               />
@@ -294,7 +304,7 @@ export default function OrderDetailsScreen() {
                   {order.appliedVouchers.map((voucher, index) => (
                     <SummaryLine
                       key={`${voucher.id ?? voucher.code ?? voucher.name ?? "voucher"}-${index}`}
-                      label={voucher.name || voucher.code || "Owner voucher"}
+                      label={voucher.name || voucher.code || t("orderDetails.ownerVoucher")}
                       value={`-${formatCurrency(
                         voucher.ownerDiscountCost ?? voucher.discountAmount,
                       )}`}
@@ -307,20 +317,27 @@ export default function OrderDetailsScreen() {
 
             {order.history?.length ? (
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Timeline</Text>
-                {order.history.slice().reverse().slice(0, 5).map((entry, index) => (
-                  <View key={`${entry.status}-${entry.createdAt}-${index}`} style={styles.timelineRow}>
-                    <View style={styles.timelineDot} />
-                    <View style={styles.timelineBody}>
-                      <Text style={styles.timelineTitle}>{entry.status}</Text>
-                      <Text style={styles.timelineText}>
-                        {entry.actor}
-                        {entry.note ? ` - ${entry.note}` : ""}
-                      </Text>
+                <Text style={styles.sectionTitle}>{t("orderDetails.timeline")}</Text>
+                {order.history.slice().reverse().slice(0, 5).map((entry, index) => {
+                  // The customer's order note is surfaced in its own block above,
+                  // so it is intentionally hidden from the timeline here.
+                  const showNote = entry.note && entry.actor !== "customer";
+                  return (
+                    <View key={`${entry.status}-${entry.createdAt}-${index}`} style={styles.timelineRow}>
+                      <View style={styles.timelineDot} />
+                      <View style={styles.timelineBody}>
+                        <Text style={styles.timelineTitle}>
+                          {getLocalizedOrderStatusLabel(entry.status, t)}
+                        </Text>
+                        <Text style={styles.timelineText}>
+                          {entry.actor}
+                          {showNote ? ` - ${entry.note}` : ""}
+                        </Text>
+                      </View>
+                      <Text style={styles.timelineTime}>{formatTime(entry.createdAt)}</Text>
                     </View>
-                    <Text style={styles.timelineTime}>{formatTime(entry.createdAt)}</Text>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             ) : null}
           </>
@@ -341,6 +358,7 @@ function PreparationTimingPanel({
   pendingExtension: number | null;
   onExtend: (minutes: 5 | 10) => void;
 }) {
+  const { t } = useOwnerTranslation();
   const timing = order.preparationTiming;
   if (!timing || (order.status !== "Accepted" && order.status !== "Preparing")) {
     return null;
@@ -351,21 +369,32 @@ function PreparationTimingPanel({
   const lateSeconds = getPreparationLateSeconds(order, now);
   const isPreparing = order.status === "Preparing";
   const isLate = isPreparing && prepRemainingSeconds === 0 && lateSeconds > 0;
+  const canShowExtensionOptions =
+    isPreparing &&
+    prepRemainingSeconds !== null &&
+    prepRemainingSeconds > 0 &&
+    prepRemainingSeconds < 5 * 60;
   const title = isPreparing
     ? isLate
-      ? "Running late"
-      : "Preparing"
-    : "Auto preparing";
+      ? t("prep.runningLate")
+      : t("orders.status.preparing")
+    : t("prep.autoPreparing");
+  // When preparation is overdue, show the elapsed-late time with a leading
+  // minus sign so the owner immediately understands the timer is negative.
   const timerLabel = isPreparing
-    ? formatAutoCancelCountdown(isLate ? lateSeconds : prepRemainingSeconds ?? 0)
+    ? isLate
+      ? `-${localizeDigits(formatAutoCancelCountdown(lateSeconds))}`
+      : localizeDigits(formatAutoCancelCountdown(prepRemainingSeconds ?? 0))
     : startRemainingSeconds !== null
-      ? formatAutoCancelCountdown(startRemainingSeconds)
+      ? localizeDigits(formatAutoCancelCountdown(startRemainingSeconds))
       : "--:--";
   const helperText = isPreparing
-    ? `${timing.totalMinutes} min target${
-        timing.extraMinutes ? `, +${timing.extraMinutes} min added` : ""
+    ? `${localizeDigits(String(timing.totalMinutes))} ${t("prep.targetSuffix")}${
+        timing.extraMinutes
+          ? `, +${localizeDigits(String(timing.extraMinutes))} ${t("prep.addedSuffix")}`
+          : ""
       }`
-    : "Food prep starts automatically if owner does not start.";
+    : t("prep.autoStartHelper");
 
   return (
     <View style={[styles.prepPanel, isLate ? styles.prepPanelLate : null]}>
@@ -386,7 +415,7 @@ function PreparationTimingPanel({
       </View>
       <Text style={styles.prepHelper}>{helperText}</Text>
 
-      {isPreparing && timing.canExtend && timing.extensionOptions.length ? (
+      {canShowExtensionOptions && timing.canExtend && timing.extensionOptions.length ? (
         <View style={styles.extensionRow}>
           {timing.extensionOptions.map((minutes) => (
             <Pressable
@@ -401,7 +430,9 @@ function PreparationTimingPanel({
               {pendingExtension === minutes ? (
                 <ActivityIndicator size="small" color={palette.primary} />
               ) : (
-                <Text style={styles.extensionChipText}>+{minutes} min</Text>
+                <Text style={styles.extensionChipText}>
+                  +{localizeDigits(String(minutes))} {t("prep.minSuffix")}
+                </Text>
               )}
             </Pressable>
           ))}
@@ -587,6 +618,15 @@ function ActionButton({
   );
 }
 
+// The customer's order note is stored only on the initial "New" history entry
+// authored by the customer. Surface it as a dedicated detail block.
+function getCustomerOrderNote(order: OwnerOrder) {
+  const entry = order.history?.find(
+    (item) => item.actor === "customer" && Boolean(item.note?.trim()),
+  );
+  return entry?.note?.trim() ?? "";
+}
+
 function formatOptionText(item: NonNullable<OwnerOrder["itemsSnapshot"]>[number]) {
   const variants =
     item.selectedVariantOptions
@@ -728,6 +768,31 @@ const styles = StyleSheet.create({
     backgroundColor: palette.primarySoft,
     padding: 12,
     gap: 8,
+  },
+  notePanel: {
+    borderRadius: 16,
+    backgroundColor: palette.foreground,
+    padding: 12,
+    gap: 6,
+  },
+  notePanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  notePanelTitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: "#FFFFFF",
+  },
+  notePanelText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   prepPanelLate: {
     backgroundColor: palette.dangerSoft,

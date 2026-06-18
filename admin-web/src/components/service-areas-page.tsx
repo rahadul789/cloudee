@@ -419,8 +419,14 @@ export function ServiceAreasPage() {
     staleTime: 30_000,
   })
 
-  const districts = serviceAreasQuery.data?.districts ?? []
-  const zones = serviceAreasQuery.data?.zones ?? []
+  const districts = React.useMemo(
+    () => serviceAreasQuery.data?.districts ?? [],
+    [serviceAreasQuery.data?.districts]
+  )
+  const zones = React.useMemo(
+    () => serviceAreasQuery.data?.zones ?? [],
+    [serviceAreasQuery.data?.zones]
+  )
   const riderOptions = riderOptionsQuery.data ?? []
 
   React.useEffect(() => {

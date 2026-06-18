@@ -88,6 +88,10 @@ export const styles = StyleSheet.create({
   detailsButtonFull: {
     width: "100%",
   },
+  detailsButtonPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }],
+  },
   detailsButtonText: {
     fontSize: 13,
     lineHeight: 18,
@@ -605,6 +609,50 @@ export const styles = StyleSheet.create({
     color: palette.foreground,
   },
   prepEtaSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  kitchenStartCard: {
+    minWidth: 188,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFFD9",
+    borderWidth: 1,
+    borderColor: "rgba(93, 139, 255, 0.16)",
+    gap: 4,
+  },
+  kitchenMotionTrack: {
+    width: 68,
+    height: 7,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: "rgba(93, 139, 255, 0.14)",
+  },
+  kitchenMotionDot: {
+    width: 16,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: palette.sky,
+  },
+  kitchenStartTitle: {
+    marginTop: 4,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  kitchenStartTimer: {
+    fontSize: 23,
+    lineHeight: 28,
+    fontWeight: "900",
+    color: palette.sky,
+  },
+  kitchenStartMeta: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",

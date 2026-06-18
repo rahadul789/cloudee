@@ -1,57 +1,59 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
-import MapView, { Marker, Polyline, type Region } from "react-native-maps";
 import {
   ActivityIndicator,
   Alert,
   Linking,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   useAcceptOrderMutation,
   useActivateTrackingMutation,
   useDeliverOrderMutation,
   useRiderDeliveryThresholdsQuery,
+  useRiderMapStyleQuery,
   usePickupOrderMutation,
   useRiderLiveTrackingPolicyQuery,
   useRiderOrderDetailsQuery,
   useRiderSupportContactQuery,
-  useUpdateRiderLocationMutation,
+  useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 import { isBangla, useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
 import { normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
-import { getOrderStatusBadge, getOrderTimingInfo, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
+import { getOrderStatusBadge, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
 import {
-  setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
   stopRiderBackgroundLocationAsync,
 } from "@/src/lib/rider-background-location";
 import {
-  getBestAvailableRiderLocationPayload,
-  getRiderLocationPayload,
   openRiderLocationSettings,
   requestRiderForegroundPermission,
+  getRiderLocationPayload,
   type RiderLocationPayload,
 } from "@/src/lib/rider-location-permissions";
+import {
+  RiderLiveMap,
+  type RiderLiveMapHandle,
+} from "@/src/components/orders/rider-live-map";
+import { PersistentBottomSheet } from "@/src/components/persistent-bottom-sheet";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
 type Coordinate = { latitude: number; longitude: number };
-type FocusMode = "customer" | "restaurant" | "rider" | "overview";
+type LiveRider = { latitude: number; longitude: number; heading: number | null };
 
 const HOLD_DURATION_MS = 900;
-const MAX_QUEUED_LOCATION_UPDATES = 20;
+const UI_POSITION_THROTTLE_MS = 1600;
 const DEFAULT_DELIVERY_THRESHOLDS = {
   deliveryWatchAfterPickupMinutes: 20,
   deliveryLateAfterPickupMinutes: 25,
@@ -59,6 +61,8 @@ const DEFAULT_DELIVERY_THRESHOLDS = {
   riderEtaSpeedKmph: 24,
   riderEtaRouteFactor: 1.1,
 };
+const PICKUP_LOCATION_TIMEOUT_MS = 5500;
+const PICKUP_LAST_KNOWN_MAX_AGE_MS = 2 * 60 * 1000;
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
@@ -78,11 +82,7 @@ function calculateDistanceKm(pointA: Coordinate, pointB: Coordinate) {
   return earthRadius * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function estimateCycleEtaMinutes(
-  distanceKm: number,
-  speedKmph = 24,
-  routeFactor = 1.1
-) {
+function estimateCycleEtaMinutes(distanceKm: number, speedKmph = 24, routeFactor = 1.1) {
   if (distanceKm <= 0) return 0;
   const safeSpeed = Math.min(45, Math.max(6, speedKmph));
   const safeRouteFactor = Math.min(2, Math.max(1, routeFactor));
@@ -123,241 +123,227 @@ function getElapsedMinutes(value?: string | null, nowMs = Date.now()) {
   return Math.max(0, Math.floor((nowMs - timestamp) / 60000));
 }
 
-function buildCurvedPolyline(start: Coordinate, end: Coordinate) {
-  const midLatitude = (start.latitude + end.latitude) / 2;
-  const midLongitude = (start.longitude + end.longitude) / 2;
-  const latitudeOffset = (end.longitude - start.longitude) * 0.12;
-  const longitudeOffset = (start.latitude - end.latitude) * 0.12;
-  const control = {
-    latitude: midLatitude + latitudeOffset,
-    longitude: midLongitude + longitudeOffset,
-  };
-
-  return Array.from({ length: 18 }, (_, index) => {
-    const t = index / 17;
-    return {
-      latitude:
-        (1 - t) * (1 - t) * start.latitude +
-        2 * (1 - t) * t * control.latitude +
-        t * t * end.latitude,
-      longitude:
-        (1 - t) * (1 - t) * start.longitude +
-        2 * (1 - t) * t * control.longitude +
-        t * t * end.longitude,
-    };
-  });
-}
-
-function RouteMarkerBadge({
-  icon,
-  tone,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  tone: "restaurant" | "customer" | "rider";
-}) {
-  return (
-    <View style={styles.mapMarkerWrap}>
-      <View
-        style={[
-          styles.mapMarkerPin,
-          tone === "restaurant"
-            ? styles.mapMarkerRestaurant
-            : tone === "customer"
-              ? styles.mapMarkerCustomer
-              : styles.mapMarkerRider,
-        ]}
-      >
-        <Ionicons name={icon} size={14} color="#fff" />
-      </View>
-    </View>
-  );
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildAdaptiveRegion(points: (Coordinate | null | undefined)[], singlePointDelta = 0.014) {
-  const validPoints = points.filter((point): point is Coordinate => Boolean(point));
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error("LOCATION_TIMEOUT")), timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
 
-  if (!validPoints.length) return undefined;
+async function getPickupLocationPayload() {
+  const lastKnownPosition = await Location.getLastKnownPositionAsync({
+    maxAge: PICKUP_LAST_KNOWN_MAX_AGE_MS,
+  }).catch(() => null);
 
-  if (validPoints.length === 1) {
-    return {
-      latitude: validPoints[0].latitude,
-      longitude: validPoints[0].longitude,
-      latitudeDelta: singlePointDelta,
-      longitudeDelta: singlePointDelta * 0.82,
-    } satisfies Region;
+  if (lastKnownPosition) {
+    return getRiderLocationPayload(lastKnownPosition);
   }
 
-  const latitudes = validPoints.map((point) => point.latitude);
-  const longitudes = validPoints.map((point) => point.longitude);
-  const minLatitude = Math.min(...latitudes);
-  const maxLatitude = Math.max(...latitudes);
-  const minLongitude = Math.min(...longitudes);
-  const maxLongitude = Math.max(...longitudes);
-
-  let widestDistanceKm = 0;
-  for (let index = 0; index < validPoints.length; index += 1) {
-    for (let nextIndex = index + 1; nextIndex < validPoints.length; nextIndex += 1) {
-      widestDistanceKm = Math.max(
-        widestDistanceKm,
-        calculateDistanceKm(validPoints[index], validPoints[nextIndex])
-      );
-    }
-  }
-
-  const distanceDelta = clamp(Math.max(0.012, widestDistanceKm * 0.02), 0.012, 0.28);
-  const latitudeDelta = clamp(Math.max((maxLatitude - minLatitude) * 1.55, distanceDelta), 0.012, 0.32);
-  const longitudeDelta = clamp(
-    Math.max((maxLongitude - minLongitude) * 1.55, distanceDelta * 0.9),
-    0.01,
-    0.32
+  const currentPosition = await withTimeout(
+    Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    }),
+    PICKUP_LOCATION_TIMEOUT_MS,
   );
 
-  return {
-    latitude: (minLatitude + maxLatitude) / 2,
-    longitude: (minLongitude + maxLongitude) / 2,
-    latitudeDelta,
-    longitudeDelta,
-  } satisfies Region;
+  return getRiderLocationPayload(currentPosition);
 }
 
-function tightenRegion(region: Region | undefined, factor = 0.78) {
-  if (!region) return undefined;
+type HoldToConfirmButtonProps = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  loading: boolean;
+  disabled: boolean;
+  tone?: "pickup" | "deliver";
+  onConfirm: () => void;
+  onHoldingChange?: (holding: boolean) => void;
+};
 
-  return {
-    ...region,
-    latitudeDelta: clamp(region.latitudeDelta * factor, 0.008, 0.24),
-    longitudeDelta: clamp(region.longitudeDelta * factor, 0.007, 0.24),
-  } satisfies Region;
-}
+const HoldToConfirmButton = memo(function HoldToConfirmButton({
+  label,
+  icon,
+  loading,
+  disabled,
+  tone = "pickup",
+  onConfirm,
+  onHoldingChange,
+}: HoldToConfirmButtonProps) {
+  const [progress, setProgress] = useState(0);
+  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdStartedAtRef = useRef<number | null>(null);
+  const isHoldingRef = useRef(false);
+  const hasConfirmedRef = useRef(false);
+
+  const clearTimers = useCallback(() => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+  }, []);
+
+  const finishHold = useCallback(
+    (complete: boolean) => {
+      clearTimers();
+      holdStartedAtRef.current = null;
+
+      if (isHoldingRef.current) {
+        isHoldingRef.current = false;
+        onHoldingChange?.(false);
+      }
+
+      if (complete) {
+        setProgress(1);
+        hasConfirmedRef.current = true;
+        onConfirm();
+        return;
+      }
+
+      hasConfirmedRef.current = false;
+      setProgress(0);
+    },
+    [clearTimers, onConfirm, onHoldingChange],
+  );
+
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
+  useEffect(() => {
+    if (!disabled && !loading) return;
+    clearTimers();
+    holdStartedAtRef.current = null;
+    hasConfirmedRef.current = false;
+    if (isHoldingRef.current) {
+      isHoldingRef.current = false;
+      onHoldingChange?.(false);
+    }
+    setProgress(0);
+  }, [clearTimers, disabled, loading, onHoldingChange]);
+
+  const handlePressIn = useCallback(() => {
+    if (disabled || loading || isHoldingRef.current) return;
+
+    isHoldingRef.current = true;
+    hasConfirmedRef.current = false;
+    onHoldingChange?.(true);
+    setProgress(0);
+    holdStartedAtRef.current = Date.now();
+
+    holdIntervalRef.current = setInterval(() => {
+      if (!holdStartedAtRef.current) return;
+      const nextProgress = Math.min(1, (Date.now() - holdStartedAtRef.current) / HOLD_DURATION_MS);
+      setProgress(nextProgress);
+    }, 16);
+  }, [disabled, loading, onHoldingChange]);
+
+  const handleLongPress = useCallback(() => {
+    if (!isHoldingRef.current || hasConfirmedRef.current || disabled || loading) return;
+    finishHold(true);
+  }, [disabled, finishHold, loading]);
+
+  const handlePressOut = useCallback(() => {
+    if (!isHoldingRef.current) return;
+    if (hasConfirmedRef.current) return;
+    finishHold(false);
+  }, [finishHold]);
+
+  return (
+    <Pressable
+      style={[
+        styles.holdButton,
+        tone === "deliver" && styles.holdButtonDeliver,
+        disabled && styles.buttonDisabled,
+      ]}
+      onPressIn={handlePressIn}
+      onLongPress={handleLongPress}
+      onPressOut={handlePressOut}
+      delayLongPress={HOLD_DURATION_MS}
+      hitSlop={6}
+      pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
+      disabled={disabled}
+    >
+      {progress > 0 ? (
+        <View
+          style={[
+            styles.holdProgressFill,
+            tone === "deliver" && styles.holdProgressFillDeliver,
+            { width: `${progress * 100}%` },
+          ]}
+        />
+      ) : null}
+      <View style={styles.holdButtonContent}>
+        {loading ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Ionicons name={icon} size={tone === "deliver" ? 20 : 19} color="#fff" />
+        )}
+        <Text style={styles.holdButtonText}>{label}</Text>
+      </View>
+    </Pressable>
+  );
+});
 
 export default function RiderOrderDetailsScreen() {
   const params = useLocalSearchParams<{ orderId?: string }>();
   const orderId = params.orderId;
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const rider = useRiderAuthStore((state) => state.rider);
   const accessToken = useRiderAuthStore((state) => state.accessToken);
   const { copy, language } = useDeliveryCopy();
   const isNetworkOnline = useNetworkStatus();
-  const detailCopy = useMemo(
-    () =>
-      isBangla(language)
-        ? {
-            mapView: "ম্যাপ ভিউ",
-            customerView: "কাস্টমার",
-            restaurantView: "রেস্টুরেন্ট",
-            riderView: "রাইডার",
-            overviewView: "সবগুলো",
-            liveEstimate: "লাইভ ডেলিভারি হিসাব",
-            tripEarning: "ট্রিপ তথ্য",
-            currentSync: "সিঙ্ক অবস্থা",
-            routeSummary: "রুট সারাংশ",
-            perspectiveHint: "চেপে পরের ভিউ দেখুন",
-            holdTitle: "ডেলিভারি সম্পন্ন করতে ধরে রাখুন",
-            holdHint: "বার পূর্ণ হলে ডেলিভারি সম্পন্ন হবে",
-            releaseHint: "ছেড়ে দিলে বাতিল হবে",
-            keepHolding: (seconds: string) => `${seconds} সেকেন্ড ধরে রাখুন`,
-            completing: "ডেলিভারি সম্পন্ন করা হচ্ছে...",
-            restaurantAddress: "ঠিকানা",
-            restaurantPhone: "ফোন",
-            openInMaps: "ম্যাপে খুলুন",
-            etaLabel: "ETA",
-            riderToRestaurant: "রাইডার থেকে রেস্টুরেন্ট",
-            riderToCustomer: "রাইডার থেকে কাস্টমার",
-            restaurantToCustomer: "রেস্টুরেন্ট থেকে কাস্টমার",
-            focusHint: "ফোকাস বেছে নিন",
-          }
-        : {
-            mapView: "Map view",
-            customerView: "Customer",
-            restaurantView: "Restaurant",
-            riderView: "Rider",
-            overviewView: "Overview",
-            liveEstimate: "Live delivery estimate",
-            tripEarning: "Trip details",
-            currentSync: "Sync status",
-            routeSummary: "Route summary",
-            perspectiveHint: "Tap to switch to the next view",
-            holdTitle: "Hold to complete delivery",
-            holdHint: "Delivery completes when the bar fills",
-            releaseHint: "Release early to cancel",
-            keepHolding: (seconds: string) => `Keep holding • ${seconds}s`,
-            completing: "Completing delivery...",
-            restaurantAddress: "Address",
-            restaurantPhone: "Phone",
-            openInMaps: "Open in Maps",
-            etaLabel: "ETA",
-            riderToRestaurant: "Rider to restaurant",
-            riderToCustomer: "Rider to customer",
-            restaurantToCustomer: "Restaurant to customer",
-            focusHint: "Choose focus",
-            reconnectAction: "Reconnect to continue",
-            reconnectTracking: "Reconnect to resume live updates and trip actions.",
-            reconnectAccept: "Reconnect before accepting this order.",
-            reconnectDelivery: "Reconnect before updating this trip.",
-            pausedAssignments: "Paused",
-          },
-    [language]
-  );
-  const detailText = detailCopy as Record<string, unknown>;
-  const reconnectActionLabel =
-    typeof detailText.reconnectAction === "string"
-      ? detailText.reconnectAction
-      : language === "bn"
-        ? "আবার যোগাযোগ করুন"
-        : "Reconnect to continue";
-  const reconnectTrackingLabel =
-    typeof detailText.reconnectTracking === "string"
-      ? detailText.reconnectTracking
-      : language === "bn"
+  const isBn = isBangla(language);
+
+  const t = useMemo(
+    () => ({
+      navigate: isBn ? "নেভিগেট" : "Navigate",
+      roadRoute: isBn ? "রোড রুট" : "Road route",
+      liveTraffic: isBn ? "লাইভ ট্রাফিক" : "Live traffic",
+      directEstimate: isBn ? "সরাসরি অনুমান" : "Direct estimate",
+      details: isBn ? "অর্ডার বিস্তারিত" : "Order details",
+      live: isBn ? "লাইভ" : "Live",
+      syncing: isBn ? "সিঙ্ক হচ্ছে" : "Syncing",
+      offline: isBn ? "অফলাইন" : "Offline",
+      reconnect: isBn ? "আবার যোগাযোগ করুন" : "Reconnect to continue",
+      reconnectTracking: isBn
         ? "লাইভ আপডেট আর ট্রিপ অ্যাকশন চালু রাখতে আবার যোগাযোগ করুন।"
-        : "Reconnect to resume live updates and trip actions.";
-  const reconnectAcceptLabel =
-    typeof detailText.reconnectAccept === "string"
-      ? detailText.reconnectAccept
-      : language === "bn"
+        : "Reconnect to resume live updates and trip actions.",
+      reconnectAccept: isBn
         ? "এই অর্ডার গ্রহণ করার আগে আবার যোগাযোগ করুন।"
-        : "Reconnect before accepting this order.";
-  const reconnectDeliveryLabel =
-    typeof detailText.reconnectDelivery === "string"
-      ? detailText.reconnectDelivery
-      : language === "bn"
+        : "Reconnect before accepting this order.",
+      reconnectDelivery: isBn
         ? "এই ট্রিপ আপডেট করার আগে আবার যোগাযোগ করুন।"
-        : "Reconnect before updating this trip.";
-  const pausedAssignmentsLabel =
-    typeof detailText.pausedAssignments === "string"
-      ? detailText.pausedAssignments
-      : language === "bn"
-        ? "পজ করা"
-        : "Paused";
+        : "Reconnect before updating this trip.",
+      paused: isBn ? "পজ করা" : "Paused",
+      address: isBn ? "ঠিকানা" : "Address",
+      tapForDetails: isBn ? "বিস্তারিত দেখতে টানুন" : "Pull up for full details",
+      minOut: isBn ? "মিনিট হয়েছে" : "min out",
+    }),
+    [isBn],
+  );
 
   const [trackingError, setTrackingError] = useState("");
-  const [syncState, setSyncState] = useState<"live" | "syncing" | "offline">("live");
-  const [queuedLocationCount, setQueuedLocationCount] = useState(0);
-  const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [focusMode, setFocusMode] = useState<FocusMode>("overview");
-  const [holdProgress, setHoldProgress] = useState(0);
   const [activeHoldAction, setActiveHoldAction] = useState<"pickup" | "deliver" | null>(null);
+  const [isPickupPreparing, setIsPickupPreparing] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
-  const lastLocationSentAtRef = useRef(0);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+
+  const liveMapRef = useRef<RiderLiveMapHandle | null>(null);
+  const latestLiveRiderRef = useRef<LiveRider | null>(null);
+  const lastUiPositionAtRef = useRef(0);
+  const routeWarmupOrderRef = useRef<string | null>(null);
   const isCompletingDeliveryRef = useRef(false);
-  const isLocationMutationPendingRef = useRef(false);
-  const queuedLocationsRef = useRef<RiderLocationPayload[]>([]);
-  const isFlushingQueueRef = useRef(false);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryAttemptRef = useRef(0);
-  const flushLocationQueueRef = useRef<() => Promise<void>>(async () => undefined);
-  const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const holdStartedAtRef = useRef<number | null>(null);
-  const holdCompleteRef = useRef<(() => void) | null>(null);
-  const mapRef = useRef<MapView | null>(null);
-  const mapReadyRef = useRef(false);
+
   const orderQuery = useRiderOrderDetailsQuery(orderId);
   const trackingPolicyQuery = useRiderLiveTrackingPolicyQuery();
+  const orderDetailsMapStyleQuery = useRiderMapStyleQuery("delivery.order_details");
   const deliveryThresholdsQuery = useRiderDeliveryThresholdsQuery();
   const supportContactQuery = useRiderSupportContactQuery();
   const trackingPolicy = normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data);
@@ -365,31 +351,21 @@ export default function RiderOrderDetailsScreen() {
   const activateTrackingMutation = useActivateTrackingMutation();
   const pickupMutation = usePickupOrderMutation();
   const deliverMutation = useDeliverOrderMutation();
-  const locationMutation = useUpdateRiderLocationMutation(orderId);
-  const mutateRiderLocation = locationMutation.mutateAsync;
-
-  useEffect(() => {
-    isLocationMutationPendingRef.current = locationMutation.isPending;
-  }, [locationMutation.isPending]);
+  const profileLocationMutation = useUpdateRiderProfileLocationMutation();
 
   const order = orderQuery.data;
   const supportPhone = supportContactQuery.data?.phone;
-  const backgroundTrackingStatus = order?.status;
   const isFocusedLiveTrip = Boolean(order?.isFocusedLiveTrip);
-  const backgroundTrackingEnabled =
-    order?.status === "PickedUp" && Boolean(rider?.activeTrackingOrderId);
   const isAssignmentsPaused = rider?.isAvailableForAssignments === false;
   const trackingLocation = order?.riderTracking?.currentLocation;
   const lastKnownRiderLocation = rider?.lastKnownLocation;
+
   const restaurantCoordinate = useMemo(
     () =>
       typeof order?.restaurant?.latitude === "number" && typeof order?.restaurant?.longitude === "number"
-        ? {
-            latitude: order.restaurant.latitude,
-            longitude: order.restaurant.longitude,
-          }
+        ? { latitude: order.restaurant.latitude, longitude: order.restaurant.longitude }
         : null,
-    [order?.restaurant?.latitude, order?.restaurant?.longitude]
+    [order?.restaurant?.latitude, order?.restaurant?.longitude],
   );
   const customerCoordinate = useMemo(
     () =>
@@ -400,29 +376,28 @@ export default function RiderOrderDetailsScreen() {
             longitude: order.customer.deliveryAddress.longitude,
           }
         : null,
-    [order?.customer?.deliveryAddress?.latitude, order?.customer?.deliveryAddress?.longitude]
+    [order?.customer?.deliveryAddress?.latitude, order?.customer?.deliveryAddress?.longitude],
   );
-  const riderCoordinate = useMemo(
+  const serverRiderCoordinate = useMemo(
     () =>
       typeof trackingLocation?.latitude === "number" && typeof trackingLocation?.longitude === "number"
-        ? {
-            latitude: trackingLocation.latitude,
-            longitude: trackingLocation.longitude,
-          }
+        ? { latitude: trackingLocation.latitude, longitude: trackingLocation.longitude }
         : typeof lastKnownRiderLocation?.latitude === "number" &&
             typeof lastKnownRiderLocation?.longitude === "number"
-          ? {
-              latitude: lastKnownRiderLocation.latitude,
-              longitude: lastKnownRiderLocation.longitude,
-            }
+          ? { latitude: lastKnownRiderLocation.latitude, longitude: lastKnownRiderLocation.longitude }
           : null,
     [
       lastKnownRiderLocation?.latitude,
       lastKnownRiderLocation?.longitude,
       trackingLocation?.latitude,
       trackingLocation?.longitude,
-    ]
+    ],
   );
+  const riderCoordinate = useMemo(
+    () => serverRiderCoordinate,
+    [serverRiderCoordinate],
+  );
+  const riderHeading = trackingLocation?.heading ?? lastKnownRiderLocation?.heading ?? null;
 
   const isPickedUp = order?.status === "PickedUp";
   const deliveryThresholds = deliveryThresholdsQuery.data ?? DEFAULT_DELIVERY_THRESHOLDS;
@@ -430,24 +405,15 @@ export default function RiderOrderDetailsScreen() {
   useEffect(() => {
     if (!isPickedUp) return;
     setNowMs(Date.now());
-    const timer = setInterval(() => {
-      setNowMs(Date.now());
-    }, 30_000);
-
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, [isPickedUp]);
 
   const pickedUpAt = order?.timestamps?.PickedUp ?? order?.timestamps?.pickedUpAt ?? null;
-  const pickedUpElapsedMinutes = isPickedUp
-    ? getElapsedMinutes(pickedUpAt, nowMs)
-    : null;
+  const pickedUpElapsedMinutes = isPickedUp ? getElapsedMinutes(pickedUpAt, nowMs) : null;
   const deliveryDelayState = useMemo(() => {
     if (!isPickedUp || pickedUpElapsedMinutes === null) return null;
-
-    if (
-      pickedUpElapsedMinutes >=
-      deliveryThresholds.deliveryCriticalAfterPickupMinutes
-    ) {
+    if (pickedUpElapsedMinutes >= deliveryThresholds.deliveryCriticalAfterPickupMinutes) {
       return {
         level: "critical" as const,
         title: "Critical delivery delay",
@@ -455,10 +421,7 @@ export default function RiderOrderDetailsScreen() {
         icon: "alert-circle-outline" as const,
       };
     }
-
-    if (
-      pickedUpElapsedMinutes >= deliveryThresholds.deliveryLateAfterPickupMinutes
-    ) {
+    if (pickedUpElapsedMinutes >= deliveryThresholds.deliveryLateAfterPickupMinutes) {
       return {
         level: "late" as const,
         title: "Delivery is running late",
@@ -466,10 +429,7 @@ export default function RiderOrderDetailsScreen() {
         icon: "time-outline" as const,
       };
     }
-
-    if (
-      pickedUpElapsedMinutes >= deliveryThresholds.deliveryWatchAfterPickupMinutes
-    ) {
+    if (pickedUpElapsedMinutes >= deliveryThresholds.deliveryWatchAfterPickupMinutes) {
       return {
         level: "watch" as const,
         title: "Delivery watch",
@@ -477,7 +437,6 @@ export default function RiderOrderDetailsScreen() {
         icon: "timer-outline" as const,
       };
     }
-
     return null;
   }, [
     deliveryThresholds.deliveryCriticalAfterPickupMinutes,
@@ -486,14 +445,11 @@ export default function RiderOrderDetailsScreen() {
     isPickedUp,
     pickedUpElapsedMinutes,
   ]);
-  const deliveryDelayProgress = pickedUpElapsedMinutes === null
-    ? 0
-    : clamp(
-        pickedUpElapsedMinutes /
-          deliveryThresholds.deliveryCriticalAfterPickupMinutes,
-        0,
-        1
-      );
+  const deliveryDelayProgress =
+    pickedUpElapsedMinutes === null
+      ? 0
+      : clamp(pickedUpElapsedMinutes / deliveryThresholds.deliveryCriticalAfterPickupMinutes, 0, 1);
+
   const isAssignedPrePickup =
     order?.status === "ReadyForPickup" && order?.assignmentState === "assigned_to_you";
   const isAcceptStep = order?.status === "ReadyForPickup" && order?.assignmentState === "unassigned";
@@ -501,47 +457,23 @@ export default function RiderOrderDetailsScreen() {
   const hasAnotherActiveLiveTrip =
     Boolean(rider?.activeTrackingOrderId) && rider?.activeTrackingOrderId !== order?.id;
   const isPreviewOnlyRoute =
-    isAssignedPrePickup &&
-    !order?.isTrackingActiveForRider &&
-    hasAnotherActiveLiveTrip;
-  const shouldShowCurrentApproachLeg =
-    isPickedUp ? true : isAssignedPrePickup && !isPreviewOnlyRoute;
-  const statusLabel = !isNetworkOnline
-    ? copy.common.offline
-    : isAssignmentsPaused
-      ? pausedAssignmentsLabel
-      : copy.common.online;
+    isAssignedPrePickup && !order?.isTrackingActiveForRider && hasAnotherActiveLiveTrip;
+  const shouldShowCurrentApproachLeg = isPickedUp
+    ? true
+    : isAssignedPrePickup && !isPreviewOnlyRoute;
+
   const isAcceptDisabled = !isNetworkOnline || isAssignmentsPaused || acceptMutation.isPending;
-  const isPickupDisabled = !isNetworkOnline || pickupMutation.isPending;
+  const isPickupBusy = isPickupPreparing || pickupMutation.isPending || profileLocationMutation.isPending;
+  const isPickupDisabled = !isNetworkOnline || isPickupBusy;
   const isDeliverDisabled = !isNetworkOnline || deliverMutation.isPending;
   const isTrackingActivationDisabled = !isNetworkOnline || activateTrackingMutation.isPending;
   const offlineAcceptWarning =
     copy.orderDetails.warningOfflineAccept ?? "Reconnect before accepting a new order.";
 
-  const activePrimaryRoute = useMemo(() => {
-    if (isPickedUp && shouldShowCurrentApproachLeg && riderCoordinate && customerCoordinate) {
-      return buildCurvedPolyline(riderCoordinate, customerCoordinate);
-    }
-    if (isAssignedPrePickup && shouldShowCurrentApproachLeg && riderCoordinate && restaurantCoordinate) {
-      return buildCurvedPolyline(riderCoordinate, restaurantCoordinate);
-    }
-    return [] as Coordinate[];
-  }, [
-    customerCoordinate,
-    isAssignedPrePickup,
-    isPickedUp,
-    restaurantCoordinate,
-    riderCoordinate,
-    shouldShowCurrentApproachLeg,
-  ]);
-
-  const plannedDeliveryRoute = useMemo(() => {
-    if (isPickedUp) return [] as Coordinate[];
-    if (!restaurantCoordinate || !customerCoordinate) return [] as Coordinate[];
-    return buildCurvedPolyline(restaurantCoordinate, customerCoordinate);
-  }, [customerCoordinate, isPickedUp, restaurantCoordinate]);
-
   const currentLegDistanceKm = useMemo(() => {
+    if (typeof order?.routeToNext?.distanceKm === "number") {
+      return order.routeToNext.distanceKm;
+    }
     if (isPickedUp) {
       if (typeof order?.riderTracking?.remainingDistanceKm === "number") {
         return order.riderTracking.remainingDistanceKm;
@@ -550,11 +482,17 @@ export default function RiderOrderDetailsScreen() {
         ? calculateDistanceKm(riderCoordinate, customerCoordinate)
         : null;
     }
-
     return riderCoordinate && restaurantCoordinate
       ? calculateDistanceKm(riderCoordinate, restaurantCoordinate)
       : null;
-  }, [customerCoordinate, isPickedUp, order?.riderTracking?.remainingDistanceKm, restaurantCoordinate, riderCoordinate]);
+  }, [
+    customerCoordinate,
+    isPickedUp,
+    order?.routeToNext?.distanceKm,
+    order?.riderTracking?.remainingDistanceKm,
+    restaurantCoordinate,
+    riderCoordinate,
+  ]);
 
   const nextLegDistanceKm = useMemo(() => {
     if (isPickedUp) return null;
@@ -564,6 +502,9 @@ export default function RiderOrderDetailsScreen() {
   }, [customerCoordinate, isPickedUp, restaurantCoordinate]);
 
   const currentLegEtaMinutes = useMemo(() => {
+    if (typeof order?.routeToNext?.durationMinutes === "number") {
+      return Math.max(1, Math.round(order.routeToNext.durationMinutes));
+    }
     if (isPickedUp && typeof order?.riderTracking?.remainingDurationMinutes === "number") {
       return Math.max(1, Math.round(order.riderTracking.remainingDurationMinutes));
     }
@@ -571,7 +512,7 @@ export default function RiderOrderDetailsScreen() {
       ? estimateCycleEtaMinutes(
           currentLegDistanceKm,
           deliveryThresholds.riderEtaSpeedKmph,
-          deliveryThresholds.riderEtaRouteFactor
+          deliveryThresholds.riderEtaRouteFactor,
         )
       : null;
   }, [
@@ -579,6 +520,7 @@ export default function RiderOrderDetailsScreen() {
     deliveryThresholds.riderEtaRouteFactor,
     deliveryThresholds.riderEtaSpeedKmph,
     isPickedUp,
+    order?.routeToNext?.durationMinutes,
     order?.riderTracking?.remainingDurationMinutes,
   ]);
 
@@ -588,108 +530,14 @@ export default function RiderOrderDetailsScreen() {
         ? estimateCycleEtaMinutes(
             nextLegDistanceKm,
             deliveryThresholds.riderEtaSpeedKmph,
-            deliveryThresholds.riderEtaRouteFactor
+            deliveryThresholds.riderEtaRouteFactor,
           )
         : null,
-    [
-      deliveryThresholds.riderEtaRouteFactor,
-      deliveryThresholds.riderEtaSpeedKmph,
-      nextLegDistanceKm,
-    ]
+    [deliveryThresholds.riderEtaRouteFactor, deliveryThresholds.riderEtaSpeedKmph, nextLegDistanceKm],
   );
 
   const displayedEtaMinutes = currentLegEtaMinutes ?? nextLegEtaMinutes ?? null;
-
-  const activeLegLabel = isPickedUp ? "To customer" : "To restaurant";
-
-  const availableFocusModes = useMemo(() => {
-    const modes: FocusMode[] = [];
-    if (customerCoordinate) modes.push("customer");
-    if (restaurantCoordinate) modes.push("restaurant");
-    if (riderCoordinate) modes.push("rider");
-    modes.push("overview");
-    return modes;
-  }, [customerCoordinate, restaurantCoordinate, riderCoordinate]);
-
-  useEffect(() => {
-    if (!availableFocusModes.includes(focusMode)) {
-      setFocusMode(availableFocusModes[0] ?? "overview");
-    }
-  }, [availableFocusModes, focusMode]);
-
-  const activeMapRegion = useMemo(() => {
-    switch (focusMode) {
-      case "customer":
-        return tightenRegion(
-          buildAdaptiveRegion(
-            [customerCoordinate, riderCoordinate ?? restaurantCoordinate],
-            0.011
-          ),
-          0.7
-        );
-      case "restaurant":
-        return tightenRegion(
-          buildAdaptiveRegion(
-            [restaurantCoordinate, isPickedUp ? customerCoordinate : riderCoordinate ?? customerCoordinate],
-            0.011
-          ),
-          0.7
-        );
-      case "rider":
-        return tightenRegion(
-          buildAdaptiveRegion(
-            [riderCoordinate, isPickedUp ? customerCoordinate : restaurantCoordinate],
-            0.01
-          ),
-          0.68
-        );
-      case "overview":
-      default:
-        return tightenRegion(
-          buildAdaptiveRegion([restaurantCoordinate, customerCoordinate, riderCoordinate], 0.014),
-          0.84
-        );
-    }
-  }, [customerCoordinate, focusMode, isPickedUp, restaurantCoordinate, riderCoordinate]);
-
-  useEffect(() => {
-    if (mapRef.current && activeMapRegion) {
-      mapRef.current.animateToRegion(activeMapRegion, 350);
-    }
-  }, [activeMapRegion]);
-
-  const focusModeMeta = useMemo(() => {
-    switch (focusMode) {
-      case "customer":
-        return { label: detailCopy.customerView, icon: "home-outline" as const };
-      case "restaurant":
-        return { label: detailCopy.restaurantView, icon: "storefront-outline" as const };
-      case "rider":
-        return { label: detailCopy.riderView, icon: "bicycle-outline" as const };
-      case "overview":
-      default:
-        return { label: detailCopy.overviewView, icon: "scan-outline" as const };
-    }
-  }, [detailCopy.customerView, detailCopy.overviewView, detailCopy.restaurantView, detailCopy.riderView, focusMode]);
-
-  const cycleMapFocus = useCallback(() => {
-    setFocusMode((current) => {
-      const currentIndex = availableFocusModes.indexOf(current);
-      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % availableFocusModes.length;
-      return availableFocusModes[nextIndex] ?? "overview";
-    });
-  }, [availableFocusModes]);
-
-  const syncTimestampLabel = useMemo(
-    () =>
-      formatDateTime(
-        lastSuccessfulSyncAt ??
-          order?.riderTracking?.lastUpdatedAt ??
-          rider?.lastKnownLocation?.updatedAt ??
-          null
-      ),
-    [lastSuccessfulSyncAt, order?.riderTracking?.lastUpdatedAt, rider?.lastKnownLocation?.updatedAt]
-  );
+  const activeLegLabel = isPickedUp ? copy.orderDetails.toCustomer : copy.orderDetails.toRestaurant;
 
   const timelineRows = useMemo(() => {
     const rows = order?.history ?? [];
@@ -700,135 +548,98 @@ export default function RiderOrderDetailsScreen() {
     });
   }, [order?.history]);
   const itemRows = useMemo(() => order?.items ?? [], [order?.items]);
-
   const shouldShowTripSyncStatus = isAssignedPrePickup || isPickedUp;
+
+  useEffect(() => {
+    if (
+      !order ||
+      !isAssignedPrePickup ||
+      order.routeToNext?.polyline ||
+      !isNetworkOnline ||
+      profileLocationMutation.isPending ||
+      routeWarmupOrderRef.current === order.id
+    ) {
+      return;
+    }
+
+    routeWarmupOrderRef.current = order.id;
+    let isMounted = true;
+
+    const warmRouteOrigin = async () => {
+      const permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== "granted") return;
+
+      const payload = await getPickupLocationPayload();
+      if (!isMounted) return;
+
+      await profileLocationMutation.mutateAsync(payload);
+      if (!isMounted) return;
+
+      await orderQuery.refetch();
+    };
+
+    warmRouteOrigin().catch(() => {
+      if (routeWarmupOrderRef.current === order.id) {
+        routeWarmupOrderRef.current = null;
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    isAssignedPrePickup,
+    isNetworkOnline,
+    order,
+    orderQuery,
+    profileLocationMutation,
+  ]);
 
   const openInNativeMaps = useCallback(() => {
     const destination = isPickedUp
       ? customerCoordinate ?? restaurantCoordinate
       : restaurantCoordinate ?? customerCoordinate;
-
-    if (!destination) {
-      return;
-    }
-
-    const originSegment = riderCoordinate
-      ? `&origin=${riderCoordinate.latitude},${riderCoordinate.longitude}`
+    if (!destination) return;
+    const origin = latestLiveRiderRef.current ?? riderCoordinate;
+    const originSegment = origin
+      ? `&origin=${origin.latitude},${origin.longitude}`
       : "";
     const url = `https://www.google.com/maps/dir/?api=1${originSegment}&destination=${destination.latitude},${destination.longitude}&travelmode=bicycling`;
     void Linking.openURL(url);
   }, [customerCoordinate, isPickedUp, restaurantCoordinate, riderCoordinate]);
 
-  const clearHoldTimers = useCallback(() => {
-    if (holdTimeoutRef.current) {
-      clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    if (holdIntervalRef.current) {
-      clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
+  const updateLiveRider = useCallback((position: Location.LocationObject) => {
+    const now = Date.now();
+    if (now - lastUiPositionAtRef.current < UI_POSITION_THROTTLE_MS) return;
+    lastUiPositionAtRef.current = now;
+    const nextLiveRider = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      heading:
+        typeof position.coords.heading === "number" && position.coords.heading >= 0
+          ? position.coords.heading
+          : null,
+    };
+    latestLiveRiderRef.current = nextLiveRider;
+    liveMapRef.current?.setLiveRider(nextLiveRider);
   }, []);
-
-  const resetHoldState = useCallback(() => {
-    clearHoldTimers();
-    holdStartedAtRef.current = null;
-    holdCompleteRef.current = null;
-    setActiveHoldAction(null);
-    setHoldProgress(0);
-  }, [clearHoldTimers]);
-
-  useEffect(() => () => resetHoldState(), [resetHoldState]);
-
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      await orderQuery.refetch();
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [orderQuery]);
-
-  const scheduleQueueRetry = useCallback((delayMs: number) => {
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-    }
-
-    retryTimeoutRef.current = setTimeout(() => {
-      retryTimeoutRef.current = null;
-      void flushLocationQueueRef.current();
-    }, delayMs);
-  }, []);
-
-  const flushLocationQueue = useCallback(async () => {
-    if (
-      isFlushingQueueRef.current ||
-      !orderId ||
-      order?.status !== "PickedUp" ||
-      !isFocusedLiveTrip ||
-      queuedLocationsRef.current.length === 0 ||
-      isCompletingDeliveryRef.current
-    ) {
-      return;
-    }
-
-    isFlushingQueueRef.current = true;
-    setSyncState("syncing");
-
-    try {
-      while (queuedLocationsRef.current.length > 0) {
-        const nextPayload = queuedLocationsRef.current[0];
-        const updatedOrder = await mutateRiderLocation(nextPayload);
-        queuedLocationsRef.current.shift();
-        setQueuedLocationCount(queuedLocationsRef.current.length);
-        setLastSuccessfulSyncAt(updatedOrder.riderTracking?.lastUpdatedAt ?? new Date().toISOString());
-        retryAttemptRef.current = 0;
-      }
-
-      setSyncState("live");
-    } catch (error) {
-      retryAttemptRef.current += 1;
-      setSyncState("offline");
-      setTrackingError(
-        error instanceof Error ? error.message : copy.orderDetails.trackingWeakConnection
-      );
-      scheduleQueueRetry(Math.min(30000, 3000 * 2 ** (retryAttemptRef.current - 1)));
-    } finally {
-      isFlushingQueueRef.current = false;
-    }
-  }, [
-    copy.orderDetails.trackingWeakConnection,
-    isFocusedLiveTrip,
-    mutateRiderLocation,
-    order?.status,
-    orderId,
-    scheduleQueueRetry,
-  ]);
 
   useEffect(() => {
-    flushLocationQueueRef.current = flushLocationQueue;
-  }, [flushLocationQueue]);
+    if (order?.status === "PickedUp") return;
+    latestLiveRiderRef.current = null;
+    liveMapRef.current?.clearLiveRider();
+  }, [order?.status, orderId]);
 
-  const enqueueLocationUpdate = useCallback(
-    (payload: RiderLocationPayload) => {
-      queuedLocationsRef.current.push(payload);
-      if (queuedLocationsRef.current.length > MAX_QUEUED_LOCATION_UPDATES) {
-        queuedLocationsRef.current.splice(
-          0,
-          queuedLocationsRef.current.length - MAX_QUEUED_LOCATION_UPDATES,
-        );
-      }
-      setQueuedLocationCount(queuedLocationsRef.current.length);
-      setSyncState(queuedLocationsRef.current.length > 1 ? "offline" : "syncing");
-      void flushLocationQueue();
+  useEffect(
+    () => () => {
+      latestLiveRiderRef.current = null;
+      liveMapRef.current?.clearLiveRider();
     },
-    [flushLocationQueue]
+    [],
   );
 
   useEffect(() => {
-    if (order?.status !== "PickedUp" || !isFocusedLiveTrip || !orderId) {
-      return;
-    }
+    if (order?.status !== "PickedUp" || !isFocusedLiveTrip || !orderId) return;
 
     let subscription: Location.LocationSubscription | null = null;
     let isMounted = true;
@@ -836,9 +647,7 @@ export default function RiderOrderDetailsScreen() {
     const startWatching = async () => {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== "granted") {
-        if (isMounted) {
-          setTrackingError(copy.orderDetails.trackingPermissionError);
-        }
+        if (isMounted) setTrackingError(copy.orderDetails.trackingPermissionError);
         return;
       }
 
@@ -846,192 +655,122 @@ export default function RiderOrderDetailsScreen() {
         const currentPosition = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-
         if (isMounted && !isCompletingDeliveryRef.current) {
-          lastLocationSentAtRef.current = Date.now();
-          enqueueLocationUpdate(getRiderLocationPayload(currentPosition));
+          updateLiveRider(currentPosition);
+          setTrackingError("");
         }
       } catch {
-        if (isMounted) {
-          setTrackingError(copy.orderDetails.trackingWaitingFirstLocation);
-        }
+        if (isMounted) setTrackingError(copy.orderDetails.trackingWaitingFirstLocation);
       }
 
       subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          timeInterval: trackingPolicy.updateIntervalSeconds * 1000,
-          distanceInterval: trackingPolicy.distanceIntervalMeters,
+          timeInterval: Math.max(1800, Math.min(3200, trackingPolicy.updateIntervalSeconds * 700)),
+          distanceInterval: Math.max(8, Math.min(18, trackingPolicy.distanceIntervalMeters)),
         },
         (position) => {
-          if (isCompletingDeliveryRef.current || isLocationMutationPendingRef.current) {
-            return;
-          }
-
-          const now = Date.now();
-          if (now - lastLocationSentAtRef.current < trackingPolicy.updateIntervalSeconds * 1000) {
-            return;
-          }
-
-          lastLocationSentAtRef.current = now;
-          enqueueLocationUpdate(getRiderLocationPayload(position));
-        }
+          if (!isMounted || isCompletingDeliveryRef.current) return;
+          setTrackingError("");
+          updateLiveRider(position);
+        },
       );
     };
 
     startWatching().catch(() => {
-      if (isMounted) {
-        setTrackingError(copy.orderDetails.trackingStartError);
-      }
+      if (isMounted) setTrackingError(copy.orderDetails.trackingStartError);
     });
 
     return () => {
       isMounted = false;
       subscription?.remove();
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
     };
   }, [
     copy.orderDetails.trackingPermissionError,
     copy.orderDetails.trackingStartError,
     copy.orderDetails.trackingWaitingFirstLocation,
-    enqueueLocationUpdate,
     isFocusedLiveTrip,
     order?.status,
     orderId,
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.updateIntervalSeconds,
+    updateLiveRider,
   ]);
 
-  useEffect(() => {
-    const shouldTrackInBackground =
-      backgroundTrackingStatus === "PickedUp" &&
-      Boolean(orderId) &&
-      backgroundTrackingEnabled;
-
-    if (!shouldTrackInBackground || !orderId) {
-      if (
-        backgroundTrackingStatus &&
-        (backgroundTrackingStatus !== "PickedUp" || !backgroundTrackingEnabled)
-      ) {
-        void stopRiderBackgroundLocationAsync();
-      }
-      return;
-    }
-
-    void setRiderBackgroundTrackingOrderId(null);
-    void startRiderBackgroundLocationAsync({
-      timeIntervalMs: trackingPolicy.updateIntervalSeconds * 1000,
-      distanceIntervalMeters: trackingPolicy.distanceIntervalMeters,
-      notificationBody: "Foodbela is sharing your live delivery location.",
-    });
-  }, [
-    backgroundTrackingEnabled,
-    backgroundTrackingStatus,
-    orderId,
-    trackingPolicy.distanceIntervalMeters,
-    trackingPolicy.updateIntervalSeconds,
-  ]);
-
-  useEffect(() => {
-    if (order?.status !== "PickedUp" || !isFocusedLiveTrip) {
-      queuedLocationsRef.current = [];
-      setQueuedLocationCount(0);
-      setSyncState("live");
-      retryAttemptRef.current = 0;
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
-    }
-  }, [isFocusedLiveTrip, order?.status]);
-
-  const handleAccept = async () => {
+  const handleAccept = useCallback(async () => {
     if (!order) return;
     if (!isNetworkOnline) {
-      Alert.alert(copy.common.offline, reconnectAcceptLabel);
+      Alert.alert(copy.common.offline, t.reconnectAccept);
       return;
     }
     if (isAssignmentsPaused) {
-      Alert.alert(pausedAssignmentsLabel, offlineAcceptWarning);
+      Alert.alert(t.paused, offlineAcceptWarning);
       return;
     }
-
     try {
       await acceptMutation.mutateAsync(order.id);
     } catch (error) {
       Alert.alert(
         copy.orderDetails.acceptFailed,
-        error instanceof Error ? error.message : copy.orderDetails.acceptFailedText
+        error instanceof Error ? error.message : copy.orderDetails.acceptFailedText,
       );
     }
-  };
+  }, [
+    acceptMutation,
+    copy.common.offline,
+    copy.orderDetails.acceptFailed,
+    copy.orderDetails.acceptFailedText,
+    isAssignmentsPaused,
+    isNetworkOnline,
+    offlineAcceptWarning,
+    order,
+    t.paused,
+    t.reconnectAccept,
+  ]);
 
   const handlePickup = useCallback(async () => {
+    if (!order || isPickupBusy) return;
     if (!isNetworkOnline) {
-      Alert.alert(copy.common.offline, reconnectDeliveryLabel);
-      resetHoldState();
+      Alert.alert(copy.common.offline, t.reconnectDelivery);
       return;
     }
 
-    const permission = await requestRiderForegroundPermission();
-    if (permission.status !== "granted") {
-      resetHoldState();
-      Alert.alert(
-        copy.profile.locationPermissionTitle,
-        copy.profile.locationPermissionText,
-        [
+    setIsPickupPreparing(true);
+
+    try {
+      const permission = await requestRiderForegroundPermission();
+      if (permission.status !== "granted") {
+        Alert.alert(copy.profile.locationPermissionTitle, copy.profile.locationPermissionText, [
           { text: "Not now", style: "cancel" },
-          {
-            text: "Settings",
-            onPress: () => {
-              void openRiderLocationSettings();
-            },
-          },
-        ],
-      );
-      return;
-    }
+          { text: "Settings", onPress: () => void openRiderLocationSettings() },
+        ]);
+        return;
+      }
 
-    let pickupLocationPayload: RiderLocationPayload;
-    try {
-      pickupLocationPayload = await getBestAvailableRiderLocationPayload();
-    } catch {
-      resetHoldState();
-      Alert.alert(
-        copy.profile.locationPermissionTitle,
-        "We could not read this device location. Please turn on GPS and try again.",
-        [
-          { text: "Try again", style: "cancel" },
-          {
-            text: "Settings",
-            onPress: () => {
-              void openRiderLocationSettings();
-            },
-          },
-        ],
-      );
-      return;
-    }
+      let pickupLocationPayload: RiderLocationPayload;
+      try {
+        pickupLocationPayload = await getPickupLocationPayload();
+      } catch {
+        const fallbackPosition = await Location.getLastKnownPositionAsync({
+          maxAge: 5 * 60 * 1000,
+        }).catch(() => null);
+        if (!fallbackPosition) {
+          throw new Error("We could not read this device location. Please turn on GPS and try again.");
+        }
+        pickupLocationPayload = getRiderLocationPayload(fallbackPosition);
+      }
 
-    try {
-      const pickedUpOrder = await pickupMutation.mutateAsync(order!.id);
-      resetHoldState();
+      const pickedUpOrder = await pickupMutation.mutateAsync({
+        orderId: order.id,
+        location: pickupLocationPayload,
+      });
 
       if (pickedUpOrder.status === "PickedUp") {
-        lastLocationSentAtRef.current = Date.now();
-
         try {
-          const updatedOrder = await mutateRiderLocation(pickupLocationPayload);
-          setLastSuccessfulSyncAt(
-            updatedOrder.riderTracking?.lastUpdatedAt ?? new Date().toISOString(),
-          );
-          setSyncState("live");
+          await profileLocationMutation.mutateAsync(pickupLocationPayload);
+          await orderQuery.refetch();
           setTrackingError("");
         } catch {
-          enqueueLocationUpdate(pickupLocationPayload);
           setTrackingError(copy.orderDetails.pickupSavedWaiting);
         }
 
@@ -1042,11 +781,12 @@ export default function RiderOrderDetailsScreen() {
         });
       }
     } catch (error) {
-      resetHoldState();
       Alert.alert(
         copy.orderDetails.pickupFailed,
-        error instanceof Error ? error.message : copy.orderDetails.pickupFailedText
+        error instanceof Error ? error.message : copy.orderDetails.pickupFailedText,
       );
+    } finally {
+      setIsPickupPreparing(false);
     }
   }, [
     copy.common.offline,
@@ -1055,32 +795,29 @@ export default function RiderOrderDetailsScreen() {
     copy.orderDetails.pickupSavedWaiting,
     copy.profile.locationPermissionText,
     copy.profile.locationPermissionTitle,
-    reconnectDeliveryLabel,
-    enqueueLocationUpdate,
+    isPickupBusy,
     isNetworkOnline,
-    mutateRiderLocation,
     order,
+    orderQuery,
     pickupMutation,
-    resetHoldState,
+    profileLocationMutation,
+    t.reconnectDelivery,
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.updateIntervalSeconds,
   ]);
 
   const completeDelivery = useCallback(async () => {
     if (!order) return;
-
     isCompletingDeliveryRef.current = true;
-
     try {
       await deliverMutation.mutateAsync(order.id);
       await stopRiderBackgroundLocationAsync();
       router.replace("/(app)/history");
     } catch (error) {
       isCompletingDeliveryRef.current = false;
-      resetHoldState();
       Alert.alert(
         copy.orderDetails.deliverFailed,
-        error instanceof Error ? error.message : copy.orderDetails.deliverFailedText
+        error instanceof Error ? error.message : copy.orderDetails.deliverFailedText,
       );
     }
   }, [
@@ -1088,128 +825,57 @@ export default function RiderOrderDetailsScreen() {
     copy.orderDetails.deliverFailedText,
     deliverMutation,
     order,
-    resetHoldState,
   ]);
 
   const handleDeliver = useCallback(async () => {
     if (!order) return;
     if (!isNetworkOnline) {
-      Alert.alert(copy.common.offline, reconnectDeliveryLabel);
-      resetHoldState();
+      Alert.alert(copy.common.offline, t.reconnectDelivery);
       return;
     }
-
     if (order.riderTracking?.isNearCustomer === false) {
-      resetHoldState();
       Alert.alert(
         "Confirm customer location",
         "You do not look close to the customer yet. Mark delivered only if the order is handed over.",
         [
           { text: "Cancel", style: "cancel" },
-          {
-            text: "Mark delivered",
-            style: "destructive",
-            onPress: () => {
-              void completeDelivery();
-            },
-          },
-        ]
+          { text: "Mark delivered", style: "destructive", onPress: () => void completeDelivery() },
+        ],
       );
       return;
     }
-
     await completeDelivery();
-  }, [
-    copy.common.offline,
-    completeDelivery,
-    reconnectDeliveryLabel,
-    isNetworkOnline,
-    order,
-    resetHoldState,
-  ]);
+  }, [completeDelivery, copy.common.offline, isNetworkOnline, order, t.reconnectDelivery]);
 
-  const handleActivateTracking = async () => {
+  const handleActivateTracking = useCallback(async () => {
     if (!isNetworkOnline) {
-      Alert.alert(copy.common.offline, reconnectTrackingLabel);
+      Alert.alert(copy.common.offline, t.reconnectTracking);
       return;
     }
-
     try {
       await activateTrackingMutation.mutateAsync(order!.id);
     } catch (error) {
       Alert.alert(
         copy.orderDetails.trackingSwitchFailed,
-        error instanceof Error ? error.message : copy.orderDetails.trackingSwitchFailedText
+        error instanceof Error ? error.message : copy.orderDetails.trackingSwitchFailedText,
       );
     }
-  };
-
-  const startHoldAction = useCallback(
-    (action: "pickup" | "deliver", onComplete: () => void) => {
-      const isBusy =
-        action === "pickup"
-          ? pickupMutation.isPending || activeHoldAction !== null
-          : deliverMutation.isPending || activeHoldAction !== null;
-
-      if (isBusy) return;
-
-      setActiveHoldAction(action);
-      setHoldProgress(0);
-      holdStartedAtRef.current = Date.now();
-      holdCompleteRef.current = onComplete;
-
-      holdIntervalRef.current = setInterval(() => {
-        if (!holdStartedAtRef.current) return;
-        const nextProgress = Math.min(1, (Date.now() - holdStartedAtRef.current) / HOLD_DURATION_MS);
-        setHoldProgress(nextProgress);
-      }, 16);
-
-      holdTimeoutRef.current = setTimeout(() => {
-        clearHoldTimers();
-        setHoldProgress(1);
-        const complete = holdCompleteRef.current;
-        holdCompleteRef.current = null;
-        complete?.();
-      }, HOLD_DURATION_MS);
-    },
-    [activeHoldAction, clearHoldTimers, deliverMutation.isPending, pickupMutation.isPending]
-  );
-
-  const startPickupHold = useCallback(() => {
-    startHoldAction("pickup", () => {
-      void handlePickup();
-    });
-  }, [handlePickup, startHoldAction]);
-
-  const startDeliverHold = useCallback(() => {
-    startHoldAction("deliver", () => {
-      void handleDeliver();
-    });
-  }, [handleDeliver, startHoldAction]);
-
-  const cancelHoldAction = useCallback(() => {
-    if (pickupMutation.isPending || deliverMutation.isPending || activeHoldAction === null) return;
-    const heldMs = holdStartedAtRef.current ? Date.now() - holdStartedAtRef.current : 0;
-    if (heldMs >= HOLD_DURATION_MS * 0.82 && holdCompleteRef.current) {
-      clearHoldTimers();
-      setHoldProgress(1);
-      const complete = holdCompleteRef.current;
-      holdCompleteRef.current = null;
-      complete();
-      return;
-    }
-    resetHoldState();
-  }, [activeHoldAction, clearHoldTimers, deliverMutation.isPending, pickupMutation.isPending, resetHoldState]);
+  }, [
+    activateTrackingMutation,
+    copy.common.offline,
+    copy.orderDetails.trackingSwitchFailed,
+    copy.orderDetails.trackingSwitchFailedText,
+    isNetworkOnline,
+    order,
+    t.reconnectTracking,
+  ]);
 
   const handleBackPress = useCallback(() => {
-    const canGoBack =
-      (router as unknown as { canGoBack?: () => boolean }).canGoBack?.() ?? false;
-
+    const canGoBack = (router as unknown as { canGoBack?: () => boolean }).canGoBack?.() ?? false;
     if (canGoBack) {
       router.back();
       return;
     }
-
     router.replace("/(app)/active");
   }, []);
 
@@ -1218,18 +884,14 @@ export default function RiderOrderDetailsScreen() {
       <Redirect
         href={{
           pathname: "/sign-in",
-          params: {
-            redirectTo: orderId ? `/orders/${orderId}` : "/(app)/available",
-          },
+          params: { redirectTo: orderId ? `/orders/${orderId}` : "/(app)/available" },
         }}
       />
     );
   }
 
   const isOrderLoading =
-    Boolean(orderId) &&
-    !order &&
-    (orderQuery.isLoading || orderQuery.isFetching || !orderQuery.isError);
+    Boolean(orderId) && !order && (orderQuery.isLoading || orderQuery.isFetching || !orderQuery.isError);
 
   if (isOrderLoading) {
     return (
@@ -1252,9 +914,7 @@ export default function RiderOrderDetailsScreen() {
           <Text style={styles.emptyText}>{copy.orderDetails.unavailable}</Text>
           <Pressable
             style={({ pressed }) => [styles.retryButton, pressed ? styles.retryButtonPressed : null]}
-            onPress={() => {
-              void orderQuery.refetch();
-            }}
+            onPress={() => void orderQuery.refetch()}
           >
             {orderQuery.isFetching ? (
               <ActivityIndicator size="small" color={palette.surface} />
@@ -1269,348 +929,334 @@ export default function RiderOrderDetailsScreen() {
   }
 
   const orderStatusBadge = getOrderStatusBadge(order.status);
-  const orderTimingInfo = getOrderTimingInfo(order);
   const orderTotalLabel = formatMoney(order.pricing?.total);
   const paymentMethodLabel = formatPaymentMethod(order.paymentMethod);
   const paymentBadge = getPaymentMethodBadge(order.paymentMethod);
+  const phase = isPickedUp ? "to_customer" : "to_restaurant";
+  const showPlannedDeliveryLeg = !isPickedUp && Boolean(restaurantCoordinate && customerCoordinate);
+  const collapsedHeight = 238 + Math.max(insets.bottom, 8);
+  const expandedHeight = Math.max(
+    collapsedHeight + 240,
+    Math.min(windowHeight * 0.78, windowHeight - insets.top - 12),
+  );
+
+  const customerPhone = order.customer?.phone;
+  const restaurantPhone = order.restaurant?.phone;
+  const showLiveTripActivation = order.status === "PickedUp" && !isFocusedLiveTrip;
+  const hasTrackingIssue = !isNetworkOnline || Boolean(trackingError);
+  const syncDotStyle = hasTrackingIssue ? styles.syncDotOffline : styles.syncDotLive;
+  const syncStatusLabel = hasTrackingIssue ? t.offline : t.live;
+  const tripModeLabel = isPreviewOnlyRoute
+    ? "Preview only"
+    : isPickedUp
+      ? isFocusedLiveTrip
+        ? "Live tracking shared"
+        : "Not the live trip"
+      : isAssignedPrePickup
+        ? "Pickup leg active"
+        : isAcceptStep
+          ? "Ready to accept"
+          : "Order route";
+  const destinationName = isPickedUp
+    ? order.customer?.name || copy.common.customer
+    : order.restaurant?.name || copy.common.restaurant;
+  const trackingHeaderLabel = isFocusedLiveTrip
+    ? "Live tracking"
+    : isPreviewOnlyRoute
+      ? "Preview"
+      : isPickedUp
+        ? "Tracking not shared"
+        : "Pickup view";
+
+  const renderPrimaryAction = () => {
+    if (isAcceptStep) {
+      return (
+        <Pressable
+          style={[styles.acceptButton, isAcceptDisabled && styles.buttonDisabled]}
+          onPress={handleAccept}
+          disabled={isAcceptDisabled}
+        >
+          {acceptMutation.isPending ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="checkmark-circle" size={20} color="#fff" />
+              <Text style={styles.acceptButtonText}>
+                {!isNetworkOnline ? t.reconnect : copy.orderDetails.acceptOrder}
+              </Text>
+            </>
+          )}
+        </Pressable>
+      );
+    }
+
+    if (isPickupStep) {
+      return (
+        <HoldToConfirmButton
+          label={!isNetworkOnline ? t.reconnect : copy.orderDetails.pickUpOrder}
+          icon="bag-handle"
+          loading={isPickupBusy}
+          disabled={isPickupDisabled}
+          tone="pickup"
+          onConfirm={() => void handlePickup()}
+          onHoldingChange={(holding: boolean) => setActiveHoldAction(holding ? "pickup" : null)}
+        />
+      );
+    }
+
+    if (order.status === "PickedUp") {
+      return (
+        <HoldToConfirmButton
+          label={!isNetworkOnline ? t.reconnect : copy.orderDetails.holdToDeliver}
+          icon="checkmark-done"
+          loading={deliverMutation.isPending}
+          disabled={isDeliverDisabled}
+          tone="deliver"
+          onConfirm={() => void handleDeliver()}
+          onHoldingChange={(holding: boolean) => setActiveHoldAction(holding ? "deliver" : null)}
+        />
+      );
+    }
+
+    return null;
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView
-        scrollEnabled={activeHoldAction === null}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={palette.primaryStrong}
-          />
-        }
-      >
-        <View style={styles.topRow}>
-          <View style={styles.topIdentityRow}>
-            <Pressable style={styles.backButton} onPress={handleBackPress}>
-              <Ionicons name="arrow-back" size={20} color={palette.foreground} />
-            </Pressable>
-            <View style={styles.orderHeadingWrap}>
-              <Text style={styles.topOrderId}>{order.orderNumber}</Text>
-              <View
-                style={[
-                  styles.orderStatusPill,
-                  {
-                    backgroundColor: orderStatusBadge.backgroundColor,
-                    borderColor: orderStatusBadge.borderColor,
-                  },
-                ]}
-              >
-                <Text style={[styles.orderStatusPillText, { color: orderStatusBadge.color }]}>
-                  {orderStatusBadge.label}
-                </Text>
+    <View style={styles.root}>
+      <RiderLiveMap
+        ref={liveMapRef}
+        phase={phase}
+        restaurantLocation={restaurantCoordinate}
+        customerLocation={customerCoordinate}
+        riderLocation={riderCoordinate}
+        riderHeading={riderHeading}
+        routePolyline={order.routeToNext?.polyline}
+        showActiveApproachLeg={shouldShowCurrentApproachLeg}
+        showPlannedDeliveryLeg={showPlannedDeliveryLeg}
+        restaurantName={order.restaurant?.name ?? copy.common.restaurant}
+        customerName={order.customer?.name ?? copy.common.customer}
+        topInset={insets.top}
+        bottomInset={collapsedHeight}
+        onOpenExternalNavigation={openInNativeMaps}
+        mapStyle={orderDetailsMapStyleQuery.data}
+      />
+
+      {customerPhone || restaurantPhone ? (
+        <View style={[styles.mapContactCard, { top: insets.top + 64 }]} pointerEvents="box-none">
+          {customerPhone ? (
+            <Pressable
+              style={styles.mapContactButton}
+              onPress={() => Linking.openURL(`tel:${customerPhone}`)}
+              hitSlop={6}
+              accessibilityLabel="Call customer"
+            >
+              <View style={[styles.mapContactIcon, styles.mapContactIconCustomer]}>
+                <Ionicons name="person" size={17} color={palette.secondary} />
               </View>
-              <Text style={styles.topOrderTime} numberOfLines={1}>
-                {orderTimingInfo.label}: {formatDateTime(orderTimingInfo.value)}
-                {orderTimingInfo.value ? ` - ${formatRelativeTime(orderTimingInfo.value)}` : ""}
-              </Text>
-            </View>
-          </View>
+              <View style={styles.mapContactCallBadge}>
+                <Ionicons name="call" size={9} color="#fff" />
+              </View>
+            </Pressable>
+          ) : null}
+          {restaurantPhone ? (
+            <Pressable
+              style={styles.mapContactButton}
+              onPress={() => Linking.openURL(`tel:${restaurantPhone}`)}
+              hitSlop={6}
+              accessibilityLabel="Call restaurant"
+            >
+              <View style={[styles.mapContactIcon, styles.mapContactIconRestaurant]}>
+                <Ionicons name="storefront" size={17} color={palette.primary} />
+              </View>
+              <View style={styles.mapContactCallBadge}>
+                <Ionicons name="call" size={9} color="#fff" />
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      <View style={[styles.mapMetricsCard, { top: insets.top + 64 }]} pointerEvents="none">
+        <View style={styles.mapMetricBlock}>
+          <Text style={styles.mapMetricLabel}>DISTANCE</Text>
+          <Text style={styles.mapMetricValue} numberOfLines={1}>
+            {formatDistanceLabel(currentLegDistanceKm)}
+          </Text>
+        </View>
+        <View style={styles.mapMetricDivider} />
+        <View style={styles.mapMetricBlock}>
+          <Text style={styles.mapMetricLabel}>TIME</Text>
+          <Text style={styles.mapMetricValue} numberOfLines={1}>
+            {formatEtaLabel(displayedEtaMinutes)}
+          </Text>
+        </View>
+      </View>
+
+      {/* Floating header over the map */}
+      <View style={[styles.header, { top: insets.top + 8 }]} pointerEvents="box-none">
+        <Pressable style={styles.headerButton} onPress={handleBackPress}>
+          <Ionicons name="arrow-back" size={20} color={palette.foreground} />
+        </Pressable>
+        <View style={styles.headerCenter}>
           <View
             style={[
-              styles.topStatusBadge,
-              !isNetworkOnline || isAssignmentsPaused
-                ? styles.topStatusBadgeOffline
-                : styles.topStatusBadgeOnline,
+              styles.headerTrackingPill,
+              isFocusedLiveTrip && styles.headerTrackingPillLive,
+              isPreviewOnlyRoute && styles.headerTrackingPillPreview,
             ]}
           >
+            <View
+              style={[
+                styles.headerTrackingDot,
+                isFocusedLiveTrip
+                  ? styles.headerTrackingDotLive
+                  : isPreviewOnlyRoute
+                    ? styles.headerTrackingDotPreview
+                    : styles.headerTrackingDotNeutral,
+              ]}
+            />
             <Text
               style={[
-                styles.topStatusBadgeText,
-                !isNetworkOnline || isAssignmentsPaused
-                  ? styles.topStatusBadgeTextOffline
-                  : styles.topStatusBadgeTextOnline,
+                styles.headerTrackingText,
+                isFocusedLiveTrip && styles.headerTrackingTextLive,
+                isPreviewOnlyRoute && styles.headerTrackingTextPreview,
               ]}
+              numberOfLines={1}
             >
-              {statusLabel}
+              {trackingHeaderLabel}
             </Text>
           </View>
         </View>
-
-        <View style={styles.dualCardRow}>
-          <View style={[styles.infoCardHalf, styles.infoCardRestaurant]}>
-            <View style={styles.infoHeaderRow}>
-              <View style={styles.infoHeaderMain}>
-                <View style={[styles.infoIcon, styles.infoIconRestaurant]}>
-                  <Ionicons name="storefront-outline" size={18} color={palette.foreground} />
-                </View>
-                <Text style={styles.infoSectionLabel} numberOfLines={1}>
-                  {copy.orderDetails.restaurantTitle}
-                </Text>
-              </View>
-              {order.restaurant?.phone ? (
-                <Pressable
-                  style={styles.cardActionButton}
-                  onPress={() => Linking.openURL(`tel:${order.restaurant?.phone}`)}
-                >
-                  <Ionicons name="call" size={15} color={palette.foreground} />
-                </Pressable>
-              ) : null}
-            </View>
-            <Text style={styles.infoTitle} numberOfLines={1}>
-              {order.restaurant?.name ?? copy.common.restaurant}
-            </Text>
-            <Text style={styles.infoText} numberOfLines={2}>
-              {order.restaurant?.address ?? "--"}
-            </Text>
-            <Text style={styles.infoText} numberOfLines={1}>
-              {order.restaurant?.phone ?? "--"}
-            </Text>
-          </View>
-
-          <View style={[styles.infoCardHalf, styles.infoCardCustomer]}>
-            <View style={styles.infoHeaderRow}>
-              <View style={styles.infoHeaderMain}>
-                <View style={[styles.infoIcon, styles.infoIconCustomer]}>
-                  <Ionicons name="person-outline" size={18} color={palette.foreground} />
-                </View>
-                <Text style={styles.infoSectionLabel} numberOfLines={1}>
-                  {copy.orderDetails.customerTitle}
-                </Text>
-              </View>
-              {order.customer?.phone ? (
-                <Pressable
-                  style={styles.cardActionButton}
-                  onPress={() => Linking.openURL(`tel:${order.customer?.phone}`)}
-                >
-                  <Ionicons name="call" size={15} color={palette.foreground} />
-                </Pressable>
-              ) : null}
-            </View>
-            <Text style={styles.infoTitle} numberOfLines={1}>
-              {order.customer?.name ?? copy.common.customer}
-            </Text>
-            <Text style={styles.infoText} numberOfLines={2}>
-              {order.customer?.deliveryAddress?.addressLine ??
-                order.customer?.deliveryAddress?.label ??
-                "--"}
-            </Text>
-            {order.customer?.deliveryAddress?.addressDetails ? (
-              <Text style={styles.infoText} numberOfLines={2}>
-                {order.customer.deliveryAddress.addressDetails}
-              </Text>
-            ) : null}
-            <Text style={styles.infoText} numberOfLines={1}>
-              {order.customer?.phone ?? "--"}
-            </Text>
-          </View>
+        <View
+          style={[
+            styles.headerStatusOnly,
+            {
+              backgroundColor: orderStatusBadge.backgroundColor,
+              borderColor: orderStatusBadge.borderColor,
+            },
+          ]}
+        >
+          <Text style={[styles.headerStatusOnlyText, { color: orderStatusBadge.color }]}>
+            {orderStatusBadge.label}
+          </Text>
         </View>
+      </View>
 
-        <View style={styles.mapCard}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>{detailCopy.routeSummary}</Text>
-            <Text style={styles.sectionBadge}>{detailCopy.etaLabel} • {formatEtaLabel(displayedEtaMinutes)}</Text>
-          </View>
-
-          {activeMapRegion ? (
-            <View style={styles.mapShell}>
-              <MapView
-                ref={mapRef}
-                style={styles.map}
-                initialRegion={activeMapRegion}
-                minZoomLevel={13}
-                maxZoomLevel={19}
-                scrollEnabled={false}
-                pitchEnabled={false}
-                rotateEnabled={false}
-                zoomEnabled={false}
-                toolbarEnabled={false}
-                showsUserLocation
-                showsCompass={false}
-                onMapReady={() => {
-                  mapReadyRef.current = true;
-                  mapRef.current?.animateToRegion(activeMapRegion, 1);
-                }}
+      <PersistentBottomSheet
+        collapsedHeight={collapsedHeight}
+        expandedHeight={expandedHeight}
+        dragEnabled={activeHoldAction === null}
+        peekDragHeight={118}
+        scrollEnabled={activeHoldAction === null}
+        onExpandedChange={setSheetExpanded}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}
+        peek={
+          <View style={styles.peek}>
+            <View style={styles.peekTopRow}>
+              <View style={styles.peekOrderRow}>
+                <Text style={styles.peekOrderLabel}>Order ID</Text>
+                <Text style={styles.peekOrderValue} numberOfLines={1}>
+                  {order.orderNumber}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.tripModeChip,
+                  isFocusedLiveTrip && styles.tripModeChipLive,
+                  isPreviewOnlyRoute && styles.tripModeChipPreview,
+                ]}
               >
-                {restaurantCoordinate ? (
-                  <Marker
-                    key={`restaurant-${restaurantCoordinate.latitude}-${restaurantCoordinate.longitude}`}
-                    identifier="restaurant"
-                    title={order.restaurant?.name ?? copy.common.restaurant}
-                    coordinate={restaurantCoordinate}
-                    anchor={{ x: 0.5, y: 0.9 }}
-                    zIndex={3}
-                  >
-                    <RouteMarkerBadge
-                      icon="storefront"
-                      tone="restaurant"
-                    />
-                  </Marker>
-                ) : null}
-
-                {customerCoordinate ? (
-                  <Marker
-                    key={`customer-${customerCoordinate.latitude}-${customerCoordinate.longitude}`}
-                    identifier="customer"
-                    title={order.customer?.name ?? copy.common.customer}
-                    coordinate={customerCoordinate}
-                    anchor={{ x: 0.5, y: 0.9 }}
-                    zIndex={4}
-                  >
-                    <RouteMarkerBadge
-                      icon="home"
-                      tone="customer"
-                    />
-                  </Marker>
-                ) : null}
-
-                {plannedDeliveryRoute.length > 1 ? (
-                  <Polyline
-                    coordinates={plannedDeliveryRoute}
-                    strokeColor={palette.amber}
-                    strokeWidth={3}
-                    lineDashPattern={[8, 8]}
-                    zIndex={1}
-                  />
-                ) : null}
-
-                {activePrimaryRoute.length > 1 ? (
-                  <Polyline
-                    coordinates={activePrimaryRoute}
-                    strokeColor={palette.secondary}
-                    strokeWidth={5}
-                    lineDashPattern={[10, 8]}
-                    zIndex={3}
-                  />
-                ) : null}
-              </MapView>
-
-              <View style={styles.mapActionDock}>
-                <Pressable style={styles.mapUtilityButton} onPress={cycleMapFocus}>
-                  <Ionicons name={focusModeMeta.icon} size={15} color="#fff" />
-                  <Text style={styles.mapUtilityButtonText}>{focusModeMeta.label}</Text>
-                </Pressable>
-                <Pressable style={styles.mapUtilityButton} onPress={openInNativeMaps}>
-                  <Ionicons name="navigate" size={15} color="#fff" />
-                  <Text style={styles.mapUtilityButtonText}>{detailCopy.openInMaps}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.mapLegendRow}>
-            {activePrimaryRoute.length > 1 ? (
-              <View style={styles.legendChip}>
-                <View style={styles.legendPrimaryLine} />
-                <Text style={styles.legendText} numberOfLines={1}>
-                  {isPickedUp ? "Now: rider to customer" : "Now: rider to restaurant"}
-                </Text>
-              </View>
-            ) : null}
-            {!isPickedUp && plannedDeliveryRoute.length > 1 ? (
-              <View style={styles.legendChip}>
-                <View style={styles.legendSecondaryLine} />
-                <Text style={styles.legendText} numberOfLines={1}>
-                  After pickup: restaurant to customer
-                </Text>
-              </View>
-            ) : null}
-            {!activePrimaryRoute.length && isPickedUp ? (
-              <View style={styles.legendChip}>
-                <View style={styles.legendSecondaryLine} />
-                <Text style={styles.legendText} numberOfLines={1}>
-                  Waiting for rider GPS
-                </Text>
-              </View>
-            ) : null}
-            {!activePrimaryRoute.length && !plannedDeliveryRoute.length && !isPickedUp ? (
-              <View style={styles.legendChip}>
-                <View style={styles.legendSecondaryLine} />
-                <Text style={styles.legendText} numberOfLines={1}>
-                  Waiting for route locations
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.metricsRow}>
-            <View style={[styles.metricCard, styles.metricRose]}>
-              <Text style={styles.metricLabel}>{activeLegLabel}</Text>
-              <Text style={styles.metricValue}>{formatDistanceLabel(currentLegDistanceKm)}</Text>
-            </View>
-            <View style={[styles.metricCard, styles.metricSky]}>
-              <Text style={styles.metricLabel}>ETA</Text>
-              <Text style={styles.metricValue}>{formatEtaLabel(displayedEtaMinutes)}</Text>
-            </View>
-            <View style={[styles.metricCard, styles.metricAmber]}>
-              <Text style={styles.metricLabel}>Sync</Text>
-              <View style={styles.syncSignalWrap}>
                 <View
                   style={[
-                    styles.syncSignalDot,
-                    syncState === "live"
-                      ? styles.syncSignalLive
-                      : syncState === "syncing"
-                        ? styles.syncSignalSyncing
-                        : styles.syncSignalOffline,
+                    styles.tripModeDot,
+                    isFocusedLiveTrip
+                      ? styles.tripModeDotLive
+                      : isPreviewOnlyRoute
+                        ? styles.tripModeDotPreview
+                        : styles.tripModeDotNeutral,
                   ]}
                 />
+                <Text
+                  style={[
+                    styles.tripModeText,
+                    isFocusedLiveTrip && styles.tripModeTextLive,
+                    isPreviewOnlyRoute && styles.tripModeTextPreview,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {tripModeLabel}
+                </Text>
               </View>
             </View>
-          </View>
-
-          {shouldShowTripSyncStatus && (syncState !== "live" || Boolean(trackingError) || queuedLocationCount > 0) ? (
-            <View style={styles.syncCard}>
-              <View style={styles.syncHeaderRow}>
-                <Text style={styles.syncTitle}>{detailCopy.currentSync}</Text>
-                <View
-                  style={[
-                    styles.syncStateBadge,
-                    syncState === "live"
-                      ? styles.syncStateBadgeLive
-                      : syncState === "syncing"
-                        ? styles.syncStateBadgeSyncing
-                        : styles.syncStateBadgeOffline,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.syncStateBadgeText,
-                      syncState === "live"
-                        ? styles.syncStateBadgeTextLive
-                        : syncState === "syncing"
-                          ? styles.syncStateBadgeTextSyncing
-                          : styles.syncStateBadgeTextOffline,
-                    ]}
-                  >
-                    {syncState === "live"
-                      ? copy.orderDetails.syncLive
-                      : syncState === "syncing"
-                        ? copy.orderDetails.syncSyncing
-                        : copy.orderDetails.syncOffline}
+            <View style={styles.summaryRow}>
+              <View
+                style={[
+                  styles.legIcon,
+                  isPickedUp ? styles.legIconCustomer : styles.legIconRestaurant,
+                ]}
+              >
+                <Ionicons
+                  name={isPickedUp ? "home" : "storefront"}
+                  size={18}
+                  color="#fff"
+                />
+              </View>
+              <View style={styles.summaryCopy}>
+                <View style={styles.summaryTitleRow}>
+                  <View style={[styles.summarySyncDot, syncDotStyle]} />
+                  <Text style={styles.summaryTitle} numberOfLines={1}>
+                    {activeLegLabel}
                   </Text>
                 </View>
+                <Text style={styles.summaryMeta} numberOfLines={1}>
+                  {destinationName}
+                  {!sheetExpanded ? `  ·  ${t.tapForDetails}` : ""}
+                </Text>
               </View>
-              <Text style={styles.syncText}>
-                {syncState === "live"
-                  ? copy.orderDetails.lastSync(syncTimestampLabel)
-                  : syncState === "syncing"
-                    ? copy.orderDetails.queuedWaiting(queuedLocationCount)
-                    : copy.orderDetails.queuedRetry(queuedLocationCount)}
-              </Text>
-              {trackingError ? <Text style={styles.errorText}>{trackingError}</Text> : null}
+              <View style={styles.priceBubble}>
+                <Text style={styles.priceBubbleLabel}>TOTAL</Text>
+                <Text style={styles.priceBubbleValue} numberOfLines={1}>
+                  {orderTotalLabel}
+                </Text>
+              </View>
             </View>
-          ) : null}
-        </View>
 
-        {!isNetworkOnline || (!riderCoordinate && !isPickedUp) || (isAssignmentsPaused && order.assignmentState === "unassigned") ? (
+            {renderPrimaryAction()}
+          </View>
+        }
+      >
+        {!isNetworkOnline ||
+        (!riderCoordinate && !isPickedUp) ||
+        (isAssignmentsPaused && order.assignmentState === "unassigned") ? (
           <View style={styles.warningCard}>
             <Ionicons name="warning-outline" size={18} color={palette.warningText} />
             <Text style={styles.warningText}>
               {!isNetworkOnline
-                ? reconnectTrackingLabel
+                ? t.reconnectTracking
                 : !riderCoordinate && !isPickedUp
-                ? copy.orderDetails.riderLocationWarning
-                : offlineAcceptWarning}
+                  ? copy.orderDetails.riderLocationWarning
+                  : offlineAcceptWarning}
             </Text>
           </View>
+        ) : null}
+
+        {showLiveTripActivation ? (
+          <Pressable
+            style={[styles.secondaryAction, isTrackingActivationDisabled && styles.buttonDisabled]}
+            onPress={handleActivateTracking}
+            disabled={isTrackingActivationDisabled}
+          >
+            {activateTrackingMutation.isPending ? (
+              <ActivityIndicator size="small" color={palette.primaryStrong} />
+            ) : (
+              <>
+                <Ionicons name="navigate-outline" size={18} color={palette.primaryStrong} />
+                <Text style={styles.secondaryActionText}>
+                  {!isNetworkOnline ? t.reconnect : copy.orderDetails.makeLiveTrip}
+                </Text>
+              </>
+            )}
+          </Pressable>
         ) : null}
 
         {deliveryDelayState ? (
@@ -1651,7 +1297,7 @@ export default function RiderOrderDetailsScreen() {
                 </Text>
               </View>
               <Text style={styles.deliveryDelayTime}>
-                {pickedUpElapsedMinutes ?? 0} min out
+                {pickedUpElapsedMinutes ?? 0} {t.minOut}
               </Text>
             </View>
             <View style={styles.deliveryDelayTrack}>
@@ -1671,12 +1317,12 @@ export default function RiderOrderDetailsScreen() {
               />
             </View>
             <Text style={styles.deliveryDelayText}>{deliveryDelayState.message}</Text>
-            {deliveryDelayState.level !== "watch" && (order.customer?.phone || supportPhone) ? (
+            {deliveryDelayState.level !== "watch" && (customerPhone || supportPhone) ? (
               <View style={styles.deliveryDelayActions}>
-                {order.customer?.phone ? (
+                {customerPhone ? (
                   <Pressable
                     style={[styles.deliveryDelayAction, styles.deliveryDelayActionPrimary]}
-                    onPress={() => Linking.openURL(`tel:${order.customer?.phone}`)}
+                    onPress={() => Linking.openURL(`tel:${customerPhone}`)}
                   >
                     <Ionicons name="call-outline" size={15} color="#fff" />
                     <Text style={styles.deliveryDelayActionPrimaryText}>Call customer</Text>
@@ -1696,6 +1342,85 @@ export default function RiderOrderDetailsScreen() {
           </View>
         ) : null}
 
+        <View style={styles.dualCardRow}>
+          <View style={styles.infoCard}>
+            <View style={styles.infoHeaderRow}>
+              <View style={styles.infoHeaderMain}>
+                <View style={[styles.infoIcon, styles.infoIconRestaurant]}>
+                  <Ionicons name="storefront-outline" size={16} color={palette.primary} />
+                </View>
+                <Text style={styles.infoSectionLabel} numberOfLines={1}>
+                  {copy.orderDetails.restaurantTitle}
+                </Text>
+              </View>
+              {restaurantPhone ? (
+                <Pressable
+                  style={styles.cardActionButton}
+                  onPress={() => Linking.openURL(`tel:${restaurantPhone}`)}
+                >
+                  <Ionicons name="call" size={14} color={palette.foreground} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Text style={styles.infoTitle} numberOfLines={1}>
+              {order.restaurant?.name ?? copy.common.restaurant}
+            </Text>
+            {restaurantPhone ? (
+              <View style={styles.infoPhoneRow}>
+                <Ionicons name="call-outline" size={13} color={palette.primary} />
+                <Text style={styles.infoPhoneText} numberOfLines={1}>
+                  {restaurantPhone}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={styles.infoText} numberOfLines={3}>
+              {order.restaurant?.address ?? "--"}
+            </Text>
+          </View>
+
+          <View style={styles.infoCard}>
+            <View style={styles.infoHeaderRow}>
+              <View style={styles.infoHeaderMain}>
+                <View style={[styles.infoIcon, styles.infoIconCustomer]}>
+                  <Ionicons name="person-outline" size={16} color={palette.secondary} />
+                </View>
+                <Text style={styles.infoSectionLabel} numberOfLines={1}>
+                  {copy.orderDetails.customerTitle}
+                </Text>
+              </View>
+              {customerPhone ? (
+                <Pressable
+                  style={styles.cardActionButton}
+                  onPress={() => Linking.openURL(`tel:${customerPhone}`)}
+                >
+                  <Ionicons name="call" size={14} color={palette.foreground} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Text style={styles.infoTitle} numberOfLines={1}>
+              {order.customer?.name ?? copy.common.customer}
+            </Text>
+            {customerPhone ? (
+              <View style={styles.infoPhoneRow}>
+                <Ionicons name="call-outline" size={13} color={palette.secondary} />
+                <Text style={styles.infoPhoneText} numberOfLines={1}>
+                  {customerPhone}
+                </Text>
+              </View>
+            ) : null}
+            <Text style={styles.infoText} numberOfLines={3}>
+              {order.customer?.deliveryAddress?.addressLine ??
+                order.customer?.deliveryAddress?.label ??
+                "--"}
+            </Text>
+            {order.customer?.deliveryAddress?.addressDetails ? (
+              <Text style={styles.infoText} numberOfLines={2}>
+                {order.customer.deliveryAddress.addressDetails}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
         <View style={styles.sectionCard}>
           <View style={styles.cardSectionHeader}>
             <Text style={styles.sectionTitle}>{copy.orderDetails.itemsTitle}</Text>
@@ -1704,44 +1429,39 @@ export default function RiderOrderDetailsScreen() {
             </View>
           </View>
           <View style={styles.orderSummaryStrip}>
-            <View style={[styles.orderSummaryBlock, styles.paymentSummaryBlock]}>
+            <View style={styles.paymentSummaryBlock}>
               <View style={styles.paymentSummaryHeader}>
                 <Ionicons name="wallet" size={14} color={palette.surface} />
-                <Text style={[styles.orderSummaryLabel, styles.orderSummaryLabelDark]}>Payment</Text>
+                <Text style={styles.orderSummaryLabelDark}>Payment</Text>
               </View>
-              <View
-                style={[
-                  styles.paymentMethodBadge,
-                  styles.paymentMethodBadgeDark,
-                ]}
-              >
+              <View style={styles.paymentMethodBadgeDark}>
                 <Ionicons name={paymentBadge.icon} size={14} color={palette.surface} />
-                <Text style={[styles.paymentMethodBadgeText, styles.paymentMethodBadgeTextDark]}>
-                  {paymentBadge.label}
-                </Text>
+                <Text style={styles.paymentMethodBadgeTextDark}>{paymentBadge.label}</Text>
               </View>
-              <Text style={[styles.paymentMethodHint, styles.paymentMethodHintDark]}>
-                {paymentMethodLabel}
-              </Text>
+              <Text style={styles.paymentMethodHintDark}>{paymentMethodLabel}</Text>
             </View>
             <View style={styles.orderSummaryDivider} />
-            <View style={[styles.orderSummaryBlock, styles.orderSummaryBlockRight]}>
-              <Text style={[styles.orderSummaryLabel, styles.orderSummaryLabelDark]}>Total</Text>
+            <View style={styles.orderSummaryBlockRight}>
+              <Text style={styles.orderSummaryLabelDark}>Total</Text>
               <Text style={styles.orderSummaryTotal}>{orderTotalLabel}</Text>
             </View>
           </View>
           <View style={styles.itemList}>
-            {itemRows.map((item: { name?: string; quantity?: number; totalPrice?: number }, index: number) => (
-              <View key={`${item.name}-${index}`} style={styles.itemRow}>
-                <View style={styles.itemQuantityPill}>
-                  <Text style={styles.itemQuantity}>{item.quantity ?? 1}x</Text>
+            {itemRows.map(
+              (item: { name?: string; quantity?: number; totalPrice?: number }, index: number) => (
+                <View key={`${item.name}-${index}`} style={styles.itemRow}>
+                  <View style={styles.itemQuantityPill}>
+                    <Text style={styles.itemQuantity}>{item.quantity ?? 1}x</Text>
+                  </View>
+                  <Text style={styles.itemName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  {typeof item.totalPrice === "number" ? (
+                    <Text style={styles.itemPrice}>Tk {Math.round(item.totalPrice)}</Text>
+                  ) : null}
                 </View>
-                <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
-                {typeof item.totalPrice === "number" ? (
-                  <Text style={styles.itemPrice}>Tk {Math.round(item.totalPrice)}</Text>
-                ) : null}
-              </View>
-            ))}
+              ),
+            )}
           </View>
         </View>
 
@@ -1753,143 +1473,66 @@ export default function RiderOrderDetailsScreen() {
             </View>
           </View>
           <View style={styles.timelineList}>
-            {timelineRows.map((entry: { status: string; createdAt: string | null }, index: number) => {
-              const timelineBadge = getOrderStatusBadge(entry.status);
-              const isLast = index === timelineRows.length - 1;
-              return (
-                <View key={`${entry.status}-${index}`} style={styles.timelineRow}>
-                  <View style={styles.timelineMarkerWrap}>
-                    <View style={[styles.timelineDot, { backgroundColor: timelineBadge.color }]} />
-                    {!isLast ? <View style={styles.timelineLine} /> : null}
-                  </View>
-                  <View style={styles.timelineCopyWrap}>
-                    <View
-                      style={[
-                        styles.timelineStatusChip,
-                        {
-                          backgroundColor: timelineBadge.backgroundColor,
-                          borderColor: timelineBadge.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.timelineStatus, { color: timelineBadge.color }]}>
-                        {timelineBadge.label}
+            {timelineRows.map(
+              (entry: { status: string; createdAt: string | null }, index: number) => {
+                const timelineBadge = getOrderStatusBadge(entry.status);
+                const isLast = index === timelineRows.length - 1;
+                return (
+                  <View key={`${entry.status}-${index}`} style={styles.timelineRow}>
+                    <View style={styles.timelineMarkerWrap}>
+                      <View style={[styles.timelineDot, { backgroundColor: timelineBadge.color }]} />
+                      {!isLast ? <View style={styles.timelineLine} /> : null}
+                    </View>
+                    <View style={styles.timelineCopyWrap}>
+                      <View
+                        style={[
+                          styles.timelineStatusChip,
+                          {
+                            backgroundColor: timelineBadge.backgroundColor,
+                            borderColor: timelineBadge.borderColor,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.timelineStatus, { color: timelineBadge.color }]}>
+                          {timelineBadge.label}
+                        </Text>
+                      </View>
+                      <Text style={styles.timelineMeta}>
+                        {formatDateTime(entry.createdAt)}
+                        {entry.createdAt ? ` - ${formatRelativeTime(entry.createdAt)}` : ""}
                       </Text>
                     </View>
-                    <Text style={styles.timelineMeta}>
-                      {formatDateTime(entry.createdAt)}
-                      {entry.createdAt ? ` - ${formatRelativeTime(entry.createdAt)}` : ""}
-                    </Text>
                   </View>
-                </View>
-              );
-            })}
+                );
+              },
+            )}
           </View>
         </View>
 
-        {isAcceptStep ? (
-          <Pressable
-            style={[styles.primaryAction, isAcceptDisabled && styles.buttonDisabled]}
-            onPress={handleAccept}
-            disabled={isAcceptDisabled}
-          >
-            {acceptMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />
-                <Text style={styles.primaryActionText}>
-                  {!isNetworkOnline ? reconnectActionLabel : copy.orderDetails.acceptOrder}
-                </Text>
-              </>
-            )}
-          </Pressable>
-        ) : null}
-
-        {isPickupStep ? (
-          <View style={styles.holdShell}>
-            <Text style={styles.holdTitle}>{copy.orderDetails.pickUpOrder}</Text>
-            <Pressable
-              style={[styles.holdButton, isPickupDisabled && styles.buttonDisabled]}
-              onPressIn={startPickupHold}
-              onPressOut={cancelHoldAction}
-              hitSlop={8}
-              pressRetentionOffset={{ top: 42, bottom: 42, left: 42, right: 42 }}
-              disabled={isPickupDisabled}
-            >
-              <View style={[styles.holdProgressFill, { width: `${holdProgress * 100}%` }]} />
-              <View style={styles.holdButtonContent}>
-                {pickupMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="bag-handle-outline" size={18} color="#fff" />
-                )}
-                <Text style={styles.holdButtonText}>
-                  {!isNetworkOnline ? reconnectActionLabel : copy.orderDetails.pickUpOrder}
-                </Text>
-              </View>
-            </Pressable>
+        {shouldShowTripSyncStatus && hasTrackingIssue ? (
+          <View style={styles.syncCard}>
+            <View style={styles.syncHeaderRow}>
+              <Text style={styles.syncTitle}>{syncStatusLabel}</Text>
+              <View style={[styles.summarySyncDot, syncDotStyle]} />
+            </View>
+            <Text style={styles.syncText}>
+              {trackingError || t.reconnectTracking}
+            </Text>
           </View>
         ) : null}
-
-        {order.status === "PickedUp" && !isFocusedLiveTrip ? (
-          <Pressable
-            style={[styles.secondaryAction, isTrackingActivationDisabled && styles.buttonDisabled]}
-            onPress={handleActivateTracking}
-            disabled={isTrackingActivationDisabled}
-          >
-            {activateTrackingMutation.isPending ? (
-              <ActivityIndicator size="small" color={palette.primaryStrong} />
-            ) : (
-              <>
-                <Ionicons name="navigate-outline" size={18} color={palette.primaryStrong} />
-                <Text style={styles.secondaryActionText}>
-                  {!isNetworkOnline ? reconnectActionLabel : copy.orderDetails.makeLiveTrip}
-                </Text>
-              </>
-            )}
-          </Pressable>
-        ) : null}
-
-        {order.status === "PickedUp" ? (
-          <View style={styles.holdShell}>
-            <Text style={styles.holdTitle}>{copy.orderDetails.holdToDeliver}</Text>
-            <Pressable
-              style={[styles.holdButton, isDeliverDisabled && styles.buttonDisabled]}
-              onPressIn={startDeliverHold}
-              onPressOut={cancelHoldAction}
-              hitSlop={8}
-              pressRetentionOffset={{ top: 42, bottom: 42, left: 42, right: 42 }}
-              disabled={isDeliverDisabled}
-            >
-              <View style={[styles.holdProgressFill, { width: `${holdProgress * 100}%` }]} />
-              <View style={styles.holdButtonContent}>
-                {deliverMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Ionicons name="checkmark-done-outline" size={18} color="#fff" />
-                )}
-                <Text style={styles.holdButtonText}>
-                  {!isNetworkOnline ? reconnectActionLabel : copy.orderDetails.holdToDeliver}
-                </Text>
-              </View>
-            </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+      </PersistentBottomSheet>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  root: {
     flex: 1,
     backgroundColor: palette.background,
   },
-  content: {
-    padding: 20,
-    paddingBottom: 32,
-    gap: 14,
+  safeArea: {
+    flex: 1,
+    backgroundColor: palette.background,
   },
   centered: {
     flex: 1,
@@ -1933,394 +1576,433 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: palette.surface,
   },
-  topRow: {
+
+  header: {
+    position: "absolute",
+    left: 16,
+    right: 16,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
+    zIndex: 20,
   },
-  topIdentityRow: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  backButton: {
+  headerButton: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  orderHeadingWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  topOrderId: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  orderStatusPill: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
-  orderStatusPillText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-  },
-  topOrderTime: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: palette.mutedForeground,
-  },
-  topStatusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-  },
-  topStatusBadgeOnline: {
-    backgroundColor: palette.successSoft,
-    borderColor: "#BFE6D1",
-  },
-  topStatusBadgeOffline: {
-    backgroundColor: "#F4EDE6",
-    borderColor: palette.border,
-  },
-  topStatusBadgeText: {
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  topStatusBadgeTextOnline: {
-    color: palette.success,
-  },
-  topStatusBadgeTextOffline: {
-    color: palette.mutedForeground,
-  },
-  mapCard: {
-    backgroundColor: palette.surface,
-    borderRadius: 18,
-    paddingTop: 16,
-    paddingBottom: 16,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-    overflow: "hidden",
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 16,
-  },
-  cardSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  sectionCountBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.surfaceMuted,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  sectionCountText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  mapModeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 18,
-    backgroundColor: palette.surfaceMuted,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  mapModeTextWrap: {
-    gap: 1,
-  },
-  mapModeLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: palette.mutedForeground,
-    textTransform: "uppercase",
-  },
-  mapModeValue: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: palette.primaryStrong,
-  },
-  mapShell: {
-    overflow: "hidden",
-  },
-  map: {
-    height: 372,
-  },
-  mapMarkerWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 40,
-    height: 40,
-  },
-  mapMarkerPin: {
-    width: 31,
-    height: 31,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: palette.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 5,
   },
-  mapMarkerRestaurant: {
-    backgroundColor: palette.primary,
-  },
-  mapMarkerCustomer: {
-    backgroundColor: palette.secondary,
-  },
-  mapMarkerRider: {
-    backgroundColor: palette.foreground,
-  },
-  mapActionDock: {
-    position: "absolute",
-    right: 12,
-    top: 12,
-    gap: 8,
-    alignItems: "flex-end",
-  },
-  mapUtilityButton: {
-    minHeight: 34,
+  headerCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    height: 44,
     paddingHorizontal: 10,
+    borderRadius: 22,
+    backgroundColor: palette.surface,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  headerTrackingPill: {
+    maxWidth: 176,
+    minHeight: 30,
     borderRadius: 999,
-    backgroundColor: palette.foreground,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-  mapUtilityButtonText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  mapLegendRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingHorizontal: 16,
-  },
-  legendChip: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    minHeight: 32,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 999,
+    borderWidth: 1,
     backgroundColor: palette.surfaceMuted,
+    borderColor: palette.border,
   },
-  legendPrimaryLine: {
-    width: 18,
-    height: 0,
-    borderTopWidth: 4,
-    borderStyle: "dashed",
-    borderColor: palette.secondary,
+  headerTrackingPillLive: {
+    backgroundColor: palette.successSoft,
+    borderColor: "rgba(20,152,91,0.22)",
   },
-  legendSecondaryLine: {
-    width: 18,
-    height: 0,
-    borderTopWidth: 4,
-    borderStyle: "dashed",
-    borderColor: palette.amber,
+  headerTrackingPillPreview: {
+    backgroundColor: palette.infoSoft,
+    borderColor: "rgba(93,139,255,0.24)",
   },
-  legendText: {
-    flex: 1,
+  headerTrackingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+  },
+  headerTrackingDotLive: {
+    backgroundColor: palette.success,
+  },
+  headerTrackingDotPreview: {
+    backgroundColor: palette.info,
+  },
+  headerTrackingDotNeutral: {
+    backgroundColor: palette.amber,
+  },
+  headerTrackingText: {
+    flexShrink: 1,
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "700",
+    fontWeight: "800",
     color: palette.foreground,
   },
-  perspectiveHint: {
-    fontSize: 12,
-    color: palette.mutedForeground,
+  headerTrackingTextLive: {
+    color: palette.successText,
   },
-  metricsRow: {
+  headerTrackingTextPreview: {
+    color: palette.info,
+  },
+  headerStatusOnly: {
+    minWidth: 86,
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  headerStatusOnlyText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+  },
+
+  mapContactCard: {
+    position: "absolute",
+    left: 16,
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 16,
+    maxWidth: 116,
+    borderRadius: 18,
+    padding: 8,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(31,36,48,0.08)",
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.95,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    zIndex: 18,
   },
-  metricCard: {
-    flex: 1,
-    minHeight: 58,
+  mapContactButton: {
+    width: 46,
+    height: 46,
     borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+    position: "relative",
+  },
+  mapContactIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapContactIconCustomer: {
+    backgroundColor: "#FFEAF2",
+  },
+  mapContactIconRestaurant: {
+    backgroundColor: palette.primarySoft,
+  },
+  mapContactCallBadge: {
+    position: "absolute",
+    right: 4,
+    bottom: 4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.foreground,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  mapMetricsCard: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "rgba(31,36,48,0.94)",
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.9,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    zIndex: 18,
+  },
+  mapMetricBlock: {
+    minWidth: 58,
+    alignItems: "center",
+    gap: 2,
+  },
+  mapMetricDivider: {
+    width: 1,
+    height: 30,
+    marginHorizontal: 10,
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  mapMetricLabel: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontWeight: "900",
+    color: "rgba(255,255,255,0.58)",
+  },
+  mapMetricValue: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: "900",
+    color: "#fff",
+  },
+
+  peek: {
+    paddingHorizontal: 18,
+    paddingTop: 2,
+    gap: 10,
+  },
+  peekTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  peekOrderRow: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  peekOrderLabel: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    color: palette.primary,
+    textTransform: "uppercase",
+  },
+  peekOrderValue: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  tripModeChip: {
+    maxWidth: 150,
+    minHeight: 30,
+    borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 9,
-    gap: 3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: palette.surfaceMuted,
     borderWidth: 1,
     borderColor: palette.border,
   },
-  metricRose: {
-    backgroundColor: "#FFF0F6",
-    borderColor: "#FFCEE0",
+  tripModeChipLive: {
+    backgroundColor: palette.successSoft,
+    borderColor: "rgba(20,152,91,0.2)",
   },
-  metricSky: {
-    backgroundColor: "#FFF9E6",
-    borderColor: "#FDE68A",
-  },
-  metricAmber: {
+  tripModeChipPreview: {
     backgroundColor: palette.infoSoft,
-    borderColor: "#C8D4FF",
+    borderColor: "rgba(93,139,255,0.22)",
   },
-  metricLabel: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "800",
-    color: palette.mutedForeground,
-    textTransform: "uppercase",
-  },
-  metricValue: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  syncSignalWrap: {
-    height: 20,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  syncSignalDot: {
-    width: 16,
-    height: 16,
+  tripModeDot: {
+    width: 7,
+    height: 7,
     borderRadius: 999,
-    borderWidth: 3,
-    borderColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
-  syncSignalLive: {
+  tripModeDotLive: {
     backgroundColor: palette.success,
   },
-  syncSignalSyncing: {
+  tripModeDotPreview: {
+    backgroundColor: palette.info,
+  },
+  tripModeDotNeutral: {
     backgroundColor: palette.amber,
   },
-  syncSignalOffline: {
-    backgroundColor: palette.danger,
-  },
-  etaCard: {
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 14,
-    gap: 4,
-    backgroundColor: palette.surfaceMuted,
-  },
-  etaLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: palette.mutedForeground,
-    textTransform: "uppercase",
-  },
-  etaValue: {
-    fontSize: 20,
-    fontWeight: "800",
+  tripModeText: {
+    flexShrink: 1,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
     color: palette.foreground,
   },
-  etaMeta: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: palette.mutedForeground,
-  },
-  syncCard: {
-    marginHorizontal: 16,
-    borderRadius: 16,
-    padding: 14,
-    gap: 6,
-    backgroundColor: palette.surfaceMuted,
-  },
-  syncHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  syncTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  syncStateBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  syncStateBadgeLive: {
-    backgroundColor: palette.successSurface,
-  },
-  syncStateBadgeSyncing: {
-    backgroundColor: "#EAF1FF",
-  },
-  syncStateBadgeOffline: {
-    backgroundColor: palette.warningSurface,
-  },
-  syncStateBadgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  syncStateBadgeTextLive: {
+  tripModeTextLive: {
     color: palette.successText,
   },
-  syncStateBadgeTextSyncing: {
-    color: palette.sky,
+  tripModeTextPreview: {
+    color: palette.info,
   },
-  syncStateBadgeTextOffline: {
-    color: palette.warningText,
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
-  syncText: {
+  legIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  legIconRestaurant: {
+    backgroundColor: palette.primary,
+  },
+  legIconCustomer: {
+    backgroundColor: palette.secondary,
+  },
+  summaryCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  summaryTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  summarySyncDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+  },
+  syncDotLive: {
+    backgroundColor: palette.success,
+  },
+  syncDotSyncing: {
+    backgroundColor: palette.amber,
+  },
+  syncDotOffline: {
+    backgroundColor: palette.danger,
+  },
+  summaryTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  summaryMeta: {
     fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
     color: palette.mutedForeground,
-    lineHeight: 18,
   },
-  errorText: {
-    fontSize: 12,
-    color: "#DC2626",
-    lineHeight: 18,
+  priceBubble: {
+    minWidth: 96,
+    maxWidth: 118,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.foreground,
   },
+  priceBubbleLabel: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.7)",
+    textTransform: "uppercase",
+  },
+  priceBubbleValue: {
+    maxWidth: 98,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  acceptButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: palette.primary,
+  },
+  acceptButtonText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  holdButton: {
+    overflow: "hidden",
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: palette.primaryStrong,
+    justifyContent: "center",
+  },
+  holdButtonDeliver: {
+    backgroundColor: palette.success,
+  },
+  holdProgressFill: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "rgba(255,255,255,0.26)",
+  },
+  holdProgressFillDeliver: {
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  holdButtonContent: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  holdButtonText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  buttonDisabled: {
+    opacity: 0.65,
+  },
+
+  secondaryAction: {
+    minHeight: 50,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  secondaryActionText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: palette.primaryStrong,
+  },
+
   warningCard: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 14,
     backgroundColor: palette.warningSurface,
   },
@@ -2331,8 +2013,9 @@ const styles = StyleSheet.create({
     color: palette.warningText,
     fontWeight: "700",
   },
+
   deliveryDelayCard: {
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 14,
     gap: 10,
     borderWidth: 1,
@@ -2428,25 +2111,18 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#fff",
   },
+
   dualCardRow: {
     flexDirection: "row",
     gap: 12,
   },
-  infoCardHalf: {
+  infoCard: {
     flex: 1,
     minWidth: 0,
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 12,
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
-    backgroundColor: palette.surface,
-    borderColor: palette.border,
-  },
-  infoCardRestaurant: {
-    backgroundColor: palette.surface,
-    borderColor: palette.border,
-  },
-  infoCardCustomer: {
     backgroundColor: palette.surface,
     borderColor: palette.border,
   },
@@ -2464,37 +2140,17 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   infoIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 11,
+    width: 28,
+    height: 28,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.surfaceMuted,
   },
   infoIconRestaurant: {
     backgroundColor: palette.primarySoft,
   },
   infoIconCustomer: {
-    backgroundColor: palette.infoSoft,
-  },
-  infoTitle: {
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  infoText: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: palette.mutedForeground,
-  },
-  cardActionButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.surfaceMuted,
+    backgroundColor: "#FFEAF2",
   },
   infoSectionLabel: {
     flex: 1,
@@ -2504,22 +2160,82 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.foreground,
   },
+  cardActionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
+  },
+  infoTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  infoPhoneRow: {
+    minHeight: 22,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  infoPhoneText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  infoText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: palette.mutedForeground,
+  },
+
   sectionCard: {
     backgroundColor: palette.surface,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
+    padding: 14,
     gap: 12,
     borderWidth: 1,
     borderColor: palette.border,
   },
-  sectionBadge: {
+  cardSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  sectionCountBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  sectionCountText: {
     fontSize: 12,
-    fontWeight: "700",
-    color: palette.primary,
+    fontWeight: "800",
+    color: palette.foreground,
   },
   orderSummaryStrip: {
     minHeight: 76,
-    borderRadius: 17,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     backgroundColor: palette.foreground,
@@ -2529,17 +2245,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
-  orderSummaryBlock: {
+  paymentSummaryBlock: {
     flex: 1,
     minWidth: 0,
-    gap: 3,
-  },
-  paymentSummaryBlock: {
-    alignSelf: "stretch",
-    borderRadius: 14,
-    backgroundColor: "transparent",
-    paddingHorizontal: 0,
-    paddingVertical: 0,
     justifyContent: "center",
     gap: 6,
   },
@@ -2548,32 +2256,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-  orderSummaryBlockRight: {
-    alignItems: "flex-end",
-    justifyContent: "center",
-  },
-  orderSummaryDivider: {
-    width: 1,
-    alignSelf: "stretch",
-    backgroundColor: "rgba(255,255,255,0.16)",
-  },
-  orderSummaryLabel: {
+  orderSummaryLabelDark: {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "800",
-    color: palette.mutedForeground,
+    color: "rgba(255,255,255,0.7)",
     textTransform: "uppercase",
   },
-  orderSummaryLabelDark: {
-    color: "rgba(255,255,255,0.7)",
-  },
-  orderSummaryValue: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  paymentMethodBadge: {
+  paymentMethodBadgeDark: {
     alignSelf: "flex-start",
     borderRadius: 11,
     borderWidth: 1,
@@ -2582,26 +2272,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-  },
-  paymentMethodBadgeDark: {
     backgroundColor: "rgba(255,255,255,0.14)",
     borderColor: "rgba(255,255,255,0.28)",
   },
-  paymentMethodBadgeText: {
+  paymentMethodBadgeTextDark: {
     fontSize: 11,
     fontWeight: "900",
-  },
-  paymentMethodBadgeTextDark: {
     color: palette.surface,
   },
-  paymentMethodHint: {
+  paymentMethodHintDark: {
     marginTop: 3,
     fontSize: 10,
     fontWeight: "700",
-    color: palette.mutedForeground,
-  },
-  paymentMethodHintDark: {
     color: "rgba(255,255,255,0.72)",
+  },
+  orderSummaryDivider: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  orderSummaryBlockRight: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: "flex-end",
+    justifyContent: "center",
   },
   orderSummaryTotal: {
     fontSize: 24,
@@ -2698,71 +2392,31 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: palette.mutedForeground,
   },
-  primaryAction: {
-    minHeight: 56,
-    borderRadius: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: palette.primaryStrong,
-  },
-  primaryActionText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  secondaryAction: {
-    minHeight: 56,
-    borderRadius: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+  syncCard: {
+    borderRadius: 16,
+    padding: 14,
+    gap: 6,
     backgroundColor: palette.surfaceMuted,
   },
-  secondaryActionText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: palette.primaryStrong,
-  },
-  buttonDisabled: {
-    opacity: 0.72,
-  },
-  holdShell: {
-    gap: 12,
-    borderRadius: 24,
-    padding: 16,
-    backgroundColor: palette.primaryStrong,
-  },
-  holdTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  holdButton: {
-    overflow: "hidden",
-    minHeight: 58,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  holdProgressFill: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: palette.secondary,
-  },
-  holdButtonContent: {
-    minHeight: 58,
+  syncHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
+    justifyContent: "space-between",
+    gap: 12,
   },
-  holdButtonText: {
-    fontSize: 16,
+  syncTitle: {
+    fontSize: 13,
     fontWeight: "800",
-    color: "#fff",
+    color: palette.foreground,
+  },
+  syncText: {
+    fontSize: 12,
+    color: palette.mutedForeground,
+    lineHeight: 18,
+  },
+  errorText: {
+    fontSize: 12,
+    color: "#DC2626",
+    lineHeight: 18,
   },
 });

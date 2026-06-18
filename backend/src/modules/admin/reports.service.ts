@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 
 import { RestaurantModel, RiderModel } from "../auth/auth.model";
 import { CustomerModel, VoucherRedemptionModel } from "../customer/customer.model";
+import { CustomerAnalyticsEventModel } from "../customer/customer-analytics.model";
 import { LedgerEntryModel } from "../owner/finance.model";
 import { aggregateFinalizedLedgerEntries } from "../owner/finance.service";
 import { ReviewModel } from "../owner/experience.model";
@@ -250,6 +251,15 @@ export async function getAdminReports(params: ReportParams) {
       : range.start;
   const payrollMonths = monthKeysBetween(range.start, range.end);
 
+  // Active-user windows are fixed (today / trailing 30 days) regardless of the
+  // selected report range, so DAU/MAU stay meaningful on every preset.
+  const activeUsersNow = new Date();
+  const activeUsersTodayStart = startOfDay(activeUsersNow);
+  const activeUsersMonthStart = new Date(activeUsersNow.getTime() - 29 * DAY_MS);
+  const analyticsCustomerScope = scopedCustomerIds
+    ? { customerId: { $in: scopedCustomerIds } }
+    : { customerId: { $type: "string", $ne: "" } };
+
   const [
     deliveredRows,
     previousDeliveredRows,
@@ -273,6 +283,9 @@ export async function getAdminReports(params: ReportParams) {
     activeRestaurants,
     reviewRows,
     payrollCycles,
+    activeUsersTodayIds,
+    activeUsersMonthIds,
+    repeatCustomerRows,
   ] = await Promise.all([
     OrderModel.aggregate<Record<string, any>>([
       { $match: { status: "Delivered", ...orderScopeFilter } },
@@ -624,7 +637,44 @@ export async function getAdminReports(params: ReportParams) {
           paidAt: { $gte: range.start, $lte: range.end },
           ...(scopedRiderObjectIds ? { riderId: { $in: scopedRiderObjectIds } } : {}),
         }).lean(),
+    CustomerAnalyticsEventModel.distinct("customerId", {
+      ...analyticsCustomerScope,
+      occurredAt: { $gte: activeUsersTodayStart },
+    }),
+    CustomerAnalyticsEventModel.distinct("customerId", {
+      ...analyticsCustomerScope,
+      occurredAt: { $gte: activeUsersMonthStart },
+    }),
+    OrderModel.aggregate<Record<string, any>>([
+      { $match: { status: "Delivered", ...orderScopeFilter } },
+      { $addFields: { reportDeliveredAt: deliveredDate } },
+      { $match: rangeMatchOn("reportDeliveredAt", range.start, range.end) },
+      { $group: { _id: "$customerId", orders: { $sum: 1 } } },
+      {
+        $group: {
+          _id: null,
+          orderingCustomers: { $sum: 1 },
+          repeatCustomers: {
+            $sum: { $cond: [{ $gte: ["$orders", 2] }, 1, 0] },
+          },
+        },
+      },
+    ]),
   ]);
+
+  const activeUsersToday = Array.isArray(activeUsersTodayIds)
+    ? activeUsersTodayIds.filter(Boolean).length
+    : 0;
+  const activeUsersMonth = Array.isArray(activeUsersMonthIds)
+    ? activeUsersMonthIds.filter(Boolean).length
+    : 0;
+  const repeatStats = repeatCustomerRows[0] ?? {};
+  const orderingCustomers = numberValue(repeatStats.orderingCustomers);
+  const repeatCustomers = numberValue(repeatStats.repeatCustomers);
+  const repeatRate =
+    orderingCustomers > 0
+      ? Math.round((repeatCustomers / orderingCustomers) * 1000) / 10
+      : 0;
 
   const delivered = deliveredRows[0] ?? {};
   const previousDelivered = previousDeliveredRows[0] ?? {};
@@ -706,6 +756,11 @@ export async function getAdminReports(params: ReportParams) {
       estimatedPlatformMargin,
       newCustomers,
       totalCustomers,
+      activeUsersToday,
+      activeUsersMonth,
+      orderingCustomers,
+      repeatCustomers,
+      repeatRate,
       activeRestaurants,
       averageServiceMinutes: Number(numberValue(delivered.averageServiceMinutes).toFixed(1)),
       reviewCount: numberValue(reviews.count),

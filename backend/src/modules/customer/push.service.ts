@@ -226,8 +226,8 @@ function normalizeCustomerPushPayload(payload: CustomerPushPayload): CustomerPus
   if (type === "rider_near") {
     return {
       ...payload,
-      title: "📍 Rider is nearby",
-      body: stripVisibleOrderReferences(payload.body || "Your rider is getting close."),
+      title: "Deliveryman nearby",
+      body: stripVisibleOrderReferences(payload.body || "Your deliveryman is getting close."),
       data
     }
   }

@@ -270,7 +270,7 @@ export function getInitialVoucherFormState(): VoucherFormState {
   return {
     name: "",
     code: "",
-    mode: "auto",
+    mode: "coupon",
     type: "flat",
     discountValue: "",
     minimumOrderAmount: "",

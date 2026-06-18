@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Read(//d/d/cloudee/backend/**)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(grep -n \"import { cn }\\\\|from \\\\\"@/lib/utils\\\\\"\\\\|Badge,\\\\|{ Badge }\\\\|import { Badge\" admin-web/src/components/users-page.tsx)",
+      "Bash(cd /d/cloudee && echo \"=== AdminDateRangeFilter props ===\" && sed -n '1,60p' admin-web/src/components/admin-date-range-filter.tsx | grep -n \"props\\\\|preset\\\\|from\\\\|to\\\\|onChange\\\\|export function\\\\|type.*Props\\\\|value\\\\|onPreset\" && echo \"\" && echo \"=== zone scope helper ===\" && grep -n \"export function getAdminZoneScopeQueryParams\\\\|export function getAdminZoneScope\\\\b\" admin-web/src/lib/admin-zone-scope.ts)",
+      "Read(//d/d/cloudee/admin-web/src/components/**)",
+      "Bash(cd /d/cloudee/restaurant-owner-app && grep -n \"menu\\\\|recommend\\\\|setQueriesData\\\\|invalidate\\\\|\\\\.on\\(\" src/components/owner-socket-bridge.tsx | head -30)",
+      "Read(//d/d/cloudee/restaurant-owner-app/src/components/**)",
+      "Bash(npx tsc *)"
     ]
   }
 }

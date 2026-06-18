@@ -230,6 +230,7 @@ export const platformContent = {
           maxItems: 6,
           position: 1,
           layout: "horizontal",
+          allowRepeatAcrossSections: true,
         },
         offers: {
           isActive: true,
@@ -240,6 +241,7 @@ export const platformContent = {
           maxItems: 8,
           position: 2,
           layout: "horizontal",
+          allowRepeatAcrossSections: true,
         },
         discoverNew: {
           isActive: true,
@@ -250,6 +252,7 @@ export const platformContent = {
           maxItems: 6,
           position: 3,
           layout: "horizontal",
+          allowRepeatAcrossSections: true,
         },
         popularNearYou: {
           isActive: true,
@@ -260,6 +263,7 @@ export const platformContent = {
           maxItems: 6,
           position: 4,
           layout: "horizontal",
+          allowRepeatAcrossSections: true,
         },
         nearby: {
           isActive: true,
@@ -270,6 +274,7 @@ export const platformContent = {
           maxItems: 8,
           position: 5,
           layout: "vertical",
+          allowRepeatAcrossSections: true,
         },
       },
       cartRecommendations: {
@@ -384,6 +389,144 @@ export const platformContent = {
       surchargeStartsAfterKm: 2,
       surchargeStepMeters: 500,
       surchargeAmountTaka: 5,
+    },
+    routing: {
+      // "google" = real road distance/time/ETA + route polyline via Google
+      // Directions API; "haversine" = straight-line distance + speed estimate.
+      provider: "google",
+      // Average road speed used to estimate ETA when on Haversine (or as the
+      // fallback when a Google route is unavailable).
+      fallbackSpeedKmph: 22,
+      // Added to travel time to account for pickup/handoff.
+      pickupBufferMinutes: 5,
+      // Controls how aggressively Google Directions is refreshed after the
+      // initial route. Economy saves cost, precision refreshes more often.
+      costMode: "balanced",
+      // Hard cap for this single backend instance. Count resets on the first
+      // day of each Bangladesh-local month.
+      googleMonthlyLimit: 10000,
+      // Per-order cap across pickup, delivery, customer tracking, and live
+      // rider refreshes.
+      maxGoogleCallsPerOrder: 5,
+      // How long an in-memory route session is trusted before it can refresh.
+      routeSessionTtlMinutes: 45,
+      // Minimum gap between automatic reroutes for the same order leg.
+      rerouteCooldownSeconds: 180,
+      // Rider must be this far from the cached route before off-route logic
+      // starts counting strikes.
+      offRouteThresholdMeters: 90,
+      // Consecutive off-route updates required before a reroute is allowed.
+      offRouteConsecutiveUpdates: 3,
+      // Optional periodic live refresh. Set 0 to disable.
+      periodicRefreshMinutes: 5,
+      // Near the customer, keep the cached route and use direct final approach
+      // distance to avoid expensive/odd reroutes on tiny lanes.
+      nearDestinationMeters: 220,
+    },
+    mapStyles: {
+      styles: [
+        {
+          id: "app_default",
+          name: "Google default map",
+          description:
+            "Uses the native Google map design without any custom JSON styling.",
+          isActive: true,
+          styleJson: [],
+        },
+        {
+          id: "foodbela_clean",
+          name: "Foodbela clean",
+          description:
+            "Bright delivery map with clear roads, soft land colors, and hidden POI clutter.",
+          isActive: true,
+          styleJson: [
+            { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+            { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+            { featureType: "poi.school", stylers: [{ visibility: "off" }] },
+            { featureType: "poi.medical", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] },
+            { featureType: "administrative", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+            { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.35 }] },
+            { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F9FBF7" }] },
+            { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#DCE4EC" }] },
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F7A8C9" }] },
+            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+            { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+            { featureType: "water", stylers: [{ color: "#99D8EF" }] },
+            { featureType: "landscape", stylers: [{ color: "#EAF4E4" }] },
+            { featureType: "landscape.man_made", stylers: [{ color: "#F3EEE6" }] },
+          ],
+        },
+        {
+          id: "night_mode",
+          name: "Night mode",
+          description:
+            "Dark map for evening operations with visible roads and muted labels.",
+          isActive: true,
+          styleJson: [
+            { elementType: "geometry", stylers: [{ color: "#1F2937" }] },
+            { elementType: "labels.text.fill", stylers: [{ color: "#D1D5DB" }] },
+            { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
+            { featureType: "poi", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] },
+            { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
+            { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#DB2777" }] },
+            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#F3F4F6" }] },
+            { featureType: "water", stylers: [{ color: "#0F3A4A" }] },
+            { featureType: "landscape", stylers: [{ color: "#172033" }] },
+            { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+          ],
+        },
+        {
+          id: "high_visibility",
+          name: "High visibility",
+          description:
+            "High contrast roads and labels for outdoor sunlight and low-end screens.",
+          isActive: true,
+          styleJson: [
+            { featureType: "poi", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] },
+            { elementType: "labels.text.fill", stylers: [{ color: "#111827" }] },
+            { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }, { weight: 4 }] },
+            { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.8 }] },
+            { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F8FAFC" }] },
+            { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#CBD5E1" }] },
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF2B85" }] },
+            { featureType: "water", stylers: [{ color: "#7DD3FC" }] },
+            { featureType: "landscape", stylers: [{ color: "#ECFDF5" }] },
+            { featureType: "landscape.man_made", stylers: [{ color: "#F8FAFC" }] },
+          ],
+        },
+        {
+          id: "minimal_tracking",
+          name: "Minimal tracking",
+          description:
+            "Very quiet map focused on route, rider, customer, and essential road shapes.",
+          isActive: true,
+          styleJson: [
+            { featureType: "poi", stylers: [{ visibility: "off" }] },
+            { featureType: "transit", stylers: [{ visibility: "off" }] },
+            { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
+            { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+            { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+            { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F3F4F6" }] },
+            { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#E5E7EB" }] },
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F9A8D4" }] },
+            { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#475569" }] },
+            { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+            { featureType: "water", stylers: [{ color: "#BAE6FD" }] },
+            { featureType: "landscape", stylers: [{ color: "#F7F7F2" }] },
+          ],
+        },
+      ],
+      assignments: {
+        default: "app_default",
+        "customer.location_picker": "app_default",
+        "customer.order_tracking": "app_default",
+        "delivery.order_details": "app_default",
+        "delivery.map_tab": "app_default",
+      },
     },
     liveTracking: {
       mode: "balanced",

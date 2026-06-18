@@ -48,6 +48,14 @@ const staticPageDefinitions = {
     priority: "0.75",
     changefreq: "monthly",
   },
+  privacyPolicy: {
+    path: "/privacy-policy",
+    title: "Privacy Policy | Foodbela",
+    description:
+      "Read how Foodbela collects, uses, shares, protects, and deletes customer app data including account, location, order, payment, support, analytics, and notification data.",
+    priority: "0.45",
+    changefreq: "monthly",
+  },
   areas: {
     path: "/areas",
     title: "Foodbela Service Areas | Local food delivery coverage",

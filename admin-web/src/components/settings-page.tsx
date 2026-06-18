@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BarChart3,
   Ban,
   ChevronDown,
   Coins,
@@ -11,10 +12,14 @@ import {
   CreditCard,
   Gift,
   Info,
+  Paintbrush,
+  Plus,
   RefreshCcw,
+  Route,
   Save,
   Settings,
   ShieldCheck,
+  Trash2,
   Truck,
   Unlock,
 } from "lucide-react"
@@ -29,6 +34,7 @@ import {
   upsertAdminOtpBlock,
 } from "@/lib/admin-api"
 import {
+  getAdminRoutingUsageAnalytics,
   getAdminPlatformSettings,
   updateAdminPlatformSettings,
   type AdminPlatformSettings,
@@ -101,6 +107,196 @@ const defaultOwnerAppSettings: PlatformContent["operations"]["ownerApp"] = {
   showCustomerPhoneNumbers: true,
 }
 
+const defaultRoutingSettings: PlatformContent["operations"]["routing"] = {
+  provider: "google",
+  fallbackSpeedKmph: 22,
+  pickupBufferMinutes: 5,
+  costMode: "balanced",
+  googleMonthlyLimit: 10000,
+  maxGoogleCallsPerOrder: 5,
+  routeSessionTtlMinutes: 45,
+  rerouteCooldownSeconds: 180,
+  offRouteThresholdMeters: 90,
+  offRouteConsecutiveUpdates: 3,
+  periodicRefreshMinutes: 5,
+  nearDestinationMeters: 220,
+}
+
+const MAP_STYLE_SCREEN_ASSIGNMENTS = [
+  {
+    key: "customer.location_picker",
+    label: "Customer location picker",
+    description: "Map picker where customers choose their delivery address.",
+  },
+  {
+    key: "customer.order_tracking",
+    label: "Customer live order",
+    description: "Live delivery tracking inside customer order details.",
+  },
+  {
+    key: "delivery.order_details",
+    label: "Rider order details",
+    description: "Route map inside rider order details.",
+  },
+  {
+    key: "delivery.map_tab",
+    label: "Rider map tab",
+    description: "Fleet pickup map in the delivery app.",
+  },
+] as const
+
+const BUILT_IN_MAP_STYLE_ID = "app_default"
+
+const defaultMapStyleSettings: PlatformContent["operations"]["mapStyles"] = {
+  styles: [
+    {
+      id: BUILT_IN_MAP_STYLE_ID,
+      name: "Google default map",
+      description:
+        "Uses the native Google map design without any custom JSON styling.",
+      isActive: true,
+      styleJson: [],
+    },
+    {
+      id: "foodbela_clean",
+      name: "Foodbela clean",
+      description:
+        "Bright delivery map with clear roads, soft land colors, and hidden POI clutter.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.school", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.medical", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "administrative", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.35 }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F9FBF7" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#DCE4EC" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F7A8C9" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "water", stylers: [{ color: "#99D8EF" }] },
+        { featureType: "landscape", stylers: [{ color: "#EAF4E4" }] },
+        { featureType: "landscape.man_made", stylers: [{ color: "#F3EEE6" }] },
+      ],
+    },
+    {
+      id: "night_mode",
+      name: "Night mode",
+      description:
+        "Dark map for evening operations with visible roads and muted labels.",
+      isActive: true,
+      styleJson: [
+        { elementType: "geometry", stylers: [{ color: "#1F2937" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#D1D5DB" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#DB2777" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#F3F4F6" }] },
+        { featureType: "water", stylers: [{ color: "#0F3A4A" }] },
+        { featureType: "landscape", stylers: [{ color: "#172033" }] },
+        { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+      ],
+    },
+    {
+      id: "high_visibility",
+      name: "High visibility",
+      description:
+        "High contrast roads and labels for outdoor sunlight and low-end screens.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#111827" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }, { weight: 4 }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.8 }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F8FAFC" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#CBD5E1" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF2B85" }] },
+        { featureType: "water", stylers: [{ color: "#7DD3FC" }] },
+        { featureType: "landscape", stylers: [{ color: "#ECFDF5" }] },
+        { featureType: "landscape.man_made", stylers: [{ color: "#F8FAFC" }] },
+      ],
+    },
+    {
+      id: "minimal_tracking",
+      name: "Minimal tracking",
+      description:
+        "Very quiet map focused on route, rider, customer, and essential road shapes.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F3F4F6" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#E5E7EB" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F9A8D4" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#475569" }] },
+        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "water", stylers: [{ color: "#BAE6FD" }] },
+        { featureType: "landscape", stylers: [{ color: "#F7F7F2" }] },
+      ],
+    },
+  ],
+  assignments: {
+    default: BUILT_IN_MAP_STYLE_ID,
+    ...Object.fromEntries(
+      MAP_STYLE_SCREEN_ASSIGNMENTS.map((screen) => [
+        screen.key,
+        BUILT_IN_MAP_STYLE_ID,
+      ])
+    ),
+  },
+}
+
+const routingModePresets: Record<
+  PlatformContent["operations"]["routing"]["costMode"],
+  Pick<
+    PlatformContent["operations"]["routing"],
+    | "maxGoogleCallsPerOrder"
+    | "routeSessionTtlMinutes"
+    | "rerouteCooldownSeconds"
+    | "offRouteThresholdMeters"
+    | "offRouteConsecutiveUpdates"
+    | "periodicRefreshMinutes"
+    | "nearDestinationMeters"
+  >
+> = {
+  economy: {
+    maxGoogleCallsPerOrder: 3,
+    routeSessionTtlMinutes: 60,
+    rerouteCooldownSeconds: 300,
+    offRouteThresholdMeters: 120,
+    offRouteConsecutiveUpdates: 4,
+    periodicRefreshMinutes: 0,
+    nearDestinationMeters: 260,
+  },
+  balanced: {
+    maxGoogleCallsPerOrder: 5,
+    routeSessionTtlMinutes: 45,
+    rerouteCooldownSeconds: 180,
+    offRouteThresholdMeters: 90,
+    offRouteConsecutiveUpdates: 3,
+    periodicRefreshMinutes: 5,
+    nearDestinationMeters: 220,
+  },
+  precision: {
+    maxGoogleCallsPerOrder: 8,
+    routeSessionTtlMinutes: 30,
+    rerouteCooldownSeconds: 90,
+    offRouteThresholdMeters: 60,
+    offRouteConsecutiveUpdates: 2,
+    periodicRefreshMinutes: 3,
+    nearDestinationMeters: 180,
+  },
+}
+
 const defaultPaymentSettings: PlatformContent["operations"]["payments"] = {
   cashOnDeliveryEnabled: true,
   bkashEnabled: false,
@@ -160,6 +356,63 @@ function ensureOwnerAppSettings(content: PlatformContent) {
   return content.operations.ownerApp
 }
 
+function ensureRoutingSettings(content: PlatformContent) {
+  content.operations.routing = {
+    ...defaultRoutingSettings,
+    ...(content.operations.routing ?? {}),
+  }
+  return content.operations.routing
+}
+
+function ensureMapStyleSettings(content: PlatformContent) {
+  const current = content.operations.mapStyles ?? defaultMapStyleSettings
+  const rawDefaultStyle = defaultMapStyleSettings.styles.find(
+    (style) => style.id === BUILT_IN_MAP_STYLE_ID
+  )
+  const normalizedStyles =
+    current.styles?.length > 0
+      ? current.styles.map((style) =>
+          style.id === BUILT_IN_MAP_STYLE_ID && rawDefaultStyle
+            ? { ...rawDefaultStyle }
+            : {
+                ...style,
+                description: style.description ?? "",
+                isActive: style.isActive !== false,
+                styleJson: Array.isArray(style.styleJson) ? style.styleJson : [],
+              }
+        )
+      : defaultMapStyleSettings.styles.map((style) => ({ ...style }))
+  const normalizedStyleIds = new Set(normalizedStyles.map((style) => style.id))
+  const styles = [
+    ...normalizedStyles,
+    ...defaultMapStyleSettings.styles
+      .filter((style) => !normalizedStyleIds.has(style.id))
+      .map((style) => ({ ...style })),
+  ]
+  const validStyleIds = new Set(styles.map((style) => style.id))
+  const fallbackStyleId = validStyleIds.has(current.assignments?.default)
+    ? current.assignments.default
+    : styles[0]?.id ?? BUILT_IN_MAP_STYLE_ID
+
+  content.operations.mapStyles = {
+    styles,
+    assignments: {
+      ...defaultMapStyleSettings.assignments,
+      ...(current.assignments ?? {}),
+      default: fallbackStyleId,
+    },
+  }
+
+  for (const screen of MAP_STYLE_SCREEN_ASSIGNMENTS) {
+    const assignedStyleId = content.operations.mapStyles.assignments[screen.key]
+    if (!validStyleIds.has(assignedStyleId)) {
+      content.operations.mapStyles.assignments[screen.key] = fallbackStyleId
+    }
+  }
+
+  return content.operations.mapStyles
+}
+
 function ensurePaymentSettings(content: PlatformContent) {
   content.operations.payments = {
     ...defaultPaymentSettings,
@@ -187,6 +440,36 @@ function renderOtpTemplatePreview(
     .replaceAll("{{platformName}}", platformName || "Foodbela")
     .replaceAll("{{expiryMinutes}}", String(expiryMinutes))
     .replaceAll("{{expirySeconds}}", String(expiresInSeconds))
+}
+
+function formatMapStyleJson(styleJson?: Array<Record<string, unknown>>) {
+  return JSON.stringify(styleJson ?? [], null, 2)
+}
+
+function normalizeMapStyleId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48)
+}
+
+function createUniqueMapStyleId(
+  styles: PlatformContent["operations"]["mapStyles"]["styles"],
+  base: string
+) {
+  const usedIds = new Set(styles.map((style) => style.id))
+  const normalizedBase = normalizeMapStyleId(base) || "custom_map_style"
+  let candidate = normalizedBase
+  let index = 2
+
+  while (usedIds.has(candidate)) {
+    candidate = `${normalizedBase}_${index}`
+    index += 1
+  }
+
+  return candidate
 }
 
 function renderRefundSmsTemplatePreview(
@@ -237,6 +520,22 @@ function formatDateTime(value?: string | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date)
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function currentMonthStartDateInput() {
+  const date = new Date()
+  return formatDateInputValue(new Date(date.getFullYear(), date.getMonth(), 1))
+}
+
+function todayDateInput() {
+  return formatDateInputValue(new Date())
 }
 
 const recommendedOrderAutomation = {
@@ -733,6 +1032,12 @@ export function SettingsPage() {
     | "security"
     | "support"
   >("operations")
+  const [routingUsageFrom, setRoutingUsageFrom] = React.useState(() =>
+    currentMonthStartDateInput()
+  )
+  const [routingUsageTo, setRoutingUsageTo] = React.useState(() =>
+    todayDateInput()
+  )
   const dispatchQuery = useQuery({
     queryKey: ["admin-dispatch-settings", adminScopeKey],
     queryFn: getAdminDispatchSettings,
@@ -754,6 +1059,16 @@ export function SettingsPage() {
     staleTime: 30_000,
     enabled: activeTab === "security",
   })
+  const routingUsageQuery = useQuery({
+    queryKey: ["admin-routing-usage", routingUsageFrom, routingUsageTo],
+    queryFn: () =>
+      getAdminRoutingUsageAnalytics({
+        from: routingUsageFrom,
+        to: routingUsageTo,
+      }),
+    staleTime: 30_000,
+    enabled: activeTab === "operations",
+  })
   const settingsLoadError =
     platformContentQuery.error instanceof Error
       ? platformContentQuery.error
@@ -771,6 +1086,24 @@ export function SettingsPage() {
     "Suspicious OTP activity"
   )
   const [showThresholdHelp, setShowThresholdHelp] = React.useState(false)
+  const [selectedMapStyleId, setSelectedMapStyleId] = React.useState(
+    BUILT_IN_MAP_STYLE_ID
+  )
+  const [mapStyleJsonText, setMapStyleJsonText] = React.useState("[]")
+
+  const syncMapStyleEditor = React.useCallback(
+    (content: PlatformContent, preferredStyleId?: string) => {
+      const mapStyles = ensureMapStyleSettings(content)
+      const selectedStyle =
+        mapStyles.styles.find((style) => style.id === preferredStyleId) ??
+        mapStyles.styles[0]
+      const nextStyleId = selectedStyle?.id ?? BUILT_IN_MAP_STYLE_ID
+
+      setSelectedMapStyleId(nextStyleId)
+      setMapStyleJsonText(formatMapStyleJson(selectedStyle?.styleJson))
+    },
+    []
+  )
 
   React.useEffect(() => {
     const content = platformContentQuery.data?.settings
@@ -779,10 +1112,12 @@ export function SettingsPage() {
     ensurePaymentSettings(cloned)
     ensureFinanceSettings(cloned)
     ensureAdminNotificationSettings(cloned)
+    ensureRoutingSettings(cloned)
+    syncMapStyleEditor(cloned)
     ensureRateLimitSettings(cloned)
     setDraft(cloned)
     setIsDirty(false)
-  }, [platformContentQuery.data?.settings])
+  }, [platformContentQuery.data?.settings, syncMapStyleEditor])
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -795,6 +1130,8 @@ export function SettingsPage() {
       ensurePaymentSettings(cloned)
       ensureFinanceSettings(cloned)
       ensureAdminNotificationSettings(cloned)
+      ensureRoutingSettings(cloned)
+      syncMapStyleEditor(cloned, selectedMapStyleId)
       ensureRateLimitSettings(cloned)
       setDraft(cloned)
       setIsDirty(false)
@@ -805,6 +1142,7 @@ export function SettingsPage() {
       void queryClient.invalidateQueries({
         queryKey: ["admin-dispatch-settings"],
       })
+      void queryClient.invalidateQueries({ queryKey: ["admin-routing-usage"] })
       void queryClient.invalidateQueries({
         queryKey: ["admin-dashboard-orders"],
       })
@@ -872,6 +1210,8 @@ export function SettingsPage() {
     ensurePaymentSettings(cloned)
     ensureFinanceSettings(cloned)
     ensureAdminNotificationSettings(cloned)
+    ensureRoutingSettings(cloned)
+    syncMapStyleEditor(cloned, selectedMapStyleId)
     ensureRateLimitSettings(cloned)
     setDraft(cloned)
     setIsDirty(false)
@@ -904,6 +1244,131 @@ export function SettingsPage() {
         recommendedOrderAutomation.deliveryCriticalAfterPickupMinutes
     })
     toast.info("Recommended auto-cancel policy applied")
+  }
+
+  const selectMapStyle = (styleId: string) => {
+    if (!draft) return
+    const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
+    const selectedStyle =
+      mapStyles.styles.find((style) => style.id === styleId) ?? mapStyles.styles[0]
+    setSelectedMapStyleId(selectedStyle?.id ?? BUILT_IN_MAP_STYLE_ID)
+    setMapStyleJsonText(formatMapStyleJson(selectedStyle?.styleJson))
+  }
+
+  const addMapStyle = () => {
+    if (!draft) return
+    const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
+    const id = createUniqueMapStyleId(mapStyles.styles, "custom_map_style")
+
+    updateDraft((content) => {
+      const nextMapStyles = ensureMapStyleSettings(content)
+      nextMapStyles.styles.push({
+        id,
+        name: "Custom map style",
+        description: "Uploaded JSON map style.",
+        isActive: true,
+        styleJson: [],
+      })
+    })
+    setSelectedMapStyleId(id)
+    setMapStyleJsonText("[]")
+  }
+
+  const updateSelectedMapStyle = (
+    updater: (
+      style: PlatformContent["operations"]["mapStyles"]["styles"][number],
+      mapStyles: PlatformContent["operations"]["mapStyles"]
+    ) => void
+  ) => {
+    updateDraft((content) => {
+      const mapStyles = ensureMapStyleSettings(content)
+      const selectedStyle =
+        mapStyles.styles.find((style) => style.id === selectedMapStyleId) ??
+        mapStyles.styles[0]
+      if (!selectedStyle) return
+      updater(selectedStyle, mapStyles)
+    })
+  }
+
+  const removeSelectedMapStyle = () => {
+    if (!draft) return
+    const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
+    if (selectedMapStyleId === BUILT_IN_MAP_STYLE_ID) {
+      toast.error("Google default map cannot be removed.")
+      return
+    }
+    if (mapStyles.styles.length <= 1) {
+      toast.error("Keep at least one map style.")
+      return
+    }
+
+    const currentIndex = mapStyles.styles.findIndex(
+      (style) => style.id === selectedMapStyleId
+    )
+    const removedStyle = mapStyles.styles[currentIndex] ?? mapStyles.styles[0]
+    const fallbackStyle =
+      mapStyles.styles.find((style) => style.id !== removedStyle.id) ??
+      mapStyles.styles[0]
+
+    updateDraft((content) => {
+      const nextMapStyles = ensureMapStyleSettings(content)
+      nextMapStyles.styles = nextMapStyles.styles.filter(
+        (style) => style.id !== removedStyle.id
+      )
+      Object.entries(nextMapStyles.assignments).forEach(([screenKey, styleId]) => {
+        if (styleId === removedStyle.id) {
+          nextMapStyles.assignments[screenKey] = fallbackStyle.id
+        }
+      })
+      nextMapStyles.assignments.default =
+        nextMapStyles.assignments.default === removedStyle.id
+          ? fallbackStyle.id
+          : nextMapStyles.assignments.default
+    })
+    setSelectedMapStyleId(fallbackStyle.id)
+    setMapStyleJsonText(formatMapStyleJson(fallbackStyle.styleJson))
+  }
+
+  const applyMapStyleJson = () => {
+    if (selectedMapStyleId === BUILT_IN_MAP_STYLE_ID) {
+      toast.error("Google default map uses the native map and does not accept JSON.")
+      return
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(mapStyleJsonText)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Map style JSON is invalid."
+      )
+      return
+    }
+
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))
+    ) {
+      toast.error("Map style JSON must be an array of style objects.")
+      return
+    }
+
+    if (parsed.length > 250) {
+      toast.error("Map style JSON is too large. Keep it under 250 entries.")
+      return
+    }
+
+    updateSelectedMapStyle((style) => {
+      style.styleJson = parsed as Array<Record<string, unknown>>
+    })
+    toast.success("Map style JSON applied")
+  }
+
+  const updateMapStyleAssignment = (screenKey: string, styleId: string) => {
+    updateDraft((content) => {
+      const mapStyles = ensureMapStyleSettings(content)
+      mapStyles.assignments[screenKey] = styleId
+    })
   }
 
   if (platformContentQuery.isError) {
@@ -940,6 +1405,18 @@ export function SettingsPage() {
   const dispatch = draft.operations.dispatch
   const serviceArea = draft.operations.serviceArea
   const liveTracking = draft.operations.liveTracking
+  const routing = {
+    ...defaultRoutingSettings,
+    ...(draft.operations.routing ?? {}),
+  }
+  const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
+  const selectedMapStyle =
+    mapStyles.styles.find((style) => style.id === selectedMapStyleId) ??
+    mapStyles.styles[0] ??
+    defaultMapStyleSettings.styles[0]
+  const isRawDefaultMapStyleSelected =
+    selectedMapStyle?.id === BUILT_IN_MAP_STYLE_ID
+  const selectedMapStyleJsonCount = selectedMapStyle?.styleJson?.length ?? 0
   const payments = draft.operations.payments
   const finance = draft.operations.finance ?? defaultFinanceSettings
   const adminNotifications =
@@ -978,6 +1455,15 @@ export function SettingsPage() {
     payments.bkashRefundSmsTemplate.includes("{{orderNumber}}")
   const otpSecurity = otpSecurityQuery.data
   const settingsScope = platformContentQuery.data?.scope
+  const routingUsage = routingUsageQuery.data
+  const routingMonthLimit = routingUsage?.month.limit ?? routing.googleMonthlyLimit
+  const routingMonthUsed = routingUsage?.month.used ?? 0
+  const routingRemaining =
+    routingUsage?.month.remaining ?? Math.max(0, routingMonthLimit - routingMonthUsed)
+  const routingUsagePercent =
+    routingMonthLimit > 0
+      ? Math.min(100, Math.round((routingMonthUsed / routingMonthLimit) * 100))
+      : 0
   const isScopedSettings = settingsScope?.settingsMode !== "global"
   const scopeBadgeLabel =
     settingsScope?.settingsMode === "single_zone"
@@ -1278,6 +1764,722 @@ export function SettingsPage() {
                       <p className="mt-1 text-xl font-semibold">
                         {liveTracking.passiveHeartbeatSeconds}s
                       </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Paintbrush className="size-4" />
+                        Map style CMS
+                      </CardTitle>
+                      <CardDescription>
+                        Upload Google map style JSON and assign it per app
+                        screen without slowing live tracking.
+                      </CardDescription>
+                    </div>
+                    <Badge variant="secondary">
+                      {mapStyles.styles.length} style
+                      {mapStyles.styles.length === 1 ? "" : "s"}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 lg:grid-cols-[0.95fr_1.05fr]">
+                    <div className="space-y-3 rounded-lg border bg-background p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">Style library</p>
+                          <p className="text-xs text-muted-foreground">
+                            Google default uses the raw native map; Foodbela clean is a separate preset.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addMapStyle}
+                        >
+                          <Plus className="mr-2 size-3.5" />
+                          Add
+                        </Button>
+                      </div>
+
+                      <Select
+                        value={selectedMapStyle?.id ?? BUILT_IN_MAP_STYLE_ID}
+                        onValueChange={selectMapStyle}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {mapStyles.styles.map((style) => (
+                            <SelectItem key={style.id} value={style.id}>
+                              {style.name || style.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                        <label className="space-y-1.5">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            Style name
+                          </span>
+                          <Input
+                            value={selectedMapStyle?.name ?? ""}
+                            disabled={isRawDefaultMapStyleSelected}
+                            onChange={(event) =>
+                              updateSelectedMapStyle((style) => {
+                                style.name = event.target.value
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="flex items-end gap-2 rounded-lg border bg-muted/20 px-3 py-2">
+                          <Switch
+                            checked={selectedMapStyle?.isActive !== false}
+                            disabled={isRawDefaultMapStyleSelected}
+                            onCheckedChange={(checked) =>
+                              updateSelectedMapStyle((style) => {
+                                style.isActive = checked
+                              })
+                            }
+                          />
+                          <span className="pb-1 text-xs font-medium">
+                            Active
+                          </span>
+                        </label>
+                      </div>
+
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          Description
+                        </span>
+                        <Input
+                          value={selectedMapStyle?.description ?? ""}
+                          disabled={isRawDefaultMapStyleSelected}
+                          onChange={(event) =>
+                            updateSelectedMapStyle((style) => {
+                              style.description = event.target.value
+                            })
+                          }
+                        />
+                      </label>
+
+                      <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          {selectedMapStyle?.id}
+                        </span>{" "}
+                        · {selectedMapStyleJsonCount} JSON{" "}
+                        {selectedMapStyleJsonCount === 1 ? "entry" : "entries"}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border bg-background p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium">JSON style</p>
+                          <p className="text-xs text-muted-foreground">
+                            Paste the full Google Maps style array.
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isRawDefaultMapStyleSelected}
+                            onClick={() =>
+                              setMapStyleJsonText(
+                                formatMapStyleJson(selectedMapStyle?.styleJson)
+                              )
+                            }
+                          >
+                            Reset
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={isRawDefaultMapStyleSelected}
+                            onClick={applyMapStyleJson}
+                          >
+                            Apply JSON
+                          </Button>
+                        </div>
+                      </div>
+                      <Textarea
+                        value={mapStyleJsonText}
+                        onChange={(event) =>
+                          setMapStyleJsonText(event.target.value)
+                        }
+                        disabled={isRawDefaultMapStyleSelected}
+                        className="min-h-[220px] font-mono text-xs"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-medium">
+                          Screen assignments
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Apps read this cached config and fall back instantly
+                          to built-in style if empty or inactive.
+                        </p>
+                      </div>
+                      <Select
+                        value={
+                          mapStyles.assignments.default ?? BUILT_IN_MAP_STYLE_ID
+                        }
+                        onValueChange={(styleId) =>
+                          updateMapStyleAssignment("default", styleId)
+                        }
+                      >
+                        <SelectTrigger className="w-[220px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {mapStyles.styles.map((style) => (
+                            <SelectItem key={style.id} value={style.id}>
+                              Default: {style.name || style.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="mt-3 grid gap-2">
+                      {MAP_STYLE_SCREEN_ASSIGNMENTS.map((screen) => (
+                        <div
+                          key={screen.key}
+                          className="grid gap-3 rounded-lg border bg-background p-3 md:grid-cols-[1fr_220px] md:items-center"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">
+                              {screen.label}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {screen.description}
+                            </p>
+                          </div>
+                          <Select
+                            value={
+                              mapStyles.assignments[screen.key] ??
+                              mapStyles.assignments.default ??
+                              BUILT_IN_MAP_STYLE_ID
+                            }
+                            onValueChange={(styleId) =>
+                              updateMapStyleAssignment(screen.key, styleId)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {mapStyles.styles.map((style) => (
+                                <SelectItem key={style.id} value={style.id}>
+                                  {style.name || style.id}
+                                  {style.isActive === false ? " (inactive)" : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={removeSelectedMapStyle}
+                      disabled={
+                        mapStyles.styles.length <= 1 ||
+                        isRawDefaultMapStyleSelected
+                      }
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Remove selected style
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Route className="size-4" />
+                    Directions cost controls
+                  </CardTitle>
+                  <CardDescription>
+                    Keep Google Directions usage predictable while route lines
+                    stay accurate during live delivery.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Map routing provider"
+                    description="Google uses real road routes. Haversine disables paid Directions calls and uses straight-line ETA."
+                  >
+                    <Select
+                      value={routing.provider}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          const routingDraft = ensureRoutingSettings(content)
+                          routingDraft.provider =
+                            value as PlatformContent["operations"]["routing"]["provider"]
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="google">
+                          Google Directions
+                        </SelectItem>
+                        <SelectItem value="haversine">
+                          Haversine only
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+
+                  <SettingRow
+                    title="Cost mode"
+                    description="Economy minimizes refreshes, balanced is the default, precision refreshes sooner when off-route."
+                  >
+                    <Select
+                      value={routing.costMode}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          const mode =
+                            value as PlatformContent["operations"]["routing"]["costMode"]
+                          const routingDraft = ensureRoutingSettings(content)
+                          Object.assign(routingDraft, routingModePresets[mode])
+                          routingDraft.costMode = mode
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="economy">Economy</SelectItem>
+                        <SelectItem value="balanced">Balanced</SelectItem>
+                        <SelectItem value="precision">Precision</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Monthly request limit
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1000000}
+                        step={1}
+                        value={routing.googleMonthlyLimit}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.googleMonthlyLimit = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.googleMonthlyLimit
+                              ),
+                              0,
+                              1000000
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Max calls per order
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={routing.maxGoogleCallsPerOrder}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.maxGoogleCallsPerOrder = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.maxGoogleCallsPerOrder
+                              ),
+                              0,
+                              100
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Reroute cooldown
+                      </span>
+                      <Input
+                        type="number"
+                        min={30}
+                        max={1800}
+                        step={5}
+                        value={routing.rerouteCooldownSeconds}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.rerouteCooldownSeconds = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.rerouteCooldownSeconds
+                              ),
+                              30,
+                              1800
+                            )
+                          })
+                        }
+                      />
+                      <span className="block text-[11px] text-muted-foreground">
+                        seconds
+                      </span>
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Session TTL
+                      </span>
+                      <Input
+                        type="number"
+                        min={5}
+                        max={240}
+                        step={1}
+                        value={routing.routeSessionTtlMinutes}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.routeSessionTtlMinutes = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.routeSessionTtlMinutes
+                              ),
+                              5,
+                              240
+                            )
+                          })
+                        }
+                      />
+                      <span className="block text-[11px] text-muted-foreground">
+                        minutes
+                      </span>
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Off-route threshold
+                      </span>
+                      <Input
+                        type="number"
+                        min={20}
+                        max={500}
+                        step={5}
+                        value={routing.offRouteThresholdMeters}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.offRouteThresholdMeters = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.offRouteThresholdMeters
+                              ),
+                              20,
+                              500
+                            )
+                          })
+                        }
+                      />
+                      <span className="block text-[11px] text-muted-foreground">
+                        meters
+                      </span>
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Off-route strikes
+                      </span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={10}
+                        step={1}
+                        value={routing.offRouteConsecutiveUpdates}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.offRouteConsecutiveUpdates = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.offRouteConsecutiveUpdates
+                              ),
+                              1,
+                              10
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Periodic refresh
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={60}
+                        step={1}
+                        value={routing.periodicRefreshMinutes}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.periodicRefreshMinutes = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.periodicRefreshMinutes
+                              ),
+                              0,
+                              60
+                            )
+                          })
+                        }
+                      />
+                      <span className="block text-[11px] text-muted-foreground">
+                        minutes, 0 disables
+                      </span>
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Near-destination direct zone
+                      </span>
+                      <Input
+                        type="number"
+                        min={50}
+                        max={1000}
+                        step={10}
+                        value={routing.nearDestinationMeters}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const routingDraft = ensureRoutingSettings(content)
+                            routingDraft.nearDestinationMeters = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                routing.nearDestinationMeters
+                              ),
+                              50,
+                              1000
+                            )
+                          })
+                        }
+                      />
+                      <span className="block text-[11px] text-muted-foreground">
+                        meters
+                      </span>
+                    </label>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    Directions usage analytics
+                  </CardTitle>
+                  <CardDescription>
+                    Track used, remaining, blocked, failed, and successful
+                    Directions requests.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs text-muted-foreground">
+                        Used this month
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold">
+                        {routingMonthUsed.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        of {routingMonthLimit.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs text-muted-foreground">
+                        Remaining
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold">
+                        {routingRemaining.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {routingUsagePercent}% used
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-xs text-muted-foreground">
+                        Resets at
+                      </p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {routingUsage?.month.resetAt
+                          ? formatDateTime(routingUsage.month.resetAt)
+                          : "Next month"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Bangladesh month
+                      </p>
+                    </div>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${routingUsagePercent}%` }}
+                    />
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        From
+                      </span>
+                      <Input
+                        type="date"
+                        value={routingUsageFrom}
+                        onChange={(event) =>
+                          setRoutingUsageFrom(event.target.value)
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        To
+                      </span>
+                      <Input
+                        type="date"
+                        value={routingUsageTo}
+                        onChange={(event) =>
+                          setRoutingUsageTo(event.target.value)
+                        }
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void routingUsageQuery.refetch()}
+                    >
+                      <RefreshCcw
+                        className={`mr-2 size-4 ${
+                          routingUsageQuery.isFetching ? "animate-spin" : ""
+                        }`}
+                      />
+                      Refresh
+                    </Button>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="grid gap-2 text-sm sm:grid-cols-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Range used
+                        </p>
+                        <p className="font-semibold">
+                          {routingUsage?.range.used.toLocaleString() ?? "0"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Success
+                        </p>
+                        <p className="font-semibold">
+                          {routingUsage?.range.success.toLocaleString() ?? "0"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Blocked
+                        </p>
+                        <p className="font-semibold">
+                          {routingUsage?.range.blocked.toLocaleString() ?? "0"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Failed/non-OK
+                        </p>
+                        <p className="font-semibold">
+                          {(
+                            (routingUsage?.range.failed ?? 0) +
+                            (routingUsage?.range.nonOk ?? 0)
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-sm font-medium">By date</p>
+                      <div className="mt-2 space-y-2">
+                        {(routingUsage?.byDate ?? []).slice(-5).map((row) => (
+                          <div
+                            key={row.date}
+                            className="flex items-center justify-between gap-3 text-sm"
+                          >
+                            <span className="text-muted-foreground">
+                              {row.date}
+                            </span>
+                            <span className="font-medium">
+                              {row.used} used / {row.blocked} blocked
+                            </span>
+                          </div>
+                        ))}
+                        {!routingUsage?.byDate.length ? (
+                          <p className="text-sm text-muted-foreground">
+                            No requests in this range.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-background p-3">
+                      <p className="text-sm font-medium">By source</p>
+                      <div className="mt-2 space-y-2">
+                        {(routingUsage?.bySource ?? []).slice(0, 5).map((row) => (
+                          <div
+                            key={row.source}
+                            className="flex items-center justify-between gap-3 text-sm"
+                          >
+                            <span className="text-muted-foreground">
+                              {row.source.replaceAll("_", " ")}
+                            </span>
+                            <span className="font-medium">
+                              {row.used} used
+                            </span>
+                          </div>
+                        ))}
+                        {!routingUsage?.bySource.length ? (
+                          <p className="text-sm text-muted-foreground">
+                            No source activity yet.
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </CardContent>

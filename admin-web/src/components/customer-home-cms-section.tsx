@@ -476,6 +476,7 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       maxItems: 6,
       position: 1,
       layout: "horizontal",
+      allowRepeatAcrossSections: true,
     },
     offers: {
       isActive: true,
@@ -486,6 +487,7 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       maxItems: 8,
       position: 2,
       layout: "horizontal",
+      allowRepeatAcrossSections: true,
     },
     discoverNew: {
       isActive: true,
@@ -496,6 +498,7 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       maxItems: 6,
       position: 3,
       layout: "horizontal",
+      allowRepeatAcrossSections: true,
     },
     popularNearYou: {
       isActive: true,
@@ -506,6 +509,7 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       maxItems: 6,
       position: 4,
       layout: "horizontal",
+      allowRepeatAcrossSections: true,
     },
     nearby: {
       isActive: true,
@@ -516,6 +520,7 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       maxItems: 8,
       position: 5,
       layout: "vertical",
+      allowRepeatAcrossSections: true,
     },
   },
   cartRecommendations: {
@@ -627,13 +632,18 @@ const HOME_CATEGORY_ICON_OPTIONS = [
   { value: "sparkles-outline", label: "Featured" },
 ] as const
 
+type HomeRestaurantSections = NonNullable<
+  PlatformContent["customerApp"]["homeCms"]["restaurantSections"]
+>
+type HomeRestaurantSection = HomeRestaurantSections[keyof HomeRestaurantSections]
+
 function arrayOrDefault<T>(value: unknown, fallback: T[]) {
   return Array.isArray(value) ? (value as T[]) : fallback
 }
 
 function normalizeHomeRestaurantSection(
   value: unknown,
-  fallback: PlatformContent["customerApp"]["homeCms"]["restaurantSections"]["featured"]
+  fallback: HomeRestaurantSection
 ) {
   const section = (value ?? {}) as Partial<typeof fallback>
   return {
@@ -643,6 +653,10 @@ function normalizeHomeRestaurantSection(
       section.selectedRestaurantIds,
       fallback.selectedRestaurantIds ?? []
     ),
+    allowRepeatAcrossSections:
+      section.allowRepeatAcrossSections ??
+      fallback.allowRepeatAcrossSections ??
+      true,
   }
 }
 
@@ -2747,6 +2761,23 @@ export function CustomerHomeCmsSection({
                             <SelectItem value="vertical">Vertical</SelectItem>
                           </SelectContent>
                         </Select>
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg border bg-background px-3 py-2 xl:col-span-2">
+                        <div>
+                          <Label>Allow repeat in other sections</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Keep on so a new featured restaurant can still
+                            appear in Discover new places.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={section.allowRepeatAcrossSections !== false}
+                          onCheckedChange={(checked) =>
+                            updateRestaurantSection(entry.key, {
+                              allowRepeatAcrossSections: checked,
+                            })
+                          }
+                        />
                       </div>
                     </div>
                     {section.source === "manual" ? (

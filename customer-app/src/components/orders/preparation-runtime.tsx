@@ -33,12 +33,15 @@ export type PreparationEstimate = {
   targetTimeLabel: string;
   lateByMinutes: number;
   averagePrepMinutes: number;
+  remainingSeconds?: number | null;
 };
 
 const PREPARATION_LIVE_STATUSES = new Set(["Accepted", "Preparing"]);
 const PREPARATION_EARLY_FACTOR = 0.92;
 const PREPARATION_LATE_FACTOR = 1.08;
 const PREPARATION_TICK_MS = 15000;
+const PREPARATION_PRECISE_TICK_MS = 1000;
+const PREP_START_PRECISE_WINDOW_SECONDS = 3 * 60;
 
 function getPreparationAnchor(order: PreparationOrder) {
   return (
@@ -63,7 +66,8 @@ function getPreparationEstimate(
     order.status === "Accepted" ? timing?.targetStartAt : timing?.targetReadyAt;
   const timingTargetAt = timingTarget ? new Date(timingTarget).getTime() : NaN;
   const timingTotalMinutes =
-    typeof timing?.totalMinutes === "number" && Number.isFinite(timing.totalMinutes)
+    typeof timing?.totalMinutes === "number" &&
+    Number.isFinite(timing.totalMinutes)
       ? timing.totalMinutes
       : null;
 
@@ -77,14 +81,12 @@ function getPreparationEstimate(
     if (order.status === "Accepted") {
       return {
         state: "countdown",
-        rangeLabel:
-          remainingMinutes > 1
-            ? `Kitchen starts in ${formatDurationMinutes(remainingMinutes)}`
-            : "Kitchen starts soon",
+        rangeLabel: remainingMinutes > 1 ? `` : "Kitchen starts soon",
         supportingText: "The restaurant accepted your order.",
         targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
         lateByMinutes: 0,
         averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
+        remainingSeconds,
       };
     }
 
@@ -101,6 +103,7 @@ function getPreparationEstimate(
         targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
         lateByMinutes: 0,
         averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
+        remainingSeconds,
       };
     }
 
@@ -112,6 +115,7 @@ function getPreparationEstimate(
         targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
         lateByMinutes: 0,
         averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
+        remainingSeconds,
       };
     }
 
@@ -128,6 +132,7 @@ function getPreparationEstimate(
       targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
       lateByMinutes,
       averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
+      remainingSeconds: 0,
     };
   }
 
@@ -169,6 +174,7 @@ function getPreparationEstimate(
       targetTimeLabel: formatTimeAmPm(new Date(latestReadyAt)),
       lateByMinutes: 0,
       averagePrepMinutes: preparationTimeMinutes,
+      remainingSeconds: Math.max(0, Math.ceil((latestReadyAt - now) / 1000)),
     };
   }
 
@@ -181,6 +187,7 @@ function getPreparationEstimate(
       targetTimeLabel: formatTimeAmPm(new Date(latestReadyAt)),
       lateByMinutes: 0,
       averagePrepMinutes: preparationTimeMinutes,
+      remainingSeconds: Math.max(0, Math.ceil((latestReadyAt - now) / 1000)),
     };
   }
 
@@ -196,7 +203,30 @@ function getPreparationEstimate(
     targetTimeLabel: formatTimeAmPm(new Date(latestReadyAt)),
     lateByMinutes,
     averagePrepMinutes: preparationTimeMinutes,
+    remainingSeconds: 0,
   };
+}
+
+function getPreparationTickMs(order: PreparationOrder, now: number) {
+  if (order.status !== "Accepted") {
+    return PREPARATION_TICK_MS;
+  }
+
+  const targetStartAt = order.preparationTiming?.targetStartAt;
+  if (!targetStartAt) {
+    return PREPARATION_TICK_MS;
+  }
+
+  const targetTime = new Date(targetStartAt).getTime();
+  if (Number.isNaN(targetTime)) {
+    return PREPARATION_TICK_MS;
+  }
+
+  const remainingSeconds = Math.ceil((targetTime - now) / 1000);
+  return remainingSeconds > 0 &&
+    remainingSeconds <= PREP_START_PRECISE_WINDOW_SECONDS
+    ? PREPARATION_PRECISE_TICK_MS
+    : PREPARATION_TICK_MS;
 }
 
 export const PreparationRuntime = memo(function PreparationRuntime({
@@ -210,6 +240,7 @@ export const PreparationRuntime = memo(function PreparationRuntime({
 }) {
   const shouldTrack = PREPARATION_LIVE_STATUSES.has(order.status);
   const [now, setNow] = useState(() => Date.now());
+  const tickMs = useMemo(() => getPreparationTickMs(order, now), [now, order]);
 
   useEffect(() => {
     if (!shouldTrack) {
@@ -218,12 +249,12 @@ export const PreparationRuntime = memo(function PreparationRuntime({
 
     const timer = setInterval(() => {
       setNow(Date.now());
-    }, PREPARATION_TICK_MS);
+    }, tickMs);
 
     return () => {
       clearInterval(timer);
     };
-  }, [shouldTrack]);
+  }, [shouldTrack, tickMs]);
 
   const estimate = useMemo(
     () => getPreparationEstimate(order, preparationTimeMinutes, now),

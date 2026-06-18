@@ -234,6 +234,16 @@ export type OwnerStoreSettingsResponse = {
   preparationTimeMinutes?: number | null
   cuisineTypes?: string[]
   tags?: string[]
+  documents?: Array<{
+    type?: string
+    label?: string
+    url?: string
+    publicId?: string
+    fileName?: string
+    fileType?: string
+    resourceType?: string
+    uploadedAt?: string | null
+  }>
   logo?: { url?: string }
   coverImage?: { url?: string }
   contact?: {
@@ -884,6 +894,25 @@ export function mapOwnerStoreSettings(
 ): StoreSettings {
   const cuisineTypes = response.cuisineTypes?.filter(Boolean) ?? []
   const notificationSettings = response.settings?.notifications ?? {}
+  const documentTypes = new Set(["nid", "trade_license", "tin", "bin_vat"])
+  const documents = Array.isArray(response.documents)
+    ? response.documents
+        .filter(
+          (document) =>
+            documentTypes.has(String(document.type ?? "")) &&
+            Boolean(document.url?.trim())
+        )
+        .map((document) => ({
+          type: document.type as StoreSettings["documents"][number]["type"],
+          label: document.label ?? "",
+          url: document.url ?? "",
+          publicId: document.publicId ?? "",
+          fileName: document.fileName ?? "",
+          fileType: document.fileType ?? "",
+          resourceType: document.resourceType ?? "auto",
+          uploadedAt: document.uploadedAt ?? null,
+        }))
+    : current.documents
 
   return {
     ...current,
@@ -891,6 +920,7 @@ export function mapOwnerStoreSettings(
     description: response.description ?? current.description,
     cuisineType: cuisineTypes.length > 0 ? cuisineTypes.join(", ") : current.cuisineType,
     tags: response.tags ?? current.tags,
+    documents,
     logoUrl: response.logo?.url ?? current.logoUrl,
     coverImageUrl: response.coverImage?.url ?? current.coverImageUrl,
     phone: response.contact?.phone ?? current.phone,

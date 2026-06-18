@@ -19,6 +19,19 @@ export type StorePaymentSettings = {
   bkashEnabled: boolean
 }
 
+export type StoreDocumentType = "nid" | "trade_license" | "tin" | "bin_vat"
+
+export type StoreDocumentAttachment = {
+  type: StoreDocumentType
+  label: string
+  url: string
+  publicId?: string
+  fileName?: string
+  fileType?: string
+  resourceType?: string
+  uploadedAt?: string | null
+}
+
 export type StoreSettings = {
   name: string
   logoUrl: string
@@ -26,6 +39,7 @@ export type StoreSettings = {
   description: string
   cuisineType: string
   tags: string[]
+  documents: StoreDocumentAttachment[]
   phone: string
   email: string
   supportContact: string
@@ -57,6 +71,7 @@ export const initialStoreSettings: StoreSettings = {
   description: "",
   cuisineType: "",
   tags: [],
+  documents: [],
   phone: "",
   email: "",
   supportContact: "",

@@ -63,6 +63,13 @@ type CustomerOrderPayload = {
       accuracyMeters?: number | null;
     };
   };
+  routeToCustomer?: {
+    distanceKm: number;
+    durationMinutes: number;
+    polyline: string;
+    provider: "google" | "haversine";
+    trafficAware: boolean;
+  } | null;
   itemsSnapshot?: {
     itemId?: string;
     name?: string;
@@ -133,6 +140,20 @@ function isLiveOrderStatus(status: string) {
   return LIVE_ORDER_STATUSES.includes(status);
 }
 
+function mergeOrderPayload(
+  current: CustomerOrderPayload | null | undefined,
+  nextOrder: CustomerOrderPayload,
+) {
+  if (!current) return nextOrder;
+
+  return {
+    ...current,
+    ...nextOrder,
+    routeToCustomer:
+      nextOrder.routeToCustomer ?? current.routeToCustomer ?? null,
+  };
+}
+
 function upsertOrderList(
   current: CustomerOrderPayload[] | undefined,
   nextOrder: CustomerOrderPayload
@@ -141,7 +162,9 @@ function upsertOrderList(
   const exists = list.some((order) => order._id === nextOrder._id);
 
   const updated = exists
-    ? list.map((order) => (order._id === nextOrder._id ? nextOrder : order))
+    ? list.map((order) =>
+        order._id === nextOrder._id ? mergeOrderPayload(order, nextOrder) : order
+      )
     : [nextOrder, ...list];
 
   return [...updated].sort(
@@ -268,16 +291,25 @@ export function useCustomerSocketBridge() {
       queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders", "live"], (current) =>
         upsertLiveOrderList(current, payload)
       );
-      queryClient.setQueryData(["customer", "orders", payload._id], payload);
+      queryClient.setQueryData<CustomerOrderPayload | null>(
+        ["customer", "orders", payload._id],
+        (current) => mergeOrderPayload(current, payload),
+      );
       queryClient.setQueryData<CustomerOrderPayload | null>(
         ["customer", "orders", "active"],
         (current) =>
           isLiveOrderStatus(payload.status)
-            ? payload
+            ? mergeOrderPayload(current, payload)
             : current?._id === payload._id
               ? null
               : current ?? null,
       );
+      if (payload.status === "PickedUp" && payload.riderTracking?.currentLocation) {
+        void queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", payload._id],
+          exact: true,
+        });
+      }
       if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", "history"] });
       }

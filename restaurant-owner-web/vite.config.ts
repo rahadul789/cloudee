@@ -15,56 +15,69 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes("node_modules")) return
+          if (!id.includes("node_modules")) return undefined
+
+          const normalizedId = id.replace(/\\/g, "/")
 
           if (
-            id.includes("@tanstack/react-query") ||
-            id.includes("socket.io-client") ||
-            id.includes("zustand") ||
-            id.includes("sonner")
+            normalizedId.includes("/node_modules/react/") ||
+            normalizedId.includes("/node_modules/react-dom/") ||
+            normalizedId.includes("/node_modules/scheduler/") ||
+            normalizedId.includes("/node_modules/react-router/") ||
+            normalizedId.includes("/node_modules/react-router-dom/")
           ) {
-            return "app-vendor"
+            return "react-vendor"
           }
 
-          if (id.includes("date-fns")) {
+          if (normalizedId.includes("/node_modules/@tanstack/")) {
+            return "query-vendor"
+          }
+
+          if (normalizedId.includes("/node_modules/date-fns/")) {
             return "date"
           }
 
           if (
-            id.includes("recharts") ||
-            id.includes("d3-") ||
-            id.includes("victory-vendor")
+            normalizedId.includes("/node_modules/recharts/") ||
+            normalizedId.includes("/node_modules/d3-") ||
+            normalizedId.includes("/node_modules/victory-vendor/")
           ) {
             return "charts"
           }
 
           if (
-            id.includes("@tanstack/react-table") ||
-            id.includes("@dnd-kit") ||
-            id.includes("sortable")
+            normalizedId.includes("/node_modules/@tanstack/react-table/") ||
+            normalizedId.includes("/node_modules/@dnd-kit/") ||
+            normalizedId.includes("/node_modules/sortable")
           ) {
             return "tables"
           }
 
           if (
-            id.includes("radix-ui") ||
-            id.includes("@base-ui") ||
-            id.includes("vaul") ||
-            id.includes("cmdk") ||
-            id.includes("embla-carousel")
+            normalizedId.includes("/node_modules/radix-ui/") ||
+            normalizedId.includes("/node_modules/@base-ui/") ||
+            normalizedId.includes("/node_modules/vaul/") ||
+            normalizedId.includes("/node_modules/cmdk/") ||
+            normalizedId.includes("/node_modules/embla-carousel") ||
+            normalizedId.includes("/node_modules/class-variance-authority/") ||
+            normalizedId.includes("/node_modules/tailwind-merge/") ||
+            normalizedId.includes("/node_modules/clsx/")
           ) {
             return "ui-vendor"
           }
 
           if (
-            id.includes("react-router") ||
-            id.includes("@remix-run") ||
-            id.includes("history")
+            normalizedId.includes("/node_modules/leaflet/") ||
+            normalizedId.includes("/node_modules/react-leaflet/") ||
+            normalizedId.includes("/node_modules/@react-leaflet/")
           ) {
-            return "router"
+            return "maps-vendor"
           }
 
-          if (id.includes("lucide-react") || id.includes("@tabler/icons-react")) {
+          if (
+            normalizedId.includes("/node_modules/lucide-react/") ||
+            normalizedId.includes("/node_modules/@tabler/icons-react/")
+          ) {
             return "icons"
           }
 

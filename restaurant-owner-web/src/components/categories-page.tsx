@@ -603,6 +603,13 @@ export function CategoriesPage() {
       },
       {
         onSuccess: (created) => {
+          const createdCategory = mapOwnerCategory(created)
+          setData((current) => {
+            const withoutDuplicate = current.filter(
+              (category) => category.id !== createdCategory.id
+            )
+            return resequenceDisplayOrder([...withoutDuplicate, createdCategory])
+          })
           if (status === "Hidden") {
             updateCategoryMutation.mutate(
               {

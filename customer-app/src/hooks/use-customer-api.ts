@@ -16,6 +16,7 @@ import {
 import { buildQueryString, compactQueryParams } from "@/src/lib/query-params";
 import type { SavedLocationServiceArea } from "@/src/types/location";
 import type {
+  CustomerHomeCms,
   CustomerDiscoveryHome,
   CustomerRestaurantDetails,
   DiscoverableRestaurantsPage,
@@ -24,6 +25,11 @@ import type {
 import { useAppBannerStore } from "@/src/store/app-banner-store";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { buildCartItemKey, useCartStore } from "@/src/store/cart-store";
+import {
+  resolvePlatformMapStyle,
+  type CustomerMapStyleContext,
+  type PlatformMapStyleSettings,
+} from "@/src/lib/map-style";
 
 type NearbyRestaurantsParams = {
   latitude?: number;
@@ -68,10 +74,19 @@ export type CustomerPaymentSettings = {
 };
 
 type PlatformContentResponse = {
+  customerApp?: {
+    homeCms?: Partial<CustomerHomeCms>;
+  };
   operations?: {
     payments?: Partial<CustomerPaymentSettings>;
+    mapStyles?: PlatformMapStyleSettings;
   };
 };
+
+async function fetchCustomerPlatformContent() {
+  const response = await apiGet<PlatformContentResponse>("/public/content");
+  return response.data;
+}
 
 function buildRestaurantDetailsSeed(
   restaurant: DiscoverableRestaurant,
@@ -403,11 +418,11 @@ export function useCustomerDiscoveryHomeQuery(params: {
 
 export function useCustomerPaymentSettingsQuery() {
   return useQuery({
-    queryKey: ["platform-content", "payment-settings"],
+    queryKey: ["platform-content"],
     staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const response = await apiGet<PlatformContentResponse>("/public/content");
-      const payments = response.data.operations?.payments ?? {};
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) => {
+      const payments = content.operations?.payments ?? {};
       return {
         cashOnDeliveryEnabled: payments.cashOnDeliveryEnabled !== false,
         bkashEnabled: payments.bkashEnabled === true,
@@ -420,6 +435,25 @@ export function useCustomerPaymentSettingsQuery() {
             : 60,
       } satisfies CustomerPaymentSettings;
     },
+  });
+}
+
+export function useCustomerMapStyleQuery(context: CustomerMapStyleContext) {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) => resolvePlatformMapStyle(content.operations?.mapStyles, context),
+  });
+}
+
+export function useCustomerHowToOrderGuideQuery(enabled = true) {
+  return useQuery({
+    queryKey: ["platform-content"],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) => content.customerApp?.homeCms?.howToOrderGuide ?? null,
   });
 }
 
@@ -841,6 +875,13 @@ type CustomerOrderResponse = {
       accuracyMeters?: number | null;
     };
   };
+  routeToCustomer?: {
+    distanceKm: number;
+    durationMinutes: number;
+    polyline: string;
+    provider: "google" | "haversine";
+    trafficAware: boolean;
+  } | null;
   itemsSnapshot?: {
     itemId?: string;
     name?: string;

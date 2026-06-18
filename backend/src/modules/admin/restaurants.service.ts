@@ -80,6 +80,16 @@ type CreateRestaurantParams = {
   payoutBkashNumber?: string;
   cuisineTypes?: string[];
   tags?: string[];
+  documents?: Array<{
+    type?: string;
+    label?: string;
+    url?: string;
+    publicId?: string;
+    fileName?: string;
+    fileType?: string;
+    resourceType?: string;
+    uploadedAt?: string | Date | null;
+  }>;
   address?: string;
   city?: string;
   latitude?: number | null;
@@ -129,6 +139,45 @@ function serializeDate(value: unknown) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+const restaurantDocumentTypes = new Set([
+  "nid",
+  "trade_license",
+  "tin",
+  "bin_vat",
+]);
+
+function normalizeRestaurantDocuments(
+  documents?: CreateRestaurantParams["documents"],
+) {
+  const byType = new Map<string, Record<string, unknown>>();
+
+  for (const document of documents ?? []) {
+    const type = String(document.type ?? "").trim();
+    const url = String(document.url ?? "").trim();
+    if (!restaurantDocumentTypes.has(type) || !url) continue;
+
+    const uploadedAt =
+      document.uploadedAt instanceof Date
+        ? document.uploadedAt
+        : document.uploadedAt
+          ? new Date(document.uploadedAt)
+          : new Date();
+
+    byType.set(type, {
+      type,
+      label: String(document.label ?? "").trim(),
+      url,
+      publicId: String(document.publicId ?? "").trim(),
+      fileName: String(document.fileName ?? "").trim(),
+      fileType: String(document.fileType ?? "").trim(),
+      resourceType: String(document.resourceType ?? "auto").trim() || "auto",
+      uploadedAt: Number.isNaN(uploadedAt.getTime()) ? new Date() : uploadedAt,
+    });
+  }
+
+  return Array.from(byType.values());
 }
 
 function stringValue(value: unknown, fallback = "") {
@@ -1280,6 +1329,7 @@ export async function createAdminRestaurant(params: CreateRestaurantParams) {
     preparationTimeMinutes: params.preparationTimeMinutes ?? null,
     cuisineTypes: params.cuisineTypes ?? [],
     tags: params.tags ?? [],
+    documents: normalizeRestaurantDocuments(params.documents),
     contact: {
       phone: params.phone ?? params.ownerPhone,
       email: params.email ?? params.ownerEmail ?? "",

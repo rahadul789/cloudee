@@ -45,7 +45,6 @@ import { useAdminRefreshPolicy } from "@/lib/refresh-policy"
 import { cn } from "@/lib/utils"
 import {
   getAdminZoneScope,
-  getAdminZoneScopeQueryParams,
   subscribeAdminZoneScope,
 } from "@/lib/admin-zone-scope"
 import {
@@ -2140,10 +2139,15 @@ export function RidersPage() {
     getAdminZoneScope()
   )
   const adminScopeKey = `${adminZoneScope.type}:${adminZoneScope.id || "all"}`
-  const adminScopeParams = React.useMemo(
-    () => getAdminZoneScopeQueryParams(),
-    [adminScopeKey]
-  )
+  const adminScopeParams = React.useMemo(() => {
+    if (adminZoneScope.type === "zone" && adminZoneScope.id) {
+      return { zoneId: adminZoneScope.id }
+    }
+    if (adminZoneScope.type === "district" && adminZoneScope.id) {
+      return { districtId: adminZoneScope.id }
+    }
+    return {}
+  }, [adminZoneScope.id, adminZoneScope.type])
 
   React.useEffect(
     () =>

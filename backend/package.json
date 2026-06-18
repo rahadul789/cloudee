@@ -14,6 +14,7 @@
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "seed": "tsx src/scripts/seed.ts",
+    "seed:admin": "tsx scripts/seed-admin.ts",
     "seed:area-demo": "tsx src/scripts/seed-area-demo.ts",
     "seed:owners-showcase": "tsx src/scripts/seed-owner-showcase.ts",
     "perf:seed": "tsx scripts/perf-seed.ts",

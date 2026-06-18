@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { API_BASE_URL } from "@/src/config/api";
 import { secureStateStorage } from "@/src/lib/secure-storage";
@@ -265,32 +265,46 @@ export async function startRiderBackgroundLocationAsync({
   distanceIntervalMeters?: number;
   notificationBody?: string;
 } = {}) {
-  if (!(await hasBackgroundPermission())) {
+  // Android only lets a foreground service start while the app itself is in the
+  // foreground. Trying otherwise throws "Foreground service cannot be started
+  // when the application is in the background". We skip here and let the screen
+  // restart tracking when the app returns to the foreground.
+  if (Platform.OS === "android" && AppState.currentState !== "active") {
     return false;
   }
 
-  const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-    RIDER_BACKGROUND_LOCATION_TASK,
-  );
+  try {
+    if (!(await hasBackgroundPermission())) {
+      return false;
+    }
 
-  if (hasStarted) {
-    await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+      RIDER_BACKGROUND_LOCATION_TASK,
+    );
+
+    if (hasStarted) {
+      await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
+    }
+
+    await Location.startLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK, {
+      accuracy: Location.Accuracy.Balanced,
+      timeInterval: timeIntervalMs,
+      distanceInterval: distanceIntervalMeters,
+      pausesUpdatesAutomatically: false,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: "Foodbela Rider live tracking",
+        notificationBody,
+        notificationColor: "#0f766e",
+      },
+    });
+
+    return true;
+  } catch {
+    // A rejected start (background race, OEM restriction) must never bubble up as
+    // an uncaught promise rejection. The screen re-arms tracking on app resume.
+    return false;
   }
-
-  await Location.startLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK, {
-    accuracy: Location.Accuracy.Balanced,
-    timeInterval: timeIntervalMs,
-    distanceInterval: distanceIntervalMeters,
-    pausesUpdatesAutomatically: false,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: "Foodbela Rider live tracking",
-      notificationBody,
-      notificationColor: "#0f766e",
-    },
-  });
-
-  return true;
 }
 
 export async function stopRiderBackgroundLocationAsync() {

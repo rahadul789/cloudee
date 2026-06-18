@@ -21,11 +21,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import {
   useRiderDeliveryThresholdsQuery,
   useRiderLiveMapQuery,
+  useRiderMapStyleQuery,
   type RiderLiveMapOrder,
   type RiderLiveMapRestaurant,
   type RiderMapCoordinate,
 } from "@/src/hooks/use-rider-api";
 import { useDeliveryCopy } from "@/src/lib/copy";
+import { getMapStyleSignature } from "@/src/lib/map-style";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
@@ -515,7 +517,13 @@ export default function RiderMapScreen() {
   const mapCopy = copy.map;
   const rider = useRiderAuthStore((state) => state.rider);
   const liveMapQuery = useRiderLiveMapQuery(isFocused);
+  const mapStyleQuery = useRiderMapStyleQuery("delivery.map_tab");
   const thresholdsQuery = useRiderDeliveryThresholdsQuery();
+  const resolvedMapStyle = mapStyleQuery.data ?? undefined;
+  const mapStyleSignature = useMemo(
+    () => getMapStyleSignature(resolvedMapStyle),
+    [resolvedMapStyle]
+  );
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [readyOnly, setReadyOnly] = useState(false);
@@ -693,12 +701,15 @@ export default function RiderMapScreen() {
   return (
     <View style={styles.screen}>
       <MapView
+        key={mapStyleSignature}
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialRegion={buildRegion(fitPoints)}
+        customMapStyle={resolvedMapStyle}
         showsCompass={false}
         showsUserLocation
         showsMyLocationButton={false}
+        showsPointsOfInterest={false}
         toolbarEnabled={false}
         onMapReady={fitMap}
         onRegionChangeComplete={handleRegionChangeComplete}
@@ -708,8 +719,8 @@ export default function RiderMapScreen() {
             key={route.id}
             coordinates={route.points}
             strokeColor={palette.secondary}
-            strokeWidth={3}
-            lineDashPattern={[2, 9]}
+            strokeWidth={2.5}
+            lineDashPattern={[4, 8]}
             lineCap="round"
             lineJoin="round"
           />
@@ -721,8 +732,8 @@ export default function RiderMapScreen() {
           <Polyline
             coordinates={buildCurvedPolyline(riderLocation, selectedRestaurant.location)}
             strokeColor={palette.info}
-            strokeWidth={3}
-            lineDashPattern={[8, 8]}
+            strokeWidth={2.75}
+            lineDashPattern={[6, 8]}
             lineCap="round"
           />
         ) : null}
@@ -739,6 +750,7 @@ export default function RiderMapScreen() {
             <Marker
               key={`customer-${order.id}`}
               coordinate={order.customer.location}
+              anchor={{ x: 0.5, y: 0.5 }}
               zIndex={4}
               onPress={() => {
                 const parent = restaurants.find((restaurant) =>
@@ -747,8 +759,11 @@ export default function RiderMapScreen() {
                 if (parent) openRestaurantSheet(parent);
               }}
             >
-              <View style={styles.customerMarker}>
-                <Ionicons name="home" size={13} color={palette.surface} />
+              <View style={styles.customerMarkerWrap}>
+                <View style={styles.customerMarkerShadow} />
+                <View style={styles.customerMarker}>
+                  <Ionicons name="home" size={13} color={palette.surface} />
+                </View>
               </View>
             </Marker>
           ) : null
@@ -941,8 +956,8 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   restaurantMarkerWrap: {
-    width: 46,
-    height: 46,
+    width: 56,
+    height: 58,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -970,8 +985,8 @@ const styles = StyleSheet.create({
   },
   markerCountBadge: {
     position: "absolute",
-    top: 2,
-    right: 2,
+    top: 4,
+    right: 4,
     zIndex: 8,
     elevation: 9,
     minWidth: 18,
@@ -990,14 +1005,34 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   customerMarker: {
-    width: 25,
-    height: 25,
-    borderRadius: 9,
+    width: 30,
+    height: 30,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.primary,
     borderWidth: 2,
     borderColor: palette.surface,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.6,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  customerMarkerWrap: {
+    width: 52,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customerMarkerShadow: {
+    position: "absolute",
+    bottom: 8,
+    width: 22,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.24)",
+    transform: [{ scaleX: 1.2 }],
   },
   loadingCard: {
     position: "absolute",

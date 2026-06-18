@@ -1,0 +1,184 @@
+<%- include("../partials/document-start", { title, description }) %>
+
+<section class="page-hero privacy-page">
+  <div class="page-hero-content gs-up">
+    <p class="eyebrow">Foodbela customer app</p>
+    <h1>Privacy Policy</h1>
+    <p>
+      This Privacy Policy explains how Foodbela collects, uses, shares, and protects
+      information when you use the Foodbela website, customer mobile app, and related
+      food ordering, delivery, payment, notification, and support services.
+    </p>
+  </div>
+</section>
+
+<section class="policy-section">
+  <div class="policy-shell">
+    <p class="policy-updated"><strong>Effective date:</strong> June 18, 2026</p>
+
+    <article class="policy-block">
+      <h2>1. Who we are</h2>
+      <p>
+        Foodbela operates a food delivery platform that connects customers,
+        restaurants, riders, and support teams. In this policy, "Foodbela", "we",
+        "our", or "us" means the Foodbela service. "You" means a customer or visitor
+        who uses our app, website, or services.
+      </p>
+      <p>
+        If you have privacy questions or want to request access, correction, or
+        deletion of your data, contact us at
+        <a href="mailto:<%= websiteSettings.supportEmail || site.email %>"><%= websiteSettings.supportEmail || site.email %></a>.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>2. Information we collect</h2>
+      <p>We collect information that is needed to provide and improve the service.</p>
+      <ul>
+        <li><strong>Account information:</strong> phone number, OTP verification status, name, password, profile details, profile photo, and account preferences.</li>
+        <li><strong>Location and address information:</strong> approximate or precise location, saved delivery addresses, address labels, address notes, service area, and location permission status.</li>
+        <li><strong>Order information:</strong> cart items, restaurant, menu items, delivery instructions, voucher or offer use, order status, order history, cancellation, refund, and support context.</li>
+        <li><strong>Payment information:</strong> selected payment method, cash-on-delivery preference, bKash checkout session details, payment status, transaction reference, and refund status. We do not store full card numbers.</li>
+        <li><strong>Support information:</strong> support messages, issue details, order references, images or photos you choose to attach, and support case history.</li>
+        <li><strong>Device, app, and notification information:</strong> device type, operating system, app version, install ID, Expo/Firebase push token, notification permission status, and app environment.</li>
+        <li><strong>Usage and analytics information:</strong> screens viewed, buttons tapped, search and browse activity, campaign or referral attribution, app events, timestamps, error states, and performance information.</li>
+        <li><strong>Website contact information:</strong> name, phone, email, area, message, and partnership or support request details submitted through website forms.</li>
+      </ul>
+    </article>
+
+    <article class="policy-block">
+      <h2>3. Permissions used by the app</h2>
+      <ul>
+        <li><strong>Location:</strong> used to show nearby restaurants, check delivery coverage, calculate delivery estimates, prepare delivery routes, and improve order tracking.</li>
+        <li><strong>Camera and photos:</strong> used only when you choose to upload a profile picture or attach an image to a support request.</li>
+        <li><strong>Notifications:</strong> used to send OTP-related updates, order status, delivery progress, offers, account alerts, and support messages.</li>
+      </ul>
+      <p>
+        You can control app permissions from your device settings. Some features may
+        not work correctly if required permissions are disabled.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>4. How we use your information</h2>
+      <ul>
+        <li>Create, verify, secure, and manage your account.</li>
+        <li>Show restaurants and offers available near your selected location.</li>
+        <li>Process carts, orders, payments, refunds, vouchers, and delivery requests.</li>
+        <li>Share order details with the restaurant, assigned rider, and support team so they can complete your order.</li>
+        <li>Send service messages, push notifications, OTPs, order updates, support replies, and promotional offers where allowed.</li>
+        <li>Detect, prevent, and investigate fraud, abuse, security incidents, payment issues, and policy violations.</li>
+        <li>Analyze usage, troubleshoot bugs, improve reliability, and develop new features.</li>
+        <li>Comply with legal, regulatory, tax, accounting, dispute, and safety obligations.</li>
+      </ul>
+    </article>
+
+    <article class="policy-block">
+      <h2>5. When we share information</h2>
+      <p>We do not sell your personal information. We share information only when needed to operate, protect, or improve the service.</p>
+      <ul>
+        <li><strong>Restaurants:</strong> order items, delivery timing, customer name, phone number if needed for coordination, address, and delivery notes.</li>
+        <li><strong>Riders:</strong> pickup and drop-off details, customer name, phone number if needed for delivery, address, route context, and order status.</li>
+        <li><strong>Payment providers:</strong> information required to create, verify, complete, or refund a payment, including bKash session or transaction references.</li>
+        <li><strong>Service providers:</strong> hosting, storage, maps, analytics, notifications, customer support, SMS/OTP, fraud prevention, and technical operations providers.</li>
+        <li><strong>Legal and safety recipients:</strong> regulators, law enforcement, courts, or other parties where disclosure is required by law or needed to protect rights, safety, and security.</li>
+      </ul>
+    </article>
+
+    <article class="policy-block">
+      <h2>6. Third-party services</h2>
+      <p>
+        Foodbela may use third-party services such as hosting providers, Google Maps
+        or location services, Firebase Cloud Messaging, Expo services, SMS or OTP
+        providers, bKash payment services, analytics tools, and media storage
+        providers. These providers process information according to their own terms
+        and privacy practices as well as our instructions where applicable.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>7. Data security</h2>
+      <p>
+        We use technical and organizational safeguards designed to protect your data.
+        These include encrypted connections where supported, access controls, secure
+        token storage on the device, operational monitoring, and restrictions on
+        who can access personal data. No method of transmission or storage is 100%
+        secure, but we work to protect information from unauthorized access, loss,
+        misuse, or alteration.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>8. Data retention</h2>
+      <p>
+        We keep personal information for as long as needed to provide the service,
+        maintain your account, complete orders, resolve disputes, prevent fraud,
+        comply with legal and accounting obligations, and enforce our agreements.
+        Some records, such as orders, payments, refunds, logs, or support cases, may
+        be kept longer when required for business, safety, legal, or audit reasons.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>9. Your choices and rights</h2>
+      <ul>
+        <li>You can update profile details and saved preferences in the app where available.</li>
+        <li>You can disable location, camera, photo, and notification permissions from your device settings.</li>
+        <li>You can unsubscribe or opt out of promotional communications where the option is available.</li>
+        <li>You can request access, correction, deletion, or restriction of your personal data by contacting us.</li>
+      </ul>
+      <p>
+        To request account or data deletion, email
+        <a href="mailto:<%= websiteSettings.supportEmail || site.email %>"><%= websiteSettings.supportEmail || site.email %></a>
+        with the phone number linked to your Foodbela account. We may need to verify
+        your identity before completing the request. We may retain limited records
+        where required by law, fraud prevention, payment disputes, safety, or
+        accounting obligations.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>10. Children's privacy</h2>
+      <p>
+        Foodbela is not directed to children. We do not knowingly collect personal
+        information from children under the age required by applicable law without
+        appropriate consent. If you believe a child has provided personal information
+        to Foodbela, contact us so we can review and delete it where required.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>11. International processing</h2>
+      <p>
+        Your information may be processed and stored in Bangladesh or in other
+        countries where our service providers operate. We take steps designed to
+        protect your information according to this policy when it is processed by
+        us or our providers.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>12. Changes to this policy</h2>
+      <p>
+        We may update this Privacy Policy from time to time. If we make material
+        changes, we will update the effective date and may notify you through the
+        app, website, or other appropriate channels. Your continued use of Foodbela
+        after an update means the updated policy applies.
+      </p>
+    </article>
+
+    <article class="policy-block">
+      <h2>13. Contact us</h2>
+      <p>
+        For privacy questions, data requests, account deletion, or support, contact
+        Foodbela at
+        <a href="mailto:<%= websiteSettings.supportEmail || site.email %>"><%= websiteSettings.supportEmail || site.email %></a>.
+      </p>
+      <% if (websiteSettings.supportPhone || site.phone) { %>
+        <p>Phone: <a href="tel:<%= (websiteSettings.supportPhone || site.phone).replace(/\s+/g, '') %>"><%= websiteSettings.supportPhone || site.phone %></a></p>
+      <% } %>
+    </article>
+  </div>
+</section>
+
+<%- include("../partials/document-end") %>

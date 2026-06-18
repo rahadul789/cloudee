@@ -40,7 +40,18 @@ import {
   useLocation,
   useNavigate,
   useRouteError,
+  useSearchParams,
 } from "react-router-dom"
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
@@ -75,6 +86,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Toaster } from "@/components/ui/sonner"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -250,6 +262,11 @@ const ReportsPage = React.lazy(() =>
 const CustomerAnalyticsPage = React.lazy(() =>
   import("@/components/customer-analytics-page").then((module) => ({
     default: module.CustomerAnalyticsPage,
+  }))
+)
+const PromoAnalyticsPage = React.lazy(() =>
+  import("@/components/promo-analytics-page").then((module) => ({
+    default: module.PromoAnalyticsPage,
   }))
 )
 const ReferralsPage = React.lazy(() =>
@@ -900,6 +917,7 @@ function resolveAdminPageTitle(pathname: string, search: string) {
     if (tab === "earnings") return "Rider Payroll"
     if (tab === "dispatch") return "Dispatch Controls"
   }
+  if (pathname === "/finance") return "Finance"
   return adminRouteTitleByPath[pathname] ?? "Dashboard"
 }
 
@@ -1015,8 +1033,14 @@ function AdminZoneScopeSelector() {
     queryFn: getAdminServiceAreas,
     staleTime: 60_000,
   })
-  const districts = serviceAreasQuery.data?.districts ?? []
-  const zones = serviceAreasQuery.data?.zones ?? []
+  const districts = React.useMemo(
+    () => serviceAreasQuery.data?.districts ?? [],
+    [serviceAreasQuery.data?.districts]
+  )
+  const zones = React.useMemo(
+    () => serviceAreasQuery.data?.zones ?? [],
+    [serviceAreasQuery.data?.zones]
+  )
 
   React.useEffect(
     () =>
@@ -1755,6 +1779,20 @@ function DashboardPage() {
           icon: Truck,
           tone: "text-cyan-600 bg-cyan-50",
           drawer: "riders",
+        },
+        {
+          label: "Active users today",
+          value: formatDashboardNumber(data.overview.activeUsersToday),
+          helper: `${formatDashboardNumber(data.overview.activeUsersMonth)} active in last 30 days`,
+          icon: Users,
+          tone: "text-violet-600 bg-violet-50",
+        },
+        {
+          label: "Repeat customers",
+          value: formatDashboardNumber(data.overview.repeatCustomers),
+          helper: `${data.overview.repeatRate}% repeat rate, ${formatDashboardNumber(data.overview.newCustomers)} new in ${timeframeLabel.toLowerCase()}`,
+          icon: Users,
+          tone: "text-pink-600 bg-pink-50",
         },
         {
           label: "Late alerts",
@@ -2543,6 +2581,104 @@ function DashboardPage() {
         ))}
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales & order trend</CardTitle>
+            <CardDescription>
+              Delivered orders and revenue for {timeframeLabel.toLowerCase()}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(data?.sales.trend?.length ?? 0) > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={data?.sales.trend ?? []}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(value) => formatDashboardNumber(Number(value))}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(value) => formatDashboardCurrency(Number(value))}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: unknown, name) => [
+                      String(name).toLowerCase().includes("revenue")
+                        ? formatDashboardCurrency(Number(value ?? 0))
+                        : formatDashboardNumber(Number(value ?? 0)),
+                      name,
+                    ]}
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="orders"
+                    name="Orders"
+                    fill="#2563eb"
+                    maxBarSize={28}
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="revenue"
+                    name="Revenue"
+                    stroke="#16a34a"
+                    strokeWidth={2}
+                    dot={(data?.sales.trend?.length ?? 0) <= 2 ? { r: 2 } : false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[280px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                No delivered sales for this timeframe yet.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Top customers</CardTitle>
+            <CardDescription>
+              Highest spenders by delivered orders in this timeframe.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {(data?.customers.topCustomers ?? []).slice(0, 6).map((customer, index) => (
+              <button
+                key={customer.customerId || customer.phone || index}
+                type="button"
+                onClick={() => navigate("/users")}
+                className="flex w-full items-center justify-between gap-3 rounded-lg border bg-background px-3 py-2 text-left transition hover:bg-muted/40"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {index + 1}. {customer.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDashboardNumber(customer.deliveredOrders)} delivered orders
+                    {customer.phone ? ` · ${customer.phone}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold">
+                  {formatDashboardCurrency(customer.spend)}
+                </span>
+              </button>
+            ))}
+            {(data?.customers.topCustomers?.length ?? 0) === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                No customer orders for this timeframe yet.
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr_0.9fr]">
         <Card>
           <CardHeader>
@@ -3040,6 +3176,62 @@ function RouteLoading() {
   )
 }
 
+const FINANCE_HUB_TABS: Array<{
+  value: string
+  label: string
+  Component: React.LazyExoticComponent<() => React.JSX.Element>
+}> = [
+  { value: "platform", label: "Overview", Component: FinancePlatformPage },
+  { value: "transactions", label: "Transactions", Component: FinanceTransactionsPage },
+  { value: "payments", label: "Payments", Component: PaymentsPage },
+  { value: "payouts", label: "Payouts", Component: FinancePayoutsPage },
+  { value: "ledger", label: "Ledger", Component: FinanceLedgerPage },
+  { value: "refunds", label: "Refunds", Component: FinanceRefundsPage },
+]
+
+function FinancePage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get("tab") || "platform"
+  const activeTab =
+    FINANCE_HUB_TABS.find((tab) => tab.value === requestedTab) ?? FINANCE_HUB_TABS[0]
+  const ActiveComponent = activeTab.Component
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-lg font-semibold">Finance</h1>
+        <p className="text-sm text-muted-foreground">
+          Platform settlement, transactions, payouts, ledger, and refunds in one place.
+        </p>
+      </div>
+      <Tabs
+        value={activeTab.value}
+        onValueChange={(value) =>
+          setSearchParams(
+            (previous) => {
+              const next = new URLSearchParams(previous)
+              next.set("tab", value)
+              return next
+            },
+            { replace: true }
+          )
+        }
+      >
+        <TabsList className="flex w-full flex-wrap justify-start gap-1">
+          {FINANCE_HUB_TABS.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className="flex-none">
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      <React.Suspense fallback={<RouteLoading />}>
+        <ActiveComponent />
+      </React.Suspense>
+    </div>
+  )
+}
+
 function RouteErrorBoundary() {
   const error = useRouteError()
   const navigate = useNavigate()
@@ -3132,6 +3324,10 @@ const router = createBrowserRouter([
             <ServiceAreasPage />
           </React.Suspense>
         ),
+      },
+      {
+        path: "finance",
+        element: <FinancePage />,
       },
       {
         path: "payments",
@@ -3234,6 +3430,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <CustomerAnalyticsPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "promo-analytics",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <PromoAnalyticsPage />
           </React.Suspense>
         ),
       },

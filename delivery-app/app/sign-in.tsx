@@ -44,6 +44,10 @@ function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
 }
 
+function sanitizePhoneInput(value: string) {
+  return onlyDigits(value).slice(0, 11);
+}
+
 function isValidPhone(value: string) {
   return /^01\d{9}$/.test(onlyDigits(value));
 }
@@ -455,13 +459,14 @@ export default function SignInScreen() {
                 <TextInput
                   value={phone}
                   onChangeText={(value) => {
-                    setPhone(value);
+                    setPhone(sanitizePhoneInput(value));
                     if (error) setError("");
                   }}
                   placeholder="01XXXXXXXXX"
                   placeholderTextColor={palette.placeholder}
                   style={styles.input}
                   keyboardType="phone-pad"
+                  maxLength={11}
                   autoCapitalize="none"
                   returnKeyType="next"
                   editable={!isBusy && step === "password"}

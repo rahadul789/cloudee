@@ -32,6 +32,54 @@ export type AdminPlatformSettingsResponse = {
   }>
 }
 
+type RoutingUsageBucket = {
+  totalEvents: number
+  used: number
+  success: number
+  failed: number
+  nonOk: number
+  blocked: number
+}
+
+export type AdminRoutingUsageAnalytics = {
+  settings: {
+    provider: "google" | "haversine"
+    costMode: "economy" | "balanced" | "precision"
+    googleMonthlyLimit: number
+    maxGoogleCallsPerOrder: number
+    routeSessionTtlMinutes: number
+    rerouteCooldownSeconds: number
+    offRouteThresholdMeters: number
+    offRouteConsecutiveUpdates: number
+    periodicRefreshMinutes: number
+    nearDestinationMeters: number
+  }
+  month: {
+    key: string
+    limit: number
+    used: number
+    remaining: number
+    resetAt: string
+  }
+  range: RoutingUsageBucket & {
+    from: string
+    to: string
+  }
+  byDate: Array<RoutingUsageBucket & { date: string }>
+  bySource: Array<RoutingUsageBucket & { source: string }>
+  recent: Array<{
+    id: string
+    source: string
+    status: string
+    billable: boolean
+    orderId: string
+    sessionKey: string
+    dateKey: string
+    reason: string
+    occurredAt: string | null
+  }>
+}
+
 function scopeQuery() {
   const scope = getAdminZoneScopeQueryParams()
   const searchParams = new URLSearchParams()
@@ -58,6 +106,20 @@ export async function updateAdminPlatformSettings(settings: AdminPlatformSetting
       },
       body: JSON.stringify({ settings }),
     }
+  )
+  return response.data
+}
+
+export async function getAdminRoutingUsageAnalytics(params: {
+  from?: string
+  to?: string
+} = {}) {
+  const searchParams = new URLSearchParams()
+  if (params.from) searchParams.set("from", params.from)
+  if (params.to) searchParams.set("to", params.to)
+  const query = searchParams.toString()
+  const response = await adminRequest<AdminRoutingUsageAnalytics>(
+    `/admin/settings/routing-usage${query ? `?${query}` : ""}`
   )
   return response.data
 }

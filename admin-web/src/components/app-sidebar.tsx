@@ -85,7 +85,9 @@ export function AppSidebar({
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {group.items.map((item) => {
+                  {group.items
+                    .filter((item) => !item.devOnly || import.meta.env.DEV)
+                    .map((item) => {
                     const [itemPath, itemSearch = ""] = item.to.split("?")
                     const itemHasSearch = item.to.includes("?")
                     const currentFullPath = `${location.pathname}${location.search}`

@@ -53,6 +53,7 @@ import {
   type AdminCustomerGroup,
   type AdminCustomerOrderHistoryItem,
   type AdminCustomerSummary,
+  type AdminCustomerTier,
   type AdminRestaurantOrderDateFilterPreset,
 } from "@/lib/admin-api"
 import {
@@ -72,6 +73,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -128,7 +130,13 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 
 type CustomerStatusFilter = "all" | "active" | "suspended" | "locked"
-type CustomerSort = "newest" | "recentLogin" | "mostOrders" | "highestSpend"
+type CustomerSort =
+  | "newest"
+  | "recentLogin"
+  | "mostOrders"
+  | "highestSpend"
+  | "repeatFirst"
+type CustomerTierFilter = "all" | AdminCustomerTier
 type CustomerStatus = AdminCustomerSummary["status"]
 type CustomerStatusTargetCustomer = Pick<
   AdminCustomerSummary,
@@ -381,6 +389,35 @@ function getCustomerStatusBadgeClass(status: string) {
   if (status === "suspended")
     return "border-amber-200 bg-amber-50 text-amber-700"
   return "border-rose-200 bg-rose-50 text-rose-700"
+}
+
+const CUSTOMER_TIER_META: Record<
+  AdminCustomerTier,
+  { label: string; className: string }
+> = {
+  new: { label: "New", className: "border-slate-200 bg-slate-50 text-slate-600" },
+  repeat: { label: "Repeat", className: "border-sky-200 bg-sky-50 text-sky-700" },
+  vip: { label: "VIP", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  at_risk: {
+    label: "At risk",
+    className: "border-rose-200 bg-rose-50 text-rose-700",
+  },
+}
+
+function CustomerTierBadge({
+  tier,
+  className,
+}: {
+  tier?: AdminCustomerTier
+  className?: string
+}) {
+  if (!tier) return null
+  const meta = CUSTOMER_TIER_META[tier] ?? CUSTOMER_TIER_META.new
+  return (
+    <Badge variant="outline" className={cn(meta.className, className)}>
+      {meta.label}
+    </Badge>
+  )
 }
 
 function getOrderStatusBadgeClass(status: string) {
@@ -1593,6 +1630,7 @@ export function UsersPage() {
   const [status, setStatus] = React.useState<CustomerStatusFilter>("all")
   const [customerGroupKey, setCustomerGroupKey] = React.useState("none")
   const [sortBy, setSortBy] = React.useState<CustomerSort>("newest")
+  const [tier, setTier] = React.useState<CustomerTierFilter>("all")
   const [behaviorPreset, setBehaviorPreset] =
     React.useState<CustomerBehaviorPreset>("last30Days")
   const [behaviorFrom, setBehaviorFrom] = React.useState("")
@@ -1637,6 +1675,7 @@ export function UsersPage() {
       adminScopeKey,
       debouncedSearch,
       status,
+      tier,
       customerGroupKey,
       sortBy,
       behaviorPreset,
@@ -1648,6 +1687,7 @@ export function UsersPage() {
       listAdminCustomers({
         search: debouncedSearch,
         status,
+        tier,
         customerGroupKey: customerGroupKey === "none" ? undefined : customerGroupKey,
         sortBy,
         preset: behaviorPreset,
@@ -1773,6 +1813,7 @@ export function UsersPage() {
   const hasFilters =
     search.trim() !== "" ||
     status !== "all" ||
+    tier !== "all" ||
     customerGroupKey !== "none" ||
     sortBy !== "newest"
   const groupMembers = groupMembersQuery.data?.items ?? []
@@ -1785,6 +1826,7 @@ export function UsersPage() {
     adminScopeKey,
     debouncedSearch,
     status,
+    tier,
     customerGroupKey,
     sortBy,
     behaviorPreset,
@@ -1827,6 +1869,7 @@ export function UsersPage() {
       sourceFilter: {
         search: debouncedSearch,
         status,
+        tier,
         customerGroupKey:
           customerGroupKey === "none" ? undefined : customerGroupKey,
         preset: behaviorPreset,
@@ -2030,7 +2073,7 @@ export function UsersPage() {
                 Search customers and review account health from one place.
               </CardDescription>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[minmax(260px,1fr)_150px_170px_190px_auto_auto_auto]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[minmax(260px,1fr)_150px_150px_170px_190px_auto_auto_auto]">
               <div className="relative sm:col-span-2 lg:col-span-2 2xl:col-span-1">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -2057,6 +2100,21 @@ export function UsersPage() {
                 </SelectContent>
               </Select>
               <Select
+                value={tier}
+                onValueChange={(value) => setTier(value as CustomerTierFilter)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All tiers</SelectItem>
+                  <SelectItem value="new">New</SelectItem>
+                  <SelectItem value="repeat">Repeat</SelectItem>
+                  <SelectItem value="vip">VIP</SelectItem>
+                  <SelectItem value="at_risk">At risk</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
                 value={sortBy}
                 onValueChange={(value) => setSortBy(value as CustomerSort)}
               >
@@ -2068,6 +2126,7 @@ export function UsersPage() {
                   <SelectItem value="recentLogin">Recent login</SelectItem>
                   <SelectItem value="mostOrders">Most orders</SelectItem>
                   <SelectItem value="highestSpend">Highest spend</SelectItem>
+                  <SelectItem value="repeatFirst">Repeat first</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={customerGroupKey} onValueChange={setCustomerGroupKey}>
@@ -2128,6 +2187,7 @@ export function UsersPage() {
                 onClick={() => {
                   setSearch("")
                   setStatus("all")
+                  setTier("all")
                   setCustomerGroupKey("none")
                   setSortBy("newest")
                   setPage(1)
@@ -2149,6 +2209,43 @@ export function UsersPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {summary.tierBreakdown ? (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {(
+                [
+                  { key: "all" as const, label: "All" },
+                  { key: "new" as const, label: "New" },
+                  { key: "repeat" as const, label: "Repeat" },
+                  { key: "vip" as const, label: "VIP" },
+                  { key: "at_risk" as const, label: "At risk" },
+                ] satisfies Array<{ key: CustomerTierFilter; label: string }>
+              ).map((chip) => {
+                const count =
+                  chip.key === "all"
+                    ? (summary.tierBreakdown?.new ?? 0) +
+                      (summary.tierBreakdown?.repeat ?? 0) +
+                      (summary.tierBreakdown?.vip ?? 0) +
+                      (summary.tierBreakdown?.at_risk ?? 0)
+                    : summary.tierBreakdown?.[chip.key] ?? 0
+                const isActive = tier === chip.key
+                return (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    onClick={() => setTier(chip.key)}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-medium transition",
+                      isActive
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "bg-background hover:bg-muted/60"
+                    )}
+                  >
+                    {chip.label} ({count.toLocaleString()})
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
           <div className="overflow-hidden rounded-lg border">
             <Table>
               <TableHeader>
@@ -2191,8 +2288,14 @@ export function UsersPage() {
                             </AvatarFallback>
                           </Avatar>
                           <span className="min-w-0">
-                            <span className="block font-medium">
-                              {customer.fullName}
+                            <span className="flex items-center gap-2">
+                              <span className="block font-medium">
+                                {customer.fullName}
+                              </span>
+                              <CustomerTierBadge
+                                tier={customer.customerTier}
+                                className="h-5 px-1.5 text-[10px]"
+                              />
                             </span>
                             <span className="block truncate text-xs text-muted-foreground">
                               {customer.phone || customer.email || "No contact"}

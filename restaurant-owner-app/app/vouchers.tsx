@@ -225,7 +225,7 @@ export default function VouchersScreen() {
       return false;
     }
 
-    if (form.mode === "coupon" && !form.code.trim()) {
+    if (!form.code.trim()) {
       Alert.alert("Voucher code required", "Add a code customers can apply.");
       return false;
     }
@@ -262,10 +262,10 @@ export default function VouchersScreen() {
     return {
       fundedBy: "owner",
       stackingRule: "exclusive",
-      mode: form.mode,
+      mode: "coupon",
       type: form.type,
       name: form.name.trim(),
-      code: form.mode === "coupon" ? form.code.trim().toUpperCase() : "",
+      code: form.code.trim().toUpperCase(),
       discountValue: Number(form.discountValue),
       minimumOrderAmount: Number(form.minimumOrderAmount || "0"),
       maxTotalUses: form.maxTotalUses ? Number(form.maxTotalUses) : undefined,
@@ -572,25 +572,15 @@ export default function VouchersScreen() {
             placeholder="Lunch saver"
           />
 
-          <SegmentedControl
-            label="Apply type"
-            value={form.mode}
-            options={[
-              { label: "Code", value: "coupon" },
-              { label: "Auto", value: "auto" },
-            ]}
-            onChange={(value) => updateForm("mode", value as VoucherForm["mode"])}
+          {/* Owner vouchers are always code-based. There is no auto/threshold
+              apply type, so the voucher code is always required. */}
+          <InputGroup
+            label="Voucher code"
+            value={form.code}
+            onChangeText={(value) => updateForm("code", value.replace(/\s/g, "").toUpperCase())}
+            placeholder="SAVE50"
+            autoCapitalize="characters"
           />
-
-          {form.mode === "coupon" ? (
-            <InputGroup
-              label="Voucher code"
-              value={form.code}
-              onChangeText={(value) => updateForm("code", value.replace(/\s/g, "").toUpperCase())}
-              placeholder="SAVE50"
-              autoCapitalize="characters"
-            />
-          ) : null}
 
           <SegmentedControl
             label="Discount type"

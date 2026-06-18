@@ -48,6 +48,21 @@ const createRestaurantSchema = z.object({
   payoutBkashNumber: z.string().regex(/^01\d{9}$/).optional().or(z.literal("")),
   cuisineTypes: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  documents: z
+    .array(
+      z.object({
+        type: z.enum(["nid", "trade_license", "tin", "bin_vat"]),
+        label: z.string().trim().max(80).optional(),
+        url: z.string().trim().min(1),
+        publicId: z.string().trim().optional(),
+        fileName: z.string().trim().max(180).optional(),
+        fileType: z.string().trim().max(120).optional(),
+        resourceType: z.string().trim().max(40).optional(),
+        uploadedAt: z.string().datetime().nullable().optional(),
+      }),
+    )
+    .max(4)
+    .optional(),
   address: z.string().optional(),
   city: z.string().optional(),
   latitude: z.number().nullable().optional(),

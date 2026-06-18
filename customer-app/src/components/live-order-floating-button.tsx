@@ -3,6 +3,7 @@ import { usePathname, useRouter, useSegments } from "expo-router";
 import { useEffect, useMemo, useRef } from "react";
 import {
   Animated,
+  Easing,
   PanResponder,
   Pressable,
   StyleSheet,
@@ -14,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCustomerActiveOrderQuery } from "@/src/hooks/use-customer-api";
 
 const LIVE_STATUSES = ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"];
-const BUTTON_SIZE = 48;
+const BUTTON_SIZE = 54;
 const EDGE_MARGIN = 16;
 const TAP_MOVE_TOLERANCE = 8;
 const DRAG_RELEASE_PRESS_GUARD_MS = 120;
@@ -27,8 +28,7 @@ export function LiveOrderFloatingButton() {
   const segments = useSegments();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const pulse = useRef(new Animated.Value(0)).current;
-  const pulseTrail = useRef(new Animated.Value(0)).current;
+  const breathe = useRef(new Animated.Value(0)).current;
   const pan = useRef(new Animated.ValueXY()).current;
   const dragStartRef = useRef({ x: 0, y: 0 });
   const currentPositionRef = useRef({ x: 0, y: 0 });
@@ -65,46 +65,35 @@ export function LiveOrderFloatingButton() {
 
   useEffect(() => {
     if (!order) {
-      pulse.stopAnimation();
-      pulseTrail.stopAnimation();
-      pulse.setValue(0);
-      pulseTrail.setValue(0);
+      breathe.stopAnimation();
+      breathe.setValue(0);
       return;
     }
 
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    let isMounted = true;
-
-    const runPulse = () => {
-      if (!isMounted) return;
-      pulse.setValue(0);
-      pulseTrail.setValue(0);
-      Animated.stagger(150, [
-        Animated.timing(pulse, {
+    breathe.setValue(0);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathe, {
           toValue: 1,
-          duration: 820,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.timing(pulseTrail, {
-          toValue: 1,
-          duration: 980,
+        Animated.timing(breathe, {
+          toValue: 0,
+          duration: 1600,
+          easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
-      ]).start(() => {
-        if (!isMounted) return;
-        timeout = setTimeout(runPulse, 3800);
-      });
-    };
-
-    runPulse();
+      ]),
+    );
+    animation.start();
 
     return () => {
-      isMounted = false;
-      if (timeout) clearTimeout(timeout);
-      pulse.stopAnimation();
-      pulseTrail.stopAnimation();
+      animation.stop();
+      breathe.stopAnimation();
     };
-  }, [order, pulse, pulseTrail]);
+  }, [breathe, order]);
 
   const panResponder = useMemo(
     () =>
@@ -183,21 +172,13 @@ export function LiveOrderFloatingButton() {
     return null;
   }
 
-  const pulseScale = pulse.interpolate({
+  const breatheScale = breathe.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.62],
+    outputRange: [1, 1.12],
   });
-  const pulseOpacity = pulse.interpolate({
+  const breatheOpacity = breathe.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.24, 0],
-  });
-  const pulseTrailScale = pulseTrail.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.92],
-  });
-  const pulseTrailOpacity = pulseTrail.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.18, 0],
+    outputRange: [0.42, 0.74],
   });
 
   return (
@@ -213,25 +194,18 @@ export function LiveOrderFloatingButton() {
       <Animated.View
         pointerEvents="none"
         style={[
-          styles.livePulse,
+          styles.liveRing,
           {
-            opacity: pulseOpacity,
-            transform: [{ scale: pulseScale }],
-          },
-        ]}
-      />
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.livePulseTrail,
-          {
-            opacity: pulseTrailOpacity,
-            transform: [{ scale: pulseTrailScale }],
+            opacity: breatheOpacity,
+            transform: [{ scale: breatheScale }],
           },
         ]}
       />
       <Pressable
-        style={styles.button}
+        style={({ pressed }) => [
+          styles.button,
+          pressed ? styles.buttonPressed : null,
+        ]}
         onPress={() => {
           if (Date.now() < ignorePressUntilRef.current) {
             return;
@@ -243,8 +217,10 @@ export function LiveOrderFloatingButton() {
           });
         }}
       >
-        <View style={styles.innerGlow} />
-        <Ionicons name="radio-outline" size={19} color="#fff" />
+        <View style={styles.buttonSheen} />
+        <View style={styles.iconCore}>
+          <Ionicons name="radio-outline" size={19} color="#FFFFFF" />
+        </View>
         <View style={styles.liveDot} />
       </Pressable>
     </Animated.View>
@@ -259,25 +235,20 @@ const styles = StyleSheet.create({
     zIndex: 45,
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
-    shadowColor: "#FF6392",
-    shadowOpacity: 0.34,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
+    shadowColor: "#1F2430",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
   },
-  livePulse: {
+  liveRing: {
     position: "absolute",
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: "#FF6392",
-  },
-  livePulseTrail: {
-    position: "absolute",
-    width: BUTTON_SIZE,
-    height: BUTTON_SIZE,
-    borderRadius: BUTTON_SIZE / 2,
-    backgroundColor: "#FFD1E0",
+    borderWidth: 2,
+    borderColor: "rgba(255, 99, 146, 0.46)",
+    backgroundColor: "rgba(255, 255, 255, 0.34)",
   },
   button: {
     width: BUTTON_SIZE,
@@ -285,29 +256,41 @@ const styles = StyleSheet.create({
     borderRadius: BUTTON_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255, 99, 146, 0.92)",
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.46)",
+    borderColor: "rgba(255, 99, 146, 0.22)",
     overflow: "hidden",
   },
-  innerGlow: {
+  buttonPressed: {
+    transform: [{ scale: 0.96 }],
+    opacity: 0.92,
+  },
+  buttonSheen: {
     position: "absolute",
-    top: -16,
-    right: -12,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "rgba(255, 255, 255, 0.22)",
+    top: -18,
+    right: -18,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(255, 99, 146, 0.12)",
+  },
+  iconCore: {
+    width: 35,
+    height: 35,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FF6392",
   },
   liveDot: {
     position: "absolute",
-    top: 10,
-    right: 10,
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#52F2B3",
-    borderWidth: 1,
+    top: 9,
+    right: 9,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#18D18B",
+    borderWidth: 2,
     borderColor: "#fff",
   },
 });

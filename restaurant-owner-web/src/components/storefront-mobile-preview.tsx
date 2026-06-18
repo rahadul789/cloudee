@@ -14,7 +14,7 @@ import {
 import type { StoreSettings } from "@/components/store-settings/types"
 import type { Voucher } from "@/components/promotions/types"
 import type { MenuItem } from "@/components/menu/types"
-import { Badge } from "@/components/ui/badge"
+import type { Category } from "@/components/categories/types"
 import { getStoreCoverSrc, getStoreLogoSrc } from "@/lib/store-profile"
 import { cn } from "@/lib/utils"
 
@@ -72,12 +72,14 @@ export function StorefrontMobilePreview({
   isOnline,
   vouchers,
   menuItems,
+  categories,
   className,
 }: {
   settings: StoreSettings
   isOnline: boolean
   vouchers?: Voucher[]
   menuItems?: MenuItem[]
+  categories?: Category[]
   className?: string
 }) {
   const activeOffers = React.useMemo(
@@ -91,19 +93,42 @@ export function StorefrontMobilePreview({
   )
   const primaryOffer = activeOffers[0]
   const facts = factItems(settings, activeOffers.length)
-  const tags = settings.tags.length
-    ? settings.tags.slice(0, 4)
-    : [settings.cuisineType || "Restaurant", "Fresh", "Popular"].filter(Boolean)
-  const popularItems = React.useMemo(
-    () =>
-      (menuItems ?? [])
-        .filter((item) => item.status === "Active" && item.isPopular)
-        .slice(0, 2),
+  const activeMenuItems = React.useMemo(
+    () => (menuItems ?? []).filter((item) => item.status === "Active"),
     [menuItems]
   )
-  const previewItems = popularItems.length
-    ? popularItems
-    : (menuItems ?? []).filter((item) => item.status === "Active").slice(0, 2)
+  const popularItems = React.useMemo(
+    () => activeMenuItems.filter((item) => item.isPopular).slice(0, 2),
+    [activeMenuItems]
+  )
+  const previewItems = popularItems.length ? popularItems : activeMenuItems.slice(0, 3)
+  const hasPopularLayout = popularItems.length > 0
+  const categoryTabs = React.useMemo(() => {
+    const activeItemCategoryIds = new Set(
+      activeMenuItems.map((item) => item.categoryId).filter(Boolean)
+    )
+    const orderedCategories = (categories ?? [])
+      .filter(
+        (category) =>
+          category.status === "Active" && activeItemCategoryIds.has(category.id)
+      )
+      .slice()
+      .sort((left, right) => {
+        if (left.displayOrder !== right.displayOrder) {
+          return left.displayOrder - right.displayOrder
+        }
+        return left.name.localeCompare(right.name)
+      })
+      .map((category) => ({ id: category.id, label: category.name }))
+
+    return [{ id: "popular", label: "Popular" }, ...orderedCategories]
+  }, [activeMenuItems, categories])
+
+  function getItemPrice(item: MenuItem) {
+    const variantPrices = item.variants.map((variant) => variant.price)
+    if (variantPrices.length) return Math.min(...variantPrices)
+    return item.basePrice ?? 0
+  }
 
   return (
     <div
@@ -221,38 +246,82 @@ export function StorefrontMobilePreview({
           </div>
         </div>
 
+        {activeOffers.length ? (
+          <div className="mx-5 mt-4 rounded-[24px] bg-[#fff7ed] p-3 shadow-[0_10px_24px_rgba(251,146,60,0.14)]">
+            <div className="flex items-center gap-2">
+              <span className="flex size-8 items-center justify-center rounded-full bg-white text-[#ff3f7f] shadow-sm">
+                <Percent className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-extrabold text-slate-950">
+                  Voucher available
+                </p>
+                <p className="truncate text-[11px] font-semibold text-slate-500">
+                  {activeOffers.map(formatVoucherLabel).join(" / ")}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="mx-5 mt-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-base font-extrabold text-slate-950">Menu</div>
             <div className="text-xs font-bold text-[#ff3f7f]">View all</div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <Badge
-                key={tag}
-                className="rounded-full bg-white px-3 py-1 text-slate-700 shadow-sm hover:bg-white"
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {categoryTabs.map((tab, index) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={cn(
+                  "shrink-0 rounded-full px-3.5 py-2 text-[11px] font-extrabold shadow-sm transition",
+                  index === 0
+                    ? "bg-[#ff6392] text-white"
+                    : "bg-white text-slate-700"
+                )}
               >
-                {tag}
-              </Badge>
+                {tab.label}
+              </button>
             ))}
           </div>
           {previewItems.length ? (
             <div className="space-y-3">
               {previewItems.map((item) => {
-                const price = item.variants.length
-                  ? Math.min(...item.variants.map((variant) => variant.price))
-                  : item.basePrice ?? 0
+                const price = getItemPrice(item)
                 return (
                   <div
                     key={item.id}
-                    className="rounded-[24px] bg-white p-3 shadow-[0_12px_28px_rgba(15,23,42,0.10)]"
+                    className={cn(
+                      "bg-white p-3 shadow-[0_12px_28px_rgba(15,23,42,0.10)]",
+                      hasPopularLayout ? "rounded-[24px]" : "rounded-[20px]"
+                    )}
                   >
-                    <div className="flex gap-3">
+                    <div className={cn("flex gap-3", hasPopularLayout ? "" : "items-center")}>
+                      {!hasPopularLayout ? (
+                        <div className="flex-1">
+                          <div className="text-sm font-extrabold text-slate-950">
+                            {item.name}
+                          </div>
+                          <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">
+                            {item.description || "Freshly prepared and ready to add."}
+                          </div>
+                          <div className="mt-2 text-sm font-extrabold text-[#ff6392]">
+                            {item.variants.length ? "Starts " : ""}Tk {Math.round(price).toLocaleString()}
+                          </div>
+                        </div>
+                      ) : null}
                       <img
                         src={item.imageUrl}
                         alt={item.name}
-                        className="size-[86px] shrink-0 rounded-[18px] bg-[#FFF3E9] object-cover"
+                        className={cn(
+                          "shrink-0 bg-[#FFF3E9] object-cover",
+                          hasPopularLayout
+                            ? "size-[86px] rounded-[18px]"
+                            : "size-[74px] rounded-[16px]"
+                        )}
                       />
+                      {hasPopularLayout ? (
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-2">
                           <div className="min-w-0 flex-1">
@@ -273,13 +342,22 @@ export function StorefrontMobilePreview({
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2">
                           <span className="rounded-full bg-[#FFF0F6] px-2.5 py-1 text-[10px] font-extrabold text-[#ff3f7f]">
-                            {item.isPopular ? "Popular" : "Menu item"}
+                            Popular
                           </span>
                           <span className="text-sm font-extrabold text-[#ff6392]">
                             {item.variants.length ? "Starts " : ""}Tk {Math.round(price).toLocaleString()}
                           </span>
                         </div>
                       </div>
+                      ) : (
+                        <button
+                          type="button"
+                          aria-label="Preview add item"
+                          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#ff6392] text-white shadow-sm"
+                        >
+                          <Plus className="size-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 )

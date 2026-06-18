@@ -130,12 +130,10 @@ export function PromotionFormDialog({
       nextErrors.name = "Voucher name is required."
     }
 
-    if (form.mode === "coupon") {
-      if (!normalizedCode) {
-        nextErrors.code = "Coupon code is required for coupon offers."
-      } else if (existingCodes.includes(normalizedCode)) {
-        nextErrors.code = "This coupon code already exists."
-      }
+    if (!normalizedCode) {
+      nextErrors.code = "Coupon code is required."
+    } else if (existingCodes.includes(normalizedCode)) {
+      nextErrors.code = "This coupon code already exists."
     }
 
     if (!isDiscountValueHidden(form.type)) {
@@ -151,10 +149,7 @@ export function PromotionFormDialog({
       }
     }
 
-    if (!form.minimumOrderAmount.trim() && form.mode === "auto") {
-      nextErrors.minimumOrderAmount =
-        "Minimum order amount is required for auto-applied offers."
-    } else if (
+    if (
       form.minimumOrderAmount.trim() &&
       Number(form.minimumOrderAmount) < 0
     ) {
@@ -226,8 +221,8 @@ export function PromotionFormDialog({
 
     onSubmitVoucher({
       name: form.name.trim(),
-      code: form.mode === "coupon" ? form.code.trim().toUpperCase() : "",
-      mode: form.mode,
+      code: form.code.trim().toUpperCase(),
+      mode: "coupon",
       type: form.type,
       discountValue: isDiscountValueHidden(form.type)
         ? null
@@ -275,36 +270,20 @@ export function PromotionFormDialog({
                 <p className="text-sm text-destructive">{errors.name}</p>
               ) : null}
             </div>
+            {/* Owner offers are always coupon-code based. Auto-applied and
+                threshold-triggered offers are platform-managed and not exposed
+                here, so there is no application-type selector. */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Application Type</label>
-              <Select
-                value={form.mode}
-                onValueChange={(value) =>
-                  updateForm("mode", value as VoucherMode)
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="auto">Auto-applied offer</SelectItem>
-                  <SelectItem value="coupon">Coupon code offer</SelectItem>
-                </SelectContent>
-              </Select>
+              <label className="text-sm font-medium">Coupon Code</label>
+              <Input
+                value={form.code}
+                onChange={(event) => updateForm("code", event.target.value)}
+                placeholder="e.g. BKASH50"
+              />
+              {errors.code ? (
+                <p className="text-sm text-destructive">{errors.code}</p>
+              ) : null}
             </div>
-            {form.mode === "coupon" ? (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Coupon Code</label>
-                <Input
-                  value={form.code}
-                  onChange={(event) => updateForm("code", event.target.value)}
-                  placeholder="e.g. BKASH50"
-                />
-                {errors.code ? (
-                  <p className="text-sm text-destructive">{errors.code}</p>
-                ) : null}
-              </div>
-            ) : null}
             <div className="space-y-2">
               <label className="text-sm font-medium">Offer Type</label>
               <Select
@@ -556,11 +535,7 @@ export function PromotionFormDialog({
 
           <div className="rounded-xl border bg-muted/20 p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">
-                {form.mode === "auto"
-                  ? "Auto-applied offer"
-                  : "Coupon code offer"}
-              </Badge>
+              <Badge variant="secondary">Coupon code offer</Badge>
               <Badge variant="outline">
                 {form.type === "free-delivery"
                   ? "Unavailable"

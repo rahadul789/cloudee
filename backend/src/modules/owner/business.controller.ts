@@ -25,6 +25,17 @@ const mediaAssetSchema = z.object({
   publicId: z.string().optional()
 })
 
+const restaurantDocumentSchema = z.object({
+  type: z.enum(["nid", "trade_license", "tin", "bin_vat"]),
+  label: z.string().trim().max(80).optional(),
+  url: z.string().trim().min(1),
+  publicId: z.string().trim().optional(),
+  fileName: z.string().trim().max(180).optional(),
+  fileType: z.string().trim().max(120).optional(),
+  resourceType: z.string().trim().max(40).optional(),
+  uploadedAt: z.string().datetime().nullable().optional()
+})
+
 const storeSettingsUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -35,6 +46,7 @@ const storeSettingsUpdateSchema = z.object({
   tags: z.array(z.string()).optional(),
   logo: mediaAssetSchema.optional(),
   coverImage: mediaAssetSchema.optional(),
+  documents: z.array(restaurantDocumentSchema).max(4).optional(),
   address: z.string().optional(),
   city: z.string().optional(),
   latitude: z.number().nullable().optional(),

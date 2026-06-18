@@ -31,6 +31,7 @@ import {
 import { styles } from "@/src/components/location/location-picker.styles";
 import {
   useCustomerSaveLocationMutation,
+  useCustomerMapStyleQuery,
   useCustomerUpdateLocationMutation,
 } from "@/src/hooks/use-customer-api";
 import {
@@ -39,6 +40,7 @@ import {
   formatCustomerAddressLine,
 } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
+import { getMapStyleSignature } from "@/src/lib/map-style";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
@@ -105,6 +107,12 @@ export default function LocationPickerScreen() {
   );
   const saveLocationMutation = useCustomerSaveLocationMutation();
   const updateLocationMutation = useCustomerUpdateLocationMutation();
+  const pickerMapStyleQuery = useCustomerMapStyleQuery("customer.location_picker");
+  const resolvedMapStyle = pickerMapStyleQuery.data ?? undefined;
+  const mapStyleSignature = useMemo(
+    () => getMapStyleSignature(resolvedMapStyle),
+    [resolvedMapStyle],
+  );
 
   const initialLabel = selectedLocation?.label ?? "Delivery point";
   const initialAddress = formatCustomerAddressLine(selectedLocation?.address);
@@ -654,6 +662,7 @@ export default function LocationPickerScreen() {
           {region ? (
             <>
               <MapView
+                key={mapStyleSignature}
                 ref={mapRef}
                 style={styles.map}
                 initialRegion={region}
@@ -661,6 +670,7 @@ export default function LocationPickerScreen() {
                 maxZoomLevel={MAX_LOCATION_PICKER_ZOOM}
                 showsCompass={false}
                 showsBuildings
+                customMapStyle={resolvedMapStyle}
                 toolbarEnabled={false}
                 showsUserLocation
                 showsMyLocationButton={false}

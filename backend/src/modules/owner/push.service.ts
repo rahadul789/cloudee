@@ -122,6 +122,34 @@ export async function unregisterOwnerPushToken(params: {
   return { removed: true }
 }
 
+// Sends a push to the owner in their preferred language. Falls back to the
+// English copy when no Bangla copy is supplied or the owner prefers English.
+export async function sendLocalizedPushToOwner(params: {
+  ownerId: string
+  en: { title: string; body: string }
+  bn?: { title: string; body: string }
+  contentType?: "text" | "image" | "image_text"
+  imageUrl?: string
+  data?: Record<string, unknown>
+}) {
+  const owner = await OwnerModel.findById(params.ownerId)
+    .select("preferredLanguage")
+    .lean()
+  const useBangla = owner?.preferredLanguage !== "en" && Boolean(params.bn)
+  const copy = useBangla && params.bn ? params.bn : params.en
+
+  return sendPushToOwner({
+    ownerId: params.ownerId,
+    payload: {
+      title: copy.title,
+      body: copy.body,
+      contentType: params.contentType,
+      imageUrl: params.imageUrl,
+      data: params.data,
+    },
+  })
+}
+
 export async function sendPushToOwner(params: {
   ownerId: string
   payload: OwnerPushPayload

@@ -85,42 +85,42 @@ export function getTrackingViewportRegion(
     band === "far"
       ? 0.5
       : band === "mid"
-        ? 0.58
+        ? 0.56
         : band === "close"
-          ? 0.68
+          ? 0.64
           : band === "near"
-            ? 0.78
-            : 0.88;
+            ? 0.72
+            : 0.8;
   const spanMultiplier =
     band === "far"
-      ? 2.3
+      ? 1.9
       : band === "mid"
-        ? 1.9
+        ? 1.5
         : band === "close"
-          ? 1.55
+          ? 1.24
           : band === "near"
-            ? 1.32
-            : 1.18;
+            ? 1.08
+            : 0.98;
   const minLatitudeDelta =
     band === "far"
-      ? 0.014
+      ? 0.012
       : band === "mid"
-        ? 0.011
+        ? 0.0088
         : band === "close"
-          ? 0.008
+          ? 0.0052
           : band === "near"
-            ? 0.0052
-            : 0.0036;
+            ? 0.0029
+            : 0.0019;
   const minLongitudeDelta =
     band === "far"
-      ? 0.014
+      ? 0.012
       : band === "mid"
-        ? 0.011
+        ? 0.0088
         : band === "close"
-          ? 0.008
+          ? 0.0052
           : band === "near"
-            ? 0.0054
-            : 0.0038;
+            ? 0.003
+            : 0.002;
   const center = interpolateCoordinate(
     riderLocation,
     customerLocation,

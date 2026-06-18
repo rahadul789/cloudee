@@ -61,6 +61,7 @@ const envSchema = z.object({
   BKASH_PASSWORD: z.string().optional(),
   BKASH_APP_KEY: z.string().optional(),
   BKASH_APP_SECRET: z.string().optional(),
+  GOOGLE_MAPS_API_KEY: optionalTrimmedString,
   METRICS_ENABLED: z
     .string()
     .default("true")

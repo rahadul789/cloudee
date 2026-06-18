@@ -40,6 +40,54 @@ function buildRestaurantLocationPoint(
   }
 }
 
+const restaurantDocumentTypes = new Set([
+  "nid",
+  "trade_license",
+  "tin",
+  "bin_vat",
+])
+
+function normalizeRestaurantDocuments(
+  documents?: Array<{
+    type?: string
+    label?: string
+    url?: string
+    publicId?: string
+    fileName?: string
+    fileType?: string
+    resourceType?: string
+    uploadedAt?: string | Date | null
+  }>
+) {
+  const byType = new Map<string, Record<string, unknown>>()
+
+  for (const document of documents ?? []) {
+    const type = String(document.type ?? "").trim()
+    const url = String(document.url ?? "").trim()
+    if (!restaurantDocumentTypes.has(type) || !url) continue
+
+    const uploadedAt =
+      document.uploadedAt instanceof Date
+        ? document.uploadedAt
+        : document.uploadedAt
+          ? new Date(document.uploadedAt)
+          : new Date()
+
+    byType.set(type, {
+      type,
+      label: String(document.label ?? "").trim(),
+      url,
+      publicId: String(document.publicId ?? "").trim(),
+      fileName: String(document.fileName ?? "").trim(),
+      fileType: String(document.fileType ?? "").trim(),
+      resourceType: String(document.resourceType ?? "auto").trim() || "auto",
+      uploadedAt: Number.isNaN(uploadedAt.getTime()) ? new Date() : uploadedAt,
+    })
+  }
+
+  return Array.from(byType.values())
+}
+
 function normalizeCustomerNoteSetting(note?: {
   enabled?: boolean
   label?: string
@@ -253,6 +301,16 @@ export async function updateStoreSettings(params: {
   tags?: string[]
   logo?: { url?: string; publicId?: string }
   coverImage?: { url?: string; publicId?: string }
+  documents?: Array<{
+    type?: string
+    label?: string
+    url?: string
+    publicId?: string
+    fileName?: string
+    fileType?: string
+    resourceType?: string
+    uploadedAt?: string | Date | null
+  }>
   address?: string
   city?: string
   latitude?: number | null
@@ -293,6 +351,10 @@ export async function updateStoreSettings(params: {
       ...(restaurant.coverImage ?? { url: "", publicId: "" }),
       ...params.coverImage
     }
+  }
+
+  if (params.documents !== undefined) {
+    restaurant.documents = normalizeRestaurantDocuments(params.documents) as any
   }
 
   if (params.address !== undefined || params.city !== undefined) {
@@ -778,6 +840,8 @@ export async function replyToReview(params: {
     entityId: review.id,
     title: "Review reply updated",
     description: "Your reply to a customer review has been saved.",
+    titleBn: "রিভিউ রিপ্লাই আপডেট হয়েছে",
+    descriptionBn: "একটি কাস্টমার রিভিউতে আপনার রিপ্লাই সেভ হয়েছে।",
     actionPath: `/reviews?review=${review.id}`
   })
 

@@ -3,7 +3,7 @@ import { emitSocketEvent } from "../../config/socket";
 import { OwnerModel } from "../auth/auth.model";
 import { sendTransactionalSms } from "../auth/otp-sms.service";
 import { NotificationModel } from "../owner/operational.model";
-import { sendPushToOwner } from "../owner/push.service";
+import { sendLocalizedPushToOwner } from "../owner/push.service";
 
 type PayoutOwnerNotificationStatus = "processing" | "completed" | "failed";
 
@@ -21,6 +21,19 @@ function buildTitle(status: PayoutOwnerNotificationStatus) {
   if (status === "completed") return "Payout completed";
   if (status === "failed") return "Payout failed";
   return "Payout processing";
+}
+
+function buildTitleBn(status: PayoutOwnerNotificationStatus) {
+  if (status === "completed") return "পেআউট সম্পন্ন হয়েছে";
+  if (status === "failed") return "পেআউট ব্যর্থ হয়েছে";
+  return "পেআউট প্রসেস হচ্ছে";
+}
+
+function buildDescriptionBn(amount: number, status: PayoutOwnerNotificationStatus) {
+  const money = formatMoney(amount);
+  if (status === "completed") return `আপনার ${money} পেআউট সম্পন্ন হয়েছে।`;
+  if (status === "failed") return `আপনার ${money} পেআউট ব্যর্থ হয়েছে।`;
+  return `আপনার ${money} পেআউট এখন প্রসেস হচ্ছে।`;
 }
 
 function buildSmsMessage(params: {
@@ -52,6 +65,13 @@ export async function notifyOwnerPayoutStatus(params: {
   const description = `Your payout for ${formatMoney(params.amount)} is now ${formatStatus(
     params.status,
   )}.`;
+  const titleBn = buildTitleBn(params.status);
+  const descriptionBn = buildDescriptionBn(params.amount, params.status);
+
+  const owner = await OwnerModel.findById(params.ownerId)
+    .select({ phone: 1, preferredLanguage: 1 })
+    .lean();
+  const useBangla = owner?.preferredLanguage !== "en";
 
   const notification = await NotificationModel.create({
     ownerId: params.ownerId,
@@ -60,36 +80,32 @@ export async function notifyOwnerPayoutStatus(params: {
     eventType: `payout.${params.status}`,
     entityType: "payout",
     entityId: params.payoutId,
-    title,
-    description,
+    title: useBangla ? titleBn : title,
+    description: useBangla ? descriptionBn : description,
     actionPath: "/payouts",
   });
 
   emitSocketEvent(`owner:${params.ownerId}`, "notification.created", notification.toObject());
 
   enqueueBackgroundTask("owner.payout.push", async () => {
-    await sendPushToOwner({
+    await sendLocalizedPushToOwner({
       ownerId: params.ownerId,
-      payload: {
-        title,
-        body: description,
-        data: {
-          path: "/(tabs)/payouts",
-          type: "payout",
-          payoutId: params.payoutId,
-          status: params.status,
-        },
+      en: { title, body: description },
+      bn: { title: titleBn, body: descriptionBn },
+      data: {
+        path: "/(tabs)/payouts",
+        type: "payout",
+        payoutId: params.payoutId,
+        status: params.status,
       },
     });
   });
 
-  if (params.sendSms) {
+  if (params.sendSms && owner?.phone) {
+    const ownerPhone = owner.phone;
     enqueueBackgroundTask("owner.payout.sms", async () => {
-      const owner = await OwnerModel.findById(params.ownerId).select({ phone: 1 }).lean();
-      if (!owner?.phone) return;
-
       await sendTransactionalSms({
-        phone: owner.phone,
+        phone: ownerPhone,
         message: buildSmsMessage(params),
       });
     });

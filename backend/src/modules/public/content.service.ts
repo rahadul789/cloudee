@@ -45,6 +45,150 @@ const helpArticleSectionSchema = z.object({
   steps: z.array(z.string().trim().min(1)).optional(),
 })
 
+const defaultMapStyleAssignments = {
+  default: "app_default",
+  "customer.location_picker": "app_default",
+  "customer.order_tracking": "app_default",
+  "delivery.order_details": "app_default",
+  "delivery.map_tab": "app_default",
+}
+
+const defaultMapStyleSettings = {
+  styles: [
+    {
+      id: "app_default",
+      name: "Google default map",
+      description:
+        "Uses the native Google map design without any custom JSON styling.",
+      isActive: true,
+      styleJson: [],
+    },
+    {
+      id: "foodbela_clean",
+      name: "Foodbela clean",
+      description:
+        "Bright delivery map with clear roads, soft land colors, and hidden POI clutter.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.business", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.school", stylers: [{ visibility: "off" }] },
+        { featureType: "poi.medical", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "administrative", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.35 }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F9FBF7" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#DCE4EC" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F7A8C9" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "water", stylers: [{ color: "#99D8EF" }] },
+        { featureType: "landscape", stylers: [{ color: "#EAF4E4" }] },
+        { featureType: "landscape.man_made", stylers: [{ color: "#F3EEE6" }] },
+      ],
+    },
+    {
+      id: "night_mode",
+      name: "Night mode",
+      description:
+        "Dark map for evening operations with visible roads and muted labels.",
+      isActive: true,
+      styleJson: [
+        { elementType: "geometry", stylers: [{ color: "#1F2937" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#D1D5DB" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#DB2777" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#F3F4F6" }] },
+        { featureType: "water", stylers: [{ color: "#0F3A4A" }] },
+        { featureType: "landscape", stylers: [{ color: "#172033" }] },
+        { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+      ],
+    },
+    {
+      id: "high_visibility",
+      name: "High visibility",
+      description:
+        "High contrast roads and labels for outdoor sunlight and low-end screens.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#111827" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }, { weight: 4 }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.8 }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F8FAFC" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#CBD5E1" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF2B85" }] },
+        { featureType: "water", stylers: [{ color: "#7DD3FC" }] },
+        { featureType: "landscape", stylers: [{ color: "#ECFDF5" }] },
+        { featureType: "landscape.man_made", stylers: [{ color: "#F8FAFC" }] },
+      ],
+    },
+    {
+      id: "minimal_tracking",
+      name: "Minimal tracking",
+      description:
+        "Very quiet map focused on route, rider, customer, and essential road shapes.",
+      isActive: true,
+      styleJson: [
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F3F4F6" }] },
+        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#E5E7EB" }] },
+        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F9A8D4" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#475569" }] },
+        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        { featureType: "water", stylers: [{ color: "#BAE6FD" }] },
+        { featureType: "landscape", stylers: [{ color: "#F7F7F2" }] },
+      ],
+    },
+  ],
+  assignments: defaultMapStyleAssignments,
+}
+
+const mapStyleElementSchema = z.record(z.string(), z.unknown())
+
+const mapStylesSchema = z
+  .object({
+    styles: z
+      .array(
+        z.object({
+          id: z
+            .string()
+            .trim()
+            .regex(/^[a-z0-9][a-z0-9_-]{1,62}$/),
+          name: z.string().trim().min(1).max(80),
+          description: z.string().trim().max(200).optional().default(""),
+          isActive: z.boolean().optional().default(true),
+          styleJson: z.array(mapStyleElementSchema).max(250).optional().default([]),
+        })
+      )
+      .min(1)
+      .max(20)
+      .optional()
+      .default(defaultMapStyleSettings.styles),
+    assignments: z
+      .record(z.string(), z.string())
+      .optional()
+      .default(defaultMapStyleAssignments),
+  })
+  .refine(
+    (value) => new Set(value.styles.map((style) => style.id)).size === value.styles.length,
+    {
+      message: "Map style ids must be unique.",
+      path: ["styles"],
+    }
+  )
+  .optional()
+  .default(defaultMapStyleSettings)
+
 function homeRestaurantSectionSchema(
   defaultTitle: string,
   defaultSubtitle: string,
@@ -63,6 +207,7 @@ function homeRestaurantSectionSchema(
       maxItems: z.number().int().min(1).max(20).optional().default(defaultMaxItems),
       position: z.number().int().min(1).max(20).optional().default(defaultPosition),
       layout: z.enum(["horizontal", "vertical"]).optional().default(defaultLayout),
+      allowRepeatAcrossSections: z.boolean().optional().default(true),
     })
     .optional()
     .default({
@@ -74,6 +219,7 @@ function homeRestaurantSectionSchema(
       maxItems: defaultMaxItems,
       position: defaultPosition,
       layout: defaultLayout,
+      allowRepeatAcrossSections: true,
     })
 }
 
@@ -160,6 +306,7 @@ const platformContentSchema = z.object({
             maxItems: 6,
             position: 1,
             layout: "horizontal",
+            allowRepeatAcrossSections: true,
           },
           offers: {
             isActive: true,
@@ -170,6 +317,7 @@ const platformContentSchema = z.object({
             maxItems: 8,
             position: 2,
             layout: "horizontal",
+            allowRepeatAcrossSections: true,
           },
           discoverNew: {
             isActive: true,
@@ -180,6 +328,7 @@ const platformContentSchema = z.object({
             maxItems: 6,
             position: 3,
             layout: "horizontal",
+            allowRepeatAcrossSections: true,
           },
           popularNearYou: {
             isActive: true,
@@ -190,6 +339,7 @@ const platformContentSchema = z.object({
             maxItems: 6,
             position: 4,
             layout: "horizontal",
+            allowRepeatAcrossSections: true,
           },
           nearby: {
             isActive: true,
@@ -200,6 +350,7 @@ const platformContentSchema = z.object({
             maxItems: 8,
             position: 5,
             layout: "vertical",
+            allowRepeatAcrossSections: true,
           },
         }),
       cartRecommendations: z
@@ -404,6 +555,37 @@ const platformContentSchema = z.object({
       surchargeStepMeters: z.number().int().min(100).max(10000).optional().default(500),
       surchargeAmountTaka: z.number().int().min(0).max(5000).optional().default(5),
     }),
+    routing: z
+      .object({
+        provider: z.enum(["google", "haversine"]).optional().default("google"),
+        fallbackSpeedKmph: z.number().min(5).max(120).optional().default(22),
+        pickupBufferMinutes: z.number().int().min(0).max(60).optional().default(5),
+        costMode: z.enum(["economy", "balanced", "precision"]).optional().default("balanced"),
+        googleMonthlyLimit: z.number().int().min(0).max(1_000_000).optional().default(10000),
+        maxGoogleCallsPerOrder: z.number().int().min(0).max(100).optional().default(5),
+        routeSessionTtlMinutes: z.number().int().min(5).max(240).optional().default(45),
+        rerouteCooldownSeconds: z.number().int().min(30).max(1800).optional().default(180),
+        offRouteThresholdMeters: z.number().int().min(20).max(500).optional().default(90),
+        offRouteConsecutiveUpdates: z.number().int().min(1).max(10).optional().default(3),
+        periodicRefreshMinutes: z.number().int().min(0).max(60).optional().default(5),
+        nearDestinationMeters: z.number().int().min(50).max(1000).optional().default(220),
+      })
+      .optional()
+      .default({
+        provider: "google",
+        fallbackSpeedKmph: 22,
+        pickupBufferMinutes: 5,
+        costMode: "balanced",
+        googleMonthlyLimit: 10000,
+        maxGoogleCallsPerOrder: 5,
+        routeSessionTtlMinutes: 45,
+        rerouteCooldownSeconds: 180,
+        offRouteThresholdMeters: 90,
+        offRouteConsecutiveUpdates: 3,
+        periodicRefreshMinutes: 5,
+        nearDestinationMeters: 220,
+      }),
+    mapStyles: mapStylesSchema,
     liveTracking: z.object({
       mode: z.enum(["balanced", "battery_saver", "high_accuracy"]).optional().default("balanced"),
       updateIntervalSeconds: z.number().int().min(10).max(60).optional().default(15),
@@ -726,11 +908,13 @@ function normalizeHomeCmsForRuntime(homeCms: CustomerHomeCms): CustomerHomeCms {
 }
 
 function normalizePlatformContentHomeCms<T extends PlatformContent>(content: T): T {
+  const contentWithMapStyles = withDefaultMapStyles(content)
+
   return {
-    ...content,
+    ...contentWithMapStyles,
     customerApp: {
-      ...content.customerApp,
-      homeCms: normalizeHomeCmsForRuntime(content.customerApp.homeCms),
+      ...contentWithMapStyles.customerApp,
+      homeCms: normalizeHomeCmsForRuntime(contentWithMapStyles.customerApp.homeCms),
     },
   } as T
 }
@@ -770,6 +954,52 @@ function withDefaultHomeCategories(content: PlatformContent): PlatformContent {
           ...currentCategories,
           items: [...currentItems, ...itemsToAppend],
         },
+      },
+    },
+  }
+}
+
+function withDefaultMapStyles(content: PlatformContent): PlatformContent {
+  const defaultMapStyles = defaultPlatformContent.operations.mapStyles
+  const currentMapStyles = content.operations.mapStyles
+  const rawDefaultStyle = defaultMapStyles.styles.find((style) => style.id === "app_default")
+  const currentStyles = Array.isArray(currentMapStyles.styles)
+    ? currentMapStyles.styles.map((style) =>
+        style.id === "app_default" && rawDefaultStyle
+          ? { ...rawDefaultStyle }
+          : style
+      )
+    : []
+  const currentStyleIds = new Set(currentStyles.map((style) => style.id))
+  const missingStyles = defaultMapStyles.styles.filter(
+    (style) => !currentStyleIds.has(style.id)
+  )
+  const assignments = {
+    ...defaultMapStyles.assignments,
+    ...(currentMapStyles.assignments ?? {}),
+  }
+
+  if (!missingStyles.length) {
+    return {
+      ...content,
+      operations: {
+        ...content.operations,
+        mapStyles: {
+          ...currentMapStyles,
+          assignments,
+        },
+      },
+    }
+  }
+
+  return {
+    ...content,
+    operations: {
+      ...content.operations,
+      mapStyles: {
+        ...currentMapStyles,
+        styles: [...currentStyles, ...missingStyles],
+        assignments,
       },
     },
   }

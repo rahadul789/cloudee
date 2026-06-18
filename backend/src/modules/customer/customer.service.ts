@@ -52,7 +52,7 @@ import { syncOrderLedgerForFinalStatus } from "../owner/finance.service";
 import { decorateOwnerFinancials } from "../owner/order-financials";
 import { createOwnerNotification } from "../owner/operational.service";
 import { buildOrderPreparationTiming } from "../owner/preparation-timing";
-import { sendPushToOwner } from "../owner/push.service";
+import { sendLocalizedPushToOwner } from "../owner/push.service";
 import { ReviewModel, SupportCaseModel } from "../owner/experience.model";
 import {
   getRestaurantEnforcement,
@@ -73,6 +73,7 @@ import {
   resolveRestaurantServiceAreaSnapshot,
   resolveServiceZoneForCoordinates,
 } from "../service-area/service-area.service";
+import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service";
 import {
   BkashPaymentAttemptModel,
   BkashSandboxPaymentSessionModel,
@@ -2758,11 +2759,21 @@ export async function getCustomerDiscoveryHome(params?: {
               ? manualFeaturedRestaurants
               : autoFeaturedRestaurants
             ).slice(0, getHomeRestaurantSectionLimit(featuredSection));
+      const featuredShownRestaurantIds = new Set(
+        featuredRestaurants.map((restaurant) => String(restaurant._id)),
+      );
+      const offerAllowRepeat =
+        offersSection.allowRepeatAcrossSections !== false;
       const autoOfferRestaurants = restaurantIdsWithOffers
         .map((restaurantId) => restaurantById.get(restaurantId))
         .filter((restaurant): restaurant is CustomerCacheRecord => Boolean(restaurant));
+      const autoOfferSourceRestaurants = offerAllowRepeat
+        ? autoOfferRestaurants
+        : filterExcludedRestaurants(autoOfferRestaurants, featuredShownRestaurantIds);
       const manualOfferRestaurants = orderRestaurantsByIds(
-        discoverableRestaurants,
+        offerAllowRepeat
+          ? discoverableRestaurants
+          : filterExcludedRestaurants(discoverableRestaurants, featuredShownRestaurantIds),
         getManualHomeRestaurantIds(offersSection),
       );
       const shouldShowRestaurantOfferSection =
@@ -2771,7 +2782,7 @@ export async function getCustomerDiscoveryHome(params?: {
       const offerRestaurants = shouldShowRestaurantOfferSection
         ? (offersSection.source === "manual" && manualOfferRestaurants.length
             ? manualOfferRestaurants
-            : rankOfferRestaurants(autoOfferRestaurants, activeOffers as ActiveHomeOffer[])
+            : rankOfferRestaurants(autoOfferSourceRestaurants, activeOffers as ActiveHomeOffer[])
           ).slice(0, getHomeRestaurantSectionLimit(offersSection))
         : [];
       const visibleActiveOffers = activeOffers.filter((offer) => {
@@ -2821,12 +2832,13 @@ export async function getCustomerDiscoveryHome(params?: {
           String(restaurant._id),
         ),
       );
-      const candidateRestaurantsWithoutShown = filterExcludedRestaurants(
-        candidateRestaurants,
-        alreadyShownRestaurantIds,
-      );
+      const discoverNewAllowRepeat =
+        discoverNewSection.allowRepeatAcrossSections !== false;
+      const candidateRestaurantsForDiscoverNew = discoverNewAllowRepeat
+        ? candidateRestaurants
+        : filterExcludedRestaurants(candidateRestaurants, alreadyShownRestaurantIds);
       const manualDiscoverNewRestaurants = orderRestaurantsByIds(
-        candidateRestaurants,
+        candidateRestaurantsForDiscoverNew,
         getManualHomeRestaurantIds(discoverNewSection),
       );
       const discoverNewRestaurants =
@@ -2834,28 +2846,38 @@ export async function getCustomerDiscoveryHome(params?: {
           ? []
           : (discoverNewSection.source === "manual" && manualDiscoverNewRestaurants.length
               ? manualDiscoverNewRestaurants
-              : rankNewRestaurants(candidateRestaurantsWithoutShown, orderedRestaurantIds)
+              : rankNewRestaurants(candidateRestaurantsForDiscoverNew, orderedRestaurantIds)
             ).slice(0, getHomeRestaurantSectionLimit(discoverNewSection));
-      discoverNewRestaurants.forEach((restaurant) =>
-        alreadyShownRestaurantIds.add(String(restaurant._id)),
-      );
+      const popularNearYouAllowRepeat =
+        popularNearYouSection.allowRepeatAcrossSections !== false;
+      if (!popularNearYouAllowRepeat) {
+        discoverNewRestaurants.forEach((restaurant) =>
+          alreadyShownRestaurantIds.add(String(restaurant._id)),
+        );
+      }
       const manualPopularNearYouRestaurants = orderRestaurantsByIds(
-        popularRestaurantCandidates,
+        popularNearYouAllowRepeat
+          ? popularRestaurantCandidates
+          : filterExcludedRestaurants(popularRestaurantCandidates, alreadyShownRestaurantIds),
         getManualHomeRestaurantIds(popularNearYouSection),
       );
-      const popularCandidateRestaurants = filterExcludedRestaurants(
-        popularRestaurantCandidates,
-        alreadyShownRestaurantIds,
-      );
+      const popularCandidateRestaurants = popularNearYouAllowRepeat
+        ? popularRestaurantCandidates
+        : filterExcludedRestaurants(
+            popularRestaurantCandidates,
+            alreadyShownRestaurantIds,
+          );
       const popularFallbackExcludedIds = new Set(
         [...featuredRestaurants, ...offerRestaurants].map((restaurant) =>
           String(restaurant._id),
         ),
       );
-      const popularFallbackRestaurants = filterExcludedRestaurants(
-        popularRestaurantCandidates,
-        popularFallbackExcludedIds,
-      );
+      const popularFallbackRestaurants = popularNearYouAllowRepeat
+        ? popularRestaurantCandidates
+        : filterExcludedRestaurants(
+            popularRestaurantCandidates,
+            popularFallbackExcludedIds,
+          );
       const shouldAutoRankPopular =
         popularNearYouSection.isActive !== false &&
         !(
@@ -4263,21 +4285,27 @@ export async function placeCustomerOrder(params: {
         entityId: order.id,
         title: "New order received",
         description: `Order ${order.orderNumber} has been placed.`,
+        titleBn: "নতুন অর্ডার এসেছে",
+        descriptionBn: `অর্ডার ${order.orderNumber} প্লেস হয়েছে।`,
         actionPath: `/orders?orderId=${order.id}`,
       });
     })
 
     enqueueBackgroundTask("customer.order_created.owner_push", async () => {
-      await sendPushToOwner({
+      await sendLocalizedPushToOwner({
         ownerId: restaurant.ownerId.toString(),
-        payload: {
+        en: {
           title: "New order received",
           body: `Order ${order.orderNumber} is waiting for action.`,
-          data: {
-            type: "order.created",
-            orderId: order.id,
-            path: `/orders/${order.id}`
-          }
+        },
+        bn: {
+          title: "নতুন অর্ডার এসেছে",
+          body: `অর্ডার ${order.orderNumber} আপনার action-এর অপেক্ষায় আছে।`,
+        },
+        data: {
+          type: "order.created",
+          orderId: order.id,
+          path: `/orders/${order.id}`
         }
       })
     })
@@ -5033,6 +5061,20 @@ export async function listCustomerOrders(
   });
 }
 
+function toLatLng(value: unknown): LatLng | null {
+  const point = value as { latitude?: unknown; longitude?: unknown } | null;
+  if (
+    point &&
+    typeof point.latitude === "number" &&
+    Number.isFinite(point.latitude) &&
+    typeof point.longitude === "number" &&
+    Number.isFinite(point.longitude)
+  ) {
+    return { latitude: point.latitude, longitude: point.longitude };
+  }
+  return null;
+}
+
 export async function getCustomerOrderDetails(params: {
   customerId: string;
   orderId: string;
@@ -5060,6 +5102,27 @@ export async function getCustomerOrderDetails(params: {
   const restaurant = await RestaurantModel.findById(order.restaurantId).lean();
   const queuedTrackingMeta = await buildQueuedDeliveryTrackingMeta(orderObject);
   const paymentSettings = await getPaymentMethodSettings();
+
+  // Real road route + ETA for the live map. Before pickup we preview the
+  // restaurant -> customer leg; once picked up we route from the rider's live
+  // position. getRouteMetrics is cached + Haversine-backed, so this stays cheap.
+  const customerCoord = toLatLng(orderObject.customerSnapshot?.deliveryAddress);
+  const riderCoord = toLatLng(
+    (orderObject as Record<string, any>).riderTracking?.currentLocation,
+  );
+  const restaurantCoord = toLatLng(restaurant?.location);
+  const routeOrigin =
+    order.status === "PickedUp" && riderCoord ? riderCoord : restaurantCoord;
+  const routeToCustomer = customerCoord
+    ? await getOrderRouteMetrics({
+        orderId: String(order._id),
+        origin: routeOrigin,
+        destination: customerCoord,
+        source: "customer_tracking",
+        sessionKey:
+          order.status === "PickedUp" && riderCoord ? "delivery_leg" : "preview_customer",
+      })
+    : null;
   const paymentSnapshot =
     orderObject.paymentSnapshot && typeof orderObject.paymentSnapshot === "object"
       ? {
@@ -5082,6 +5145,7 @@ export async function getCustomerOrderDetails(params: {
       },
       order.status,
     ),
+    routeToCustomer,
     customerReview: review
       ? {
           id: review.id,
@@ -5187,6 +5251,8 @@ export async function cancelCustomerOrder(params: {
         entityId: order.id,
         title: "Order cancelled by customer",
         description: `Order ${order.orderNumber} was cancelled by the customer.`,
+        titleBn: "কাস্টমার অর্ডার ক্যানসেল করেছে",
+        descriptionBn: `অর্ডার ${order.orderNumber} কাস্টমার ক্যানসেল করেছে।`,
         actionPath: `/orders?orderId=${order.id}`,
       });
     })
@@ -5282,6 +5348,8 @@ export async function createCustomerReview(params: {
         entityId: review.id,
         title: "New customer review",
         description: `A ${params.rating}-star review was added for order ${order.orderNumber}.`,
+        titleBn: "নতুন কাস্টমার রিভিউ",
+        descriptionBn: `অর্ডার ${order.orderNumber} এর জন্য ${params.rating}-স্টার রিভিউ যোগ হয়েছে।`,
         actionPath: `/reviews?reviewId=${review.id}`,
       });
     })

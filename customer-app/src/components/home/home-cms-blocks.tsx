@@ -16,27 +16,11 @@ import {
 import { RemoteImage } from "@/src/components/remote-image";
 import { apiPost } from "@/src/lib/api";
 import { resolveCustomerRoute } from "@/src/lib/customer-routes";
+import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import type {
   CustomerCampaignPlacement,
   CustomerHomeCms,
 } from "@/src/types/restaurant";
-
-function isTrustedGuideVideoUrl(value?: string | null) {
-  const url = value?.trim();
-  if (!url) return false;
-
-  const match = url.match(/^https:\/\/([^/?#\s]+)(?:[/?#]|$)/i);
-  const host = match?.[1]?.toLowerCase();
-  if (!host) return false;
-
-  return (
-    host === "youtu.be" ||
-    host === "youtube.com" ||
-    host.endsWith(".youtube.com") ||
-    host === "youtube-nocookie.com" ||
-    host.endsWith(".youtube-nocookie.com")
-  );
-}
 
 export function recordCampaignEvent(
   voucherId: string | undefined,
@@ -364,22 +348,9 @@ export function HowToOrderGuideBlock({
   isAnimationActive?: boolean;
 }) {
   const guide = cms.howToOrderGuide;
-  const canOpenVideo = isTrustedGuideVideoUrl(guide?.youtubeUrl);
-  const { width: windowWidth } = useWindowDimensions();
-  const borderProgress = useRef(new Animated.Value(0)).current;
-  const cardWidth = Math.max(280, windowWidth - 40);
-  const horizontalTravel = Math.max(0, cardWidth - 72);
-  const verticalTravel = 62;
-  const animatedBorderColor = guide?.accentColor || "#5D8BFF";
-  // Accent-colored glow for the moving border runner. Static style (only
-  // transform + opacity animate on the native thread), so it stays 60fps.
-  const borderGlow = {
-    shadowColor: animatedBorderColor,
-    shadowOpacity: 0.9,
-    shadowRadius: 7,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 7,
-  } as const;
+  const canOpenVideo = isTrustedYoutubeUrl(guide?.youtubeUrl);
+  const accentPulse = useRef(new Animated.Value(0)).current;
+  const accentColor = guide?.accentColor || "#5D8BFF";
 
   const openGuide = () => {
     if (canOpenVideo && guide?.youtubeUrl) {
@@ -394,186 +365,156 @@ export function HowToOrderGuideBlock({
 
   useEffect(() => {
     if (!guide?.isActive || !canOpenVideo || !isAnimationActive) {
-      borderProgress.stopAnimation();
-      borderProgress.setValue(0);
+      accentPulse.stopAnimation();
+      accentPulse.setValue(0);
       return;
     }
 
     const animation = Animated.loop(
-      Animated.timing(borderProgress, {
-        toValue: 1,
-        duration: 4800,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
+      Animated.sequence([
+        Animated.timing(accentPulse, {
+          toValue: 1,
+          duration: 1800,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(accentPulse, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
     );
     animation.start();
 
     return () => {
       animation.stop();
-      borderProgress.stopAnimation();
-      borderProgress.setValue(0);
+      accentPulse.stopAnimation();
+      accentPulse.setValue(0);
     };
-  }, [borderProgress, canOpenVideo, guide?.isActive, isAnimationActive]);
+  }, [accentPulse, canOpenVideo, guide?.isActive, isAnimationActive]);
 
   if (!guide?.isActive || !canOpenVideo) return null;
 
-  const topSegmentX = borderProgress.interpolate({
-    inputRange: [0, 0.25, 1],
-    outputRange: [10, horizontalTravel, horizontalTravel],
+  const accentWashOpacity = accentPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.1, 0.18],
   });
-  const rightSegmentY = borderProgress.interpolate({
-    inputRange: [0, 0.25, 0.5, 1],
-    outputRange: [8, 8, verticalTravel, verticalTravel],
+  const accentWashScale = accentPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.06],
   });
-  const bottomSegmentX = borderProgress.interpolate({
-    inputRange: [0, 0.5, 0.75, 1],
-    outputRange: [horizontalTravel, horizontalTravel, 10, 10],
+  const accentOutlineOpacity = accentPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.14, 0.26],
   });
-  const leftSegmentY = borderProgress.interpolate({
-    inputRange: [0, 0.75, 1],
-    outputRange: [verticalTravel, verticalTravel, 8],
-  });
-  // Wider, overlapping fade windows so adjacent segments briefly co-exist at the
-  // corners — the runner hands off smoothly instead of blinking on/off.
-  const topOpacity = borderProgress.interpolate({
-    inputRange: [0, 0.04, 0.21, 0.3, 1],
-    outputRange: [1, 1, 1, 0, 0],
-  });
-  const rightOpacity = borderProgress.interpolate({
-    inputRange: [0, 0.2, 0.29, 0.46, 0.55, 1],
-    outputRange: [0, 0, 1, 1, 0, 0],
-  });
-  const bottomOpacity = borderProgress.interpolate({
-    inputRange: [0, 0.45, 0.54, 0.71, 0.8, 1],
-    outputRange: [0, 0, 1, 1, 0, 0],
-  });
-  const leftOpacity = borderProgress.interpolate({
-    inputRange: [0, 0.7, 0.79, 0.97, 1],
-    outputRange: [0, 0, 1, 1, 1],
+  const accentRailOpacity = accentPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.56, 0.82],
   });
 
   return (
     <View style={styles.guideSection}>
       <View style={styles.guideCardFrame}>
-        <View pointerEvents="none" style={styles.guideBorderBase} />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.guideBorderRunnerHorizontal,
-            styles.guideBorderRunnerTop,
-            borderGlow,
-            {
-              backgroundColor: animatedBorderColor,
-              opacity: topOpacity,
-              transform: [{ translateX: topSegmentX }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.guideBorderRunnerVertical,
-            styles.guideBorderRunnerRight,
-            borderGlow,
-            {
-              backgroundColor: animatedBorderColor,
-              opacity: rightOpacity,
-              transform: [{ translateY: rightSegmentY }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.guideBorderRunnerHorizontal,
-            styles.guideBorderRunnerBottom,
-            borderGlow,
-            {
-              backgroundColor: animatedBorderColor,
-              opacity: bottomOpacity,
-              transform: [{ translateX: bottomSegmentX }],
-            },
-          ]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.guideBorderRunnerVertical,
-            styles.guideBorderRunnerLeft,
-            borderGlow,
-            {
-              backgroundColor: animatedBorderColor,
-              opacity: leftOpacity,
-              transform: [{ translateY: leftSegmentY }],
-            },
-          ]}
-        />
         <Pressable
-          style={[
+          style={({ pressed }) => [
             styles.guideCard,
             { backgroundColor: guide.backgroundColor || "#EDF4FF" },
+            pressed ? styles.guideCardPressed : null,
           ]}
           onPress={openGuide}
         >
-          <Ionicons
-            name="play-circle-outline"
-            size={42}
-            color="rgba(255,255,255,0.30)"
-            style={styles.guideDecorPlay}
-          />
-          <Ionicons
-            name="book-outline"
-            size={30}
-            color="rgba(255,255,255,0.24)"
-            style={styles.guideDecorBook}
-          />
-          <Ionicons
-            name="fast-food-outline"
-            size={32}
-            color="rgba(255,255,255,0.22)"
-            style={styles.guideDecorFood}
-          />
-          <View style={styles.guideIcon}>
-            <Ionicons
-              name="play-circle"
-              size={24}
-              color={guide.accentColor || "#5D8BFF"}
-            />
-          </View>
-          <View style={styles.guideCopy}>
-            <Text
-              style={[
-                styles.guideTitle,
-                { color: guide.textColor || "#24406F" },
-              ]}
-              numberOfLines={1}
-            >
-              {guide.title || "How to order on Foodbela"}
-            </Text>
-            {guide.subtitle?.trim() ? (
-              <Text
+          {({ pressed }) => (
+            <>
+              <Animated.View
+                pointerEvents="none"
                 style={[
-                  styles.guideSubtitle,
-                  { color: guide.textColor || "#24406F" },
+                  styles.guideAccentWash,
+                  {
+                    backgroundColor: accentColor,
+                    opacity: accentWashOpacity,
+                    transform: [{ scale: accentWashScale }],
+                  },
                 ]}
-                numberOfLines={1}
+              />
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.guideAccentOutline,
+                  {
+                    borderColor: accentColor,
+                    opacity: accentOutlineOpacity,
+                  },
+                ]}
+              />
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.guideAccentRail,
+                  {
+                    backgroundColor: accentColor,
+                    opacity: accentRailOpacity,
+                  },
+                ]}
+              />
+              <Ionicons
+                name="play-circle-outline"
+                size={42}
+                color="rgba(255,255,255,0.30)"
+                style={styles.guideDecorPlay}
+              />
+              <Ionicons
+                name="book-outline"
+                size={30}
+                color="rgba(255,255,255,0.24)"
+                style={styles.guideDecorBook}
+              />
+              <Ionicons
+                name="fast-food-outline"
+                size={32}
+                color="rgba(255,255,255,0.22)"
+                style={styles.guideDecorFood}
+              />
+              <View style={styles.guideIcon}>
+                <Ionicons name="play-circle" size={24} color={accentColor} />
+              </View>
+              <View style={styles.guideCopy}>
+                <Text
+                  style={[
+                    styles.guideTitle,
+                    { color: guide.textColor || "#24406F" },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {guide.title || "How to order on Foodbela"}
+                </Text>
+                {guide.subtitle?.trim() ? (
+                  <Text
+                    style={[
+                      styles.guideSubtitle,
+                      { color: guide.textColor || "#24406F" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {guide.subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              <View
+                style={[
+                  styles.guideButton,
+                  { backgroundColor: accentColor },
+                  pressed ? styles.guideButtonPressed : null,
+                ]}
               >
-                {guide.subtitle}
-              </Text>
-            ) : null}
-          </View>
-          <View
-            style={[
-              styles.guideButton,
-              { backgroundColor: guide.accentColor || "#5D8BFF" },
-            ]}
-          >
-            <Ionicons name="play" size={12} color="#fff" />
-            <Text style={styles.guideButtonText}>
-              {guide.ctaLabel || "Watch"}
-            </Text>
-          </View>
+                <Ionicons name="play" size={12} color="#fff" />
+                <Text style={styles.guideButtonText}>
+                  {guide.ctaLabel || "Watch"}
+                </Text>
+              </View>
+            </>
+          )}
         </Pressable>
       </View>
       {guide.guideImages.length ? (
@@ -787,13 +728,13 @@ const styles = StyleSheet.create({
   guideCardFrame: {
     marginHorizontal: 20,
     position: "relative",
-    padding: 2,
+    padding: 1,
     borderRadius: 22,
-    overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.58)",
     shadowColor: "#111827",
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 9 },
     elevation: 3,
   },
   guideCard: {
@@ -803,47 +744,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     minHeight: 78,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 20,
+    borderRadius: 21,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.72)",
+    borderColor: "rgba(255,255,255,0.78)",
   },
-  guideBorderBase: {
+  guideCardPressed: {
+    opacity: 0.96,
+    transform: [{ scale: 0.992 }],
+  },
+  guideAccentWash: {
+    position: "absolute",
+    right: -46,
+    top: -42,
+    width: 142,
+    height: 142,
+    borderRadius: 71,
+  },
+  guideAccentOutline: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 22,
+    borderRadius: 21,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.72)",
   },
-  guideBorderRunnerHorizontal: {
+  guideAccentRail: {
     position: "absolute",
-    zIndex: 2,
-    width: 66,
-    height: 3,
-    borderRadius: 999,
-  },
-  guideBorderRunnerVertical: {
-    position: "absolute",
-    zIndex: 2,
+    left: 0,
+    top: 15,
+    bottom: 15,
     width: 3,
-    height: 34,
-    borderRadius: 999,
-  },
-  guideBorderRunnerTop: {
-    top: 2,
-    left: 0,
-  },
-  guideBorderRunnerRight: {
-    top: 0,
-    right: 2,
-  },
-  guideBorderRunnerBottom: {
-    bottom: 2,
-    left: 0,
-  },
-  guideBorderRunnerLeft: {
-    top: 0,
-    left: 2,
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
   },
   guideDecorPlay: {
     position: "absolute",
@@ -897,6 +828,14 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 2,
+  },
+  guideButtonPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.94 }],
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   guideButtonText: {
     fontSize: 11,

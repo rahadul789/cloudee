@@ -1,11 +1,17 @@
 # dependencies
 /node_modules/
+node_modules/
+**/node_modules/
 
 # local/dev state
 /.expo/
+.expo/
 /.vscode/
+.vscode/
 /.env
 /.env*.local
+.env
+.env*.local
 expo-env.d.ts
 *.tsbuildinfo
 .metro-health-check*
@@ -13,15 +19,24 @@ expo-env.d.ts
 # generated/native build output
 /android/
 /ios/
+/android
+/ios
+android/
+ios/
 /dist/
 /web-build/
+dist/
+web-build/
 **/build/
 **/.gradle/
 **/.kotlin/
+**/intermediates/
+**/.cxx/
 *.orig.*
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
 
 # credentials and server-only secrets
 *-firebase-adminsdk-*.json

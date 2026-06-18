@@ -49,6 +49,7 @@ export const APP_FALLBACK_STATE = {
       description: "",
       cuisineType: "",
       tags: [],
+      documents: [],
       phone: "",
       email: "",
       supportContact: "",

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "@/src/components/screen";
 import { useCustomerDiscoveryHomeQuery } from "@/src/hooks/use-customer-api";
+import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 
@@ -29,16 +30,6 @@ const orderSteps = [
   },
 ];
 
-function isYoutubeUrl(value?: string) {
-  if (!value) return false;
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com");
-  } catch {
-    return false;
-  }
-}
-
 export default function OrderHelpScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -48,7 +39,7 @@ export default function OrderHelpScreen() {
     longitude: selectedLocation?.longitude,
     radiusKm: 8,
   });
-  const videoUrl = isYoutubeUrl(homeQuery.data?.homeCms?.howToOrderGuide?.youtubeUrl)
+  const videoUrl = isTrustedYoutubeUrl(homeQuery.data?.homeCms?.howToOrderGuide?.youtubeUrl)
     ? homeQuery.data?.homeCms?.howToOrderGuide?.youtubeUrl
     : "";
 

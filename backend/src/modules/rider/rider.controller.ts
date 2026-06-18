@@ -368,9 +368,14 @@ export const getRiderOrder = asyncHandler(async (req: Request, res: Response) =>
 })
 
 export const postRiderPickup = asyncHandler(async (req: Request, res: Response) => {
+  const location =
+    typeof req.body?.latitude === "number" && typeof req.body?.longitude === "number"
+      ? riderLocationSchema.parse(req.body)
+      : undefined
   const data = await pickupRiderOrder({
     riderId: req.user?.id ?? "",
-    orderId: String(req.params.orderId ?? "")
+    orderId: String(req.params.orderId ?? ""),
+    location
   })
 
   return sendSuccess(res, {

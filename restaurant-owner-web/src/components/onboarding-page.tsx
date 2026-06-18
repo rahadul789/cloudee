@@ -471,7 +471,24 @@ export function OnboardingPage() {
   const [showStepErrors, setShowStepErrors] = React.useState<
     Partial<Record<RequiredOnboardingStepId, boolean>>
   >({})
+  const uploadedImagePreviewUrlsRef = React.useRef<Record<UploadTarget, string | null>>({
+    logo: null,
+    cover: null,
+  })
+  const mapLoaderTimeoutRef = React.useRef<number | null>(null)
   const payoutSkipped = onboardingState.skippedSteps.includes("payout_setup")
+
+  React.useEffect(
+    () => () => {
+      Object.values(uploadedImagePreviewUrlsRef.current).forEach((url) => {
+        if (url) URL.revokeObjectURL(url)
+      })
+      if (mapLoaderTimeoutRef.current !== null) {
+        window.clearTimeout(mapLoaderTimeoutRef.current)
+      }
+    },
+    []
+  )
 
   const validations = React.useMemo(
     () =>
@@ -596,9 +613,14 @@ export function OnboardingPage() {
     const elapsed = Date.now() - startedAt
     const remaining = Math.max(0, 1000 - elapsed)
 
-    window.setTimeout(() => {
+    if (mapLoaderTimeoutRef.current !== null) {
+      window.clearTimeout(mapLoaderTimeoutRef.current)
+    }
+
+    mapLoaderTimeoutRef.current = window.setTimeout(() => {
       setIsMapLoading(false)
       setMapLoadStartedAt(null)
+      mapLoaderTimeoutRef.current = null
     }, remaining)
   }
 
@@ -891,10 +913,16 @@ export function OnboardingPage() {
       return
     }
 
+    const previousPreviewUrl = uploadedImagePreviewUrlsRef.current[target]
+    if (previousPreviewUrl) {
+      URL.revokeObjectURL(previousPreviewUrl)
+    }
+    const previewUrl = URL.createObjectURL(file)
+    uploadedImagePreviewUrlsRef.current[target] = previewUrl
+
     setDraftStoreSettings((current) => ({
       ...current,
-      [target === "logo" ? "logoUrl" : "coverImageUrl"]:
-        URL.createObjectURL(file),
+      [target === "logo" ? "logoUrl" : "coverImageUrl"]: previewUrl,
     }))
 
     toast.success(target === "logo" ? "Logo uploaded" : "Cover uploaded", {
@@ -903,6 +931,18 @@ export function OnboardingPage() {
           ? "Your store logo is ready for review."
           : "Your cover image is ready for review.",
     })
+  }
+
+  function removeImageUpload(target: UploadTarget) {
+    const previousPreviewUrl = uploadedImagePreviewUrlsRef.current[target]
+    if (previousPreviewUrl) {
+      URL.revokeObjectURL(previousPreviewUrl)
+      uploadedImagePreviewUrlsRef.current[target] = null
+    }
+    setDraftStoreSettings((current) => ({
+      ...current,
+      [target === "logo" ? "logoUrl" : "coverImageUrl"]: "",
+    }))
   }
 
   function applyTemporaryCoordinates() {
@@ -1193,12 +1233,7 @@ export function OnboardingPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
-                  onClick={() =>
-                    setDraftStoreSettings((current) => ({
-                      ...current,
-                      logoUrl: "",
-                    }))
-                  }
+                  onClick={() => removeImageUpload("logo")}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Remove
@@ -1250,12 +1285,7 @@ export function OnboardingPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
-                  onClick={() =>
-                    setDraftStoreSettings((current) => ({
-                      ...current,
-                      coverImageUrl: "",
-                    }))
-                  }
+                  onClick={() => removeImageUpload("cover")}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
                   Remove

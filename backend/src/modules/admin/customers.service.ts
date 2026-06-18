@@ -36,7 +36,8 @@ type CustomerListParams = {
   preset?: string;
   from?: string;
   to?: string;
-  sortBy?: "newest" | "recentLogin" | "mostOrders" | "highestSpend";
+  sortBy?: "newest" | "recentLogin" | "mostOrders" | "highestSpend" | "repeatFirst";
+  tier?: "all" | "new" | "repeat" | "vip" | "at_risk";
   page?: number;
   pageSize?: number;
 };
@@ -454,7 +455,36 @@ function buildCustomerSort(sortBy?: CustomerListParams["sortBy"]): Record<string
   if (sortBy === "recentLogin") return { lastLoginAt: -1, createdAt: -1 };
   if (sortBy === "mostOrders") return { totalOrders: -1, createdAt: -1 };
   if (sortBy === "highestSpend") return { deliveredSpend: -1, createdAt: -1 };
+  if (sortBy === "repeatFirst")
+    return { deliveredOrders: -1, deliveredSpend: -1, createdAt: -1 };
   return { createdAt: -1 };
+}
+
+const TIER_DAY_MS = 24 * 60 * 60 * 1000;
+const VIP_ORDER_THRESHOLD = 5;
+const VIP_SPEND_THRESHOLD = 5000;
+const AT_RISK_DORMANT_DAYS = 30;
+
+export type CustomerTier = "new" | "repeat" | "vip" | "at_risk";
+
+function computeCustomerTier(customer: Record<string, any>): CustomerTier {
+  const deliveredOrders = numberValue(customer.deliveredOrders);
+  const totalOrders = numberValue(customer.totalOrders);
+  const spend = numberValue(customer.deliveredSpend);
+  const orders = Math.max(deliveredOrders, totalOrders);
+  const lastOrderRaw = customer.lastOrderAt ? new Date(customer.lastOrderAt) : null;
+  const lastOrderAt =
+    lastOrderRaw && !Number.isNaN(lastOrderRaw.getTime()) ? lastOrderRaw : null;
+  const daysSinceOrder = lastOrderAt
+    ? (Date.now() - lastOrderAt.getTime()) / TIER_DAY_MS
+    : Number.POSITIVE_INFINITY;
+
+  // A returning customer who has gone quiet is the most actionable signal, so
+  // dormancy wins over repeat/VIP status.
+  if (orders >= 2 && daysSinceOrder > AT_RISK_DORMANT_DAYS) return "at_risk";
+  if (orders >= VIP_ORDER_THRESHOLD || spend >= VIP_SPEND_THRESHOLD) return "vip";
+  if (orders >= 2) return "repeat";
+  return "new";
 }
 
 function mapCustomerSummary(customer: Record<string, any>) {
@@ -490,6 +520,10 @@ function mapCustomerSummary(customer: Record<string, any>) {
     deliveredOrders: numberValue(customer.deliveredOrders),
     deliveredSpend: numberValue(customer.deliveredSpend),
     lastOrderAt: serializeDate(customer.lastOrderAt),
+    customerTier:
+      typeof customer.customerTier === "string"
+        ? (customer.customerTier as CustomerTier)
+        : computeCustomerTier(customer),
   };
 }
 
@@ -719,63 +753,121 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
   await applyCustomerServiceAreaFilter(query, params);
   await applyCustomerGroupFilter(query, params.customerGroupKey, params);
   const sort = buildCustomerSort(params.sortBy);
-  const [items, total, summaryRows, behavior] = await Promise.all([
+  // Shared enrichment so the listing, the tier filter, and the filtered total
+  // all compute totals/tier identically (no pagination drift).
+  const enrichmentStages: mongoose.PipelineStage[] = [
+    { $addFields: { customerIdString: { $toString: "$_id" } } },
+    {
+      $lookup: {
+        from: OrderModel.collection.name,
+        localField: "customerIdString",
+        foreignField: "customerId",
+        as: "orders",
+      },
+    },
+    {
+      $addFields: {
+        totalOrders: { $size: "$orders" },
+        lastOrderAt: { $max: "$orders.createdAt" },
+        liveOrders: {
+          $size: {
+            $filter: {
+              input: "$orders",
+              as: "order",
+              cond: { $in: ["$$order.status", LIVE_ORDER_STATUSES] },
+            },
+          },
+        },
+        deliveredOrders: {
+          $size: {
+            $filter: {
+              input: "$orders",
+              as: "order",
+              cond: { $eq: ["$$order.status", "Delivered"] },
+            },
+          },
+        },
+        deliveredSpend: {
+          $sum: {
+            $map: {
+              input: {
+                $filter: {
+                  input: "$orders",
+                  as: "order",
+                  cond: { $eq: ["$$order.status", "Delivered"] },
+                },
+              },
+              as: "order",
+              in: { $ifNull: ["$$order.pricing.total", 0] },
+            },
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        customerTier: {
+          $let: {
+            vars: {
+              ord: { $max: ["$deliveredOrders", "$totalOrders"] },
+              dormantCutoff: {
+                $subtract: ["$$NOW", AT_RISK_DORMANT_DAYS * TIER_DAY_MS],
+              },
+            },
+            in: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $and: [
+                        { $gte: ["$$ord", 2] },
+                        { $lt: ["$lastOrderAt", "$$dormantCutoff"] },
+                      ],
+                    },
+                    then: "at_risk",
+                  },
+                  {
+                    case: {
+                      $or: [
+                        { $gte: ["$$ord", VIP_ORDER_THRESHOLD] },
+                        { $gte: ["$deliveredSpend", VIP_SPEND_THRESHOLD] },
+                      ],
+                    },
+                    then: "vip",
+                  },
+                  { case: { $gte: ["$$ord", 2] }, then: "repeat" },
+                ],
+                default: "new",
+              },
+            },
+          },
+        },
+      },
+    },
+  ];
+  const tierMatchStages: mongoose.PipelineStage[] =
+    params.tier && params.tier !== "all"
+      ? [{ $match: { customerTier: params.tier } }]
+      : [];
+  const isTierFiltered = tierMatchStages.length > 0;
+  const [items, total, summaryRows, behavior, tierRows] = await Promise.all([
     CustomerModel.aggregate<Record<string, any>>([
       { $match: query },
-      { $addFields: { customerIdString: { $toString: "$_id" } } },
-      {
-        $lookup: {
-          from: OrderModel.collection.name,
-          localField: "customerIdString",
-          foreignField: "customerId",
-          as: "orders",
-        },
-      },
-      {
-        $addFields: {
-          totalOrders: { $size: "$orders" },
-          lastOrderAt: { $max: "$orders.createdAt" },
-          liveOrders: {
-            $size: {
-              $filter: {
-                input: "$orders",
-                as: "order",
-                cond: { $in: ["$$order.status", LIVE_ORDER_STATUSES] },
-              },
-            },
-          },
-          deliveredOrders: {
-            $size: {
-              $filter: {
-                input: "$orders",
-                as: "order",
-                cond: { $eq: ["$$order.status", "Delivered"] },
-              },
-            },
-          },
-          deliveredSpend: {
-            $sum: {
-              $map: {
-                input: {
-                  $filter: {
-                    input: "$orders",
-                    as: "order",
-                    cond: { $eq: ["$$order.status", "Delivered"] },
-                  },
-                },
-                as: "order",
-                in: { $ifNull: ["$$order.pricing.total", 0] },
-              },
-            },
-          },
-        },
-      },
+      ...enrichmentStages,
+      ...tierMatchStages,
       { $sort: sort },
       { $skip: (page - 1) * pageSize },
       { $limit: pageSize },
       { $project: { orders: 0, customerIdString: 0 } },
     ]),
-    CustomerModel.countDocuments(query),
+    isTierFiltered
+      ? CustomerModel.aggregate<{ total: number }>([
+          { $match: query },
+          ...enrichmentStages,
+          ...tierMatchStages,
+          { $count: "total" },
+        ]).then((rows) => rows[0]?.total ?? 0)
+      : CustomerModel.countDocuments(query),
     CustomerModel.aggregate<{
       _id: null;
       total: number;
@@ -799,6 +891,11 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
       },
     ]),
     buildCustomerBehaviorSummary(params, query),
+    CustomerModel.aggregate<{ _id: string; count: number }>([
+      { $match: query },
+      ...enrichmentStages,
+      { $group: { _id: "$customerTier", count: { $sum: 1 } } },
+    ]),
   ]);
   const summary = summaryRows[0] ?? {
     total: 0,
@@ -807,6 +904,12 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
     locked: 0,
     pendingRequests: 0,
   };
+  const tierBreakdown = { new: 0, repeat: 0, vip: 0, at_risk: 0 };
+  for (const row of tierRows) {
+    if (row?._id && row._id in tierBreakdown) {
+      tierBreakdown[row._id as keyof typeof tierBreakdown] = numberValue(row.count);
+    }
+  }
 
   return {
     items: items.map(mapCustomerSummary),
@@ -814,7 +917,7 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
     page,
     pageSize,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
-    summary: { ...summary, behavior },
+    summary: { ...summary, behavior, tierBreakdown },
   };
 }
 

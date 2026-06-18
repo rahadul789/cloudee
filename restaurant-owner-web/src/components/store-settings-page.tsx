@@ -6,6 +6,9 @@ import { format } from "date-fns"
 import {
   ChevronRight,
   Clock3,
+  FileCheck2,
+  FileText,
+  FileUp,
   ImagePlus,
   LoaderCircle,
   MapPin,
@@ -15,6 +18,7 @@ import {
   Smartphone,
   Store,
   Tag,
+  Trash2,
   X,
 } from "lucide-react"
 import {
@@ -29,12 +33,15 @@ import { toast } from "sonner"
 import "leaflet/dist/leaflet.css"
 
 import { useOpeningHours } from "@/components/hours/opening-hours-context"
+import { useCategories } from "@/components/categories/categories-context"
 import { useMenuItems } from "@/components/menu/menu-items-context"
 import { usePromotions } from "@/components/promotions/promotions-context"
 import type { PayoutMethod } from "@/components/payouts/types"
 import { useRestaurantStatus } from "@/components/restaurant-status-context"
 import { StorefrontMobilePreview } from "@/components/storefront-mobile-preview"
 import {
+  type StoreDocumentAttachment,
+  type StoreDocumentType,
   type StoreSettings,
   type StoreSettingsFormErrors,
 } from "@/components/store-settings/types"
@@ -60,6 +67,7 @@ import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import { getStoreCoverSrc, getStoreLogoSrc } from "@/lib/store-profile"
 import { validateImageFile } from "@/lib/image-upload"
+import { cn } from "@/lib/utils"
 import {
   formatBangladeshPhonePlaceholder,
   isValidBangladeshPhone,
@@ -176,6 +184,60 @@ function LocationPickerMap({
 }
 
 type UploadTarget = "logo" | "cover"
+
+const STORE_DOCUMENT_OPTIONS: Array<{
+  type: StoreDocumentType
+  label: string
+  helper: string
+}> = [
+  {
+    type: "nid",
+    label: "NID",
+    helper: "Owner national ID front/back or clear scan.",
+  },
+  {
+    type: "trade_license",
+    label: "Trade License",
+    helper: "Restaurant trade license or renewal copy.",
+  },
+  {
+    type: "tin",
+    label: "TIN",
+    helper: "Tax identification certificate.",
+  },
+  {
+    type: "bin_vat",
+    label: "BIN/VAT",
+    helper: "BIN or VAT registration document.",
+  },
+]
+
+const MAX_DOCUMENT_SIZE_MB = 10
+const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const DOCUMENT_UPLOAD_ACCEPT = "image/*,application/pdf"
+
+function validateDocumentFile(file: File) {
+  const isAllowedType =
+    file.type.startsWith("image/") || file.type === "application/pdf"
+
+  if (!isAllowedType) {
+    return {
+      ok: false as const,
+      title: "Invalid document type",
+      description: "Upload a PDF, JPG, PNG, or WebP file.",
+    }
+  }
+
+  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+    return {
+      ok: false as const,
+      title: "Document is too large",
+      description: `Please upload a file smaller than ${MAX_DOCUMENT_SIZE_MB} MB.`,
+    }
+  }
+
+  return { ok: true as const }
+}
 
 type SectionHeaderProps = {
   icon: React.ElementType
@@ -310,6 +372,7 @@ export function StoreSettingsPage() {
   const ownerAccount = useAppStore((state) => state.ownerAccount)
   const { isOnline, isUpdating } = useRestaurantStatus()
   const { openingHours } = useOpeningHours()
+  const { categories } = useCategories()
   const { vouchers } = usePromotions()
   const { items: menuItems } = useMenuItems()
 
@@ -321,6 +384,8 @@ export function StoreSettingsPage() {
   const [isLocating, setIsLocating] = React.useState(false)
   const [uploadingTarget, setUploadingTarget] =
     React.useState<UploadTarget | null>(null)
+  const [uploadingDocumentType, setUploadingDocumentType] =
+    React.useState<StoreDocumentType | null>(null)
   const setVerificationRequest = useAppStore(
     (state) => state.setVerificationRequest
   )
@@ -333,7 +398,11 @@ export function StoreSettingsPage() {
   const isSaving =
     updateStoreSettingsMutation.isPending ||
     updatePayoutMethodMutation.isPending
-  const isBusy = isSaving || uploadingTarget !== null || isLocating
+  const isBusy =
+    isSaving ||
+    uploadingTarget !== null ||
+    uploadingDocumentType !== null ||
+    isLocating
 
   const isLoading = storeSettingsQuery.isPending
 
@@ -582,6 +651,109 @@ export function StoreSettingsPage() {
       })
     } finally {
       setUploadingTarget(null)
+    }
+  }
+
+  function upsertDocument(document: StoreDocumentAttachment) {
+    setDraft((current) => ({
+      ...current,
+      documents: [
+        ...current.documents.filter((item) => item.type !== document.type),
+        document,
+      ],
+    }))
+  }
+
+  function removeDocument(type: StoreDocumentType) {
+    setDraft((current) => ({
+      ...current,
+      documents: current.documents.filter((item) => item.type !== type),
+    }))
+  }
+
+  async function handleDocumentUpload(
+    type: StoreDocumentType,
+    file: File | null
+  ) {
+    if (!file) return
+
+    const validation = validateDocumentFile(file)
+    if (!validation.ok) {
+      toast.error(validation.title, {
+        description: validation.description,
+      })
+      return
+    }
+
+    const option = STORE_DOCUMENT_OPTIONS.find((item) => item.type === type)
+    setUploadingDocumentType(type)
+
+    try {
+      const signature = await api.post<{
+        cloudName: string
+        folder: string
+        timestamp: number
+        signature: string
+        apiKey: string
+        resourceType: string
+      }>("/media/upload-signature", {
+        folder: "foodbela/owner/documents",
+        resourceType: "auto",
+      })
+
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("api_key", signature.apiKey)
+      formData.append("timestamp", String(signature.timestamp))
+      formData.append("signature", signature.signature)
+      formData.append("folder", signature.folder)
+
+      const uploadResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${signature.cloudName}/${signature.resourceType}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      )
+
+      if (!uploadResponse.ok) {
+        const errorPayload = (await uploadResponse
+          .json()
+          .catch(() => null)) as { error?: { message?: string } } | null
+        throw new Error(errorPayload?.error?.message || "Upload failed")
+      }
+
+      const uploaded = (await uploadResponse.json()) as {
+        secure_url?: string
+        public_id?: string
+        resource_type?: string
+      }
+
+      if (!uploaded.secure_url) {
+        throw new Error("Upload failed")
+      }
+
+      upsertDocument({
+        type,
+        label: option?.label ?? type,
+        url: uploaded.secure_url,
+        publicId: uploaded.public_id ?? "",
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        resourceType: uploaded.resource_type ?? signature.resourceType,
+        uploadedAt: new Date().toISOString(),
+      })
+
+      toast.success(`${option?.label ?? "Document"} uploaded`, {
+        description: "Save changes to publish this document to your profile.",
+      })
+    } catch (error) {
+      toast.error("Document upload failed", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setUploadingDocumentType(null)
     }
   }
 
@@ -1187,6 +1359,134 @@ export function StoreSettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="rounded-[28px] border-border/70 shadow-sm">
+            <SectionHeader
+              icon={FileCheck2}
+              title="Business Documents"
+              description="Attach any one available document now, or add more later when admin asks for verification."
+            />
+            <CardContent className="space-y-4 p-6">
+              <div className="rounded-2xl border bg-muted/15 p-4 text-sm">
+                <span className="font-medium">Documents attached:</span>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {STORE_DOCUMENT_OPTIONS.map((option) => {
+                    const attached = draft.documents.some(
+                      (document) => document.type === option.type
+                    )
+                    return (
+                      <span
+                        key={option.type}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
+                          attached
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-border bg-background text-muted-foreground"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex size-3.5 items-center justify-center rounded-[4px] border",
+                            attached
+                              ? "border-emerald-500 bg-emerald-500"
+                              : "border-muted-foreground/40 bg-background"
+                          )}
+                        >
+                          {attached ? (
+                            <FileCheck2 className="size-2.5 text-white" />
+                          ) : null}
+                        </span>
+                        {option.label}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {STORE_DOCUMENT_OPTIONS.map((option) => {
+                  const document = draft.documents.find(
+                    (item) => item.type === option.type
+                  )
+                  const isUploading = uploadingDocumentType === option.type
+                  return (
+                    <div
+                      key={option.type}
+                      className="rounded-2xl border bg-background p-4 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <FileText className="size-4 text-primary" />
+                            <p className="font-semibold">{option.label}</p>
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {option.helper}
+                          </p>
+                        </div>
+                        {document ? (
+                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                            Attached
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Optional</Badge>
+                        )}
+                      </div>
+
+                      {document ? (
+                        <a
+                          href={document.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 block truncate rounded-xl bg-muted/40 px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          {document.fileName || document.url}
+                        </a>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <label
+                          className={cn(
+                            "inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition hover:bg-muted/50",
+                            isUploading && "pointer-events-none opacity-70"
+                          )}
+                        >
+                          {isUploading ? (
+                            <LoaderCircle className="size-4 animate-spin" />
+                          ) : (
+                            <FileUp className="size-4" />
+                          )}
+                          {document ? "Replace" : "Upload"}
+                          <input
+                            type="file"
+                            accept={DOCUMENT_UPLOAD_ACCEPT}
+                            className="hidden"
+                            disabled={isUploading}
+                            onChange={(event) => {
+                              const file = event.target.files?.[0]
+                              void handleDocumentUpload(option.type, file ?? null)
+                              event.target.value = ""
+                            }}
+                          />
+                        </label>
+                        {document ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => removeDocument(option.type)}
+                            disabled={isUploading}
+                          >
+                            <Trash2 className="size-4" />
+                            Remove
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="xl:sticky xl:top-20">
@@ -1208,6 +1508,7 @@ export function StoreSettingsPage() {
                 isOnline={isOnline}
                 vouchers={vouchers}
                 menuItems={menuItems}
+                categories={categories}
               />
             </CardContent>
           </Card>
@@ -1270,6 +1571,16 @@ export function StoreSettingsPage() {
                         autoAcceptOrders: false,
                         cuisineTypes,
                         tags: draft.tags,
+                        documents: draft.documents.map((document) => ({
+                          type: document.type,
+                          label: document.label,
+                          url: document.url,
+                          publicId: document.publicId ?? "",
+                          fileName: document.fileName ?? "",
+                          fileType: document.fileType ?? "",
+                          resourceType: document.resourceType ?? "auto",
+                          uploadedAt: document.uploadedAt ?? null,
+                        })),
                         logo: { url: draft.logoUrl },
                         coverImage: { url: draft.coverImageUrl },
                         address: draft.address.trim(),

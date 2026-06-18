@@ -7,6 +7,7 @@ import { decorateTrackingSnapshot } from "../../common/utils/tracking-freshness"
 import { logger } from "../../config/logger"
 import { emitSocketEvent } from "../../config/socket"
 import { runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
+import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service"
 import {
   assertOtpVerificationAllowed,
   createOtpSession,
@@ -1638,7 +1639,42 @@ export async function getRiderOrderDetails(params: { riderId: string; orderId: s
 
   const restaurant = await RestaurantModel.findById(order.restaurantId).lean()
 
-  return mapRiderOrder(order, restaurant, rider.id, rider.activeTrackingOrderId ?? "")
+  const mapped = mapRiderOrder(order, restaurant, rider.id, rider.activeTrackingOrderId ?? "")
+
+  // Real road route for the rider's next leg: to the restaurant before pickup,
+  // to the customer once picked up. Cached + Haversine-backed (cost-efficient).
+  const riderCoord =
+    toRiderLatLng((order as Record<string, any>).riderTracking?.currentLocation) ??
+    toRiderLatLng(rider.lastKnownLocation)
+  const destination =
+    order.status === "PickedUp"
+      ? toRiderLatLng(order.customerSnapshot?.deliveryAddress)
+      : toRiderLatLng(restaurant?.location)
+  const routeToNext = riderCoord
+    ? await getOrderRouteMetrics({
+        orderId: String(order._id),
+        origin: riderCoord,
+        destination,
+        source: "rider_details",
+        sessionKey: order.status === "PickedUp" ? "delivery_leg" : "pickup_leg",
+      })
+    : null
+
+  return { ...mapped, routeToNext }
+}
+
+function toRiderLatLng(value: unknown): LatLng | null {
+  const point = value as { latitude?: unknown; longitude?: unknown } | null
+  if (
+    point &&
+    typeof point.latitude === "number" &&
+    Number.isFinite(point.latitude) &&
+    typeof point.longitude === "number" &&
+    Number.isFinite(point.longitude)
+  ) {
+    return { latitude: point.latitude, longitude: point.longitude }
+  }
+  return null
 }
 
 export async function acceptRiderOrder(params: { riderId: string; orderId: string }) {
@@ -1727,7 +1763,17 @@ export async function acceptRiderOrder(params: { riderId: string; orderId: strin
   })
 }
 
-export async function pickupRiderOrder(params: { riderId: string; orderId: string }) {
+export async function pickupRiderOrder(params: {
+  riderId: string
+  orderId: string
+  location?: {
+    latitude: number
+    longitude: number
+    heading?: number
+    accuracyMeters?: number
+    speedKmph?: number
+  }
+}) {
   const rider = await RiderModel.findById(params.riderId)
 
   if (!rider) {
@@ -1790,6 +1836,31 @@ export async function pickupRiderOrder(params: { riderId: string; orderId: strin
       riderId: rider.id,
       orderId: order.id
     })
+  }
+
+  if (params.location) {
+    const updatedAt = new Date()
+    const locationSnapshot = {
+      latitude: params.location.latitude,
+      longitude: params.location.longitude,
+      heading: params.location.heading ?? null,
+      accuracyMeters: params.location.accuracyMeters ?? null,
+      speedKmph: params.location.speedKmph ?? null,
+      updatedAt
+    }
+
+    rider.lastKnownLocation = locationSnapshot
+    await rider.save()
+
+    updatedOrder.set("riderTracking", {
+      ...(updatedOrder.get("riderTracking") ?? {}),
+      isActive: true,
+      isFocused: true,
+      currentLocation: locationSnapshot,
+      lastSeenAt: updatedAt,
+      disconnectedAt: null
+    })
+    await updatedOrder.save()
   }
 
   emitSocketEvent(`rider:${rider.id}`, "rider.order.updated", updatedOrder.toObject())

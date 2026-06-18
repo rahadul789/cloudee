@@ -5255,6 +5255,66 @@ select {
   margin-bottom: 26px;
 }
 
+.privacy-page {
+  min-height: 64vh;
+}
+
+.privacy-page .page-hero-content {
+  max-width: 980px;
+}
+
+.policy-section {
+  padding: 72px 5% 110px;
+  background: #fff;
+}
+
+.policy-shell {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.policy-updated {
+  color: var(--text);
+  margin-bottom: 28px;
+}
+
+.policy-block {
+  padding: 30px 0;
+  border-top: 1px solid rgba(17, 24, 39, 0.12);
+}
+
+.policy-block h2 {
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  line-height: 1.2;
+  margin-bottom: 14px;
+}
+
+.policy-block p,
+.policy-block li {
+  color: var(--text);
+  font-size: 1.02rem;
+  line-height: 1.75;
+}
+
+.policy-block p + p {
+  margin-top: 12px;
+}
+
+.policy-block ul {
+  padding-left: 22px;
+  margin: 12px 0 0;
+}
+
+.policy-block li + li {
+  margin-top: 10px;
+}
+
+.policy-block a {
+  color: var(--hot);
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .site-footer {
   background: var(--ink);
   color: var(--white);

@@ -247,6 +247,7 @@ export type CustomerHomeRestaurantSectionConfig = {
   maxItems?: number;
   position?: number;
   layout?: "horizontal" | "vertical";
+  allowRepeatAcrossSections?: boolean;
 };
 
 export type CustomerCartRecommendationConfig = {

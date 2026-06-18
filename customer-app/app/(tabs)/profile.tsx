@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
@@ -10,6 +10,7 @@ import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
 import {
   useCustomerFavoriteRestaurantIdsQuery,
+  useCustomerHowToOrderGuideQuery,
   useCustomerLogoutMutation,
   useCustomerNotificationsInfiniteQuery,
   useCustomerNotificationsQuery,
@@ -19,6 +20,7 @@ import {
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
 import { formatDeliveryAddress } from "@/src/lib/location-address";
+import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
@@ -55,6 +57,7 @@ export default function ProfileScreen() {
   );
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
   const paymentSettingsQuery = useCustomerPaymentSettingsQuery();
+  const howToOrderGuideQuery = useCustomerHowToOrderGuideQuery(Boolean(customer));
   const referralSummaryQuery = useCustomerReferralSummaryQuery(Boolean(customer));
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const preferredPaymentMethod = usePaymentPreferencesStore(
@@ -105,6 +108,20 @@ export default function ProfileScreen() {
     bkashSubtitle: "Continue to the official hosted payment page.",
     bkashRefundEtaMinutes: 60,
   };
+  const howToOrderYoutubeUrl =
+    isTrustedYoutubeUrl(howToOrderGuideQuery.data?.youtubeUrl)
+      ? howToOrderGuideQuery.data?.youtubeUrl.trim()
+      : "";
+  const openHowToOrder = useCallback(() => {
+    if (!howToOrderYoutubeUrl) {
+      router.push("/order-help");
+      return;
+    }
+
+    void Linking.openURL(howToOrderYoutubeUrl).catch(() => {
+      router.push("/order-help");
+    });
+  }, [howToOrderYoutubeUrl, router]);
 
   return (
     <Screen>
@@ -328,7 +345,7 @@ export default function ProfileScreen() {
                   tint="#E8FFF1"
                   title="How to order"
                   caption="Step-by-step Foodbela guide"
-                  onPress={() => router.push("/order-help")}
+                  onPress={openHowToOrder}
                 />
                 <ProfileNavCard
                   icon="notifications-outline"

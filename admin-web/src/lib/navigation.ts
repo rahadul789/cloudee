@@ -35,6 +35,8 @@ export type AdminNavigationItem = {
   to: string
   icon: LucideIcon
   badgeKey?: "pendingOrders" | "restaurantApprovals" | "complaints"
+  /** When true, only rendered in dev builds (import.meta.env.DEV). */
+  devOnly?: boolean
 }
 
 export type AdminNavigationGroup = {
@@ -44,7 +46,7 @@ export type AdminNavigationGroup = {
 
 export const adminSidebarGroups: AdminNavigationGroup[] = [
   {
-    label: "Platform",
+    label: "Overview",
     items: [
       {
         title: "Dashboard",
@@ -52,9 +54,40 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         icon: LayoutDashboard,
       },
       {
-        title: "Users",
+        title: "Action Center",
+        to: "/action-center",
+        icon: CircleAlert,
+      },
+    ],
+  },
+  {
+    label: "People",
+    items: [
+      {
+        title: "Customers",
         to: "/users",
         icon: Users,
+      },
+      {
+        title: "Customer Insights",
+        to: "/customer-analytics",
+        icon: TrendingUp,
+      },
+      {
+        title: "Sessions & Activity",
+        to: "/sessions",
+        icon: KeyRound,
+      },
+    ],
+  },
+  {
+    label: "Commerce",
+    items: [
+      {
+        title: "Orders",
+        to: "/orders",
+        icon: ShoppingBag,
+        badgeKey: "pendingOrders",
       },
       {
         title: "Restaurants",
@@ -63,10 +96,20 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         badgeKey: "restaurantApprovals",
       },
       {
-        title: "Orders",
-        to: "/orders",
-        icon: ShoppingBag,
-        badgeKey: "pendingOrders",
+        title: "Food Categories",
+        to: "/categories",
+        icon: Tags,
+      },
+      {
+        title: "Reviews",
+        to: "/reviews",
+        icon: Star,
+      },
+      {
+        title: "Complaints / Support",
+        to: "/support",
+        icon: Headphones,
+        badgeKey: "complaints",
       },
     ],
   },
@@ -104,33 +147,33 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
     label: "Finance",
     items: [
       {
-        title: "Platform",
-        to: "/platform-finance",
+        title: "Finance Overview",
+        to: "/finance?tab=platform",
         icon: Landmark,
       },
       {
         title: "Transactions",
-        to: "/transactions",
+        to: "/finance?tab=transactions",
         icon: ReceiptText,
       },
       {
         title: "Payments",
-        to: "/payments",
+        to: "/finance?tab=payments",
         icon: CreditCard,
       },
       {
         title: "Payouts",
-        to: "/payouts",
+        to: "/finance?tab=payouts",
         icon: WalletCards,
       },
       {
         title: "Ledger",
-        to: "/ledger",
+        to: "/finance?tab=ledger",
         icon: BookOpenText,
       },
       {
         title: "Refunds",
-        to: "/refunds",
+        to: "/finance?tab=refunds",
         icon: RotateCcw,
       },
       {
@@ -141,7 +184,7 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
     ],
   },
   {
-    label: "Growth",
+    label: "Growth & Marketing",
     items: [
       {
         title: "Coupons & Offers",
@@ -149,14 +192,24 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         icon: TicketPercent,
       },
       {
-        title: "Customer Analytics",
-        to: "/customer-analytics",
-        icon: TrendingUp,
+        title: "Promo Tracking",
+        to: "/promo-analytics",
+        icon: BarChart3,
       },
       {
         title: "Referrals",
         to: "/referrals",
         icon: Gift,
+      },
+      {
+        title: "Content / CMS",
+        to: "/cms",
+        icon: Image,
+      },
+      {
+        title: "Notifications",
+        to: "/notifications",
+        icon: Bell,
       },
       {
         title: "Foodbela.com",
@@ -166,63 +219,23 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
     ],
   },
   {
-    label: "Content & Trust",
-    items: [
-      {
-        title: "Content / CMS",
-        to: "/cms",
-        icon: Image,
-      },
-      {
-        title: "Food Categories",
-        to: "/categories",
-        icon: Tags,
-      },
-      {
-        title: "Reviews",
-        to: "/reviews",
-        icon: Star,
-      },
-      {
-        title: "Complaints / Support",
-        to: "/support",
-        icon: Headphones,
-        badgeKey: "complaints",
-      },
-    ],
-  },
-  {
     label: "System",
     items: [
-      {
-        title: "Action Center",
-        to: "/action-center",
-        icon: CircleAlert,
-      },
       {
         title: "Operations Health",
         to: "/operations",
         icon: HeartPulse,
       },
       {
-        title: "Test",
-        to: "/test",
-        icon: MailCheck,
-      },
-      {
-        title: "Notifications",
-        to: "/notifications",
-        icon: Bell,
-      },
-      {
-        title: "Sessions",
-        to: "/sessions",
-        icon: KeyRound,
-      },
-      {
         title: "Settings",
         to: "/settings",
         icon: Settings,
+      },
+      {
+        title: "Test",
+        to: "/test",
+        icon: MailCheck,
+        devOnly: true,
       },
     ],
   },

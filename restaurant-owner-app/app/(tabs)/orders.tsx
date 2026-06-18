@@ -34,6 +34,7 @@ import {
   formatTime,
   getOrderPlacedAt,
   getOwnerOrderNetSales,
+  localizeDigits,
 } from "@/src/lib/format";
 import {
   canOwnerCancelOrder,
@@ -249,7 +250,7 @@ export default function OrdersScreen() {
         <View style={styles.dateHeader}>
           <Text style={styles.dateHeaderText}>{item.label}</Text>
           <Text style={styles.dateHeaderCount}>
-            {item.count} {t("orders.count")}
+            {localizeDigits(String(item.count))} {t("orders.count")}
           </Text>
         </View>
       );
@@ -267,11 +268,11 @@ export default function OrdersScreen() {
     const showPrepPill = prepStartSeconds !== null || prepRemainingSeconds !== null;
     const prepPillText =
       order.status === "Accepted" && prepStartSeconds !== null
-        ? `${t("orders.prepIn")} ${formatAutoCancelCountdown(prepStartSeconds)}`
+        ? `${t("orders.prepIn")} ${localizeDigits(formatAutoCancelCountdown(prepStartSeconds))}`
         : order.status === "Preparing" && prepRemainingSeconds !== null
           ? prepRemainingSeconds > 0
-            ? `${t("orders.prep")} ${formatAutoCancelCountdown(prepRemainingSeconds)}`
-            : `${t("orders.late")} ${formatAutoCancelCountdown(prepLateSeconds)}`
+            ? `${t("orders.prep")} ${localizeDigits(formatAutoCancelCountdown(prepRemainingSeconds))}`
+            : `${t("orders.late")} -${localizeDigits(formatAutoCancelCountdown(prepLateSeconds))}`
           : "";
 
     return (
@@ -284,7 +285,7 @@ export default function OrdersScreen() {
             <Text style={styles.orderNumber}>{order.orderNumber}</Text>
             <Text style={styles.orderMeta}>
               {formatTime(getOrderPlacedAt(order)) || t("orders.justNow")} -{" "}
-              {order.itemsSnapshot?.length ?? 0} {t("today.items")}
+              {localizeDigits(String(order.itemsSnapshot?.length ?? 0))} {t("today.items")}
             </Text>
           </View>
           <View style={styles.orderStatusStack}>
@@ -298,7 +299,7 @@ export default function OrdersScreen() {
               <View style={styles.autoCancelPill}>
                 <Ionicons name="timer-outline" size={12} color={palette.danger} />
                 <Text style={styles.autoCancelText}>
-                  {t("orders.auto")} {formatAutoCancelCountdown(autoCancelSeconds)}
+                  {t("orders.auto")} {localizeDigits(formatAutoCancelCountdown(autoCancelSeconds))}
                 </Text>
               </View>
             ) : null}

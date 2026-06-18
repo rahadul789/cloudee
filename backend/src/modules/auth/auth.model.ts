@@ -16,6 +16,24 @@ const mediaAssetSchema = new Schema(
   { _id: false },
 );
 
+const restaurantDocumentAttachmentSchema = new Schema(
+  {
+    type: {
+      type: String,
+      enum: ["nid", "trade_license", "tin", "bin_vat"],
+      required: true,
+    },
+    label: { type: String, default: "", trim: true },
+    url: { type: String, default: "", trim: true },
+    publicId: { type: String, default: "", trim: true },
+    fileName: { type: String, default: "", trim: true },
+    fileType: { type: String, default: "", trim: true },
+    resourceType: { type: String, default: "auto", trim: true },
+    uploadedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const restaurantServiceAreaSchema = new Schema(
   {
     districtId: { type: String, default: "", trim: true },
@@ -429,6 +447,10 @@ const restaurantSchema = new Schema(
     tags: { type: [String], default: [] },
     logo: { type: mediaAssetSchema, default: () => ({}) },
     coverImage: { type: mediaAssetSchema, default: () => ({}) },
+    documents: {
+      type: [restaurantDocumentAttachmentSchema],
+      default: [],
+    },
     contact: {
       type: new Schema(
         {

@@ -22,7 +22,7 @@ import {
   reconcileRestaurantLedgerStatuses,
 } from "../owner/finance.service";
 import { NotificationModel, OrderModel } from "../owner/operational.model";
-import { sendPushToOwner } from "../owner/push.service";
+import { sendLocalizedPushToOwner } from "../owner/push.service";
 import { getOperationalFinanceSettings } from "../public/content.service";
 import {
   buildOrderServiceAreaScopeFilter,
@@ -1106,6 +1106,19 @@ async function notifyOwnerPayoutMethodReview(params: {
     : params.note?.trim()
       ? `Your payout number change was rejected. ${params.note.trim()}`
       : "Your payout number change was rejected. Please review and submit again.";
+  const titleBn = params.approved
+    ? "পেআউট নম্বর অনুমোদিত হয়েছে"
+    : "পেআউট নম্বর বাতিল হয়েছে";
+  const descriptionBn = params.approved
+    ? "আপনার নতুন পেআউট বিকাশ নম্বর এখন পরবর্তী পেআউটের জন্য active।"
+    : params.note?.trim()
+      ? `আপনার পেআউট নম্বর পরিবর্তন বাতিল হয়েছে। ${params.note.trim()}`
+      : "আপনার পেআউট নম্বর পরিবর্তন বাতিল হয়েছে। দয়া করে আবার চেক করে সাবমিট করুন।";
+
+  const owner = await OwnerModel.findById(params.ownerId)
+    .select({ preferredLanguage: 1 })
+    .lean();
+  const useBangla = owner?.preferredLanguage !== "en";
 
   const notification = await NotificationModel.create({
     ownerId: params.ownerId,
@@ -1116,8 +1129,8 @@ async function notifyOwnerPayoutMethodReview(params: {
       : "payout_method.rejected",
     entityType: "payout_method",
     entityId: params.methodId,
-    title,
-    description,
+    title: useBangla ? titleBn : title,
+    description: useBangla ? descriptionBn : description,
     actionPath: "/payouts",
   });
 
@@ -1129,16 +1142,14 @@ async function notifyOwnerPayoutMethodReview(params: {
   emitSocketEvent(`owner:${params.ownerId}`, "notification.created", notification.toObject());
 
   enqueueBackgroundTask("owner.payout_method_review.push", async () => {
-    await sendPushToOwner({
+    await sendLocalizedPushToOwner({
       ownerId: params.ownerId,
-      payload: {
-        title,
-        body: description,
-        data: {
-          path: "/(tabs)/payouts",
-          type: "payout_method",
-          methodId: params.methodId,
-        },
+      en: { title, body: description },
+      bn: { title: titleBn, body: descriptionBn },
+      data: {
+        path: "/(tabs)/payouts",
+        type: "payout_method",
+        methodId: params.methodId,
       },
     });
   });

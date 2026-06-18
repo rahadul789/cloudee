@@ -164,12 +164,10 @@ export function PromotionEditDrawer({
       nextErrors.name = "Voucher name is required."
     }
 
-    if (currentForm.mode === "coupon") {
-      if (!normalizedCode) {
-        nextErrors.code = "Coupon code is required for coupon offers."
-      } else if (existingCodes.includes(normalizedCode)) {
-        nextErrors.code = "This coupon code already exists."
-      }
+    if (!normalizedCode) {
+      nextErrors.code = "Coupon code is required."
+    } else if (existingCodes.includes(normalizedCode)) {
+      nextErrors.code = "This coupon code already exists."
     }
 
     if (!isDiscountValueHidden(currentForm.type)) {
@@ -185,10 +183,7 @@ export function PromotionEditDrawer({
       }
     }
 
-    if (!currentForm.minimumOrderAmount.trim() && currentForm.mode === "auto") {
-      nextErrors.minimumOrderAmount =
-        "Minimum order amount is required for auto-applied offers."
-    } else if (
+    if (
       currentForm.minimumOrderAmount.trim() &&
       Number(currentForm.minimumOrderAmount) < 0
     ) {
@@ -262,8 +257,8 @@ export function PromotionEditDrawer({
 
     const didSave = await onSubmitVoucher({
       name: form.name.trim(),
-      code: form.mode === "coupon" ? form.code.trim().toUpperCase() : "",
-      mode: form.mode,
+      code: form.code.trim().toUpperCase(),
+      mode: "coupon",
       type: form.type,
       discountValue: isDiscountValueHidden(form.type)
         ? null
@@ -331,41 +326,20 @@ export function PromotionEditDrawer({
                     <p className="text-sm text-destructive">{errors.name}</p>
                   ) : null}
                 </div>
+                {/* Owner offers are always coupon-code based — no auto/threshold
+                    application type selector. */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Application Type
-                  </label>
-                  <Select
-                    value={form.mode}
-                    onValueChange={(value) =>
-                      updateForm("mode", value as VoucherMode)
+                  <label className="text-sm font-medium">Coupon Code</label>
+                  <Input
+                    value={form.code}
+                    onChange={(event) =>
+                      updateForm("code", event.target.value)
                     }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select mode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">
-                        Auto-applied offer
-                      </SelectItem>
-                      <SelectItem value="coupon">Coupon code offer</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  />
+                  {errors.code ? (
+                    <p className="text-sm text-destructive">{errors.code}</p>
+                  ) : null}
                 </div>
-                {form.mode === "coupon" ? (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Coupon Code</label>
-                    <Input
-                      value={form.code}
-                      onChange={(event) =>
-                        updateForm("code", event.target.value)
-                      }
-                    />
-                    {errors.code ? (
-                      <p className="text-sm text-destructive">{errors.code}</p>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Offer Type</label>
                   <Select
@@ -629,11 +603,7 @@ export function PromotionEditDrawer({
 
               <div className="rounded-xl border bg-muted/20 p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary">
-                    {form.mode === "auto"
-                      ? "Auto-applied offer"
-                      : "Coupon code offer"}
-                  </Badge>
+                  <Badge variant="secondary">Coupon code offer</Badge>
                   <Badge variant="outline">
                     {form.type === "free-delivery"
                       ? "Unavailable"

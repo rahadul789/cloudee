@@ -18,6 +18,9 @@ import {
   Crosshair,
   Eye,
   EyeOff,
+  FileCheck2,
+  FileText,
+  FileUp,
   Loader2,
   MoreHorizontal,
   PackageCheck,
@@ -64,6 +67,8 @@ import {
   updateAdminRestaurantMerchandising,
   updateAdminRestaurantPayoutStatus,
   updateAdminRestaurantVisibility,
+  uploadAdminMedia,
+  type AdminRestaurantDocumentAttachment,
   type AdminRestaurantOrderHistoryItem,
   type AdminRestaurantCreateInput,
   type AdminRestaurantDetails,
@@ -257,6 +262,61 @@ const defaultCreateForm: AdminRestaurantCreateInput = {
   preparationTimeMinutes: 30,
   commissionRate: 15,
   isVisible: true,
+  documents: [],
+}
+
+const RESTAURANT_DOCUMENT_OPTIONS: Array<{
+  type: AdminRestaurantDocumentAttachment["type"]
+  label: string
+  helper: string
+}> = [
+  {
+    type: "nid",
+    label: "NID",
+    helper: "Owner national ID scan or clear photo.",
+  },
+  {
+    type: "trade_license",
+    label: "Trade License",
+    helper: "Restaurant trade license or renewal copy.",
+  },
+  {
+    type: "tin",
+    label: "TIN",
+    helper: "Tax identification certificate.",
+  },
+  {
+    type: "bin_vat",
+    label: "BIN/VAT",
+    helper: "BIN or VAT registration document.",
+  },
+]
+
+const DOCUMENT_UPLOAD_ACCEPT = "image/*,application/pdf"
+const MAX_DOCUMENT_SIZE_MB = 10
+const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+
+function validateRestaurantDocumentFile(file: File) {
+  const isAllowedType =
+    file.type.startsWith("image/") || file.type === "application/pdf"
+
+  if (!isAllowedType) {
+    return {
+      ok: false as const,
+      title: "Invalid document type",
+      description: "Upload a PDF, JPG, PNG, or WebP file.",
+    }
+  }
+
+  if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
+    return {
+      ok: false as const,
+      title: "Document is too large",
+      description: `Please upload a file smaller than ${MAX_DOCUMENT_SIZE_MB} MB.`,
+    }
+  }
+
+  return { ok: true as const }
 }
 
 function formatDate(value?: string | null) {
@@ -696,6 +756,11 @@ function AddRestaurantDialog({
   const [cuisineInput, setCuisineInput] = React.useState("")
   const [tagInput, setTagInput] = React.useState("")
   const [isLocating, setIsLocating] = React.useState(false)
+  const [uploadingDocumentType, setUploadingDocumentType] =
+    React.useState<AdminRestaurantDocumentAttachment["type"] | null>(null)
+  const [formErrors, setFormErrors] = React.useState<
+    Partial<Record<keyof AdminRestaurantCreateInput, string>>
+  >({})
   const [useOwnerPhoneForRestaurant, setUseOwnerPhoneForRestaurant] =
     React.useState(true)
   const [useOwnerPhoneForBkash, setUseOwnerPhoneForBkash] =
@@ -735,6 +800,7 @@ function AddRestaurantDialog({
       setUseOwnerPhoneForBkash(true)
       setCuisineInput("")
       setTagInput("")
+      setFormErrors({})
       onOpenChange(false)
       void queryClient.invalidateQueries({ queryKey: ["admin-restaurants"] })
     },
@@ -750,6 +816,12 @@ function AddRestaurantDialog({
     value: AdminRestaurantCreateInput[K]
   ) {
     setForm((current) => ({ ...current, [key]: value }))
+    setFormErrors((current) => {
+      if (!current[key]) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
   }
 
   function selectServiceZone(zoneId: string) {
@@ -829,6 +901,69 @@ function AddRestaurantDialog({
     )
   }
 
+  function upsertDocument(document: AdminRestaurantDocumentAttachment) {
+    setForm((current) => ({
+      ...current,
+      documents: [
+        ...(current.documents ?? []).filter(
+          (item) => item.type !== document.type
+        ),
+        document,
+      ],
+    }))
+  }
+
+  function removeDocument(type: AdminRestaurantDocumentAttachment["type"]) {
+    setForm((current) => ({
+      ...current,
+      documents: (current.documents ?? []).filter((item) => item.type !== type),
+    }))
+  }
+
+  async function handleDocumentUpload(
+    type: AdminRestaurantDocumentAttachment["type"],
+    file?: File | null
+  ) {
+    if (!file) return
+
+    const validation = validateRestaurantDocumentFile(file)
+    if (!validation.ok) {
+      toast.error(validation.title, {
+        description: validation.description,
+      })
+      return
+    }
+
+    const option = RESTAURANT_DOCUMENT_OPTIONS.find((item) => item.type === type)
+    setUploadingDocumentType(type)
+    try {
+      const asset = await uploadAdminMedia(
+        file,
+        "foodbela/admin/restaurant-documents",
+        "restaurant_document",
+        "auto"
+      )
+      upsertDocument({
+        type,
+        label: option?.label ?? type,
+        url: asset.url,
+        publicId: asset.publicId,
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        resourceType: "auto",
+        uploadedAt: new Date().toISOString(),
+      })
+      toast.success(`${option?.label ?? "Document"} uploaded`)
+    } catch (error) {
+      toast.error("Document upload failed", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setUploadingDocumentType(null)
+    }
+  }
+
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const ownerPhone = sanitizeBangladeshPhone(form.ownerPhone)
@@ -838,6 +973,40 @@ function AddRestaurantDialog({
     const payoutBkashNumber = useOwnerPhoneForBkash
       ? ownerPhone
       : sanitizeBangladeshPhone(form.payoutBkashNumber ?? "")
+    const nextErrors: Partial<Record<keyof AdminRestaurantCreateInput, string>> = {}
+
+    if (form.ownerFullName.trim().length < 2) {
+      nextErrors.ownerFullName = "Owner name must be at least 2 characters."
+    }
+    if (!isValidBangladeshPhone(ownerPhone)) {
+      nextErrors.ownerPhone = "Enter a valid 11-digit owner phone number."
+    }
+    if (form.temporaryPassword.trim().length < 6) {
+      nextErrors.temporaryPassword =
+        "Temporary password must be at least 6 characters."
+    }
+    if (form.name.trim().length < 2) {
+      nextErrors.name = "Restaurant name must be at least 2 characters."
+    }
+    if (!isValidBangladeshPhone(restaurantPhone)) {
+      nextErrors.phone = "Enter a valid restaurant contact number."
+    }
+    if (!isValidBangladeshPhone(payoutBkashNumber)) {
+      nextErrors.payoutBkashNumber = "Enter a valid bKash payout number."
+    }
+    if (!(form.cuisineTypes ?? []).length) {
+      nextErrors.cuisineTypes = "Choose at least one cuisine type."
+    }
+    if (!form.address?.trim()) {
+      nextErrors.address = "Restaurant address is required."
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFormErrors(nextErrors)
+      const firstMessage = Object.values(nextErrors)[0]
+      if (firstMessage) toast.error(firstMessage)
+      return
+    }
 
     if (!isValidBangladeshPhone(ownerPhone)) {
       toast.error("Enter a valid owner phone number.")
@@ -864,6 +1033,8 @@ function AddRestaurantDialog({
       email: form.email || undefined,
       phone: restaurantPhone,
       payoutBkashNumber,
+      address: form.address?.trim(),
+      documents: form.documents ?? [],
     })
   }
 
@@ -876,7 +1047,7 @@ function AddRestaurantDialog({
             Create an approved restaurant profile with an owner account.
           </DialogDescription>
         </DialogHeader>
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit} noValidate>
           <ScrollArea className="-mx-1 h-full min-h-0 flex-1 px-1 pr-3">
             <div className="space-y-5 pb-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -888,8 +1059,13 @@ function AddRestaurantDialog({
                     onChange={(event) =>
                       updateForm("ownerFullName", event.target.value)
                     }
-                    required
+                    aria-invalid={Boolean(formErrors.ownerFullName)}
                   />
+                  {formErrors.ownerFullName ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.ownerFullName}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="owner-phone">Owner phone</Label>
@@ -904,8 +1080,13 @@ function AddRestaurantDialog({
                     }
                     inputMode="numeric"
                     maxLength={11}
-                    required
+                    aria-invalid={Boolean(formErrors.ownerPhone)}
                   />
+                  {formErrors.ownerPhone ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.ownerPhone}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <OptionalLabel htmlFor="owner-email">
@@ -929,8 +1110,13 @@ function AddRestaurantDialog({
                       updateForm("temporaryPassword", event.target.value)
                     }
                     minLength={6}
-                    required
+                    aria-invalid={Boolean(formErrors.temporaryPassword)}
                   />
+                  {formErrors.temporaryPassword ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.temporaryPassword}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -941,8 +1127,13 @@ function AddRestaurantDialog({
                     id="restaurant-name"
                     value={form.name}
                     onChange={(event) => updateForm("name", event.target.value)}
-                    required
+                    aria-invalid={Boolean(formErrors.name)}
                   />
+                  {formErrors.name ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.name}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="restaurant-phone">
@@ -991,7 +1182,13 @@ function AddRestaurantDialog({
                     disabled={useOwnerPhoneForRestaurant}
                     inputMode="numeric"
                     maxLength={11}
+                    aria-invalid={Boolean(formErrors.phone)}
                   />
+                  {formErrors.phone ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.phone}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="payout-bkash-number">bKash payout number</Label>
@@ -1042,8 +1239,13 @@ function AddRestaurantDialog({
                     inputMode="numeric"
                     maxLength={11}
                     placeholder="01XXXXXXXXX"
-                    required
+                    aria-invalid={Boolean(formErrors.payoutBkashNumber)}
                   />
+                  {formErrors.payoutBkashNumber ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.payoutBkashNumber}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <OptionalLabel htmlFor="restaurant-email">
@@ -1072,6 +1274,11 @@ function AddRestaurantDialog({
                     onAdd={addCuisine}
                     onRemove={removeCuisine}
                   />
+                  {formErrors.cuisineTypes ? (
+                    <p className="mt-2 text-sm text-destructive">
+                      {formErrors.cuisineTypes}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="md:col-span-2">
                   <ChipInput
@@ -1086,6 +1293,121 @@ function AddRestaurantDialog({
                     onAdd={addTag}
                     onRemove={removeTag}
                   />
+                </div>
+                <div className="space-y-3 md:col-span-2">
+                  <div>
+                    <OptionalLabel htmlFor="restaurant-documents">
+                      Documents attached
+                    </OptionalLabel>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {RESTAURANT_DOCUMENT_OPTIONS.map((option) => {
+                        const attached = (form.documents ?? []).some(
+                          (document) => document.type === option.type
+                        )
+                        return (
+                          <span
+                            key={option.type}
+                            className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                              attached
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                : "border-border bg-background text-muted-foreground"
+                            }`}
+                          >
+                            <span
+                              className={`flex size-3.5 items-center justify-center rounded-[4px] border ${
+                                attached
+                                  ? "border-emerald-500 bg-emerald-500"
+                                  : "border-muted-foreground/40 bg-background"
+                              }`}
+                            >
+                              {attached ? (
+                                <FileCheck2 className="size-2.5 text-white" />
+                              ) : null}
+                            </span>
+                            {option.label}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div
+                    id="restaurant-documents"
+                    className="grid gap-3 md:grid-cols-2"
+                  >
+                    {RESTAURANT_DOCUMENT_OPTIONS.map((option) => {
+                      const document = (form.documents ?? []).find(
+                        (item) => item.type === option.type
+                      )
+                      const isUploading = uploadingDocumentType === option.type
+                      return (
+                        <div
+                          key={option.type}
+                          className="rounded-xl border bg-muted/15 p-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 text-sm font-semibold">
+                                <FileText className="size-4 text-primary" />
+                                {option.label}
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                {option.helper}
+                              </p>
+                            </div>
+                            {document ? (
+                              <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                                Attached
+                              </Badge>
+                            ) : null}
+                          </div>
+                          {document ? (
+                            <a
+                              href={document.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-3 block truncate rounded-lg bg-background px-3 py-2 text-xs font-medium hover:bg-muted"
+                            >
+                              {document.fileName || document.url}
+                            </a>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2 text-sm font-medium transition hover:bg-muted/60">
+                              {isUploading ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <FileUp className="size-4" />
+                              )}
+                              {document ? "Replace" : "Upload"}
+                              <input
+                                type="file"
+                                accept={DOCUMENT_UPLOAD_ACCEPT}
+                                disabled={isUploading}
+                                className="hidden"
+                                onChange={(event) => {
+                                  void handleDocumentUpload(
+                                    option.type,
+                                    event.target.files?.[0] ?? null
+                                  )
+                                  event.target.value = ""
+                                }}
+                              />
+                            </label>
+                            {document ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => removeDocument(option.type)}
+                                disabled={isUploading}
+                              >
+                                <Trash2 className="size-4" />
+                                Remove
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="restaurant-zone">Service area</Label>
@@ -1115,16 +1437,26 @@ function AddRestaurantDialog({
                   </p>
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <OptionalLabel htmlFor="restaurant-address">
-                    Address
-                  </OptionalLabel>
+                  <Label htmlFor="restaurant-address">Address</Label>
                   <Input
                     id="restaurant-address"
                     value={form.address}
                     onChange={(event) =>
                       updateForm("address", event.target.value)
                     }
+                    aria-invalid={Boolean(formErrors.address)}
+                    placeholder="House, road, area, landmark"
                   />
+                  {formErrors.address ? (
+                    <p className="text-sm text-destructive">
+                      {formErrors.address}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Use the pickup address customers and riders should
+                      recognize.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="prep-time">Prep time minutes</Label>
@@ -1246,7 +1578,10 @@ function AddRestaurantDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || uploadingDocumentType !== null}
+            >
               {createMutation.isPending ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (

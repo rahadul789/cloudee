@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from "../../common/middleware/auth"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import { getSmsProviderBalance } from "../auth/otp-sms.service"
+import { getRoutingApiUsageAnalytics } from "../routing/routing.service"
 import {
   type AdminPlatformSettings,
   getAdminPlatformSettings,
@@ -27,6 +28,11 @@ const settingsScopeQuerySchema = z.object({
   districtId: z.string().optional(),
 })
 
+const routingUsageQuerySchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+})
+
 export const getAdminSettingsController = asyncHandler(
   async (req: Request, res: Response) => {
     const query = settingsScopeQuerySchema.parse(req.query)
@@ -38,6 +44,14 @@ export const getAdminSettingsController = asyncHandler(
 export const getAdminSmsBalanceController = asyncHandler(
   async (_req: Request, res: Response) => {
     const data = await getSmsProviderBalance()
+    return sendSuccess(res, { data })
+  },
+)
+
+export const getAdminRoutingUsageController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const query = routingUsageQuerySchema.parse(req.query)
+    const data = await getRoutingApiUsageAnalytics(query)
     return sendSuccess(res, { data })
   },
 )

@@ -18,7 +18,11 @@ export function CategoriesProvider({
   const setCategories = useAppStore((state) => state.setCategories)
   const location = useLocation()
   const shouldLoadCategories =
-    location.pathname === "/" || location.pathname === "/analytics"
+    location.pathname === "/" ||
+    location.pathname === "/analytics" ||
+    location.pathname === "/categories" ||
+    location.pathname === "/menu" ||
+    location.pathname === "/settings"
   const categoriesQuery = useOwnerCategoriesQuery(
     ownerAccount.isAuthenticated && shouldLoadCategories
   )

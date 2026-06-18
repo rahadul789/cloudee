@@ -7,6 +7,7 @@ import {
   Alert,
   Animated,
   AppState,
+  Easing,
   Linking,
   Pressable,
   RefreshControl,
@@ -25,12 +26,13 @@ import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { CardListSkeleton, ShimmerBlock } from "@/src/components/loading-skeleton";
 import { LiveOrderMap } from "@/src/components/orders/live-order-map";
 import { styles } from "@/src/components/orders/order-tracking.styles";
-import { PreparationRuntime } from "@/src/components/orders/preparation-runtime";
+import { PreparationRuntime, type PreparationEstimate } from "@/src/components/orders/preparation-runtime";
 import { ReorderCartSwitchModal } from "@/src/components/orders/reorder-cart-switch-modal";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import {
   useCustomerOrderDetailsQuery,
   useCustomerCancelOrderMutation,
+  useCustomerMapStyleQuery,
   useCustomerReorderMutation,
   useCustomerRestaurantDetailsQuery,
   useCustomerReviewMutation,
@@ -129,6 +131,81 @@ function formatRefundEta(minutes?: number) {
 
   const hours = Math.max(1, Math.round(safeMinutes / 60));
   return `${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
+function formatCountdownClock(seconds?: number | null) {
+  const safeSeconds =
+    typeof seconds === "number" && Number.isFinite(seconds)
+      ? Math.max(0, Math.ceil(seconds))
+      : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function KitchenStartCountdown({ estimate }: { estimate: PreparationEstimate }) {
+  const motion = useRef(new Animated.Value(0)).current;
+  const countdownText =
+    typeof estimate.remainingSeconds === "number"
+      ? `Starts in ${formatCountdownClock(estimate.remainingSeconds)}`
+      : estimate.rangeLabel;
+
+  useEffect(() => {
+    motion.setValue(0);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(motion, {
+          toValue: 1,
+          duration: 1300,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(motion, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+      motion.stopAnimation();
+    };
+  }, [motion]);
+
+  const movingDotX = motion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 52],
+  });
+  const movingDotOpacity = motion.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.45, 1, 0.45],
+  });
+
+  return (
+    <View style={styles.kitchenStartCard}>
+      <View style={styles.kitchenMotionTrack}>
+        <Animated.View
+          style={[
+            styles.kitchenMotionDot,
+            {
+              opacity: movingDotOpacity,
+              transform: [{ translateX: movingDotX }],
+            },
+          ]}
+        />
+      </View>
+      <Text style={styles.kitchenStartTitle}>{estimate.rangeLabel}</Text>
+      <Text style={styles.kitchenStartTimer}>{countdownText}</Text>
+      <Text style={styles.kitchenStartMeta}>
+        Ready around {estimate.targetTimeLabel}
+      </Text>
+    </View>
+  );
 }
 
 function OrderSuccessCelebration({
@@ -280,6 +357,7 @@ export default function OrderTrackingScreen() {
     useState(isJustPlaced);
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const orderQuery = useCustomerOrderDetailsQuery(orderId);
+  const trackingMapStyleQuery = useCustomerMapStyleQuery("customer.order_tracking");
   const cancelOrderMutation = useCustomerCancelOrderMutation(orderId);
   const reviewMutation = useCustomerReviewMutation(orderId);
   const reorderMutation = useCustomerReorderMutation();
@@ -336,6 +414,10 @@ export default function OrderTrackingScreen() {
           latitude: order.riderTracking.currentLocation.latitude,
           longitude: order.riderTracking.currentLocation.longitude,
         }
+      : null;
+  const riderHeading =
+    typeof order?.riderTracking?.currentLocation?.heading === "number"
+      ? order.riderTracking.currentLocation.heading
       : null;
 
   const itemRows = useMemo(
@@ -453,7 +535,9 @@ export default function OrderTrackingScreen() {
 
   const trackingState = getLiveOrderTrackingState(order);
   const remainingMinutes =
-    order.riderTracking?.remainingDurationMinutes ?? null;
+    order.routeToCustomer?.durationMinutes ??
+    order.riderTracking?.remainingDurationMinutes ??
+    null;
   const queuedEtaMinutes = order.riderTracking?.queueEtaMinutes ?? null;
   const statusMeta = getCustomerOrderStatusMeta(order.status);
   const isQueuedForDelivery =
@@ -692,10 +776,17 @@ export default function OrderTrackingScreen() {
                 customerLocation={customerLocation}
                 restaurantLocation={restaurantLocation}
                 riderLocation={riderLocation}
+                riderHeading={riderHeading}
                 status={order.status}
-                riderAccentColor="#DDF6EE"
+                riderAccentColor="#FF2B85"
                 riderName={order.riderSnapshot?.name || "Rider"}
                 riderVehicleIcon="bicycle-outline"
+                routePolyline={order.routeToCustomer?.polyline}
+                routeDistanceKm={order.routeToCustomer?.distanceKm}
+                routeDurationMinutes={order.routeToCustomer?.durationMinutes}
+                routeProvider={order.routeToCustomer?.provider}
+                trafficAware={order.routeToCustomer?.trafficAware}
+                mapStyle={trackingMapStyleQuery.data}
               />
             ) : (
               <View style={[styles.stateCard, { backgroundColor: "#F3F7FF" }]}>
@@ -804,14 +895,7 @@ export default function OrderTrackingScreen() {
               >
                 {(estimate) =>
                   estimate ? (
-                    <View style={styles.prepEtaCallout}>
-                      <Text style={styles.prepEtaTitle}>
-                        {estimate.rangeLabel}
-                      </Text>
-                      <Text style={styles.prepEtaSubtitle}>
-                        Ready around {estimate.targetTimeLabel}
-                      </Text>
-                    </View>
+                    <KitchenStartCountdown estimate={estimate} />
                   ) : null
                 }
               </PreparationRuntime>
@@ -1020,6 +1104,21 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
+        <View style={styles.detailsButtonRow}>
+          <Pressable
+            android_ripple={{ color: "rgba(255,255,255,0.18)" }}
+            style={({ pressed }) => [
+              styles.detailsButton,
+              styles.detailsButtonFull,
+              pressed && styles.detailsButtonPressed,
+            ]}
+            onPress={openDetailsSheet}
+          >
+            <Ionicons name="receipt-outline" size={15} color="#fff" />
+            <Text style={styles.detailsButtonText}>Order details</Text>
+          </Pressable>
+        </View>
+
         {journeyIndex >= 0 && !isDeliveredOrder ? (
           <View style={styles.journeyCard}>
             <Text style={styles.journeyTitle}>Order journey</Text>
@@ -1086,16 +1185,6 @@ export default function OrderTrackingScreen() {
             </View>
           </View>
         ) : null}
-
-        <View style={styles.detailsButtonRow}>
-          <Pressable
-            style={[styles.detailsButton, styles.detailsButtonFull]}
-            onPress={openDetailsSheet}
-          >
-            <Ionicons name="receipt-outline" size={15} color="#fff" />
-            <Text style={styles.detailsButtonText}>Order details</Text>
-          </Pressable>
-        </View>
 
         {!isDeliveredOrder ? (
         <View style={styles.routeCard}>

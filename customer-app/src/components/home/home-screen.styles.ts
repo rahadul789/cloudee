@@ -241,7 +241,7 @@ export const styles = StyleSheet.create({
   homeCategoryMoreChip: {
     width: 42,
     height: 42,
-    borderRadius: 14,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.secondary,

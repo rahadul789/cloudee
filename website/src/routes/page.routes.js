@@ -85,6 +85,12 @@ router.get("/contact", (req, res) => {
   });
 });
 
+router.get("/privacy-policy", (req, res) => {
+  renderSeoPage(req, res, "pages/privacy-policy", "privacyPolicy", {
+    breadcrumbs: [{ name: "Privacy Policy", path: "/privacy-policy" }],
+  });
+});
+
 router.get("/areas", (req, res) => {
   const seo = buildAreasIndexSeo(req, getSettings(res));
   res.render("pages/areas", {
