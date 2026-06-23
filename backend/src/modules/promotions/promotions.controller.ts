@@ -58,6 +58,7 @@ const voucherSchema = z.object({
   platformSharePercent: z.number().min(0).max(100).optional(),
   stackingRule: z.enum(["exclusive", "stackable"]),
   priority: z.number().int().min(0).optional(),
+  surface: z.enum(["checkout", "menu_markdown"]).optional(),
   mode: z.enum(["auto", "coupon"]),
   type: z.enum(["flat", "percentage", "free_delivery"]),
   name: z.string().min(1),
@@ -65,13 +66,18 @@ const voucherSchema = z.object({
   discountValue: z.number().min(0).optional(),
   maxDiscountAmount: z.number().min(0).optional(),
   minimumOrderAmount: z.number().min(0).optional(),
+  minItemPrice: z.number().min(0).optional(),
   maxTotalUses: z.number().int().min(0).optional(),
   maxUsesPerUser: z.number().int().min(0).optional(),
   allowRepeatUsage: z.boolean().optional(),
+  maxTotalDiscountBudget: z.number().min(0).optional(),
   status: z.enum(["Draft", "Active"]).optional(),
   applicability: z.enum(["all", "categories", "items"]).optional(),
   categoryIds: z.array(z.string()).optional(),
   itemIds: z.array(z.string()).optional(),
+  cuisineTypes: z.array(z.string()).optional(),
+  zoneIds: z.array(z.string()).optional(),
+  districtIds: z.array(z.string()).optional(),
   startsAt: z.string(),
   endsAt: z.string()
 })
@@ -99,7 +105,8 @@ const voucherDisplayEventSchema = z.object({
 })
 
 const adminVoucherListQuerySchema = ownerVoucherListQuerySchema.extend({
-  restaurantId: z.string().optional()
+  restaurantId: z.string().optional(),
+  surface: z.enum(["all", "checkout", "menu_markdown"]).optional()
 })
 
 const adminVoucherCreateSchema = voucherSchema.extend({
@@ -164,6 +171,7 @@ export const getAdminVouchers = asyncHandler(async (req: Request, res: Response)
     zoneId: getStringParam(req.query.zoneId) || undefined,
     districtId: getStringParam(req.query.districtId) || undefined,
     scopeType: getStringParam(req.query.scopeType) || undefined,
+    surface: getStringParam(req.query.surface) || undefined,
     search: getStringParam(req.query.search) || undefined,
     lifecycle: getStringParam(req.query.lifecycle) || undefined,
     mode: getStringParam(req.query.mode) || undefined,

@@ -10,6 +10,8 @@ import {
   TextInput,
   View,
   type GestureResponderEvent,
+  type StyleProp,
+  type TextStyle,
 } from "react-native";
 
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
@@ -27,6 +29,66 @@ import { styles } from "./restaurant-details.styles";
 
 function stopPress(event: { stopPropagation?: () => void }) {
   event.stopPropagation?.();
+}
+
+/**
+ * Renders an item's price with platform-funded markdown when present: the full price struck
+ * through, the discounted price, and a savings badge. For variant items where only pricier
+ * options qualify it shows a "on select sizes" badge instead of a misleading struck price.
+ */
+function MenuItemPrice({
+  item,
+  priceStyle,
+  customizablePrefix = "Starts from ",
+}: {
+  item: CustomerRestaurantMenuItem;
+  priceStyle: StyleProp<TextStyle>;
+  customizablePrefix?: string;
+}) {
+  const customizable = hasCustomizations(item);
+  const prefix = customizable ? customizablePrefix : "";
+  const markdown = item.markdown;
+  const fallbackPrice = customizable ? buildStartingPrice(item) : item.basePrice;
+
+  if (markdown?.hasMarkdown) {
+    return (
+      <View style={styles.markdownPriceRow}>
+        <Text style={styles.markdownOriginalPrice}>
+          {prefix}
+          {formatCurrency(markdown.originalPrice)}
+        </Text>
+        <Text style={priceStyle}>{formatCurrency(markdown.effectivePrice)}</Text>
+        <View style={styles.markdownBadge}>
+          <Ionicons name="pricetag" size={9} color={palette.successText} />
+          <Text style={styles.markdownBadgeText}>{markdown.discountLabel}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (markdown?.partialVariants) {
+    return (
+      <View style={styles.markdownPriceRow}>
+        <Text style={priceStyle}>
+          {prefix}
+          {formatCurrency(fallbackPrice)}
+        </Text>
+        <View style={styles.markdownBadge}>
+          <Ionicons name="pricetag" size={9} color={palette.successText} />
+          <Text style={styles.markdownBadgeText}>
+            {markdown.discountLabel} on select sizes
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <Text style={priceStyle}>
+      {prefix}
+      {formatCurrency(fallbackPrice)}
+    </Text>
+  );
 }
 export function CategoryRail({
   categories,
@@ -217,9 +279,6 @@ const SearchResultCard = memo(function SearchResultCard({
 }) {
   const imageUrl = item.images?.[0]?.url ?? null;
   const isUnavailable = item.availability === "unavailable" || !isRestaurantOpen;
-  const priceLabel = hasCustomizations(item)
-    ? `Starts from ${formatCurrency(buildStartingPrice(item))}`
-    : formatCurrency(item.basePrice);
 
   return (
     <Pressable
@@ -251,7 +310,7 @@ const SearchResultCard = memo(function SearchResultCard({
         <Text style={styles.searchResultMeta} numberOfLines={1}>
           {categoryName ?? "Menu item"}
         </Text>
-          <Text style={styles.searchResultPrice}>{priceLabel}</Text>
+          <MenuItemPrice item={item} priceStyle={styles.searchResultPrice} />
         </View>
         <InlineMenuQuantityControl
           quantity={quantity}
@@ -654,7 +713,6 @@ export const ConnectedPopularItemCard = memo(function ConnectedPopularItemCard({
   onPressCard: (item: CustomerRestaurantMenuItem) => void;
 }) {
   const isDisabled = !isRestaurantOpen || item.availability === "unavailable";
-  const customizable = hasCustomizations(item);
   const [burstKey, setBurstKey] = useState(0);
   const [displayQuantity, setDisplayQuantity] = useState(quantity);
 
@@ -715,11 +773,11 @@ export const ConnectedPopularItemCard = memo(function ConnectedPopularItemCard({
       </Text>
       <View style={styles.popularFooter}>
         <View style={styles.popularPriceBlock}>
-          <Text style={styles.popularPrice}>
-            {customizable
-              ? `From ${formatCurrency(buildStartingPrice(item))}`
-              : formatCurrency(item.basePrice)}
-          </Text>
+          <MenuItemPrice
+            item={item}
+            priceStyle={styles.popularPrice}
+            customizablePrefix="From "
+          />
         </View>
         <View style={styles.quantityActionSlot}>
           {displayQuantity > 0 ? (
@@ -835,11 +893,7 @@ export const MenuCard = memo(function MenuCard({
         </View>
 
         <View style={styles.menuPriceRow}>
-          <Text style={styles.menuPrice}>
-            {customizable
-              ? `Starts from ${formatCurrency(buildStartingPrice(item))}`
-              : formatCurrency(item.basePrice)}
-          </Text>
+          <MenuItemPrice item={item} priceStyle={styles.menuPrice} />
         </View>
       </View>
 

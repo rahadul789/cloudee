@@ -121,6 +121,7 @@ type VoucherFormState = {
   pushPath: string
   name: string
   code: string
+  surface: "checkout" | "menu_markdown"
   mode: AdminVoucherMode
   type: VoucherFormType
   fundedBy: "owner" | "platform" | "shared"
@@ -130,9 +131,12 @@ type VoucherFormState = {
   discountValue: string
   maxDiscountAmount: string
   minimumOrderAmount: string
+  minItemPrice: string
   maxTotalUses: string
   maxUsesPerUser: string
   allowRepeatUsage: boolean
+  maxTotalDiscountBudget: string
+  cuisineTypes: string
   status: AdminVoucherStatus
   applicability: "all" | "categories" | "items"
   categoryIds: string[]
@@ -254,6 +258,7 @@ function getInitialForm(
     pushPath: "/(tabs)/browse",
     name: "",
     code: "",
+    surface: "checkout",
     mode: "coupon",
     type: "flat",
     fundedBy: "platform",
@@ -263,9 +268,12 @@ function getInitialForm(
     discountValue: "",
     maxDiscountAmount: "",
     minimumOrderAmount: "0",
+    minItemPrice: "",
     maxTotalUses: "",
     maxUsesPerUser: "1",
     allowRepeatUsage: false,
+    maxTotalDiscountBudget: "",
+    cuisineTypes: "",
     status: "Draft",
     applicability: "all",
     categoryIds: [],
@@ -305,6 +313,7 @@ function getFormFromVoucher(voucher: AdminRestaurantVoucher): VoucherFormState {
     pushPath: voucher.pushCampaign?.path ?? "/(tabs)/browse",
     name: voucher.name,
     code: voucher.code ?? "",
+    surface: voucher.surface === "menu_markdown" ? "menu_markdown" : "checkout",
     mode: voucher.mode,
     type:
       voucher.type === "free-delivery"
@@ -320,9 +329,14 @@ function getFormFromVoucher(voucher: AdminRestaurantVoucher): VoucherFormState {
       ? `${voucher.maxDiscountAmount}`
       : "",
     minimumOrderAmount: `${voucher.minimumOrderAmount ?? 0}`,
+    minItemPrice: voucher.minItemPrice ? `${voucher.minItemPrice}` : "",
     maxTotalUses: voucher.maxTotalUses ? `${voucher.maxTotalUses}` : "",
     maxUsesPerUser: `${voucher.maxUsesPerUser || 1}`,
     allowRepeatUsage: voucher.allowRepeatUsage,
+    maxTotalDiscountBudget: voucher.maxTotalDiscountBudget
+      ? `${voucher.maxTotalDiscountBudget}`
+      : "",
+    cuisineTypes: (voucher.cuisineTypes ?? []).join(", "),
     status: voucher.status,
     applicability: voucher.applicability,
     categoryIds: voucher.categoryIds ?? [],
@@ -383,6 +397,7 @@ function toPayload(
         : undefined,
     stackingRule: form.stackingRule,
     priority: Number(form.priority || 0),
+    surface: form.surface,
     mode: form.mode,
     type: form.type,
     name: form.name.trim(),
@@ -393,9 +408,17 @@ function toPayload(
       ? Number(form.maxDiscountAmount)
       : 0,
     minimumOrderAmount: Number(form.minimumOrderAmount || 0),
+    minItemPrice: form.minItemPrice.trim() ? Number(form.minItemPrice) : 0,
     maxTotalUses: form.maxTotalUses.trim() ? Number(form.maxTotalUses) : 0,
     maxUsesPerUser: Number(form.maxUsesPerUser || 1),
     allowRepeatUsage: form.allowRepeatUsage,
+    maxTotalDiscountBudget: form.maxTotalDiscountBudget.trim()
+      ? Number(form.maxTotalDiscountBudget)
+      : 0,
+    cuisineTypes: form.cuisineTypes
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
     status: form.status,
     applicability: form.applicability,
     categoryIds: form.applicability === "categories" ? form.categoryIds : [],
@@ -643,6 +666,7 @@ function VoucherFormSheet({
     const nextErrors: Record<string, string> = {}
     const normalizedCode = form.code.trim().toUpperCase()
     const maxUsesPerUser = Number(form.maxUsesPerUser || 0)
+    const validatingMarkdown = form.surface === "menu_markdown"
 
     if (form.scopeType === "restaurant" && !form.restaurantId) {
       nextErrors.restaurantId = "Restaurant is required."
@@ -699,12 +723,15 @@ function VoucherFormSheet({
     if (Number(form.minimumOrderAmount || 0) < 0) {
       nextErrors.minimumOrderAmount = "Minimum order cannot be negative."
     }
-    if (!Number.isFinite(maxUsesPerUser) || maxUsesPerUser < 1) {
-      nextErrors.maxUsesPerUser = "Max uses per user must be at least 1."
-    }
-    if (!form.allowRepeatUsage && maxUsesPerUser > 1) {
-      nextErrors.maxUsesPerUser =
-        "Turn on repeat usage before allowing more than 1 use."
+    if (!validatingMarkdown) {
+      // Markdowns allow 0 = unlimited per-user reuse; checkout vouchers need at least 1.
+      if (!Number.isFinite(maxUsesPerUser) || maxUsesPerUser < 1) {
+        nextErrors.maxUsesPerUser = "Max uses per user must be at least 1."
+      }
+      if (!form.allowRepeatUsage && maxUsesPerUser > 1) {
+        nextErrors.maxUsesPerUser =
+          "Turn on repeat usage before allowing more than 1 use."
+      }
     }
     if (
       form.maxTotalUses.trim() &&
@@ -740,6 +767,8 @@ function VoucherFormSheet({
     return Object.keys(nextErrors).length === 0
   }
 
+  const isMarkdown = form.surface === "menu_markdown"
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     if (!validate()) return
@@ -765,6 +794,51 @@ function VoucherFormSheet({
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <div className="grid gap-5 lg:grid-cols-2">
+              <div className="space-y-2 lg:col-span-2">
+                <Label>Offer surface</Label>
+                <Select
+                  value={form.surface}
+                  disabled={Boolean(voucher)}
+                  onValueChange={(value) =>
+                    setForm((current) => ({
+                      ...current,
+                      surface: value as VoucherFormState["surface"],
+                      ...(value === "menu_markdown"
+                        ? {
+                            fundedBy: "platform" as const,
+                            mode: "auto" as const,
+                            type:
+                              current.type === "free_delivery"
+                                ? ("flat" as const)
+                                : current.type,
+                            code: "",
+                            stackingRule: "stackable" as const,
+                            maxUsesPerUser: "0",
+                            allowRepeatUsage: true,
+                          }
+                        : {}),
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="checkout">
+                      Checkout voucher (coupon / auto, applied at checkout)
+                    </SelectItem>
+                    <SelectItem value="menu_markdown">
+                      Menu price markdown (platform-funded, strike-through on menu)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {isMarkdown ? (
+                  <p className="text-xs text-muted-foreground">
+                    Platform-funded markdown shown on the customer menu. The restaurant is paid
+                    the full listed price; the platform absorbs the discount.
+                  </p>
+                ) : null}
+              </div>
               <div className="space-y-2 lg:col-span-2">
                 <Label>Campaign scope</Label>
                 <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -854,34 +928,36 @@ function VoucherFormSheet({
                 </div>
               ) : null}
 
-              <div className="space-y-2 lg:col-span-2">
-                <Label>Audience</Label>
-                <Select
-                  value={form.audienceType}
-                  onValueChange={(value) =>
-                    update(
-                      "audienceType",
-                      value as VoucherFormState["audienceType"]
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_users">All users</SelectItem>
-                    <SelectItem value="new_users">New users only</SelectItem>
-                    <SelectItem value="returning_users">
-                      Returning users
-                    </SelectItem>
-                    <SelectItem value="selected_users">
-                      Specific users
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {!isMarkdown ? (
+                <div className="space-y-2 lg:col-span-2">
+                  <Label>Audience</Label>
+                  <Select
+                    value={form.audienceType}
+                    onValueChange={(value) =>
+                      update(
+                        "audienceType",
+                        value as VoucherFormState["audienceType"]
+                      )
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all_users">All users</SelectItem>
+                      <SelectItem value="new_users">New users only</SelectItem>
+                      <SelectItem value="returning_users">
+                        Returning users
+                      </SelectItem>
+                      <SelectItem value="selected_users">
+                        Specific users
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
-              {form.audienceType === "selected_users" ? (
+              {!isMarkdown && form.audienceType === "selected_users" ? (
                 <div className="space-y-2 lg:col-span-2">
                   <TargetCheckboxList
                     title="Specific users"
@@ -912,40 +988,44 @@ function VoucherFormSheet({
                 />
                 <FieldError message={errors.name} />
               </div>
-              <div className="space-y-2">
-                <Label>
-                  Code{" "}
-                  <span className="text-xs text-muted-foreground">
-                    (only for coupon)
-                  </span>
-                </Label>
-                <Input
-                  value={form.code}
-                  disabled={form.mode !== "coupon"}
-                  onChange={(event) =>
-                    update("code", event.target.value.toUpperCase())
-                  }
-                />
-                <FieldError message={errors.code} />
-              </div>
+              {!isMarkdown ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>
+                      Code{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (only for coupon)
+                      </span>
+                    </Label>
+                    <Input
+                      value={form.code}
+                      disabled={form.mode !== "coupon"}
+                      onChange={(event) =>
+                        update("code", event.target.value.toUpperCase())
+                      }
+                    />
+                    <FieldError message={errors.code} />
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Mode</Label>
-                <Select
-                  value={form.mode}
-                  onValueChange={(value) =>
-                    update("mode", value as AdminVoucherMode)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="coupon">Coupon code</SelectItem>
-                    <SelectItem value="auto">Auto applied</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div className="space-y-2">
+                    <Label>Mode</Label>
+                    <Select
+                      value={form.mode}
+                      onValueChange={(value) =>
+                        update("mode", value as AdminVoucherMode)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="coupon">Coupon code</SelectItem>
+                        <SelectItem value="auto">Auto applied</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : null}
               <div className="space-y-2">
                 <Label>Discount type</Label>
                 <Select
@@ -960,7 +1040,9 @@ function VoucherFormSheet({
                   <SelectContent>
                     <SelectItem value="flat">Flat</SelectItem>
                     <SelectItem value="percentage">Percentage</SelectItem>
-                    <SelectItem value="free_delivery">Free delivery</SelectItem>
+                    {!isMarkdown ? (
+                      <SelectItem value="free_delivery">Free delivery</SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
@@ -1002,19 +1084,79 @@ function VoucherFormSheet({
                 <FieldError message={errors.maxDiscountAmount} />
               </div>
 
-              <div className="space-y-2">
-                <Label>Minimum order</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={form.minimumOrderAmount}
-                  onChange={(event) =>
-                    update("minimumOrderAmount", event.target.value)
-                  }
-                />
-                <FieldError message={errors.minimumOrderAmount} />
-              </div>
+              {isMarkdown ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>
+                      Min item price{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (Tk, optional)
+                      </span>
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="e.g. 250 — only items at/above this price"
+                      value={form.minItemPrice}
+                      onChange={(event) =>
+                        update("minItemPrice", event.target.value)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Evaluated per variant on the (base + variant) price. Blank = every price.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      Total discount budget{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (Tk, optional)
+                      </span>
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="caps total platform spend"
+                      value={form.maxTotalDiscountBudget}
+                      onChange={(event) =>
+                        update("maxTotalDiscountBudget", event.target.value)
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2 lg:col-span-2">
+                    <Label>
+                      Cuisine targeting{" "}
+                      <span className="text-xs text-muted-foreground">
+                        (optional, comma separated)
+                      </span>
+                    </Label>
+                    <Input
+                      placeholder="e.g. Biryani, Pizza — blank = every cuisine"
+                      value={form.cuisineTypes}
+                      onChange={(event) =>
+                        update("cuisineTypes", event.target.value)
+                      }
+                    />
+                  </div>
+                </>
+              ) : null}
 
+              {!isMarkdown ? (
+                <div className="space-y-2">
+                  <Label>Minimum order</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={form.minimumOrderAmount}
+                    onChange={(event) =>
+                      update("minimumOrderAmount", event.target.value)
+                    }
+                  />
+                  <FieldError message={errors.minimumOrderAmount} />
+                </div>
+              ) : null}
+
+              {!isMarkdown ? (
               <div className="space-y-2">
                 <Label>Funding</Label>
                 <Select
@@ -1036,6 +1178,7 @@ function VoucherFormSheet({
                 </Select>
                 <FieldError message={errors.fundedBy} />
               </div>
+              ) : null}
               {form.fundedBy === "shared" ? (
                 <div className="space-y-2">
                   <Label>Owner share %</Label>
@@ -1785,6 +1928,9 @@ export function CouponsPage() {
   const [scopeType, setScopeType] = React.useState<
     "all" | VoucherFormState["scopeType"]
   >("all")
+  const [surface, setSurface] = React.useState<
+    "all" | "checkout" | "menu_markdown"
+  >("all")
   const [restaurantId, setRestaurantId] = React.useState("all")
   const [sortBy, setSortBy] = React.useState<VoucherSort>("newestUpdated")
   const [page, setPage] = React.useState(1)
@@ -1811,6 +1957,7 @@ export function CouponsPage() {
         mode,
         type,
         scopeType,
+        surface,
         restaurantId,
         sortBy,
         page,
@@ -1821,6 +1968,7 @@ export function CouponsPage() {
       listAdminVouchers({
         restaurantId: restaurantId === "all" ? undefined : restaurantId,
         scopeType,
+        surface,
         search: debouncedSearch,
         lifecycle,
         mode,
@@ -1927,6 +2075,7 @@ export function CouponsPage() {
     mode,
     type,
     scopeType,
+    surface,
     restaurantId,
     sortBy,
     pageSize,
@@ -1943,6 +2092,7 @@ export function CouponsPage() {
     setType("all")
     setAudienceFilter("all")
     setScopeType("all")
+    setSurface("all")
     setRestaurantId("all")
     setSortBy("newestUpdated")
     setPage(1)
@@ -2130,6 +2280,19 @@ export function CouponsPage() {
                   Selected restaurants
                 </SelectItem>
                 <SelectItem value="all_restaurants">All restaurants</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={surface}
+              onValueChange={(value) => setSurface(value as typeof surface)}
+            >
+              <SelectTrigger className="h-9 w-full sm:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All surfaces</SelectItem>
+                <SelectItem value="checkout">Checkout vouchers</SelectItem>
+                <SelectItem value="menu_markdown">Menu markdowns</SelectItem>
               </SelectContent>
             </Select>
             <Select value={restaurantId} onValueChange={setRestaurantId}>

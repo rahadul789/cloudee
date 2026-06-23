@@ -52,6 +52,7 @@ import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import {
   buildDefaultSelections,
   buildStartingPrice,
+  computeItemMarkdownAmount,
   hasCustomizations,
   isSelectionValid,
 } from "@/src/lib/restaurant-menu";
@@ -470,6 +471,27 @@ export default function RestaurantDetailsScreen() {
 
     return total * quantity;
   }, [quantity, selectedAddOns, selectedItem, selectedVariants]);
+
+  // Platform markdown for the exact current selection (base + variant only, add-ons excluded).
+  // Preview only — the backend cart quote recomputes the authoritative amount at checkout.
+  const selectedItemMarkdown = useMemo(() => {
+    if (!selectedItem?.markdown) {
+      return { perUnit: 0, effectiveTotal: selectedItemTotal };
+    }
+    let baseVariantUnit = selectedItem.basePrice;
+    for (const group of selectedItem.variants ?? []) {
+      const labels = selectedVariants[group.name] ?? [];
+      for (const option of group.options ?? []) {
+        if (labels.includes(option.label)) baseVariantUnit += option.priceDelta ?? 0;
+      }
+    }
+    const perUnit = computeItemMarkdownAmount(baseVariantUnit, selectedItem.markdown);
+    return {
+      perUnit,
+      effectiveTotal: Math.max(selectedItemTotal - perUnit * quantity, 0),
+    };
+  }, [quantity, selectedItem, selectedItemTotal, selectedVariants]);
+
   const selectedItemHasCustomizations = useMemo(
     () => (selectedItem ? hasCustomizations(selectedItem) : false),
     [selectedItem]
@@ -1600,11 +1622,24 @@ export default function RestaurantDetailsScreen() {
                     {selectedItem.description ? (
                       <Text style={styles.customHeroDescription}>{selectedItem.description}</Text>
                     ) : null}
-                    <Text style={styles.customHeroPrice}>
-                      {selectedItemHasCustomizations
-                        ? `Starts from ${formatCurrency(buildStartingPrice(selectedItem))}`
-                        : formatCurrency(selectedItem.basePrice)}
-                    </Text>
+                    {selectedItem.markdown?.hasMarkdown ? (
+                      <View style={styles.customHeroPriceRow}>
+                        <Text style={styles.customHeroPriceStrike}>
+                          {selectedItemHasCustomizations
+                            ? `Starts from ${formatCurrency(selectedItem.markdown.originalPrice)}`
+                            : formatCurrency(selectedItem.markdown.originalPrice)}
+                        </Text>
+                        <Text style={styles.customHeroPrice}>
+                          {formatCurrency(selectedItem.markdown.effectivePrice)}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.customHeroPrice}>
+                        {selectedItemHasCustomizations
+                          ? `Starts from ${formatCurrency(buildStartingPrice(selectedItem))}`
+                          : formatCurrency(selectedItem.basePrice)}
+                      </Text>
+                    )}
                   </View>
                 </View>
 
@@ -1815,9 +1850,18 @@ export default function RestaurantDetailsScreen() {
                     }}
                   >
                     <Text style={styles.submitButtonText}>
-                      {canAddFromRestaurant
-                        ? `Add ${formatCurrency(selectedItemTotal)}`
-                        : "Change location"}
+                      {!canAddFromRestaurant ? (
+                        "Change location"
+                      ) : selectedItemMarkdown.perUnit > 0 ? (
+                        <>
+                          {`Add ${formatCurrency(selectedItemMarkdown.effectiveTotal)}  `}
+                          <Text style={{ textDecorationLine: "line-through", opacity: 0.7 }}>
+                            {formatCurrency(selectedItemTotal)}
+                          </Text>
+                        </>
+                      ) : (
+                        `Add ${formatCurrency(selectedItemTotal)}`
+                      )}
                     </Text>
                   </Pressable>
                 </View>

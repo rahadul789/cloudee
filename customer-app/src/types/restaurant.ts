@@ -70,6 +70,24 @@ export type CustomerMenuAddOnGroup = {
   options: CustomerMenuAddOnOption[];
 };
 
+export type CustomerMenuItemMarkdown = {
+  ruleId: string;
+  discountType: "flat" | "percentage";
+  discountValue: number;
+  /** Threshold + cap so the app can recompute the exact markdown for the selected variant. */
+  minItemPrice: number;
+  maxDiscountAmount: number;
+  /** Full (pre-markdown) starting price, shown struck-through. */
+  originalPrice: number;
+  /** Discounted starting price the card shows (equals originalPrice when partialVariants). */
+  effectivePrice: number;
+  /** True when the markdown actually lowers the displayed starting price. */
+  hasMarkdown: boolean;
+  /** True when only pricier variants qualify — show a "select sizes" badge, not a struck price. */
+  partialVariants: boolean;
+  discountLabel: string;
+};
+
 export type CustomerRestaurantMenuItem = {
   _id: string;
   categoryId: string;
@@ -84,6 +102,7 @@ export type CustomerRestaurantMenuItem = {
   recommendedItemIds?: string[];
   variants?: CustomerMenuVariantGroup[];
   addOnGroups?: CustomerMenuAddOnGroup[];
+  markdown?: CustomerMenuItemMarkdown | null;
 };
 
 export type CustomerVoucherOffer = {

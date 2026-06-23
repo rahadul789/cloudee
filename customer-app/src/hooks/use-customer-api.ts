@@ -712,11 +712,16 @@ export type CartQuoteResponse = {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
+    markdownPerUnit?: number;
+    effectiveUnitPrice?: number;
+    effectiveLineTotal?: number;
+    appliedMarkdownRuleId?: string;
     selectedVariantOptions: { groupName: string; optionLabel: string }[];
     selectedAddOnOptions: { groupName: string; optionLabel: string }[];
   }[];
   pricing: {
     subtotal: number;
+    menuMarkdownAmount?: number;
     deliveryFee: number;
     discountAmount: number;
     total: number;

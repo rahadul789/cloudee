@@ -66,11 +66,16 @@ export async function releaseVoucherRedemptionsForOrder(
   reason: string,
   session?: mongoose.ClientSession,
 ) {
-  // Capture which redemptions counted toward a voucher's global usage cap so we
-  // can give those slots back when the order is released (cancelled/rejected).
+  // Capture which redemptions counted toward a voucher's global usage cap or a
+  // menu-markdown budget so we can give those slots/spend back when the order is
+  // released (cancelled/rejected).
   const counted = await VoucherRedemptionModel.find(
-    { orderId, releasedAt: null, countedTowardTotal: true },
-    { voucherId: 1 },
+    {
+      orderId,
+      releasedAt: null,
+      $or: [{ countedTowardTotal: true }, { countedTowardBudget: true }],
+    },
+    { voucherId: 1, countedTowardTotal: 1, countedTowardBudget: 1, budgetConsumed: 1 },
     session ? { session } : undefined,
   ).lean();
 
@@ -88,12 +93,19 @@ export async function releaseVoucherRedemptionsForOrder(
 
   if (counted.length) {
     await VoucherModel.bulkWrite(
-      counted.map((redemption) => ({
-        updateOne: {
-          filter: { _id: redemption.voucherId, redeemedCount: { $gt: 0 } },
-          update: { $inc: { redeemedCount: -1 } },
-        },
-      })),
+      counted.map((redemption) => {
+        const dec: Record<string, number> = {};
+        if (redemption.countedTowardTotal) dec.redeemedCount = -1;
+        if (redemption.countedTowardBudget && redemption.budgetConsumed) {
+          dec.consumedDiscountBudget = -redemption.budgetConsumed;
+        }
+        return {
+          updateOne: {
+            filter: { _id: redemption.voucherId },
+            update: { $inc: dec },
+          },
+        };
+      }),
       session ? { session } : {},
     );
   }
@@ -117,6 +129,9 @@ export async function resolveActiveVoucher(params: {
       : Promise.resolve(0),
     VoucherModel.find({
       archivedAt: null,
+      // Menu markdowns are applied at the item level, never as a checkout voucher —
+      // excluding them here prevents a markdown from discounting the order total twice.
+      surface: { $ne: "menu_markdown" },
       $or: [
         { restaurantId: params.restaurantId },
         { scopeType: "all_restaurants" },

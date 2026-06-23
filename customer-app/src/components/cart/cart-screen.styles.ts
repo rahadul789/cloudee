@@ -417,10 +417,21 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  itemCopy: {
+  itemMain: {
     flex: 1,
     minWidth: 0,
-    gap: 6,
+    gap: 10,
+  },
+  itemHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  itemTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   itemName: {
     fontSize: 14,
@@ -434,27 +445,57 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     color: palette.mutedForeground,
   },
+  itemMetaBlock: {
+    gap: 2,
+    marginTop: -4,
+  },
   itemFooterRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    flexWrap: "wrap",
-    columnGap: 8,
-    rowGap: 3,
-    marginTop: 2,
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 12,
   },
-  itemPriceWrap: {
-    flexDirection: "row",
-    alignItems: "center",
+  itemPriceBlock: {
     flexShrink: 1,
     minWidth: 0,
+    gap: 2,
+  },
+  itemPriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
     gap: 6,
   },
-  itemPrice: {
+  itemPriceStrike: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",
     color: palette.mutedForeground,
+    textDecorationLine: "line-through",
+  },
+  itemLineTotal: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  itemUnitCaption: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  itemOfferPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: palette.successSurface,
+  },
+  itemOfferPillText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    color: palette.successText,
   },
   itemPriceChanged: {
     fontSize: 11,
@@ -463,20 +504,6 @@ export const styles = StyleSheet.create({
     color: palette.secondary,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-  },
-  itemLineTotal: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: palette.foreground,
-    flexShrink: 0,
-  },
-  itemActions: {
-    width: 96,
-    flexShrink: 0,
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 10,
   },
   quantityControl: {
     width: 96,

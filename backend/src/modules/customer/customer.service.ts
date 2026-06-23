@@ -64,6 +64,11 @@ import {
   OrderModel,
 } from "../owner/operational.model";
 import {
+  resolveMenuMarkdownForDisplay,
+  type MarkdownRule,
+} from "../promotions/menu-markdown";
+import { buildActiveMenuMarkdownFilter } from "../promotions/menu-markdown-query";
+import {
   applyServiceAreaDeliveryPricing,
   assertLocationInsideServiceArea,
   assertRestaurantMatchesDeliveryServiceArea,
@@ -3049,7 +3054,7 @@ export async function getCustomerRestaurantDetails(
         restaurant.isServiceableForSelectedLocation = null;
       }
 
-      const [categories, menuItems, activeOffers, reviewFacetRows] =
+      const [categories, menuItems, activeOffers, markdownRules, reviewFacetRows] =
         await Promise.all([
           CategoryModel.find({
             restaurantId: restaurant._id,
@@ -3087,6 +3092,8 @@ export async function getCustomerRestaurantDetails(
             .lean(),
           VoucherModel.find({
             archivedAt: null,
+            // Offer strip shows checkout vouchers only; markdowns render on item cards.
+            surface: { $ne: "menu_markdown" },
             $or: [
               { restaurantId: restaurant._id },
               { scopeType: "all_restaurants" },
@@ -3110,6 +3117,21 @@ export async function getCustomerRestaurantDetails(
               display: 1,
             })
             .sort({ priority: -1 })
+            .lean(),
+          VoucherModel.find(buildActiveMenuMarkdownFilter(restaurant))
+            .select({
+              scopeType: 1,
+              restaurantId: 1,
+              selectedRestaurantIds: 1,
+              applicability: 1,
+              categoryIds: 1,
+              itemIds: 1,
+              type: 1,
+              discountValue: 1,
+              maxDiscountAmount: 1,
+              minItemPrice: 1,
+              priority: 1,
+            })
             .lean(),
           ReviewModel.aggregate<{
             recent: Array<Record<string, any>>;
@@ -3158,11 +3180,29 @@ export async function getCustomerRestaurantDetails(
       const reviewFacet = reviewFacetRows[0] ?? { recent: [], metrics: [] };
       const recentReviews = reviewFacet.recent ?? [];
       const reviewSummary = reviewFacet.metrics?.[0];
+
+      // Attach platform-funded markdown (strike-through pricing) to each menu item. The
+      // helper picks the most specific active rule per item; cart/order recompute the exact
+      // amount per selected variant so display and settlement stay in sync.
+      const markdownByItem = resolveMenuMarkdownForDisplay(
+        menuItems as Parameters<typeof resolveMenuMarkdownForDisplay>[0],
+        markdownRules as unknown as MarkdownRule[],
+        String(restaurant._id),
+      );
+      for (const item of menuItems) {
+        const markdown = markdownByItem.get(String(item._id));
+        (item as Record<string, unknown>).markdown = markdown ?? null;
+      }
+
       restaurant.lowestMenuPrice = menuItems.reduce<number | null>((lowest, item) => {
-        const price =
+        const markdown = markdownByItem.get(String(item._id));
+        const basePrice =
           typeof item.basePrice === "number" && Number.isFinite(item.basePrice)
             ? item.basePrice
             : null;
+        // Use the discounted starting price so list cards and sorting reflect the deal.
+        const price =
+          markdown && markdown.hasMarkdown ? markdown.effectivePrice : basePrice;
         if (price === null) return lowest;
         return lowest === null ? price : Math.min(lowest, price);
       }, null);
@@ -4112,6 +4152,120 @@ export async function placeCustomerOrder(params: {
           }),
           { session },
         );
+      }
+
+      // Platform-funded menu markdowns applied to this order: enforce usage + budget caps
+      // race-free (mirroring the voucher guards) and record one redemption per rule for
+      // per-user limits and analytics. The owner is unaffected — platform funds all of it.
+      const markdownTotals = new Map<string, number>();
+      for (const item of (quote.items ?? []) as CustomerCacheRecord[]) {
+        const ruleId = item.appliedMarkdownRuleId
+          ? String(item.appliedMarkdownRuleId)
+          : "";
+        const amount = Math.round(
+          (Number(item.markdownPerUnit) || 0) * (Number(item.quantity) || 0),
+        );
+        if (ruleId && amount > 0) {
+          markdownTotals.set(ruleId, (markdownTotals.get(ruleId) ?? 0) + amount);
+        }
+      }
+
+      if (markdownTotals.size) {
+        const markdownRuleDocs = await VoucherModel.find(
+          { _id: { $in: [...markdownTotals.keys()] } },
+          {
+            _id: 1,
+            name: 1,
+            type: 1,
+            discountValue: 1,
+            maxUsesPerUser: 1,
+            maxTotalUses: 1,
+            maxTotalDiscountBudget: 1,
+          },
+        )
+          .session(session)
+          .lean();
+
+        const markdownRedemptions: Record<string, unknown>[] = [];
+        for (const rule of markdownRuleDocs) {
+          const ruleId = String(rule._id);
+          const markdownAmount = markdownTotals.get(ruleId) ?? 0;
+
+          let countedTowardTotal = false;
+          if (typeof rule.maxTotalUses === "number" && rule.maxTotalUses > 0) {
+            const claimed = await VoucherModel.findOneAndUpdate(
+              { _id: rule._id, $expr: { $lt: ["$redeemedCount", "$maxTotalUses"] } },
+              { $inc: { redeemedCount: 1 } },
+              { session, new: true },
+            );
+            if (!claimed) {
+              throw new AppError(
+                StatusCodes.CONFLICT,
+                "MENU_MARKDOWN_LIMIT_REACHED",
+                "This offer has reached its usage limit",
+              );
+            }
+            countedTowardTotal = true;
+          }
+
+          let countedTowardBudget = false;
+          if (
+            typeof rule.maxTotalDiscountBudget === "number" &&
+            rule.maxTotalDiscountBudget > 0 &&
+            markdownAmount > 0
+          ) {
+            const claimed = await VoucherModel.findOneAndUpdate(
+              {
+                _id: rule._id,
+                $expr: {
+                  $lte: [
+                    { $add: ["$consumedDiscountBudget", markdownAmount] },
+                    "$maxTotalDiscountBudget",
+                  ],
+                },
+              },
+              { $inc: { consumedDiscountBudget: markdownAmount } },
+              { session, new: true },
+            );
+            if (!claimed) {
+              throw new AppError(
+                StatusCodes.CONFLICT,
+                "MENU_MARKDOWN_BUDGET_REACHED",
+                "This offer's discount budget has been used up",
+              );
+            }
+            countedTowardBudget = true;
+          }
+
+          markdownRedemptions.push({
+            orderId: created._id,
+            restaurantId: params.restaurantId,
+            voucherId: rule._id,
+            singleUsePerUser: rule.maxUsesPerUser === 1,
+            countedTowardTotal,
+            countedTowardBudget,
+            budgetConsumed: countedTowardBudget ? markdownAmount : 0,
+            voucherSnapshot: {
+              id: ruleId,
+              name: rule.name,
+              surface: "menu_markdown",
+              type: rule.type,
+              discountValue: rule.discountValue,
+              customerId,
+            },
+            discountBreakdown: {
+              discountAmount: markdownAmount,
+              ownerFundedAmount: 0,
+              platformFundedAmount: markdownAmount,
+              ownerDiscountCost: 0,
+              platformDiscountCost: markdownAmount,
+            },
+          });
+        }
+
+        if (markdownRedemptions.length) {
+          await VoucherRedemptionModel.create(markdownRedemptions, { session });
+        }
       }
 
       const subtotal = quote.pricing.subtotal;

@@ -1379,6 +1379,13 @@ export default function CheckoutScreen() {
                 label="Subtotal"
                 value={formatCurrency(pricing?.subtotal ?? localSubtotal)}
               />
+              {(pricing?.menuMarkdownAmount ?? 0) > 0 ? (
+                <CheckoutSummaryRow
+                  label="Item savings"
+                  value={`- ${formatCurrency(pricing?.menuMarkdownAmount ?? 0)}`}
+                  highlight
+                />
+              ) : null}
               <CheckoutSummaryRow
                 label="Delivery fee"
                 value={formatCurrency(pricing?.deliveryFee ?? 0)}

@@ -1,4 +1,7 @@
-import type { CustomerRestaurantMenuItem } from "@/src/types/restaurant";
+import type {
+  CustomerMenuItemMarkdown,
+  CustomerRestaurantMenuItem,
+} from "@/src/types/restaurant";
 
 function pickPreferredOption<
   TOption extends { label: string; price?: number; priceDelta?: number },
@@ -55,6 +58,29 @@ export function hasCustomizations(item: CustomerRestaurantMenuItem) {
   return Boolean(
     (item.variants?.length ?? 0) || (item.addOnGroups?.length ?? 0),
   );
+}
+
+/**
+ * Client mirror of the backend markdown maths. Computes the platform-funded discount for an
+ * exact (base + variant) price — add-ons excluded by the caller. Returns 0 below threshold;
+ * never exceeds the price. Used for previews only; the backend quote remains authoritative.
+ */
+export function computeItemMarkdownAmount(
+  basePlusVariant: number,
+  markdown: CustomerMenuItemMarkdown | null | undefined,
+): number {
+  if (!markdown) return 0;
+  const price = Number.isFinite(basePlusVariant) ? basePlusVariant : 0;
+  if (price <= 0) return 0;
+  if (markdown.minItemPrice > 0 && price < markdown.minItemPrice) return 0;
+
+  let raw =
+    markdown.discountType === "percentage"
+      ? (price * markdown.discountValue) / 100
+      : markdown.discountValue;
+  if (markdown.maxDiscountAmount > 0) raw = Math.min(raw, markdown.maxDiscountAmount);
+  raw = Math.min(raw, price);
+  return Math.max(0, Math.round(raw));
 }
 
 export function isSelectionValid(

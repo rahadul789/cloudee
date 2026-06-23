@@ -16,6 +16,7 @@ type VoucherListParams = {
   zoneId?: string
   districtId?: string
   scopeType?: string
+  surface?: string
   search?: string
   lifecycle?: string
   mode?: string
@@ -109,6 +110,7 @@ type VoucherMutationParams = {
   platformSharePercent?: number
   stackingRule: "exclusive" | "stackable"
   priority?: number
+  surface?: "checkout" | "menu_markdown"
   mode: "auto" | "coupon"
   type: "flat" | "percentage" | "free_delivery"
   name: string
@@ -116,13 +118,18 @@ type VoucherMutationParams = {
   discountValue?: number
   maxDiscountAmount?: number
   minimumOrderAmount?: number
+  minItemPrice?: number
   maxTotalUses?: number
   maxUsesPerUser?: number
   allowRepeatUsage?: boolean
+  maxTotalDiscountBudget?: number
   status?: "Draft" | "Active"
   applicability?: "all" | "categories" | "items"
   categoryIds?: string[]
   itemIds?: string[]
+  cuisineTypes?: string[]
+  zoneIds?: string[]
+  districtIds?: string[]
   startsAt: string
   endsAt: string
 }
@@ -294,6 +301,66 @@ function assertOwnerVoucherType(params: { type?: string }) {
   }
 }
 
+function assertNotMarkdownSurface(params: { surface?: string }) {
+  if (params.surface === "menu_markdown") {
+    throw new AppError(
+      StatusCodes.FORBIDDEN,
+      "MENU_MARKDOWN_OWNER_NOT_ALLOWED",
+      "Menu price markdowns are platform-funded and can only be managed by admins"
+    )
+  }
+}
+
+/**
+ * Menu markdowns are platform-funded, code-less, and only flat/percentage. Coerce funding
+ * and mode so callers can't accidentally create an owner-funded or coupon-coded markdown,
+ * and reject free_delivery which makes no sense as an item price reduction.
+ */
+function normalizeMarkdownMutation<
+  T extends Partial<VoucherMutationParams>
+>(params: T): T {
+  if (params.surface !== "menu_markdown") return params
+  if (params.type === "free_delivery") {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "MENU_MARKDOWN_TYPE_INVALID",
+      "Menu markdowns must be a flat or percentage discount"
+    )
+  }
+  return {
+    ...params,
+    fundedBy: "platform",
+    ownerSharePercent: 0,
+    platformSharePercent: 100,
+    mode: "auto",
+    code: "",
+    // A markdown is a shelf price, not a one-per-customer coupon: default to unlimited
+    // per-user reuse unless an admin deliberately caps it.
+    maxUsesPerUser: params.maxUsesPerUser ?? 0,
+    allowRepeatUsage: params.allowRepeatUsage ?? true
+  }
+}
+
+async function validateVoucherCuisines(params: {
+  restaurantId?: string
+  cuisineTypes?: string[]
+}) {
+  if (!params.cuisineTypes?.length) return
+  if (!params.restaurantId) return
+  const restaurant = await RestaurantModel.findById(params.restaurantId, {
+    cuisineTypes: 1
+  }).lean()
+  const available = new Set((restaurant?.cuisineTypes ?? []).map((value) => String(value)))
+  const invalid = params.cuisineTypes.filter((value) => !available.has(value))
+  if (invalid.length) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_CUISINE_TARGETS",
+      "One or more selected cuisines are not offered by this restaurant"
+    )
+  }
+}
+
 function buildVoucherAuditSnapshot(voucher: Record<string, any> | null) {
   if (!voucher) return null
   return {
@@ -311,6 +378,7 @@ function buildVoucherAuditSnapshot(voucher: Record<string, any> | null) {
     platformSharePercent: voucher.platformSharePercent,
     stackingRule: voucher.stackingRule,
     priority: voucher.priority,
+    surface: voucher.surface,
     mode: voucher.mode,
     type: voucher.type,
     name: voucher.name,
@@ -318,13 +386,18 @@ function buildVoucherAuditSnapshot(voucher: Record<string, any> | null) {
     discountValue: voucher.discountValue,
     maxDiscountAmount: voucher.maxDiscountAmount,
     minimumOrderAmount: voucher.minimumOrderAmount,
+    minItemPrice: voucher.minItemPrice,
     maxTotalUses: voucher.maxTotalUses,
     maxUsesPerUser: voucher.maxUsesPerUser,
     allowRepeatUsage: voucher.allowRepeatUsage,
+    maxTotalDiscountBudget: voucher.maxTotalDiscountBudget,
     status: voucher.status,
     applicability: voucher.applicability,
     categoryIds: (voucher.categoryIds ?? []).map(objectIdString),
     itemIds: (voucher.itemIds ?? []).map(objectIdString),
+    cuisineTypes: voucher.cuisineTypes ?? [],
+    zoneIds: voucher.zoneIds ?? [],
+    districtIds: voucher.districtIds ?? [],
     startsAt: voucher.startsAt,
     endsAt: voucher.endsAt,
     archivedAt: voucher.archivedAt,
@@ -388,6 +461,14 @@ async function buildVoucherQuery(params: VoucherListParams) {
     ]
   }
   if (params.scopeType && params.scopeType !== "all") query.scopeType = params.scopeType
+  if (params.surface === "all") {
+    // Explicit "all" shows every surface (checkout vouchers + menu markdowns together).
+  } else if (params.surface) {
+    query.surface = params.surface
+  } else {
+    // No surface param = legacy/default behaviour: classic checkout vouchers only.
+    query.surface = { $ne: "menu_markdown" }
+  }
   if (params.mode && params.mode !== "all") query.mode = params.mode
   if (params.type && params.type !== "all") {
     query.type = params.type === "free-delivery" ? "free_delivery" : params.type
@@ -728,6 +809,7 @@ function buildVoucherCreatePayload(params: VoucherMutationParams & {
     platformSharePercent: fundingSplit.platformSharePercent,
     stackingRule: params.stackingRule,
     priority: params.priority ?? 0,
+    surface: params.surface ?? "checkout",
     mode: params.mode,
     type: params.type,
     name: params.name,
@@ -735,13 +817,19 @@ function buildVoucherCreatePayload(params: VoucherMutationParams & {
     discountValue: params.discountValue ?? 0,
     maxDiscountAmount: params.maxDiscountAmount ?? 0,
     minimumOrderAmount: params.minimumOrderAmount ?? 0,
+    minItemPrice: params.minItemPrice ?? 0,
     maxTotalUses: params.maxTotalUses ?? 0,
     maxUsesPerUser: params.maxUsesPerUser ?? 1,
     allowRepeatUsage: params.allowRepeatUsage ?? false,
+    maxTotalDiscountBudget: params.maxTotalDiscountBudget ?? 0,
+    consumedDiscountBudget: 0,
     status: params.status ?? "Draft",
     applicability: scopeType === "restaurant" ? applicability : "all",
     categoryIds: scopeType === "restaurant" && applicability === "categories" ? params.categoryIds ?? [] : [],
     itemIds: scopeType === "restaurant" && applicability === "items" ? params.itemIds ?? [] : [],
+    cuisineTypes: params.cuisineTypes ?? [],
+    zoneIds: params.zoneIds ?? [],
+    districtIds: params.districtIds ?? [],
     startsAt: new Date(params.startsAt),
     endsAt: new Date(params.endsAt)
   }
@@ -789,6 +877,7 @@ async function applyVoucherPatch(
   }
   if (params.stackingRule !== undefined) voucher.stackingRule = params.stackingRule
   if (params.priority !== undefined) voucher.priority = params.priority
+  if (params.surface !== undefined) voucher.surface = params.surface
   if (params.mode !== undefined) voucher.mode = params.mode
   if (params.type !== undefined) voucher.type = params.type
   if (params.name !== undefined) voucher.name = params.name
@@ -797,9 +886,15 @@ async function applyVoucherPatch(
   if (params.maxDiscountAmount !== undefined) voucher.maxDiscountAmount = params.maxDiscountAmount
   if (params.minimumOrderAmount !== undefined)
     voucher.minimumOrderAmount = params.minimumOrderAmount
+  if (params.minItemPrice !== undefined) voucher.minItemPrice = params.minItemPrice
   if (params.maxTotalUses !== undefined) voucher.maxTotalUses = params.maxTotalUses
   if (params.maxUsesPerUser !== undefined) voucher.maxUsesPerUser = params.maxUsesPerUser
   if (params.allowRepeatUsage !== undefined) voucher.allowRepeatUsage = params.allowRepeatUsage
+  if (params.maxTotalDiscountBudget !== undefined)
+    voucher.maxTotalDiscountBudget = params.maxTotalDiscountBudget
+  if (params.cuisineTypes !== undefined) voucher.cuisineTypes = params.cuisineTypes
+  if (params.zoneIds !== undefined) voucher.zoneIds = params.zoneIds
+  if (params.districtIds !== undefined) voucher.districtIds = params.districtIds
   if (params.status !== undefined) voucher.status = params.status
   if (params.scopeType !== undefined) voucher.scopeType = params.scopeType
   if (params.selectedRestaurantIds !== undefined) voucher.selectedRestaurantIds = params.selectedRestaurantIds
@@ -864,6 +959,7 @@ export async function listOwnerVouchersWithFilters(params: {
 
 export async function createOwnerVoucher(params: VoucherMutationParams & { ownerId: string }) {
   assertOwnerVoucherType({ type: params.type })
+  assertNotMarkdownSurface(params)
   const restaurant = await getOwnerRestaurant(params.ownerId)
   const applicability = params.applicability ?? "all"
   await validateVoucherTargets({
@@ -906,6 +1002,7 @@ export async function updateOwnerVoucher(params: VoucherPatchParams & {
   voucherId: string
 }) {
   assertOwnerVoucherType({ type: params.type })
+  assertNotMarkdownSurface(params)
   const restaurant = await getOwnerRestaurant(params.ownerId)
   const voucher = await VoucherModel.findOne({
     _id: params.voucherId,
@@ -947,6 +1044,7 @@ export async function updateOwnerVoucher(params: VoucherPatchParams & {
 export async function createAdminVoucher(params: VoucherMutationParams & {
   adminId: string
 }) {
+  params = normalizeMarkdownMutation(params)
   assertAdminCreatedVoucherFunding({ fundedBy: params.fundedBy })
   const scopeType = params.scopeType ?? "restaurant"
   const restaurant =
@@ -977,6 +1075,10 @@ export async function createAdminVoucher(params: VoucherMutationParams & {
       applicability,
       categoryIds: params.categoryIds,
       itemIds: params.itemIds
+    })
+    await validateVoucherCuisines({
+      restaurantId: restaurant.id,
+      cuisineTypes: params.cuisineTypes
     })
   }
 
@@ -1009,9 +1111,17 @@ export async function updateAdminVoucher(params: VoucherPatchParams & {
   }
 
   const before = voucher.toObject()
+  const effectiveSurface = params.surface ?? voucher.surface
+  if (effectiveSurface === "menu_markdown") {
+    params = normalizeMarkdownMutation({ ...params, surface: "menu_markdown" })
+  }
   if (voucher.createdByType === "admin") {
     assertAdminCreatedVoucherFunding({ fundedBy: params.fundedBy })
   }
+  await validateVoucherCuisines({
+    restaurantId: objectIdString(voucher.restaurantId),
+    cuisineTypes: params.cuisineTypes
+  })
   const updated = await applyVoucherPatch(voucher, params, objectIdString(voucher.restaurantId))
   await recordVoucherAudit({
     voucher: updated.toObject(),

@@ -5,6 +5,13 @@ import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
 import { getPlatformContent } from "../public/content.service";
 import { RestaurantModel } from "../auth/auth.model";
 import { CategoryModel, MenuItemModel } from "../owner/operational.model";
+import { VoucherModel } from "./customer.model";
+import {
+  computeMarkdownAmount,
+  pickRuleForItem,
+  type MarkdownRule,
+} from "../promotions/menu-markdown";
+import { buildActiveMenuMarkdownFilter } from "../promotions/menu-markdown-query";
 import {
   applyServiceAreaDeliveryPricing,
   assertLocationInsideServiceArea,
@@ -274,6 +281,7 @@ export async function quoteCustomerCart(params: {
             runtime: 1,
             location: 1,
             serviceArea: 1,
+            cuisineTypes: 1,
             commercial: 1,
             settings: 1,
           })
@@ -315,6 +323,26 @@ export async function quoteCustomerCart(params: {
         .lean();
 
       const menuItemMap = new Map(menuItems.map((item) => [String(item._id), item]));
+      // Active platform-funded menu markdowns for this restaurant. Resolved here (not from
+      // the cached menu payload) so cart pricing is always authoritative and live.
+      const markdownRules = (await VoucherModel.find(
+        buildActiveMenuMarkdownFilter(restaurant),
+      )
+        .select({
+          scopeType: 1,
+          restaurantId: 1,
+          selectedRestaurantIds: 1,
+          applicability: 1,
+          categoryIds: 1,
+          itemIds: 1,
+          type: 1,
+          discountValue: 1,
+          maxDiscountAmount: 1,
+          minItemPrice: 1,
+          priority: 1,
+        })
+        .lean()) as unknown as MarkdownRule[];
+      const restaurantIdString = String(restaurant._id);
       const categoryIds = [
         ...new Set(menuItems.map((item) => item.categoryId.toString())),
       ];
@@ -367,6 +395,20 @@ export async function quoteCustomerCart(params: {
         const category = categoryMap.get(categoryId);
         const image = Array.isArray(menuItem.images) ? menuItem.images[0] : null;
 
+        // Platform-funded markdown applies to the (base + variant) portion only — add-ons
+        // are always charged in full. Owner is settled on the full unitPrice (Option A); the
+        // platform absorbs markdownPerUnit. Threshold is evaluated on the exact selection.
+        const markdownableUnit = menuItem.basePrice + variantPrice;
+        const markdownRule = pickRuleForItem(
+          menuItem as unknown as Parameters<typeof pickRuleForItem>[0],
+          markdownRules,
+          restaurantIdString,
+        );
+        const markdownPerUnit = markdownRule
+          ? computeMarkdownAmount(markdownableUnit, markdownRule)
+          : 0;
+        const effectiveUnitPrice = unitPrice - markdownPerUnit;
+
         return {
           itemId: String(menuItem._id),
           categoryId,
@@ -379,12 +421,25 @@ export async function quoteCustomerCart(params: {
           quantity: cartItem.quantity,
           unitPrice,
           lineTotal,
+          // Markdown view: full price the owner is paid on vs. what the customer pays.
+          markdownPerUnit,
+          effectiveUnitPrice,
+          effectiveLineTotal: effectiveUnitPrice * cartItem.quantity,
+          appliedMarkdownRuleId:
+            markdownPerUnit > 0 && markdownRule ? String(markdownRule._id) : "",
           selectedVariantOptions: cartItem.selectedVariantOptions ?? [],
           selectedAddOnOptions: cartItem.selectedAddOnOptions ?? [],
         };
       });
 
+      // Owner subtotal stays at full price (drives commission + payout in settlement). The
+      // markdown is a platform-funded reduction of what the customer actually pays.
       const subtotal = resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0);
+      const menuMarkdownAmount = resolvedItems.reduce(
+        (sum, item) => sum + item.markdownPerUnit * item.quantity,
+        0,
+      );
+      const customerSubtotal = Math.max(subtotal - menuMarkdownAmount, 0);
       const deliveryServiceArea = await assertLocationInsideServiceArea({
         latitude: params.latitude,
         longitude: params.longitude,
@@ -424,10 +479,12 @@ export async function quoteCustomerCart(params: {
         surchargeAmountTaka: deliveryPricingConfig.surchargeAmountTaka,
         distanceKm: deliveryDistanceKm,
       });
+      // Markdown is applied first; coupons then evaluate against the reduced subtotal so the
+      // two never double-count and minimum-order checks reflect what the customer pays.
       const vouchers: CustomerCacheRecord[] = await resolveActiveVoucher({
         restaurantId: String(restaurant._id),
         voucherCode: params.voucherCode,
-        subtotal,
+        subtotal: customerSubtotal,
         customerId: params.customerId,
         items: resolvedItems.map((item) => ({
           itemId: item.itemId,
@@ -440,14 +497,17 @@ export async function quoteCustomerCart(params: {
         const baseDeliveryFee = voucher.type === "free_delivery" ? deliveryFee : 0;
         const currentDiscount = calculateVoucherDiscount({
           voucher,
-          subtotal: Math.max(subtotal - totalDiscount, 0),
+          subtotal: Math.max(customerSubtotal - totalDiscount, 0),
           deliveryFee: baseDeliveryFee,
         });
         voucherDiscounts.set(String(voucher._id), currentDiscount);
         return totalDiscount + currentDiscount;
       }, 0);
 
-      const total = Math.max(subtotal + deliveryFee - discountAmount, 0);
+      const total = Math.max(
+        customerSubtotal + deliveryFee - discountAmount,
+        0,
+      );
       const ownerDiscountCost = vouchers.reduce((totalOwnerCost, voucher) => {
         const voucherDiscount = voucherDiscounts.get(String(voucher._id)) ?? 0;
         return (
@@ -457,15 +517,17 @@ export async function quoteCustomerCart(params: {
           )
         );
       }, 0);
-      const platformDiscountCost = vouchers.reduce((totalPlatformCost, voucher) => {
-        const voucherDiscount = voucherDiscounts.get(String(voucher._id)) ?? 0;
-        return (
-          totalPlatformCost +
-          Math.round(
-            voucherDiscount * (((voucher as any).platformSharePercent ?? 0) / 100),
-          )
-        );
-      }, 0);
+      // Platform absorbs both the platform share of any voucher and the full menu markdown.
+      const platformDiscountCost =
+        vouchers.reduce((totalPlatformCost, voucher) => {
+          const voucherDiscount = voucherDiscounts.get(String(voucher._id)) ?? 0;
+          return (
+            totalPlatformCost +
+            Math.round(
+              voucherDiscount * (((voucher as any).platformSharePercent ?? 0) / 100),
+            )
+          );
+        }, 0) + menuMarkdownAmount;
 
       return {
         restaurant: {
@@ -477,6 +539,7 @@ export async function quoteCustomerCart(params: {
         items: resolvedItems,
         pricing: {
           subtotal,
+          menuMarkdownAmount,
           deliveryFee,
           discountAmount,
           ownerDiscountCost,

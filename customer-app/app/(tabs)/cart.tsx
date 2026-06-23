@@ -785,14 +785,27 @@ export default function CartScreen() {
                     <View key={item.key} style={styles.itemRow}>
                       {(() => {
                         const quotedItem = quotedItemsByKey.get(item.key);
-                        const displayUnitPrice = shouldUseQuotedPricing
+                        const fullUnitPrice = shouldUseQuotedPricing
                           ? (quotedItem?.unitPrice ?? item.unitPrice)
                           : item.unitPrice;
+                        const markdownPerUnit = shouldUseQuotedPricing
+                          ? (quotedItem?.markdownPerUnit ?? 0)
+                          : 0;
+                        const hasMarkdown = markdownPerUnit > 0;
+                        const displayUnitPrice =
+                          shouldUseQuotedPricing &&
+                          typeof quotedItem?.effectiveUnitPrice === "number"
+                            ? quotedItem.effectiveUnitPrice
+                            : fullUnitPrice;
                         const displayLineTotal =
                           shouldUseQuotedPricing &&
-                          typeof quotedItem?.lineTotal === "number"
-                            ? quotedItem.lineTotal
-                            : displayUnitPrice * item.quantity;
+                          typeof quotedItem?.effectiveLineTotal === "number"
+                            ? quotedItem.effectiveLineTotal
+                            : shouldUseQuotedPricing &&
+                                typeof quotedItem?.lineTotal === "number"
+                              ? quotedItem.lineTotal
+                              : displayUnitPrice * item.quantity;
+                        const fullLineTotal = fullUnitPrice * item.quantity;
                         const isPriceChanged =
                           shouldUseQuotedPricing &&
                           typeof quotedItem?.unitPrice === "number" &&
@@ -815,82 +828,109 @@ export default function CartScreen() {
                               accessibilityLabel={`${item.name} cart item photo`}
                             />
 
-                            <View style={styles.itemCopy}>
-                              <Text style={styles.itemName} numberOfLines={2}>
-                                {item.name}
-                              </Text>
-                              {variantSummary ? (
-                                <Text style={styles.itemMeta} numberOfLines={2}>
-                                  {variantSummary}
-                                </Text>
-                              ) : null}
-                              {addOnSummary ? (
-                                <Text style={styles.itemMeta} numberOfLines={2}>
-                                  {addOnSummary}
-                                </Text>
-                              ) : null}
-                              <View style={styles.itemFooterRow}>
-                                <View style={styles.itemPriceWrap}>
-                                  <Text
-                                    style={styles.itemPrice}
-                                    numberOfLines={1}
-                                  >
-                                    {formatCurrency(displayUnitPrice)} each
+                            <View style={styles.itemMain}>
+                              <View style={styles.itemHeaderRow}>
+                                <View style={styles.itemTitleBlock}>
+                                  <Text style={styles.itemName} numberOfLines={2}>
+                                    {item.name}
                                   </Text>
-                                  {isPriceChanged ? (
-                                    <Text style={styles.itemPriceChanged}>
-                                      Updated
+                                </View>
+
+                                <View style={styles.quantityControl}>
+                                  <Pressable
+                                    onPressIn={() =>
+                                      updateQuantity(item.key, item.quantity - 1)
+                                    }
+                                    style={({ pressed }) => [
+                                      styles.quantityButton,
+                                      pressed
+                                        ? [
+                                            styles.quantityButtonPressed,
+                                            styles.quantityButtonSecondaryPressed,
+                                          ]
+                                        : null,
+                                    ]}
+                                  >
+                                    <Ionicons
+                                      name={
+                                        item.quantity === 1
+                                          ? "trash-outline"
+                                          : "remove"
+                                      }
+                                      size={15}
+                                      color={palette.foreground}
+                                    />
+                                  </Pressable>
+                                  <Text style={styles.quantityText}>
+                                    {item.quantity}
+                                  </Text>
+                                  <CartQuantityPlusButton
+                                    onPress={() =>
+                                      updateQuantity(item.key, item.quantity + 1)
+                                    }
+                                  />
+                                </View>
+                              </View>
+
+                              {variantSummary || addOnSummary ? (
+                                <View style={styles.itemMetaBlock}>
+                                  {variantSummary ? (
+                                    <Text style={styles.itemMeta} numberOfLines={2}>
+                                      {variantSummary}
+                                    </Text>
+                                  ) : null}
+                                  {addOnSummary ? (
+                                    <Text style={styles.itemMeta} numberOfLines={2}>
+                                      {addOnSummary}
                                     </Text>
                                   ) : null}
                                 </View>
-                                <Text
-                                  style={styles.itemLineTotal}
-                                  numberOfLines={1}
-                                >
-                                  {formatCurrency(displayLineTotal)}
-                                </Text>
-                              </View>
-                            </View>
+                              ) : null}
 
-                            <View style={styles.itemActions}>
-                              <View style={styles.quantityControl}>
+                              <View style={styles.itemFooterRow}>
+                                <View style={styles.itemPriceBlock}>
+                                  <View style={styles.itemPriceRow}>
+                                    {hasMarkdown ? (
+                                      <Text style={styles.itemPriceStrike}>
+                                        {formatCurrency(fullLineTotal)}
+                                      </Text>
+                                    ) : null}
+                                    <Text
+                                      style={styles.itemLineTotal}
+                                      numberOfLines={1}
+                                    >
+                                      {formatCurrency(displayLineTotal)}
+                                    </Text>
+                                    {hasMarkdown ? (
+                                      <View style={styles.itemOfferPill}>
+                                        <Text style={styles.itemOfferPillText}>
+                                          Offer
+                                        </Text>
+                                      </View>
+                                    ) : null}
+                                    {isPriceChanged ? (
+                                      <Text style={styles.itemPriceChanged}>
+                                        Updated
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                  {item.quantity > 1 ? (
+                                    <Text
+                                      style={styles.itemUnitCaption}
+                                      numberOfLines={1}
+                                    >
+                                      {formatCurrency(displayUnitPrice)} each
+                                    </Text>
+                                  ) : null}
+                                </View>
+
                                 <Pressable
-                                  onPressIn={() =>
-                                    updateQuantity(item.key, item.quantity - 1)
-                                  }
-                                  style={({ pressed }) => [
-                                    styles.quantityButton,
-                                    pressed
-                                      ? [
-                                          styles.quantityButtonPressed,
-                                          styles.quantityButtonSecondaryPressed,
-                                        ]
-                                      : null,
-                                  ]}
+                                  onPress={() => removeItem(item.key)}
+                                  hitSlop={8}
                                 >
-                                  <Ionicons
-                                    name={
-                                      item.quantity === 1
-                                        ? "trash-outline"
-                                        : "remove"
-                                    }
-                                    size={15}
-                                    color={palette.foreground}
-                                  />
+                                  <Text style={styles.removeText}>Remove</Text>
                                 </Pressable>
-                                <Text style={styles.quantityText}>
-                                  {item.quantity}
-                                </Text>
-                                <CartQuantityPlusButton
-                                  onPress={() =>
-                                    updateQuantity(item.key, item.quantity + 1)
-                                  }
-                                />
                               </View>
-
-                              <Pressable onPress={() => removeItem(item.key)}>
-                                <Text style={styles.removeText}>Remove</Text>
-                              </Pressable>
                             </View>
                           </>
                         );

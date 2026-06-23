@@ -1683,6 +1683,7 @@ export type AdminRestaurantVoucher = {
   platformSharePercent: number
   stackingRule: "exclusive" | "stackable"
   priority: number
+  surface?: "checkout" | "menu_markdown"
   mode: AdminVoucherMode
   type: AdminVoucherType
   name: string
@@ -1690,13 +1691,19 @@ export type AdminRestaurantVoucher = {
   discountValue: number | null
   maxDiscountAmount: number
   minimumOrderAmount: number
+  minItemPrice?: number
   maxTotalUses: number | null
   maxUsesPerUser: number
   allowRepeatUsage: boolean
+  maxTotalDiscountBudget?: number
+  consumedDiscountBudget?: number
   status: AdminVoucherStatus
   applicability: "all" | "categories" | "items"
   categoryIds: string[]
   itemIds: string[]
+  cuisineTypes?: string[]
+  zoneIds?: string[]
+  districtIds?: string[]
   targetCategories?: Array<{ id: string; name: string }>
   targetItems?: Array<{ id: string; name: string }>
   startsAt: string
@@ -1744,6 +1751,7 @@ export type AdminVoucherPayload = {
   platformSharePercent?: number
   stackingRule: "exclusive" | "stackable"
   priority?: number
+  surface?: "checkout" | "menu_markdown"
   mode: AdminVoucherMode
   type: "flat" | "percentage" | "free_delivery"
   name: string
@@ -1751,13 +1759,18 @@ export type AdminVoucherPayload = {
   discountValue?: number
   maxDiscountAmount?: number
   minimumOrderAmount?: number
+  minItemPrice?: number
   maxTotalUses?: number
   maxUsesPerUser?: number
   allowRepeatUsage?: boolean
+  maxTotalDiscountBudget?: number
   status?: AdminVoucherStatus
   applicability?: "all" | "categories" | "items"
   categoryIds?: string[]
   itemIds?: string[]
+  cuisineTypes?: string[]
+  zoneIds?: string[]
+  districtIds?: string[]
   startsAt: string
   endsAt: string
 }
@@ -5940,6 +5953,7 @@ export async function listAdminVouchers(params?: {
   zoneId?: string
   districtId?: string
   scopeType?: "all" | "restaurant" | "selected_restaurants" | "all_restaurants"
+  surface?: "all" | "checkout" | "menu_markdown"
   search?: string
   lifecycle?: AdminVoucherLifecycle
   mode?: "all" | AdminVoucherMode
@@ -5953,6 +5967,9 @@ export async function listAdminVouchers(params?: {
   if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
   if (params?.districtId) searchParams.set("districtId", params.districtId)
   if (params?.scopeType && params.scopeType !== "all") searchParams.set("scopeType", params.scopeType)
+  // Always forward surface (incl. "all") so the backend can show both surfaces together;
+  // omitting it falls back to the legacy "checkout only" default.
+  if (params?.surface) searchParams.set("surface", params.surface)
   if (params?.search) searchParams.set("search", params.search)
   if (params?.lifecycle && params.lifecycle !== "all") {
     searchParams.set("lifecycle", params.lifecycle)

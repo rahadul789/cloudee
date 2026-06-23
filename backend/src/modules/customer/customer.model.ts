@@ -477,6 +477,10 @@ const voucherSchema = new Schema(
     platformSharePercent: { type: Number, default: 0, min: 0, max: 100 },
     stackingRule: { type: String, enum: ["exclusive", "stackable"], default: "exclusive" },
     priority: { type: Number, default: 0 },
+    // Discount surface. "checkout" = classic voucher applied to the order total (default,
+    // keeps every existing voucher backward-compatible). "menu_markdown" = platform-funded
+    // per-item price markdown shown as a strike-through on the customer menu.
+    surface: { type: String, enum: ["checkout", "menu_markdown"], default: "checkout" },
     mode: { type: String, enum: ["auto", "coupon"], required: true },
     type: { type: String, enum: ["flat", "percentage", "free_delivery"], required: true },
     name: { type: String, required: true },
@@ -484,9 +488,17 @@ const voucherSchema = new Schema(
     discountValue: { type: Number, default: 0 },
     maxDiscountAmount: { type: Number, default: 0 },
     minimumOrderAmount: { type: Number, default: 0 },
+    // menu_markdown only: the per-variant (base + variant) price must be at or above this
+    // threshold for the markdown to apply. 0 = applies to every price.
+    minItemPrice: { type: Number, default: 0 },
     maxTotalUses: { type: Number, default: 0 },
     maxUsesPerUser: { type: Number, default: 0 },
     allowRepeatUsage: { type: Boolean, default: false },
+    // menu_markdown only: cap on the total platform-funded discount this rule may give out.
+    // 0 = no budget cap. consumedDiscountBudget is the atomically maintained running total,
+    // mirroring redeemedCount, and is checked race-free at order placement.
+    maxTotalDiscountBudget: { type: Number, default: 0 },
+    consumedDiscountBudget: { type: Number, default: 0 },
     // Atomically maintained live count of active redemptions (incremented under a
     // guard at order placement, decremented on release). Used to enforce
     // maxTotalUses race-free. Only meaningful when maxTotalUses > 0.
@@ -495,6 +507,13 @@ const voucherSchema = new Schema(
     applicability: { type: String, enum: ["all", "categories", "items"], default: "all" },
     categoryIds: { type: [Schema.Types.ObjectId], default: [] },
     itemIds: { type: [Schema.Types.ObjectId], default: [] },
+    // menu_markdown targeting: restrict to restaurants matching these cuisine types.
+    // Empty = no cuisine restriction.
+    cuisineTypes: { type: [String], default: [] },
+    // menu_markdown targeting: restrict to restaurants in these service-area zones/districts.
+    // Empty = no zone/district restriction.
+    zoneIds: { type: [String], default: [] },
+    districtIds: { type: [String], default: [] },
     startsAt: { type: Date, required: true },
     endsAt: { type: Date, required: true },
     archivedAt: { type: Date, default: null },
@@ -511,6 +530,8 @@ voucherSchema.index(
 voucherSchema.index({ status: 1, archivedAt: 1, startsAt: 1, endsAt: 1, restaurantId: 1 })
 voucherSchema.index({ status: 1, archivedAt: 1, startsAt: 1, endsAt: 1, scopeType: 1 })
 voucherSchema.index({ selectedRestaurantIds: 1, status: 1, archivedAt: 1 })
+// Fast resolution of active menu-markdown rules on the customer menu hot path.
+voucherSchema.index({ surface: 1, status: 1, archivedAt: 1, startsAt: 1, endsAt: 1 })
 
 const voucherAuditSchema = new Schema(
   {
@@ -570,7 +591,12 @@ const voucherRedemptionSchema = new Schema(
     // True when this redemption incremented the voucher's redeemedCount
     // (i.e. the voucher had maxTotalUses > 0). Drives the matching decrement
     // on release so the global counter stays accurate.
-    countedTowardTotal: { type: Boolean, default: false }
+    countedTowardTotal: { type: Boolean, default: false },
+    // menu_markdown only: true when this redemption added to the rule's
+    // consumedDiscountBudget. budgetConsumed records how much, so a release can
+    // give the exact amount back race-free.
+    countedTowardBudget: { type: Boolean, default: false },
+    budgetConsumed: { type: Number, default: 0 }
   },
   { timestamps: true }
 )
