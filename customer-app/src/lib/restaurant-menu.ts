@@ -21,12 +21,13 @@ export function buildDefaultSelections(item: CustomerRestaurantMenuItem) {
   const defaultVariants: Record<string, string[]> = {};
   const defaultAddOns: Record<string, string[]> = {};
 
+  // A variant is always a "pick one" choice (size, flavour, …), so default to a
+  // sensible option even when the backend leaves minSelect unset. This guarantees a
+  // required variant is never empty and keeps the "Add" action valid on first press.
   for (const group of item.variants ?? []) {
-    if ((group.minSelect ?? 0) > 0) {
-      const preferred = pickPreferredOption(group.options, "priceDelta");
-      if (preferred) {
-        defaultVariants[group.name] = [preferred.label];
-      }
+    const preferred = pickPreferredOption(group.options, "priceDelta");
+    if (preferred) {
+      defaultVariants[group.name] = [preferred.label];
     }
   }
 

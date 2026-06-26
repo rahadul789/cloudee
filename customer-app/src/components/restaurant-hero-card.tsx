@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
+import { memo } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -33,7 +34,7 @@ type Props = {
   badge?: "featured" | "nearby" | "none";
 };
 
-export function RestaurantHeroCard({
+function RestaurantHeroCardComponent({
   name,
   subtitle,
   imageUrl,
@@ -276,6 +277,37 @@ export function RestaurantHeroCard({
     </Pressable>
   );
 }
+
+// In the home feed ~40 of these render inside one ScrollView. Memoize on the visible
+// data props so a favourite toggle (or any parent re-render) only re-renders the one
+// card whose data actually changed — not the whole list. The onPress/onToggleFavorite
+// closures are intentionally NOT compared: the home screen passes inline closures that
+// change identity every render, but they close over stable (memoized) restaurant data
+// and read volatile state (auth) freshly, so the retained closure stays correct.
+function arePropsEqual(prev: Props, next: Props) {
+  return (
+    prev.name === next.name &&
+    prev.subtitle === next.subtitle &&
+    prev.imageUrl === next.imageUrl &&
+    prev.isOpen === next.isOpen &&
+    prev.offerLabel === next.offerLabel &&
+    prev.distanceKm === next.distanceKm &&
+    prev.avgRating === next.avgRating &&
+    prev.reviewCount === next.reviewCount &&
+    prev.preparationTimeMinutes === next.preparationTimeMinutes &&
+    prev.lowestMenuPrice === next.lowestMenuPrice &&
+    prev.isFavorite === next.isFavorite &&
+    prev.favoriteDisabled === next.favoriteDisabled &&
+    prev.compact === next.compact &&
+    prev.variant === next.variant &&
+    prev.badge === next.badge
+  );
+}
+
+export const RestaurantHeroCard = memo(
+  RestaurantHeroCardComponent,
+  arePropsEqual,
+);
 
 function Metric({
   icon,

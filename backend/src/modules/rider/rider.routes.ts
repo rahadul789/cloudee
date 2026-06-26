@@ -25,6 +25,7 @@ import {
   patchRiderProfileLocation,
   postRiderAccept,
   postRiderDelivered,
+  postRiderFailedDelivery,
   postRiderOrderLocation,
   postRiderPickup,
   postRiderPushToken,
@@ -97,6 +98,7 @@ riderRouter.get("/orders/:orderId", requireAuth, requireRole("rider"), getRiderO
 riderRouter.post("/orders/:orderId/accept", requireAuth, requireRole("rider"), postRiderAccept)
 riderRouter.post("/orders/:orderId/pickup", requireAuth, requireRole("rider"), postRiderPickup)
 riderRouter.post("/orders/:orderId/deliver", requireAuth, requireRole("rider"), postRiderDelivered)
+riderRouter.post("/orders/:orderId/fail", requireAuth, requireRole("rider"), postRiderFailedDelivery)
 riderRouter.post(
   "/orders/:orderId/tracking/activate",
   requireAuth,

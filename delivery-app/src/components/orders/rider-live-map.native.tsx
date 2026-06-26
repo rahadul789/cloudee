@@ -189,23 +189,6 @@ const CustomerPin = memo(function CustomerPin() {
   );
 });
 
-const RiderPin = memo(function RiderPin({ heading }: { heading: number }) {
-  return (
-    <View collapsable={false} pointerEvents="none" style={styles.markerRoot}>
-      <View collapsable={false} style={styles.markerLiftShadow} />
-      <View collapsable={false} style={[styles.markerPointer, styles.pinRider]} />
-      <View collapsable={false} style={[styles.pin, styles.pinRider]}>
-        <Ionicons
-          name="navigate"
-          size={14}
-          color="#fff"
-          style={[styles.riderArrow, { transform: [{ rotate: `${heading}deg` }] }]}
-        />
-      </View>
-    </View>
-  );
-});
-
 const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(function RiderLiveMap({
   phase,
   restaurantLocation,
@@ -235,7 +218,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   const lastFollowDestinationRef = useRef<RiderMapCoordinate | null>(null);
 
   const effectiveRiderLocation = liveRider?.location ?? riderLocation ?? null;
-  const effectiveRiderHeading = liveRider?.heading ?? riderHeading ?? null;
   const resolvedMapStyle = mapStyle ?? undefined;
   const mapStyleSignature = useMemo(
     () => getMapStyleSignature(resolvedMapStyle),
@@ -445,13 +427,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
     [handleRecenter],
   );
 
-  const heading = useMemo(() => {
-    if (typeof effectiveRiderHeading !== "number" || !Number.isFinite(effectiveRiderHeading)) {
-      return 0;
-    }
-    return ((effectiveRiderHeading % 360) + 360) % 360;
-  }, [effectiveRiderHeading]);
-
   const followBand = useMemo(() => {
     if (!effectiveRiderLocation || !activeDestination) return null;
     return getFollowBand(distanceMeters(effectiveRiderLocation, activeDestination));
@@ -522,10 +497,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   const customerTracking = useTemporaryTracking(
     customerLocation ? `${customerLocation.latitude},${customerLocation.longitude}` : "none",
   );
-  const riderTracking = useTemporaryTracking(
-    effectiveRiderLocation ? "ready" : "none",
-  );
-
   const initialRegion = useMemo(() => {
     const anchor =
       effectiveRiderLocation ?? activeDestination ?? restaurantLocation ?? customerLocation;
@@ -545,13 +516,15 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         customMapStyle={resolvedMapStyle}
-        showsUserLocation={false}
+        // The rider sees their own position as the native blue GPS dot (real-time +
+        // heading direction), so the map can rotate for natural turn-by-turn navigation.
+        showsUserLocation
         showsMyLocationButton={false}
-        showsCompass={false}
+        showsCompass
         toolbarEnabled={false}
         showsPointsOfInterest={false}
         pitchEnabled={false}
-        rotateEnabled={false}
+        rotateEnabled
         scrollEnabled
         zoomEnabled
         moveOnMarkerPress={false}
@@ -646,18 +619,8 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
           </Marker>
         ) : null}
 
-        {effectiveRiderLocation ? (
-          <Marker
-            key={`rider-${RIDER_MAP_VISUAL_VERSION}-${effectiveRiderLocation.latitude.toFixed(5)}-${effectiveRiderLocation.longitude.toFixed(5)}-${Math.round(heading)}`}
-            coordinate={effectiveRiderLocation}
-            anchor={{ x: 0.5, y: 0.78 }}
-            title="You"
-            tracksViewChanges={riderTracking}
-            zIndex={6}
-          >
-            <RiderPin heading={heading} />
-          </Marker>
-        ) : null}
+        {/* The rider's own position is the native blue GPS dot (showsUserLocation),
+            so no custom rider marker is rendered here. */}
       </MapView>
 
       <View style={[styles.controls, { bottom: bottomInset + 16 }]} pointerEvents="box-none">

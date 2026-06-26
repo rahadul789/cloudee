@@ -61,6 +61,11 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
   },
+  // Press feedback so it is obvious the whole card is tappable and opens the order.
+  orderCardPressed: {
+    transform: [{ scale: 0.985 }],
+    opacity: 0.92,
+  },
   orderCardActive: {
     backgroundColor: "#FFF9F5",
     borderWidth: 1,

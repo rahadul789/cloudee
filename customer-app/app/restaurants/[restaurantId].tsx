@@ -505,8 +505,12 @@ export default function RestaurantDetailsScreen() {
       ) ?? null,
     [detailsData?.activeOffers]
   );
+  // Guards the "Add to cart" action against a rapid double-fire (the action runs on
+  // press-in for reliable single-tap response inside the modal sheet).
+  const addInFlightRef = useRef(false);
   const presentCustomizer = useCallback((item: CustomerRestaurantMenuItem) => {
     const defaults = buildDefaultSelections(item);
+    addInFlightRef.current = false;
     setSelectedItem(item);
     setQuantity(1);
     setSelectedVariants(defaults.defaultVariants);
@@ -561,6 +565,7 @@ export default function RestaurantDetailsScreen() {
   }, [allMenuItems, openCustomizer, routedItemId]);
 
   function closeCustomizer() {
+    addInFlightRef.current = false;
     setSelectedItem(null);
     setQuantity(1);
     setSelectedVariants({});
@@ -574,12 +579,21 @@ export default function RestaurantDetailsScreen() {
     type: "variant" | "addon"
   ) {
     const setState = type === "variant" ? setSelectedVariants : setSelectedAddOns;
+    // Variants are always a "pick one" choice, so they carry an implicit minimum of 1
+    // even when the backend leaves minSelect unset. Required groups must never drop
+    // below their minimum, so tapping the last selected option is a no-op rather than
+    // leaving the group empty.
+    const effectiveMinSelect =
+      type === "variant" ? Math.max(group.minSelect ?? 0, 1) : group.minSelect ?? 0;
     setState((current) => {
       const selected = current[groupName] ?? [];
       const isSelected = selected.includes(optionLabel);
       const maxSelect = group.maxSelect ?? (type === "variant" ? 1 : 99);
 
       if (isSelected) {
+        if (selected.length <= effectiveMinSelect) {
+          return current;
+        }
         return { ...current, [groupName]: selected.filter((label) => label !== optionLabel) };
       }
 
@@ -1662,6 +1676,69 @@ export default function RestaurantDetailsScreen() {
                     </View>
                   ) : null}
 
+                  {(selectedItem.variants ?? []).map((group) => {
+                    const selected = selectedVariants[group.name] ?? [];
+                    const isMissingRequired =
+                      (group.minSelect ?? 0) > 0 &&
+                      selected.length < Math.max(group.minSelect ?? 0, 1);
+
+                    return (
+                      <View
+                        key={group.name}
+                        style={[
+                          styles.groupCard,
+                          isMissingRequired ? styles.groupCardWarning : null,
+                        ]}
+                      >
+                        <View style={styles.groupHeader}>
+                          <View style={styles.groupTitleWrap}>
+                            <Text style={styles.groupTitle}>{group.name}</Text>
+                            <Text style={styles.groupMeta}>Required • Pick 1</Text>
+                          </View>
+                        </View>
+                        <View style={styles.optionsList}>
+                          {group.options.map((option) => {
+                            const isSelected = selected.includes(option.label);
+                            return (
+                              <Pressable
+                                key={option.label}
+                                onPress={() => {
+                                  void Haptics.selectionAsync();
+                                  toggleSelection(group.name, option.label, group, "variant");
+                                }}
+                                style={[
+                                  styles.optionCard,
+                                  isSelected ? styles.optionCardSelected : null,
+                                ]}
+                              >
+                                <View
+                                  style={[
+                                    styles.optionIndicator,
+                                    isSelected ? styles.optionIndicatorSelected : null,
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name={isSelected ? "radio-button-on" : "radio-button-off-outline"}
+                                    size={13}
+                                    color={isSelected ? palette.surface : palette.mutedForeground}
+                                  />
+                                </View>
+                                <View style={styles.optionCopy}>
+                                  <Text style={styles.optionTitle}>{option.label}</Text>
+                                  <Text style={styles.optionSubtitle}>
+                                    {option.priceDelta > 0
+                                      ? `+ ${formatCurrency(option.priceDelta)}`
+                                      : "Included"}
+                                  </Text>
+                                </View>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  })}
+
                   {(selectedItem.addOnGroups ?? []).map((group) => {
                     const selected = selectedAddOns[group.name] ?? [];
                     const isMissingRequired =
@@ -1725,69 +1802,6 @@ export default function RestaurantDetailsScreen() {
                       </View>
                     );
                   })}
-
-                  {(selectedItem.variants ?? []).map((group) => {
-                    const selected = selectedVariants[group.name] ?? [];
-                    const isMissingRequired =
-                      (group.minSelect ?? 0) > 0 &&
-                      selected.length < Math.max(group.minSelect ?? 0, 1);
-
-                    return (
-                      <View
-                        key={group.name}
-                        style={[
-                          styles.groupCard,
-                          isMissingRequired ? styles.groupCardWarning : null,
-                        ]}
-                      >
-                        <View style={styles.groupHeader}>
-                          <View style={styles.groupTitleWrap}>
-                            <Text style={styles.groupTitle}>{group.name}</Text>
-                            <Text style={styles.groupMeta}>Required • Pick 1</Text>
-                          </View>
-                        </View>
-                        <View style={styles.optionsList}>
-                          {group.options.map((option) => {
-                            const isSelected = selected.includes(option.label);
-                            return (
-                              <Pressable
-                                key={option.label}
-                                onPress={() => {
-                                  void Haptics.selectionAsync();
-                                  toggleSelection(group.name, option.label, group, "variant");
-                                }}
-                                style={[
-                                  styles.optionCard,
-                                  isSelected ? styles.optionCardSelected : null,
-                                ]}
-                              >
-                                <View
-                                  style={[
-                                    styles.optionIndicator,
-                                    isSelected ? styles.optionIndicatorSelected : null,
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name={isSelected ? "radio-button-on" : "radio-button-off-outline"}
-                                    size={13}
-                                    color={isSelected ? palette.surface : palette.mutedForeground}
-                                  />
-                                </View>
-                                <View style={styles.optionCopy}>
-                                  <Text style={styles.optionTitle}>{option.label}</Text>
-                                  <Text style={styles.optionSubtitle}>
-                                    {option.priceDelta > 0
-                                      ? `+ ${formatCurrency(option.priceDelta)}`
-                                      : "Included"}
-                                  </Text>
-                                </View>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    );
-                  })}
                 </ScrollView>
 
                 <View
@@ -1841,12 +1855,21 @@ export default function RestaurantDetailsScreen() {
                       !canAddFromRestaurant ? styles.submitButtonDisabled : null,
                       pressed ? styles.submitButtonPressed : null,
                     ]}
-                    onPress={() => {
+                    onPressIn={() => {
                       if (!canAddFromRestaurant) {
                         router.push("/location-picker");
                         return;
                       }
-                      handleAddToCart();
+                      // Fire on press-in (like the quantity steppers): React Native's
+                      // Modal can swallow the first press-release after it opens, which
+                      // is what made the button need a second tap. The ref guards
+                      // against the same touch adding twice.
+                      if (addInFlightRef.current) return;
+                      addInFlightRef.current = true;
+                      const didAdd = handleAddToCart();
+                      if (!didAdd) {
+                        addInFlightRef.current = false;
+                      }
                     }}
                   >
                     <Text style={styles.submitButtonText}>

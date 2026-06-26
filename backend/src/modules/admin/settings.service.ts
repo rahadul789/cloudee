@@ -488,6 +488,7 @@ export async function updateAdminPlatformSettings(params: {
           routing: params.settings.operations.routing,
           mapStyles: params.settings.operations.mapStyles,
           liveTracking: params.settings.operations.liveTracking,
+          failedDelivery: params.settings.operations.failedDelivery,
           payments: params.settings.operations.payments,
           finance: params.settings.operations.finance,
           adminNotifications: params.settings.operations.adminNotifications,

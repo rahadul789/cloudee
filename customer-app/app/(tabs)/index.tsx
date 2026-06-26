@@ -836,7 +836,9 @@ export default function HomeScreen() {
   };
 
   const handleToggleFavorite = async (restaurantId: string) => {
-    if (!isAuthenticated) {
+    // Read auth freshly (not via closure) so the memoized cards — which ignore handler
+    // identity — never act on a stale signed-out value after the user signs in.
+    if (!useCustomerAuthStore.getState().accessToken) {
       router.push({
         pathname: "/sign-in",
         params: { redirectTo: "/(tabs)" },

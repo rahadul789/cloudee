@@ -532,8 +532,14 @@ function OrderCard({
 
     return (
       <Pressable
-        style={[styles.orderCard, styles.orderCardActive]}
+        style={({ pressed }) => [
+          styles.orderCard,
+          styles.orderCardActive,
+          pressed ? styles.orderCardPressed : null,
+        ]}
         onPress={onPress}
+        accessibilityRole="button"
+        accessibilityHint="Opens live order tracking"
       >
         <View style={styles.orderTopRow}>
           <View style={styles.orderCopy}>
@@ -613,8 +619,14 @@ function OrderCard({
 
     return (
       <Pressable
-        style={[styles.orderCard, styles.orderCardCompact]}
+        style={({ pressed }) => [
+          styles.orderCard,
+          styles.orderCardCompact,
+          pressed ? styles.orderCardPressed : null,
+        ]}
         onPress={onPress}
+        accessibilityRole="button"
+        accessibilityHint="Opens order details"
       >
         <View style={styles.orderTopRow}>
           <View style={styles.orderCopy}>
@@ -703,7 +715,15 @@ function OrderCard({
   }
 
   return (
-    <Pressable style={styles.orderCard} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.orderCard,
+        pressed ? styles.orderCardPressed : null,
+      ]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityHint="Opens order details"
+    >
       <View style={styles.orderTopRow}>
         <View style={styles.orderCopy}>
           <Text style={styles.orderRestaurant} numberOfLines={1}>

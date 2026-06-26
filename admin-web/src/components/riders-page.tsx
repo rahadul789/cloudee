@@ -26,6 +26,7 @@ import {
   Navigation,
   PackageCheck,
   Play,
+  Printer,
   RotateCcw,
   Save,
   Search,
@@ -39,6 +40,8 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { useSearchParams } from "react-router-dom"
+
+import { escapeHtml, printReport } from "@/lib/export-utils"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { useAdminRefreshPolicy } from "@/lib/refresh-policy"
@@ -62,6 +65,7 @@ import {
   listAdminRiders,
   listAdminRidersAssignmentOptions,
   runAdminAutoDispatch,
+  setAdminRiderActiveTrip,
   updateAdminDispatchSettings,
   updateAdminRiderAvailability,
   updateAdminRiderPayrollSettings,
@@ -885,11 +889,56 @@ function RiderDetailsSheet({
       toast.error(error instanceof Error ? error.message : "Payroll status update failed.")
     },
   })
+  const activeTripMutation = useMutation({
+    mutationFn: setAdminRiderActiveTrip,
+    onSuccess: () => {
+      toast.success("Live trip switched. The customer map will update instantly.")
+      invalidateRiderQueries(queryClient, riderId)
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Could not switch live trip.")
+    },
+  })
 
   React.useEffect(() => {
     if (!rider) return
     setSalaryDraft(`${rider.payroll.monthlySalary ?? 0}`)
   }, [rider])
+
+  const handleExportStatement = () => {
+    if (!rider) return
+    const payroll = rider.payroll
+    const adjustmentsHtml = payroll.adjustments.length
+      ? payroll.adjustments
+          .map(
+            (adjustment) =>
+              `<tr><td>${escapeHtml(formatDate(adjustment.createdAt))}</td><td>${escapeHtml(adjustment.type)}</td><td>${escapeHtml(adjustment.note || "-")}</td><td>${escapeHtml(formatCurrency(adjustment.amount))}</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4" class="muted">No adjustments this cycle</td></tr>`
+
+    const printed = printReport(
+      `Rider statement - ${rider.fullName}`,
+      `
+        <p class="muted">${escapeHtml(rider.phone)} - ${escapeHtml(rider.vehicleType)}</p>
+        <div class="grid">
+          <div class="metric"><span class="muted">Delivered trips</span><strong>${escapeHtml(rider.summary.deliveredTrips)}</strong></div>
+          <div class="metric"><span class="muted">Completion rate</span><strong>${escapeHtml(Math.round(rider.completionRate))}%</strong></div>
+          <div class="metric"><span class="muted">Base salary</span><strong>${escapeHtml(formatCurrency(payroll.baseSalary))}</strong></div>
+          <div class="metric"><span class="muted">Bonus</span><strong>${escapeHtml(formatCurrency(payroll.platformBonus))}</strong></div>
+          <div class="metric"><span class="muted">Penalties</span><strong>${escapeHtml(formatCurrency(payroll.penalties))}</strong></div>
+          <div class="metric"><span class="muted">Net payable</span><strong>${escapeHtml(formatCurrency(payroll.netPayable))}</strong></div>
+          <div class="metric"><span class="muted">Paid</span><strong>${escapeHtml(formatCurrency(payroll.paidAmount))}</strong></div>
+          <div class="metric"><span class="muted">Pending</span><strong>${escapeHtml(formatCurrency(payroll.pendingAmount))}</strong></div>
+        </div>
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Note</th><th>Amount</th></tr></thead>
+          <tbody>${adjustmentsHtml}</tbody>
+        </table>
+      `,
+    )
+    if (!printed) toast.error("Popup blocked. Allow popups to print PDF.")
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -947,6 +996,14 @@ function RiderDetailsSheet({
                     Last login: {formatDate(rider.lastLoginAt)}
                   </div>
                   <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleExportStatement}
+                    >
+                      <Printer className="size-4" />
+                      Export statement
+                    </Button>
                     {rider.verification.status !== "approved" ? (
                       <Button
                         size="sm"
@@ -1397,7 +1454,18 @@ function RiderDetailsSheet({
                 </TabsContent>
 
                 <TabsContent value="live-assignment">
-                  <RiderLiveAssignmentPanel orders={rider.activeOrders} />
+                  <RiderLiveAssignmentPanel
+                    orders={rider.activeOrders}
+                    activeTrackingOrderId={rider.activeTrackingOrderId ?? ""}
+                    onSetActiveTrip={(orderId) =>
+                      activeTripMutation.mutate({ riderId, orderId })
+                    }
+                    pendingOrderId={
+                      activeTripMutation.isPending
+                        ? activeTripMutation.variables?.orderId ?? ""
+                        : ""
+                    }
+                  />
                 </TabsContent>
 
                 <TabsContent value="active">
@@ -1474,8 +1542,14 @@ function RiderDetailsSheet({
 
 function RiderLiveAssignmentPanel({
   orders,
+  activeTrackingOrderId,
+  onSetActiveTrip,
+  pendingOrderId,
 }: {
   orders: AdminRiderDetails["activeOrders"]
+  activeTrackingOrderId: string
+  onSetActiveTrip: (orderId: string) => void
+  pendingOrderId: string
 }) {
   const pickedUpOrders = orders.filter((order) => order.status === "PickedUp")
   const trackingOrders = orders.filter((order) => order.isTrackingActive)
@@ -1528,6 +1602,7 @@ function RiderLiveAssignmentPanel({
                   <TableHead>Picked up</TableHead>
                   <TableHead>Live location</TableHead>
                   <TableHead className="text-right">ETA</TableHead>
+                  <TableHead className="text-right">Live trip</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1597,12 +1672,38 @@ function RiderLiveAssignmentPanel({
                           : "Distance N/A"}
                       </div>
                     </TableCell>
+                    <TableCell className="text-right">
+                      {order.id === activeTrackingOrderId ? (
+                        <Badge
+                          variant="outline"
+                          className="border-emerald-200 bg-emerald-50 text-emerald-700"
+                        >
+                          Live now
+                        </Badge>
+                      ) : order.status === "PickedUp" ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={Boolean(pendingOrderId)}
+                          onClick={() => onSetActiveTrip(order.id)}
+                        >
+                          <Navigation className="size-4" />
+                          {pendingOrderId === order.id
+                            ? "Switching..."
+                            : "Make live trip"}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Pick up first
+                        </span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
                 {orders.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="h-24 text-center text-muted-foreground"
                     >
                       No live assignment for this rider.

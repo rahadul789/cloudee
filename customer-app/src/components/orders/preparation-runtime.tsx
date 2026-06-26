@@ -43,6 +43,16 @@ const PREPARATION_TICK_MS = 15000;
 const PREPARATION_PRECISE_TICK_MS = 1000;
 const PREP_START_PRECISE_WINDOW_SECONDS = 3 * 60;
 
+// Turns an exact "minutes remaining" countdown into a forward-padded range so the
+// preparing state reads like a professional estimate ("10–15 min left") instead of a
+// single ticking number ("5 min left"). The lower bound stays honest; the upper bound
+// adds a buffer that scales with how much time is left.
+function buildPreparationRangeMinutes(remainingMinutes: number) {
+  const low = Math.max(1, remainingMinutes);
+  const pad = Math.max(5, Math.round(low * 0.3));
+  return { low, high: low + pad };
+}
+
 function getPreparationAnchor(order: PreparationOrder) {
   return (
     order.timestamps?.acceptedAt ??
@@ -91,9 +101,13 @@ function getPreparationEstimate(
     }
 
     if (remainingSeconds > 60) {
+      const prepRange = buildPreparationRangeMinutes(remainingMinutes);
       return {
         state: "countdown",
-        rangeLabel: `${formatDurationMinutes(remainingMinutes)} left`,
+        rangeLabel: `${formatDurationRangeMinutes(
+          prepRange.low,
+          prepRange.high,
+        )} left`,
         supportingText:
           timing?.extraMinutes && timing.extraMinutes > 0
             ? `Restaurant added ${formatDurationMinutes(

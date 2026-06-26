@@ -28,6 +28,7 @@ import { reconcileBkashPaymentAttemptFromGateway } from "../customer/customer.se
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service";
 import { revokeReferralRewardForOrder } from "../customer/referral.service";
 import { sendPushToCustomer } from "../customer/push.service";
+import { activateRiderTrackingOrder } from "../rider/rider.service";
 import { sendTransactionalSms } from "../auth/otp-sms.service";
 import { sendPushToOwner } from "../owner/push.service";
 import { sendPushToRider } from "../rider/push.service";
@@ -5637,6 +5638,25 @@ export async function updateAdminRiderAvailability(params: {
     id: rider.id,
     isAvailableForAssignments: rider.isAvailableForAssignments,
   };
+}
+
+// Admin override: make a specific picked-up order the rider's live trip. Reuses the
+// rider-side activation (which validates the order belongs to the rider + is PickedUp,
+// and now also syncs every affected customer between the live map and the queue).
+export async function setAdminRiderActiveTrip(params: {
+  riderId: string;
+  orderId: string;
+}) {
+  await activateRiderTrackingOrder({
+    riderId: params.riderId,
+    orderId: params.orderId,
+  });
+  emitSocketEvent("admin:live-map", "admin.live-map.updated", {
+    type: "rider.active-trip",
+    riderId: params.riderId,
+  });
+  invalidateAdminMonitoringCaches();
+  return getAdminRiderDetails(params.riderId);
 }
 
 export async function updateAdminRiderStatus(params: {

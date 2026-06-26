@@ -341,10 +341,12 @@ export default function ProfileScreen() {
                   />
                 ) : null}
                 <ProfileNavCard
-                  icon="reader-outline"
-                  tint="#E8FFF1"
+                  icon="logo-youtube"
+                  iconColor="#FF0000"
+                  tint="#FFECEC"
+                  trailingIcon="open-outline"
                   title="How to order"
-                  caption="Step-by-step Foodbela guide"
+                  caption="Watch the quick video guide"
                   onPress={openHowToOrder}
                 />
                 <ProfileNavCard
@@ -611,6 +613,8 @@ function ProfileNavCard({
   caption,
   onPress,
   highlight = false,
+  iconColor = palette.foreground,
+  trailingIcon = "chevron-forward",
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   tint: string;
@@ -618,6 +622,8 @@ function ProfileNavCard({
   caption?: string;
   onPress: () => void;
   highlight?: boolean;
+  iconColor?: string;
+  trailingIcon?: keyof typeof Ionicons.glyphMap;
 }) {
   return (
     <Pressable
@@ -625,13 +631,13 @@ function ProfileNavCard({
       onPress={onPress}
     >
       <View style={[styles.navIconWrap, { backgroundColor: tint }]}>
-        <Ionicons name={icon} size={18} color={palette.foreground} />
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
       <View style={styles.navCopy}>
         <Text style={styles.navTitle}>{title}</Text>
         {caption ? <Text style={styles.navCaption}>{caption}</Text> : null}
       </View>
-      <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
+      <Ionicons name={trailingIcon} size={18} color={palette.mutedForeground} />
     </Pressable>
   );
 }

@@ -37,7 +37,6 @@ import {
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import {
   buildCartItemKey,
-  type CartItem,
   getCartItemCount,
   getCartSubtotal,
   useCartStore,
@@ -48,8 +47,6 @@ import type {
   CustomerRestaurantMenuItem,
   CustomerVoucherOffer,
 } from "@/src/types/restaurant";
-
-const EMPTY_CART_ITEMS: CartItem[] = [];
 
 function formatSelectedOptions(
   options: { groupName: string; optionLabel: string }[],
@@ -150,12 +147,13 @@ function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
 export default function CartScreen() {
   const router = useRouter();
   const isCartFocused = useIsFocused();
-  const restaurant = useCartStore((state) =>
-    isCartFocused ? state.restaurant : null,
-  );
-  const items = useCartStore((state) =>
-    isCartFocused ? state.items : EMPTY_CART_ITEMS,
-  );
+  // Read cart contents directly (not gated on focus) so the screen keeps showing the
+  // real items during a navigation transition. Previously these were swapped to empty
+  // values the moment focus was lost, which made the cart flash its empty state while
+  // pushing to restaurant details ("Add more") or to checkout. The network savings the
+  // gating provided are preserved by disabling the quote/details queries while blurred.
+  const restaurant = useCartStore((state) => state.restaurant);
+  const items = useCartStore((state) => state.items);
   const reorderContext = useCartStore((state) =>
     isCartFocused ? state.reorderContext : null,
   );
@@ -174,7 +172,7 @@ export default function CartScreen() {
     useState(false);
 
   const quoteQuery = useCustomerCartQuoteQuery({
-    restaurantId: restaurant?.restaurantId,
+    restaurantId: isCartFocused ? restaurant?.restaurantId : undefined,
     items: items.map((item) => ({
       itemId: item.itemId,
       quantity: item.quantity,
@@ -235,7 +233,7 @@ export default function CartScreen() {
     quoteQuery.isLoading ||
     !isOnline;
   const restaurantDetailsQuery = useCustomerRestaurantDetailsQuery({
-    restaurantId: restaurant?.restaurantId,
+    restaurantId: isCartFocused ? restaurant?.restaurantId : undefined,
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
   });
@@ -941,12 +939,16 @@ export default function CartScreen() {
 
                 {restaurant?.restaurantId ? (
                   <Pressable
-                    style={styles.addMoreButton}
+                    style={({ pressed }) => [
+                      styles.addMoreButton,
+                      pressed ? styles.addMoreButtonPressed : null,
+                    ]}
                     onPress={() => openRestaurantForItem()}
+                    accessibilityRole="button"
                   >
                     <Ionicons
-                      name="add-circle-outline"
-                      size={16}
+                      name="add"
+                      size={15}
                       color={palette.secondary}
                     />
                     <Text style={styles.addMoreButtonText}>Add more</Text>

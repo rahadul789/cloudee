@@ -261,6 +261,11 @@ export function useCustomerSocketBridge() {
   );
   const joinedRef = React.useRef<string | null>(null);
   const appStateRef = React.useRef(AppState.currentState);
+  // Tracks the last status we surfaced an in-app banner for, per order. Rider
+  // location pings re-emit `order.updated` with an unchanged status many times a
+  // minute; without this guard the store's 8s dedupe lets a fresh "On the way"
+  // banner through every 8 seconds, which reads as spam.
+  const banneredStatusRef = React.useRef<Map<string, string>>(new Map());
 
   React.useEffect(() => {
     if (!customer?.id || !accessToken) {
@@ -315,7 +320,15 @@ export function useCustomerSocketBridge() {
       }
       queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
 
-      const banner = getOrderBanner(payload.status);
+      const previousBanneredStatus = banneredStatusRef.current.get(payload._id);
+      const isStatusTransition = previousBanneredStatus !== payload.status;
+      banneredStatusRef.current.set(payload._id, payload.status);
+      if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
+        // Order is finished; drop it so a future order id reuse can't be muted.
+        banneredStatusRef.current.delete(payload._id);
+      }
+
+      const banner = isStatusTransition ? getOrderBanner(payload.status) : null;
       if (banner) {
         showBanner({
           ...banner,

@@ -29,6 +29,12 @@ const notificationTabs: { key: NotificationTab; label: string }[] = [
   { key: "offers", label: "Offers" },
 ];
 
+// FlashList ignores `gap` in contentContainerStyle, so cards render flush against
+// each other. An explicit separator restores consistent vertical spacing.
+function NotificationSeparator() {
+  return <View style={styles.notificationSeparator} />;
+}
+
 function isOfferNotification(type: string) {
   return type === "promotion" || type === "voucher" || type === "campaign";
 }
@@ -289,6 +295,7 @@ export default function NotificationsScreen() {
               { paddingBottom: Math.max(insets.bottom, 16) + 18 },
             ]}
             showsVerticalScrollIndicator={false}
+            ItemSeparatorComponent={NotificationSeparator}
             onRefresh={() => notificationsQuery.refetch()}
             refreshing={isRefreshing}
             onEndReachedThreshold={0.35}
@@ -415,6 +422,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 20,
+    // Bias the centred card upward so it lands on the screen's optical centre rather
+    // than the centre of the shorter region left below the header and tab chips.
+    paddingBottom: 96,
   },
   skeletonWrap: {
     paddingHorizontal: 18,
@@ -518,7 +528,9 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: 18,
-    gap: 12,
+  },
+  notificationSeparator: {
+    height: 12,
   },
   pushContextCard: {
     marginHorizontal: 18,

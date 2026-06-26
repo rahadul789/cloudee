@@ -592,6 +592,18 @@ const platformContentSchema = z.object({
       distanceIntervalMeters: z.number().int().min(30).max(100).optional().default(60),
       passiveHeartbeatSeconds: z.number().int().min(30).max(180).optional().default(60),
     }),
+    failedDelivery: z
+      .object({
+        customerFaultRefundPercent: z.number().min(0).max(100).optional().default(80),
+        restaurantCompensationPercent: z.number().min(0).max(200).optional().default(100),
+        riderFailedTripPay: z.number().min(0).max(100_000).optional().default(30),
+      })
+      .optional()
+      .default({
+        customerFaultRefundPercent: 80,
+        restaurantCompensationPercent: 100,
+        riderFailedTripPay: 30,
+      }),
     payments: z.object({
       cashOnDeliveryEnabled: z.boolean().optional().default(true),
       bkashEnabled: z.boolean().optional().default(false),

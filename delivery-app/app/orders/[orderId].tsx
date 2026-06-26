@@ -6,9 +6,11 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -16,8 +18,9 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import {
   useAcceptOrderMutation,
-  useActivateTrackingMutation,
   useDeliverOrderMutation,
+  useFailDeliveryMutation,
+  type RiderDeliveryFailureReason,
   useRiderDeliveryThresholdsQuery,
   useRiderMapStyleQuery,
   usePickupOrderMutation,
@@ -334,6 +337,9 @@ export default function RiderOrderDetailsScreen() {
   const [isPickupPreparing, setIsPickupPreparing] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [showFailModal, setShowFailModal] = useState(false);
+  const [failReason, setFailReason] = useState<RiderDeliveryFailureReason | null>(null);
+  const [failNote, setFailNote] = useState("");
 
   const liveMapRef = useRef<RiderLiveMapHandle | null>(null);
   const latestLiveRiderRef = useRef<LiveRider | null>(null);
@@ -348,9 +354,9 @@ export default function RiderOrderDetailsScreen() {
   const supportContactQuery = useRiderSupportContactQuery();
   const trackingPolicy = normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data);
   const acceptMutation = useAcceptOrderMutation();
-  const activateTrackingMutation = useActivateTrackingMutation();
   const pickupMutation = usePickupOrderMutation();
   const deliverMutation = useDeliverOrderMutation();
+  const failDeliveryMutation = useFailDeliveryMutation();
   const profileLocationMutation = useUpdateRiderProfileLocationMutation();
 
   const order = orderQuery.data;
@@ -466,7 +472,6 @@ export default function RiderOrderDetailsScreen() {
   const isPickupBusy = isPickupPreparing || pickupMutation.isPending || profileLocationMutation.isPending;
   const isPickupDisabled = !isNetworkOnline || isPickupBusy;
   const isDeliverDisabled = !isNetworkOnline || deliverMutation.isPending;
-  const isTrackingActivationDisabled = !isNetworkOnline || activateTrackingMutation.isPending;
   const offlineAcceptWarning =
     copy.orderDetails.warningOfflineAccept ?? "Reconnect before accepting a new order.";
 
@@ -847,27 +852,36 @@ export default function RiderOrderDetailsScreen() {
     await completeDelivery();
   }, [completeDelivery, copy.common.offline, isNetworkOnline, order, t.reconnectDelivery]);
 
-  const handleActivateTracking = useCallback(async () => {
+  const handleFailDelivery = useCallback(async () => {
+    if (!order || !failReason) return;
     if (!isNetworkOnline) {
-      Alert.alert(copy.common.offline, t.reconnectTracking);
+      Alert.alert(copy.common.offline, t.reconnectDelivery);
       return;
     }
     try {
-      await activateTrackingMutation.mutateAsync(order!.id);
+      await failDeliveryMutation.mutateAsync({
+        orderId: order.id,
+        reason: failReason,
+        note: failNote.trim() || undefined,
+      });
+      setShowFailModal(false);
+      setFailReason(null);
+      setFailNote("");
+      router.replace("/(app)/active");
     } catch (error) {
       Alert.alert(
-        copy.orderDetails.trackingSwitchFailed,
-        error instanceof Error ? error.message : copy.orderDetails.trackingSwitchFailedText,
+        "Could not submit",
+        error instanceof Error ? error.message : "Please try again.",
       );
     }
   }, [
-    activateTrackingMutation,
     copy.common.offline,
-    copy.orderDetails.trackingSwitchFailed,
-    copy.orderDetails.trackingSwitchFailedText,
+    failDeliveryMutation,
+    failNote,
+    failReason,
     isNetworkOnline,
     order,
-    t.reconnectTracking,
+    t.reconnectDelivery,
   ]);
 
   const handleBackPress = useCallback(() => {
@@ -942,7 +956,6 @@ export default function RiderOrderDetailsScreen() {
 
   const customerPhone = order.customer?.phone;
   const restaurantPhone = order.restaurant?.phone;
-  const showLiveTripActivation = order.status === "PickedUp" && !isFocusedLiveTrip;
   const hasTrackingIssue = !isNetworkOnline || Boolean(trackingError);
   const syncDotStyle = hasTrackingIssue ? styles.syncDotOffline : styles.syncDotLive;
   const syncStatusLabel = hasTrackingIssue ? t.offline : t.live;
@@ -1006,15 +1019,25 @@ export default function RiderOrderDetailsScreen() {
 
     if (order.status === "PickedUp") {
       return (
-        <HoldToConfirmButton
-          label={!isNetworkOnline ? t.reconnect : copy.orderDetails.holdToDeliver}
-          icon="checkmark-done"
-          loading={deliverMutation.isPending}
-          disabled={isDeliverDisabled}
-          tone="deliver"
-          onConfirm={() => void handleDeliver()}
-          onHoldingChange={(holding: boolean) => setActiveHoldAction(holding ? "deliver" : null)}
-        />
+        <View style={styles.deliverActionStack}>
+          <HoldToConfirmButton
+            label={!isNetworkOnline ? t.reconnect : copy.orderDetails.holdToDeliver}
+            icon="checkmark-done"
+            loading={deliverMutation.isPending}
+            disabled={isDeliverDisabled}
+            tone="deliver"
+            onConfirm={() => void handleDeliver()}
+            onHoldingChange={(holding: boolean) => setActiveHoldAction(holding ? "deliver" : null)}
+          />
+          <Pressable
+            style={styles.failDeliveryButton}
+            onPress={() => setShowFailModal(true)}
+            disabled={failDeliveryMutation.isPending}
+          >
+            <Ionicons name="close-circle-outline" size={16} color={palette.danger} />
+            <Text style={styles.failDeliveryText}>Can&apos;t deliver this order?</Text>
+          </Pressable>
+        </View>
       );
     }
 
@@ -1240,24 +1263,9 @@ export default function RiderOrderDetailsScreen() {
           </View>
         ) : null}
 
-        {showLiveTripActivation ? (
-          <Pressable
-            style={[styles.secondaryAction, isTrackingActivationDisabled && styles.buttonDisabled]}
-            onPress={handleActivateTracking}
-            disabled={isTrackingActivationDisabled}
-          >
-            {activateTrackingMutation.isPending ? (
-              <ActivityIndicator size="small" color={palette.primaryStrong} />
-            ) : (
-              <>
-                <Ionicons name="navigate-outline" size={18} color={palette.primaryStrong} />
-                <Text style={styles.secondaryActionText}>
-                  {!isNetworkOnline ? t.reconnect : copy.orderDetails.makeLiveTrip}
-                </Text>
-              </>
-            )}
-          </Pressable>
-        ) : null}
+        {/* Live-trip switching is controlled by admin, not the rider. The rider just
+            follows the sequence; a queued trip auto-promotes when the active one is
+            delivered, or admin can switch it from the admin panel. */}
 
         {deliveryDelayState ? (
           <View
@@ -1521,11 +1529,201 @@ export default function RiderOrderDetailsScreen() {
           </View>
         ) : null}
       </PersistentBottomSheet>
+
+      <Modal
+        visible={showFailModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFailModal(false)}
+      >
+        <Pressable
+          style={styles.failBackdrop}
+          onPress={() => setShowFailModal(false)}
+        />
+        <View style={styles.failSheet}>
+          <Text style={styles.failTitle}>Can&apos;t deliver this order?</Text>
+          <Text style={styles.failSubtitle}>
+            Tell us what happened. The customer and support team are notified, and any
+            refund is handled automatically.
+          </Text>
+
+          {FAIL_REASON_OPTIONS.map((option) => {
+            const selected = failReason === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                style={[styles.failOption, selected && styles.failOptionSelected]}
+                onPress={() => setFailReason(option.value)}
+              >
+                <Ionicons
+                  name={selected ? "radio-button-on" : "radio-button-off"}
+                  size={18}
+                  color={selected ? palette.danger : palette.mutedForeground}
+                />
+                <Text style={styles.failOptionText}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+
+          <TextInput
+            style={styles.failNoteInput}
+            placeholder="Add a note (optional)"
+            placeholderTextColor={palette.mutedForeground}
+            value={failNote}
+            onChangeText={setFailNote}
+            multiline
+            maxLength={500}
+          />
+
+          <View style={styles.failActions}>
+            <Pressable
+              style={styles.failCancelButton}
+              onPress={() => setShowFailModal(false)}
+            >
+              <Text style={styles.failCancelText}>Keep delivering</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.failConfirmButton,
+                (!failReason || failDeliveryMutation.isPending) &&
+                  styles.buttonDisabled,
+              ]}
+              disabled={!failReason || failDeliveryMutation.isPending}
+              onPress={() => void handleFailDelivery()}
+            >
+              {failDeliveryMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.failConfirmText}>Submit failed delivery</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
+const FAIL_REASON_OPTIONS: {
+  value: RiderDeliveryFailureReason;
+  label: string;
+}[] = [
+  { value: "customer_no_response", label: "Customer did not respond" },
+  { value: "wrong_item", label: "Wrong item from restaurant" },
+  { value: "others", label: "Other reason" },
+];
+
 const styles = StyleSheet.create({
+  deliverActionStack: {
+    gap: 10,
+  },
+  failDeliveryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+  },
+  failDeliveryText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.danger,
+  },
+  failBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(17, 13, 16, 0.4)",
+  },
+  failSheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: palette.background,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  failTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  failSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+    marginBottom: 4,
+  },
+  failOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+  },
+  failOptionSelected: {
+    borderColor: palette.danger,
+    backgroundColor: "#FFF1F2",
+  },
+  failOptionText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  failNoteInput: {
+    minHeight: 64,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
+    fontSize: 14,
+    color: palette.foreground,
+    textAlignVertical: "top",
+  },
+  failActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+  },
+  failCancelButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+  },
+  failCancelText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  failConfirmButton: {
+    flex: 1.4,
+    minHeight: 50,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.danger,
+  },
+  failConfirmText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#fff",
+  },
   root: {
     flex: 1,
     backgroundColor: palette.background,

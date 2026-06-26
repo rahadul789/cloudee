@@ -40,7 +40,6 @@ import {
   formatCustomerAddressLine,
 } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
-import { getMapStyleSignature } from "@/src/lib/map-style";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
@@ -108,11 +107,10 @@ export default function LocationPickerScreen() {
   const saveLocationMutation = useCustomerSaveLocationMutation();
   const updateLocationMutation = useCustomerUpdateLocationMutation();
   const pickerMapStyleQuery = useCustomerMapStyleQuery("customer.location_picker");
+  // Apply the custom style as a prop (Android applies it in place) rather than keying
+  // the MapView on it — keying remounts the whole Google Maps view when the style
+  // resolves after mount, which is the visible "slow"/double load when opening the map.
   const resolvedMapStyle = pickerMapStyleQuery.data ?? undefined;
-  const mapStyleSignature = useMemo(
-    () => getMapStyleSignature(resolvedMapStyle),
-    [resolvedMapStyle],
-  );
 
   const initialLabel = selectedLocation?.label ?? "Delivery point";
   const initialAddress = formatCustomerAddressLine(selectedLocation?.address);
@@ -662,7 +660,6 @@ export default function LocationPickerScreen() {
           {region ? (
             <>
               <MapView
-                key={mapStyleSignature}
                 ref={mapRef}
                 style={styles.map}
                 initialRegion={region}

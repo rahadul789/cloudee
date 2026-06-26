@@ -236,20 +236,21 @@ function RestaurantMarker({
 
   if (!isCoordinate(restaurant.location)) return null;
 
+  // Teardrop pin matching the order-details map, tinted by the restaurant's most
+  // urgent order status so the rider can read the map at a glance.
   return (
     <Marker
       coordinate={restaurant.location}
       onPress={onPress}
       zIndex={selected ? 10 : 5}
-      anchor={{ x: 0.5, y: 0.5 }}
+      anchor={{ x: 0.5, y: 0.78 }}
     >
-      <View style={styles.restaurantMarkerWrap}>
-        {restaurant.orderCount > 1 ? (
-          <View style={[styles.restaurantMarkerStack, { borderColor: `${tone}55` }]} />
-        ) : null}
+      <View style={styles.pinRoot}>
+        <View style={styles.pinLiftShadow} />
+        <View style={[styles.pinPointer, { backgroundColor: tone }]} />
         <View
           style={[
-            styles.restaurantMarker,
+            styles.pin,
             { backgroundColor: tone, borderColor: selected ? palette.foreground : palette.surface },
           ]}
         >
@@ -415,6 +416,7 @@ function RestaurantMapSheet({
               <StatusPill label={formatRemaining(leadOrder, mapCopy)} tone={tone} />
             </View>
 
+            {/* Minimal, decision-focused: where to go next + when it's ready. */}
             <View style={styles.infoGrid}>
               <InfoCard
                 icon={isLeadPickedUp ? "home" : "navigate"}
@@ -424,24 +426,14 @@ function RestaurantMapSheet({
                 tone={palette.secondary}
               />
               <InfoCard
-                icon="home"
-                label={mapCopy.customerRoute}
-                value={formatDistance(restaurantToCustomerDistance, mapCopy)}
-                subtitle={formatEta(restaurantToCustomerEta, mapCopy)}
-                tone={palette.info}
-              />
-              <InfoCard
-                icon="bag-handle"
-                label={mapCopy.orders}
-                value={restaurant.orderCount}
-                subtitle={mapCopy.readyCount(restaurant.readyCount)}
-                tone={palette.success}
-              />
-              <InfoCard
                 icon="timer"
                 label={mapCopy.nextReady}
                 value={formatRemaining(leadOrder, mapCopy)}
-                subtitle={restaurant.lateCount ? mapCopy.lateCount(restaurant.lateCount) : mapCopy.planAhead}
+                subtitle={
+                  restaurant.lateCount
+                    ? mapCopy.lateCount(restaurant.lateCount)
+                    : mapCopy.readyCount(restaurant.readyCount)
+                }
                 tone={restaurant.lateCount ? palette.danger : palette.warning}
               />
             </View>
@@ -750,7 +742,7 @@ export default function RiderMapScreen() {
             <Marker
               key={`customer-${order.id}`}
               coordinate={order.customer.location}
-              anchor={{ x: 0.5, y: 0.5 }}
+              anchor={{ x: 0.5, y: 0.78 }}
               zIndex={4}
               onPress={() => {
                 const parent = restaurants.find((restaurant) =>
@@ -759,9 +751,23 @@ export default function RiderMapScreen() {
                 if (parent) openRestaurantSheet(parent);
               }}
             >
-              <View style={styles.customerMarkerWrap}>
-                <View style={styles.customerMarkerShadow} />
-                <View style={styles.customerMarker}>
+              <View style={styles.pinRoot}>
+                <View style={styles.pinLiftShadow} />
+                <View
+                  style={[
+                    styles.pinPointer,
+                    { backgroundColor: STATUS_COLORS[order.status] ?? palette.foreground },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.pin,
+                    {
+                      backgroundColor: STATUS_COLORS[order.status] ?? palette.foreground,
+                      borderColor: palette.surface,
+                    },
+                  ]}
+                >
                   <Ionicons name="home" size={13} color={palette.surface} />
                 </View>
               </View>
@@ -1003,6 +1009,45 @@ const styles = StyleSheet.create({
     color: palette.surface,
     fontSize: 10,
     fontWeight: "900",
+  },
+  pinRoot: {
+    width: 38,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    paddingTop: 2,
+  },
+  pinLiftShadow: {
+    position: "absolute",
+    bottom: 4,
+    width: 18,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(15,23,42,0.24)",
+    transform: [{ scaleX: 1.18 }],
+  },
+  pinPointer: {
+    position: "absolute",
+    top: 25,
+    width: 8,
+    height: 8,
+    borderRadius: 2,
+    transform: [{ rotate: "45deg" }],
+    zIndex: 1,
+  },
+  pin: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.24,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
   },
   customerMarker: {
     width: 30,

@@ -534,6 +534,17 @@ export const platformContent = {
       distanceIntervalMeters: 60,
       passiveHeartbeatSeconds: 60,
     },
+    // Compensation policy when a rider reports a failed delivery (order already picked
+    // up but undeliverable). All admin-controlled.
+    failedDelivery: {
+      // % refunded to the customer when the failure is the customer's fault (the rest
+      // is a no-show fee). Restaurant/unknown fault always gets a full refund.
+      customerFaultRefundPercent: 80,
+      // % of the food subtotal paid to the restaurant when the customer is at fault.
+      restaurantCompensationPercent: 100,
+      // Flat pay credited to the rider for a failed trip that was not their fault.
+      riderFailedTripPay: 30,
+    },
     payments: {
       cashOnDeliveryEnabled: true,
       bkashEnabled: false,

@@ -27,6 +27,7 @@ import { CardListSkeleton, ShimmerBlock } from "@/src/components/loading-skeleto
 import { LiveOrderMap } from "@/src/components/orders/live-order-map";
 import { styles } from "@/src/components/orders/order-tracking.styles";
 import { PreparationRuntime, type PreparationEstimate } from "@/src/components/orders/preparation-runtime";
+import { ReadyForPickupIcon } from "@/src/components/orders/ready-for-pickup-icon";
 import { ReorderCartSwitchModal } from "@/src/components/orders/reorder-cart-switch-modal";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import {
@@ -48,13 +49,24 @@ import {
 import {
   formatDateMedium,
   formatDurationMinutes,
+  formatDurationRangeMinutes,
   formatTimeAmPm,
 } from "@/src/lib/date-time";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
+import { getCustomerSocket } from "@/src/lib/socket-client";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
 import { palette } from "@/src/theme/palette";
+
+// Statuses where the order is still live and worth polling as a socket fallback.
+const LIVE_TRACKING_STATUSES = [
+  "New",
+  "Accepted",
+  "Preparing",
+  "ReadyForPickup",
+  "PickedUp",
+];
 
 type OrderTimelineSource = {
   createdAt?: string;
@@ -364,6 +376,24 @@ export default function OrderTrackingScreen() {
   const showBanner = useAppBannerStore((state) => state.showBanner);
   const isOnline = useIsOnline();
   const order = orderQuery.data;
+  const orderStatus = order?.status;
+  const refetchOrder = orderQuery.refetch;
+  // Resilience fallback: the socket is the primary live channel, but on a flaky
+  // network it can silently drop. While a live order is on-screen and the socket is
+  // NOT connected, poll the order so the map and ETA keep advancing. When the socket
+  // is healthy it already streams updates, so we skip the extra fetch.
+  useEffect(() => {
+    if (!orderStatus || !LIVE_TRACKING_STATUSES.includes(orderStatus) || !isOnline) {
+      return;
+    }
+    const interval = setInterval(() => {
+      if (getCustomerSocket()?.connected) {
+        return;
+      }
+      void refetchOrder();
+    }, 25_000);
+    return () => clearInterval(interval);
+  }, [orderStatus, isOnline, refetchOrder]);
   const restaurantId = order?.restaurantId;
   const restaurantQuery = useCustomerRestaurantDetailsQuery({
     restaurantId: restaurantId ?? undefined,
@@ -545,8 +575,9 @@ export default function OrderTrackingScreen() {
   const canShowLiveMap = order.status === "PickedUp" && !isQueuedForDelivery;
   const queuedDeliveryEtaText =
     typeof queuedEtaMinutes === "number" && Number.isFinite(queuedEtaMinutes)
-      ? `Delivery man will arrive in ${formatDurationMinutes(
+      ? `Delivery man will arrive in ${formatDurationRangeMinutes(
           Math.max(queuedEtaMinutes, 1),
+          Math.max(queuedEtaMinutes, 1) + 5,
         )}`
       : "Waiting for delivery";
   const hasAssignedRider = Boolean(
@@ -1020,16 +1051,14 @@ export default function OrderTrackingScreen() {
                   ) : null}
                 </View>
               ) : null}
-              <LottieView
-                autoPlay
-                loop
-                source={require("../../../assets/animations/delivery-boy.json")}
-                style={styles.readyPickupAnimation}
-              />
+              <ReadyForPickupIcon />
+              <Text style={styles.readyPickupTitle}>
+                Packed and ready for pickup
+              </Text>
               <Text style={styles.readyPickupMeta}>
                 {hasAssignedRider
-                  ? `${riderTitle} will start moving after pickup`
-                  : "Pickup is being coordinated"}
+                  ? `${riderTitle} will pick it up soon`
+                  : "We are finding a rider to pick it up"}
               </Text>
             </View>
           ) : trackingState ? (

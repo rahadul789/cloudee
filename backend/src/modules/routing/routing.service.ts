@@ -3,6 +3,7 @@ import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { getPlatformContent } from "../public/content.service";
+import { createAdminOperationalAlert } from "../admin/admin-alert.service";
 import { RoutingApiUsageModel } from "./routing-usage.model";
 
 // Routing abstraction: real road distance/time/ETA + route polyline via Google
@@ -297,6 +298,52 @@ let monthlyUsageMemo:
     }
   | null = null;
 
+// Fire the directions-quota admin alert at most once per (month, tier) per process,
+// so a busy month does not write a DB alert on every single Google call past 80%.
+const QUOTA_ALERT_TIERS = [
+  { ratio: 1, key: "exhausted", severity: "critical" as const },
+  { ratio: 0.8, key: "warning", severity: "warning" as const },
+];
+let lastQuotaAlert: { monthKey: string; key: string } | null = null;
+
+async function maybeAlertDirectionsQuota(
+  monthKey: string,
+  used: number,
+  limit: number,
+) {
+  if (limit <= 0) return;
+  const ratio = used / limit;
+  const tier = QUOTA_ALERT_TIERS.find((entry) => ratio >= entry.ratio);
+  if (!tier) return;
+  if (lastQuotaAlert?.monthKey === monthKey && lastQuotaAlert.key === tier.key) {
+    return;
+  }
+  lastQuotaAlert = { monthKey, key: tier.key };
+
+  const remaining = Math.max(0, limit - used);
+  try {
+    await createAdminOperationalAlert({
+      alertType: "directions_quota_warning",
+      severity: tier.severity,
+      title:
+        tier.key === "exhausted"
+          ? "Google Directions quota exhausted"
+          : "Google Directions quota almost used up",
+      description:
+        tier.key === "exhausted"
+          ? `The monthly Google Directions limit (${limit}) has been reached. Live routes now fall back to straight-line estimates until the next reset. Raise the limit or switch to Economy cost mode in Settings.`
+          : `${used} of ${limit} Google Directions calls used this month (${remaining} left). Consider raising the limit or switching to Economy cost mode.`,
+      source: "Routing",
+      path: "/settings",
+      iconKey: "navigation",
+      dedupeKey: `directions-quota:${monthKey}:${tier.key}`,
+      metadata: { monthKey, used, limit, remaining },
+    });
+  } catch (error) {
+    logger.warn({ error }, "Failed to raise directions quota alert");
+  }
+}
+
 function getDhakaDateKeys(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: DHAKA_TIME_ZONE,
@@ -566,6 +613,15 @@ async function fetchGoogleRoute(
     distanceKm: route.distanceKm,
     routeDurationMinutes: route.durationMinutes,
   });
+
+  // This call just consumed one more billable unit; warn admins as the monthly
+  // budget runs low so they can raise the limit before everything degrades to
+  // straight-line routing. Fire-and-forget so it never delays the route.
+  void maybeAlertDirectionsQuota(
+    monthKey,
+    monthUsage + 1,
+    context.settings.googleMonthlyLimit,
+  );
 
   return route;
 }
@@ -883,6 +939,13 @@ export async function getOrderRouteMetrics(params: {
   source?: OrderRouteMetricsSource;
   sessionKey?: string;
   forceRefresh?: boolean;
+  /**
+   * When false, never spend a paid Google Directions call — return a straight-line
+   * (Haversine) estimate instead. Used for the pre-pickup rider→restaurant leg, where
+   * precise road routing is not worth the cost (the rider uses external turn-by-turn).
+   * Paid routing is reserved for the customer-facing delivery leg after pickup.
+   */
+  allowGoogle?: boolean;
 }): Promise<RouteMetrics | null> {
   if (!isValidCoord(params.origin) || !isValidCoord(params.destination)) return null;
 
@@ -893,6 +956,10 @@ export async function getOrderRouteMetrics(params: {
   const sessionKey = params.sessionKey ?? "delivery_leg";
   const fallback = () =>
     haversineMetrics(origin, destination, settings.fallbackSpeedKmph, settings.pickupBufferMinutes);
+
+  if (params.allowGoogle === false) {
+    return fallback();
+  }
 
   if (settings.provider === "haversine" || !params.orderId) {
     return settings.provider === "haversine" ? fallback() : getRouteMetrics(origin, destination);

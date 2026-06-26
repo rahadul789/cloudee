@@ -14,6 +14,14 @@ import {
 } from "@/src/lib/rider-background-location";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
+// Map the admin "tracking mode" to a real GPS accuracy level so "High accuracy" and
+// "Battery saver" actually change the sensor, not just the update cadence.
+function accuracyForMode(mode: string | undefined) {
+  if (mode === "high_accuracy") return Location.Accuracy.High;
+  if (mode === "battery_saver") return Location.Accuracy.Low;
+  return Location.Accuracy.Balanced;
+}
+
 export function RiderLocationBridge({ children }: PropsWithChildren) {
   const rider = useRiderAuthStore((state) => state.rider);
   const activeOrdersQuery = useRiderOrdersQuery("active");
@@ -40,10 +48,16 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     }
 
     if (hasPickedUpOrder) {
+      // Active-delivery heartbeat: even if the rider is stationary, send at least
+      // this often so the customer's marker/ETA never freezes in traffic.
+      const heartbeatMs =
+        Math.min(Math.max(trackingPolicy.updateIntervalSeconds * 2, 30), 90) * 1000;
       void setRiderBackgroundTrackingOrderId(pickedUpOrderId);
       void startRiderBackgroundLocationAsync({
         timeIntervalMs: trackingPolicy.updateIntervalSeconds * 1000,
         distanceIntervalMeters: trackingPolicy.distanceIntervalMeters,
+        heartbeatMs,
+        accuracy: accuracyForMode(trackingPolicy.mode),
         notificationBody: "Foodbela is sharing your live delivery location.",
       });
       return;
@@ -62,7 +76,7 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
 
       subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
+          accuracy: accuracyForMode(trackingPolicy.mode),
           timeInterval: trackingPolicy.passiveHeartbeatSeconds * 1000,
           distanceInterval: Math.max(80, trackingPolicy.distanceIntervalMeters),
         },
@@ -107,6 +121,7 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.passiveHeartbeatSeconds,
     trackingPolicy.updateIntervalSeconds,
+    trackingPolicy.mode,
   ]);
 
   return children;

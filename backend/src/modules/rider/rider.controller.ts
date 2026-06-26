@@ -9,6 +9,7 @@ import {
   activateRiderTrackingOrder,
   getRiderLiveMap,
   deliverRiderOrder,
+  failRiderDelivery,
   getRiderOrderDetails,
   listRiderNotifications,
   markAllRiderNotificationsAsRead,
@@ -405,6 +406,26 @@ export const postRiderDelivered = asyncHandler(async (req: Request, res: Respons
   return sendSuccess(res, {
     message: "Order delivered successfully",
     data
+  })
+})
+
+const riderFailedDeliverySchema = z.object({
+  reason: z.enum(["customer_no_response", "wrong_item", "others"]),
+  note: z.string().max(500).optional(),
+})
+
+export const postRiderFailedDelivery = asyncHandler(async (req: Request, res: Response) => {
+  const payload = riderFailedDeliverySchema.parse(req.body)
+  const data = await failRiderDelivery({
+    riderId: req.user?.id ?? "",
+    orderId: String(req.params.orderId ?? ""),
+    reason: payload.reason,
+    note: payload.note,
+  })
+
+  return sendSuccess(res, {
+    message: "Delivery marked as failed",
+    data,
   })
 })
 

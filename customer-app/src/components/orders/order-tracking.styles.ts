@@ -843,11 +843,19 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: 190,
   },
+  readyPickupTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: palette.foreground,
+    textAlign: "center",
+    marginTop: 2,
+  },
   readyPickupMeta: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "700",
-    color: palette.foreground,
+    fontWeight: "600",
+    color: palette.mutedForeground,
     textAlign: "center",
   },
   pickupWaitingCard: {
@@ -1526,6 +1534,9 @@ export const styles = StyleSheet.create({
   },
   trackingSkeletonWrap: {
     gap: 14,
+    // Match the loaded content's horizontal inset (cards use marginHorizontal: 18)
+    // so the skeleton doesn't sit edge-to-edge while the real screen is padded.
+    paddingHorizontal: 18,
   },
   trackingSkeletonMap: {
     height: 280,

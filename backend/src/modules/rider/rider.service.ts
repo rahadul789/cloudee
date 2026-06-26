@@ -6,6 +6,7 @@ import { AppError } from "../../common/utils/app-error"
 import { decorateTrackingSnapshot } from "../../common/utils/tracking-freshness"
 import { logger } from "../../config/logger"
 import { emitSocketEvent } from "../../config/socket"
+import { applyFailedDeliveryFinance } from "../admin/failed-delivery-finance.service"
 import { runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
 import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service"
 import {
@@ -524,6 +525,20 @@ async function setActiveTrackingOrder(params: { riderId: string; orderId: string
 
   if (updatedRider) {
     emitSocketEvent(`rider:${updatedRider.id}`, "rider.profile.updated", mapRiderProfile(updatedRider))
+  }
+
+  // Push the focus change to every affected customer so their app switches between the
+  // live map and the "delivery in queue" screen immediately — no wait for a poll. This
+  // covers all callers: pickup promotion, post-delivery promotion, and admin override.
+  const affectedOrders = await OrderModel.find({
+    riderId: params.riderId,
+    status: "PickedUp"
+  })
+  for (const order of affectedOrders) {
+    const customerId = String(order.customerId ?? "").trim()
+    if (customerId) {
+      emitSocketEvent(`customer:${customerId}`, "customer.order.updated", order.toObject())
+    }
   }
 }
 
@@ -1650,13 +1665,17 @@ export async function getRiderOrderDetails(params: { riderId: string; orderId: s
     order.status === "PickedUp"
       ? toRiderLatLng(order.customerSnapshot?.deliveryAddress)
       : toRiderLatLng(restaurant?.location)
+  const isDeliveryLeg = order.status === "PickedUp"
   const routeToNext = riderCoord
     ? await getOrderRouteMetrics({
         orderId: String(order._id),
         origin: riderCoord,
         destination,
         source: "rider_details",
-        sessionKey: order.status === "PickedUp" ? "delivery_leg" : "pickup_leg",
+        sessionKey: isDeliveryLeg ? "delivery_leg" : "pickup_leg",
+        // Pre-pickup (rider→restaurant) uses a free straight-line estimate; paid Google
+        // routing is reserved for the customer-facing delivery leg after pickup.
+        allowGoogle: isDeliveryLeg,
       })
     : null
 
@@ -1831,7 +1850,10 @@ export async function pickupRiderOrder(params: {
     note: "Picked up by rider"
   })
 
-  if (!rider.activeTrackingOrderId) {
+  // Whether the rider was already running an active trip before this pickup. If so,
+  // this newly picked-up order joins the queue rather than becoming the live trip.
+  const hadActiveTrip = Boolean(rider.activeTrackingOrderId)
+  if (!hadActiveTrip) {
     await setActiveTrackingOrder({
       riderId: rider.id,
       orderId: order.id
@@ -1855,7 +1877,10 @@ export async function pickupRiderOrder(params: {
     updatedOrder.set("riderTracking", {
       ...(updatedOrder.get("riderTracking") ?? {}),
       isActive: true,
-      isFocused: true,
+      // Only the rider's active trip is "focused" and shows the live map to its
+      // customer. A pickup made while another delivery is active stays queued
+      // (isFocused: false) until that delivery finishes and promotes this one.
+      isFocused: !hadActiveTrip,
       currentLocation: locationSnapshot,
       lastSeenAt: updatedAt,
       disconnectedAt: null
@@ -1912,6 +1937,79 @@ export async function deliverRiderOrder(params: { riderId: string; orderId: stri
   await clearActiveTrackingOrderIfMatches({
     riderId: rider.id,
     orderId: order.id
+  })
+
+  emitSocketEvent(`rider:${rider.id}`, "rider.order.updated", updatedOrder.toObject())
+
+  return getRiderOrderDetails({
+    riderId: rider.id,
+    orderId: order.id
+  })
+}
+
+export type RiderDeliveryFailureReason =
+  | "customer_no_response"
+  | "wrong_item"
+  | "others"
+
+/**
+ * Rider-reported failed delivery (order already PickedUp but undeliverable). Routes
+ * through the same terminal pipeline as any other cancel, so the customer refund,
+ * restaurant ledger removal, voucher release, rider-tracking teardown, and all socket
+ * sync (customer/owner/admin/rider) stay 100% consistent. The reason is stored on the
+ * order (cancelledBy=rider + terminalReason) so admin sees exactly why it failed.
+ */
+export async function failRiderDelivery(params: {
+  riderId: string
+  orderId: string
+  reason: RiderDeliveryFailureReason
+  note?: string
+}) {
+  const rider = await RiderModel.findById(params.riderId)
+
+  if (!rider) {
+    throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found")
+  }
+
+  assertRiderAccessible(rider)
+
+  const order = await OrderModel.findById(params.orderId)
+
+  if (!order || order.riderId !== rider.id) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
+  }
+
+  if (order.status !== "PickedUp") {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_NOT_IN_TRANSIT",
+      "This order is not currently in transit"
+    )
+  }
+
+  const trimmedNote = (params.note ?? "").trim()
+  const terminalReason = trimmedNote
+    ? `${params.reason} - ${trimmedNote}`
+    : params.reason
+
+  const updatedOrder = await transitionOrderBySystem({
+    orderId: order.id,
+    nextStatus: "Cancelled",
+    actor: "rider",
+    note: terminalReason
+  })
+
+  await clearActiveTrackingOrderIfMatches({
+    riderId: rider.id,
+    orderId: order.id
+  })
+
+  // Apply the failed-delivery compensation policy (rider trip pay + restaurant
+  // compensation by fault). Best-effort and additive — the cancel + refund above are
+  // already committed and stay consistent regardless.
+  await applyFailedDeliveryFinance({
+    order: updatedOrder.toObject(),
+    reason: params.reason
   })
 
   emitSocketEvent(`rider:${rider.id}`, "rider.order.updated", updatedOrder.toObject())

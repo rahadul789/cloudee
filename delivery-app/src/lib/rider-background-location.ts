@@ -12,7 +12,59 @@ const BACKGROUND_TRACKING_ORDER_KEY =
   "foodbela-rider-background-tracking-order-id";
 const BACKGROUND_PENDING_LOCATION_KEY =
   "foodbela-rider-background-pending-location";
+const BACKGROUND_SEND_POLICY_KEY =
+  "foodbela-rider-background-send-policy";
+const BACKGROUND_LAST_SENT_KEY = "foodbela-rider-background-last-sent";
 const AUTH_STORAGE_KEY = "delivery-rider-auth";
+
+const DEFAULT_MOVE_THRESHOLD_METERS = 60;
+// Even when the rider is stationary (traffic, waiting at a gate), send at least this
+// often so the customer's marker and ETA never freeze.
+const DEFAULT_HEARTBEAT_MS = 35_000;
+// Cap a single location PATCH so a slow/2G network can't leave the task hanging.
+const LOCATION_SEND_TIMEOUT_MS = 9_000;
+
+type SendPolicy = {
+  moveThresholdMeters: number;
+  heartbeatMs: number;
+};
+
+type LastSentLocation = {
+  latitude: number;
+  longitude: number;
+  sentAtMs: number;
+};
+
+function distanceMeters(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+) {
+  const earthRadius = 6_371_000;
+  const dLat = ((to.latitude - from.latitude) * Math.PI) / 180;
+  const dLng = ((to.longitude - from.longitude) * Math.PI) / 180;
+  const lat1 = (from.latitude * Math.PI) / 180;
+  const lat2 = (to.latitude * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs = LOCATION_SEND_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 type PersistedRiderState = {
   accessToken?: string;
@@ -76,13 +128,13 @@ async function writePersistedAuth(nextAuth: PersistedAuthState) {
 }
 
 async function refreshBackgroundSession(refreshToken: string) {
-  const response = await fetch(`${API_BASE_URL}/rider/auth/refresh`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/rider/auth/refresh`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ refreshToken }),
-  }).catch(() => null);
+  });
 
   if (!response?.ok) {
     return null;
@@ -153,6 +205,67 @@ async function clearPendingBackgroundLocation() {
   await secureStateStorage.removeItem(BACKGROUND_PENDING_LOCATION_KEY);
 }
 
+async function writeSendPolicy(policy: SendPolicy) {
+  await secureStateStorage.setItem(
+    BACKGROUND_SEND_POLICY_KEY,
+    JSON.stringify(policy),
+  );
+}
+
+async function readSendPolicy(): Promise<SendPolicy> {
+  const raw = await secureStateStorage.getItem(BACKGROUND_SEND_POLICY_KEY);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<SendPolicy>;
+      return {
+        moveThresholdMeters:
+          typeof parsed.moveThresholdMeters === "number"
+            ? parsed.moveThresholdMeters
+            : DEFAULT_MOVE_THRESHOLD_METERS,
+        heartbeatMs:
+          typeof parsed.heartbeatMs === "number"
+            ? parsed.heartbeatMs
+            : DEFAULT_HEARTBEAT_MS,
+      };
+    } catch {
+      // fall through to defaults
+    }
+  }
+  return {
+    moveThresholdMeters: DEFAULT_MOVE_THRESHOLD_METERS,
+    heartbeatMs: DEFAULT_HEARTBEAT_MS,
+  };
+}
+
+async function writeLastSentLocation(location: LastSentLocation) {
+  await secureStateStorage.setItem(
+    BACKGROUND_LAST_SENT_KEY,
+    JSON.stringify(location),
+  );
+}
+
+async function readLastSentLocation(): Promise<LastSentLocation | null> {
+  const raw = await secureStateStorage.getItem(BACKGROUND_LAST_SENT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as LastSentLocation;
+    if (
+      typeof parsed.latitude !== "number" ||
+      typeof parsed.longitude !== "number" ||
+      typeof parsed.sentAtMs !== "number"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function clearLastSentLocation() {
+  await secureStateStorage.removeItem(BACKGROUND_LAST_SENT_KEY);
+}
+
 async function sendBackgroundLocationPayload(
   payload: BackgroundLocationPayload,
   allowRefresh = true,
@@ -164,14 +277,14 @@ async function sendBackgroundLocationPayload(
     return false;
   }
 
-  const response = await fetch(`${API_BASE_URL}/rider/profile/location`, {
+  const response = await fetchWithTimeout(`${API_BASE_URL}/rider/profile/location`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(payload),
-  }).catch(() => null);
+  });
 
   if (response?.status === 401 && allowRefresh && auth?.state?.refreshToken) {
     const refreshed = await refreshBackgroundSession(auth.state.refreshToken);
@@ -201,8 +314,9 @@ async function sendBackgroundLocationPayload(
 
 async function sendBackgroundLocation(location: Location.LocationObject) {
   const latestPayload = getLocationPayload(location);
-  const pendingPayload = await readPendingBackgroundLocation();
 
+  // Always try to flush a previously failed send first (offline recovery).
+  const pendingPayload = await readPendingBackgroundLocation();
   if (pendingPayload) {
     const pendingSent = await sendBackgroundLocationPayload(pendingPayload);
     if (pendingSent) {
@@ -210,8 +324,31 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
     }
   }
 
+  // Throttle by movement OR heartbeat: send when the rider has moved past the move
+  // threshold, OR when enough time has passed since the last send. The heartbeat is
+  // what keeps the customer's marker/ETA alive while the rider is stuck in traffic.
+  const policy = await readSendPolicy();
+  const lastSent = await readLastSentLocation();
+  const now = Date.now();
+  const movedMeters = lastSent ? distanceMeters(lastSent, latestPayload) : Infinity;
+  const elapsedMs = lastSent ? now - lastSent.sentAtMs : Infinity;
+  const shouldSend =
+    !lastSent ||
+    movedMeters >= policy.moveThresholdMeters ||
+    elapsedMs >= policy.heartbeatMs;
+
+  if (!shouldSend) {
+    return;
+  }
+
   const latestSent = await sendBackgroundLocationPayload(latestPayload);
-  if (!latestSent) {
+  if (latestSent) {
+    await writeLastSentLocation({
+      latitude: latestPayload.latitude,
+      longitude: latestPayload.longitude,
+      sentAtMs: now,
+    });
+  } else {
     await persistPendingBackgroundLocation(latestPayload);
   }
 }
@@ -259,10 +396,14 @@ async function hasBackgroundPermission() {
 export async function startRiderBackgroundLocationAsync({
   timeIntervalMs = 30000,
   distanceIntervalMeters = 60,
+  heartbeatMs = DEFAULT_HEARTBEAT_MS,
+  accuracy = Location.Accuracy.Balanced,
   notificationBody = "Foodbela is sharing rider location for live delivery tracking.",
 }: {
   timeIntervalMs?: number;
   distanceIntervalMeters?: number;
+  heartbeatMs?: number;
+  accuracy?: Location.Accuracy;
   notificationBody?: string;
 } = {}) {
   // Android only lets a foreground service start while the app itself is in the
@@ -278,6 +419,16 @@ export async function startRiderBackgroundLocationAsync({
       return false;
     }
 
+    // The move threshold is applied as a *send* filter inside the task (see
+    // sendBackgroundLocation), not as the OS displacement filter — otherwise a
+    // stationary rider would get no OS samples at all and the heartbeat could
+    // never fire. So the OS streams samples on the time interval, and the task
+    // decides whether each one is worth sending.
+    await writeSendPolicy({
+      moveThresholdMeters: distanceIntervalMeters,
+      heartbeatMs,
+    });
+
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(
       RIDER_BACKGROUND_LOCATION_TASK,
     );
@@ -287,9 +438,9 @@ export async function startRiderBackgroundLocationAsync({
     }
 
     await Location.startLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK, {
-      accuracy: Location.Accuracy.Balanced,
+      accuracy,
       timeInterval: timeIntervalMs,
-      distanceInterval: distanceIntervalMeters,
+      distanceInterval: 0,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
@@ -318,4 +469,5 @@ export async function stopRiderBackgroundLocationAsync() {
 
   await setRiderBackgroundTrackingOrderId(null);
   await clearPendingBackgroundLocation();
+  await clearLastSentLocation();
 }

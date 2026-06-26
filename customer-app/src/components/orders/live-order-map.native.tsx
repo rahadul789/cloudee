@@ -1,8 +1,14 @@
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
-import { memo, useEffect, useMemo, useRef } from "react";
-import { Image, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import MapView, { Marker, Polyline, type MapStyleElement } from "react-native-maps";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Animated, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import MapView, {
+  AnimatedRegion,
+  Marker,
+  MarkerAnimated,
+  Polyline,
+  type MapStyleElement,
+} from "react-native-maps";
 
 import { getMapStyleSignature } from "@/src/lib/map-style";
 import {
@@ -38,14 +44,24 @@ type LiveOrderMapProps = {
 
 const FOODPANDA_PINK = "#FF2B85";
 const RIDER_PIN_YELLOW = "#FFD54A";
-const ROUTE_SHADOW = "rgba(255,255,255,0.94)";
+const RIDER_ICON_DARK = "#1F2430";
 const OFF_ROAD_GAP_METERS = 25;
+// Smaller threshold for drawing the dotted "last metres" connector: any noticeable
+// gap between a pin and the road route should read as an off-road hop.
+const OFF_ROAD_CONNECTOR_MIN_METERS = 12;
 const MAP_HEIGHT_SCREEN_RATIO = 0.54;
 const ROUTE_DETOUR_DIRECT_MAX_METERS = 180;
 const ROUTE_DETOUR_ROUTE_MIN_METERS = 450;
 const ROUTE_DETOUR_RATIO = 4;
-const TRACKING_MAP_VISUAL_VERSION = "pin-route-v5";
-const RIDER_MARKER_ICON = require("../../../assets/images/android-icon-monochrome.png");
+const TRACKING_MAP_VISUAL_VERSION = "pin-route-v7";
+// The camera frames the whole route, but never tighter than this span — so when the
+// rider is metres away the map keeps a comfortable ~600m context (street names,
+// surroundings) instead of zooming into an unreadable blob. This is how Foodpanda/Uber
+// behave on a near arrival.
+const MIN_CAMERA_LAT_DELTA = 0.006;
+const MIN_CAMERA_LNG_DELTA = 0.006;
+// Extra margin around the route's bounding box so markers don't sit on the edge.
+const CAMERA_BOUNDS_PADDING = 1.4;
 
 function formatDistance(meters: number) {
   const safeMeters = Number.isFinite(meters) ? Math.max(0, meters) : 0;
@@ -66,6 +82,233 @@ function formatEta(minutes?: number | null) {
   return `${Math.max(1, Math.round(minutes))} min`;
 }
 
+// Build a camera region that contains every given coordinate, padded, but never
+// tighter than the minimum span (the anti-over-zoom floor).
+function getCameraRegion(points: TrackingCoordinate[]) {
+  let minLat = Number.POSITIVE_INFINITY;
+  let maxLat = Number.NEGATIVE_INFINITY;
+  let minLng = Number.POSITIVE_INFINITY;
+  let maxLng = Number.NEGATIVE_INFINITY;
+  for (const point of points) {
+    minLat = Math.min(minLat, point.latitude);
+    maxLat = Math.max(maxLat, point.latitude);
+    minLng = Math.min(minLng, point.longitude);
+    maxLng = Math.max(maxLng, point.longitude);
+  }
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta: Math.max(
+      (maxLat - minLat) * CAMERA_BOUNDS_PADDING,
+      MIN_CAMERA_LAT_DELTA,
+    ),
+    longitudeDelta: Math.max(
+      (maxLng - minLng) * CAMERA_BOUNDS_PADDING,
+      MIN_CAMERA_LNG_DELTA,
+    ),
+  };
+}
+
+// Marker interpolation tuning.
+const RIDER_TELEPORT_SNAP_METERS = 150; // big jump (GPS jump / reconnect) → snap, don't crawl
+const RIDER_MIN_ANIMATE_METERS = 3; // ignore GPS jitter; snap tiny moves
+const RIDER_MIN_ANIM_MS = 800;
+const RIDER_MAX_ANIM_MS = 16_000;
+
+const RIDER_ROUTE_OFF_MAX_METERS = 60; // beyond this the rider isn't really on this route
+
+function toLocalMeters(point: TrackingCoordinate, refLat: number) {
+  const latMeters = 110_540;
+  const lngMeters = 111_320 * Math.cos((refLat * Math.PI) / 180);
+  return { x: point.longitude * lngMeters, y: point.latitude * latMeters };
+}
+
+function cumulativeRouteDistances(points: TrackingCoordinate[]) {
+  const cumulative = new Array<number>(points.length).fill(0);
+  for (let index = 1; index < points.length; index += 1) {
+    cumulative[index] =
+      cumulative[index - 1] +
+      calculateDistanceMeters(points[index - 1], points[index]);
+  }
+  return cumulative;
+}
+
+// Project a coordinate onto the route: how far along the route (metres) the nearest
+// point sits, plus how far off-route the coordinate is. Mirrors the backend maths.
+function projectOntoRoute(
+  points: TrackingCoordinate[],
+  cumulative: number[],
+  origin: TrackingCoordinate,
+) {
+  let best = { distanceAlong: 0, offRouteMeters: Number.POSITIVE_INFINITY };
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const refLat = (start.latitude + end.latitude + origin.latitude) / 3;
+    const s = toLocalMeters(start, refLat);
+    const e = toLocalMeters(end, refLat);
+    const o = toLocalMeters(origin, refLat);
+    const dx = e.x - s.x;
+    const dy = e.y - s.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const t =
+      lengthSquared > 0
+        ? Math.min(1, Math.max(0, ((o.x - s.x) * dx + (o.y - s.y) * dy) / lengthSquared))
+        : 0;
+    const offRouteMeters = Math.hypot(o.x - (s.x + dx * t), o.y - (s.y + dy * t));
+    if (offRouteMeters < best.offRouteMeters) {
+      const segmentLength = cumulative[index + 1] - cumulative[index];
+      best = { distanceAlong: cumulative[index] + segmentLength * t, offRouteMeters };
+    }
+  }
+  return best;
+}
+
+// Build the waypoints the marker should glide through so it follows the road between
+// `previous` and `target`. Returns null when route-snapping doesn't apply (no usable
+// route, rider far off-route, not moving forward, or only a single segment) — the
+// caller then does a plain straight glide.
+function buildRouteSnapPath(
+  points: TrackingCoordinate[],
+  cumulative: number[],
+  previous: TrackingCoordinate,
+  target: TrackingCoordinate,
+): TrackingCoordinate[] | null {
+  if (points.length < 2) return null;
+  const from = projectOntoRoute(points, cumulative, previous);
+  const to = projectOntoRoute(points, cumulative, target);
+  if (
+    from.offRouteMeters > RIDER_ROUTE_OFF_MAX_METERS ||
+    to.offRouteMeters > RIDER_ROUTE_OFF_MAX_METERS ||
+    to.distanceAlong - from.distanceAlong < RIDER_MIN_ANIMATE_METERS
+  ) {
+    return null;
+  }
+  const between: TrackingCoordinate[] = [];
+  for (let index = 0; index < points.length; index += 1) {
+    if (cumulative[index] > from.distanceAlong && cumulative[index] < to.distanceAlong) {
+      between.push(points[index]);
+    }
+  }
+  return between.length ? [previous, ...between, target] : null;
+}
+
+/**
+ * Smoothly interpolates the rider marker between socket updates instead of letting it
+ * teleport. Position lives in an AnimatedRegion (native, ref-based), so there is no
+ * per-frame React state and no re-render while it glides. When a real road route is
+ * available the marker glides ALONG the polyline (route-snapping); otherwise it does a
+ * straight glide. Big jumps, the delivered state, and sub-jitter moves snap instantly.
+ */
+function useAnimatedRiderCoordinate(
+  target: TrackingCoordinate,
+  status: string,
+  routePoints: TrackingCoordinate[],
+  hasRealRoute: boolean,
+) {
+  const regionRef = useRef<AnimatedRegion | null>(null);
+  if (!regionRef.current) {
+    regionRef.current = new AnimatedRegion({
+      latitude: target.latitude,
+      longitude: target.longitude,
+      latitudeDelta: 0,
+      longitudeDelta: 0,
+    });
+  }
+  const previousRef = useRef<TrackingCoordinate>(target);
+  const lastUpdateAtRef = useRef(Date.now());
+  const animationRef = useRef<{ stop: () => void } | null>(null);
+
+  // Cumulative distances along the route — recomputed only when the route changes.
+  const cumulativeRoute = useMemo(
+    () => cumulativeRouteDistances(routePoints),
+    [routePoints],
+  );
+
+  useEffect(() => {
+    const region = regionRef.current;
+    if (!region) return;
+
+    const previous = previousRef.current;
+    const now = Date.now();
+    const movedMeters = calculateDistanceMeters(previous, target);
+    const elapsedMs = now - lastUpdateAtRef.current;
+    previousRef.current = target;
+    lastUpdateAtRef.current = now;
+
+    animationRef.current?.stop();
+
+    const snapInstantly =
+      status === "Delivered" ||
+      movedMeters < RIDER_MIN_ANIMATE_METERS ||
+      movedMeters > RIDER_TELEPORT_SNAP_METERS;
+
+    if (snapInstantly) {
+      region.setValue({
+        latitude: target.latitude,
+        longitude: target.longitude,
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+      });
+      return;
+    }
+
+    // Glide over (roughly) the real gap between updates so movement stays continuous
+    // and the next update lands about when this glide finishes.
+    const duration = Math.min(
+      Math.max(elapsedMs, RIDER_MIN_ANIM_MS),
+      RIDER_MAX_ANIM_MS,
+    );
+
+    const timingTo = (point: TrackingCoordinate, ms: number) =>
+      region.timing({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        duration: Math.max(50, ms),
+        useNativeDriver: false,
+        // react-native-maps types AnimatedRegion.timing as if it needed Animated.timing's
+        // `toValue`; the runtime API animates the coordinate fields passed here.
+      } as unknown as Parameters<typeof region.timing>[0]);
+
+    const snapPath = hasRealRoute
+      ? buildRouteSnapPath(routePoints, cumulativeRoute, previous, target)
+      : null;
+
+    if (snapPath && snapPath.length > 2) {
+      const segmentLengths: number[] = [];
+      let totalLength = 0;
+      for (let index = 0; index < snapPath.length - 1; index += 1) {
+        const length = calculateDistanceMeters(snapPath[index], snapPath[index + 1]);
+        segmentLengths.push(length);
+        totalLength += length;
+      }
+      if (totalLength > 0) {
+        const animations = snapPath
+          .slice(1)
+          .map((point, index) =>
+            timingTo(point, duration * (segmentLengths[index] / totalLength)),
+          );
+        const sequence = Animated.sequence(
+          animations as unknown as Animated.CompositeAnimation[],
+        );
+        animationRef.current = sequence;
+        sequence.start();
+        return;
+      }
+    }
+
+    // Fallback: straight glide.
+    const animation = timingTo(target, duration);
+    animationRef.current = animation;
+    animation.start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.latitude, target.longitude, status, cumulativeRoute, hasRealRoute]);
+
+  useEffect(() => () => animationRef.current?.stop(), []);
+
+  return regionRef.current;
+}
+
 const HomeMarkerContent = memo(function HomeMarkerContent() {
   return (
     <View collapsable={false} pointerEvents="none" style={styles.markerRoot}>
@@ -78,30 +321,16 @@ const HomeMarkerContent = memo(function HomeMarkerContent() {
   );
 });
 
+// Same teardrop-pin shape as the customer marker (which renders crisply and never
+// crops), just tinted yellow with a bike glyph. Interpolation is unaffected — only the
+// pin content differs.
 const RiderMarkerContent = memo(function RiderMarkerContent() {
   return (
     <View collapsable={false} pointerEvents="none" style={styles.markerRoot}>
       <View collapsable={false} style={styles.markerLiftShadow} />
-      <View
-        collapsable={false}
-        style={[
-          styles.markerPointer,
-          styles.riderMarkerPin,
-          { backgroundColor: RIDER_PIN_YELLOW },
-        ]}
-      />
-      <View
-        collapsable={false}
-        style={[
-          styles.mapMarkerPin,
-          styles.riderMarkerPin,
-          { backgroundColor: RIDER_PIN_YELLOW },
-        ]}
-      >
-        <Image
-          source={RIDER_MARKER_ICON}
-          style={styles.riderMarkerLogo}
-        />
+      <View collapsable={false} style={[styles.markerPointer, styles.riderMarkerPin]} />
+      <View collapsable={false} style={[styles.mapMarkerPin, styles.riderMarkerPin]}>
+        <Ionicons name="bicycle" size={15} color={RIDER_ICON_DARK} />
       </View>
     </View>
   );
@@ -113,7 +342,6 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   riderLocation,
   status,
   riderName,
-  riderHeading,
   routePolyline,
   routeDistanceKm,
   routeDurationMinutes,
@@ -126,6 +354,10 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   const mapReadyRef = useRef(false);
   const lastCameraSignatureRef = useRef("");
   const lastProximityStateRef = useRef<"default" | "nearby" | "arriving">("default");
+  // Vector markers must paint into the native snapshot once, then stop tracking view
+  // changes — leaving tracksViewChanges on permanently re-rasterises the marker every
+  // frame (jank), which is also why the old PNG marker often rendered blank.
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
   const mapHeight = useMemo(
     () => Math.min(560, Math.max(360, Math.round(windowHeight * MAP_HEIGHT_SCREEN_RATIO))),
@@ -140,7 +372,17 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   useEffect(() => {
     mapReadyRef.current = false;
     lastCameraSignatureRef.current = "";
+    // The MapView remounts when the style changes, so markers must repaint.
+    setTracksViewChanges(true);
   }, [mapStyleSignature]);
+
+  // Stop tracking view changes shortly after mount/repaint. Vector icons render
+  // synchronously, so a brief window is plenty to capture the snapshot.
+  useEffect(() => {
+    if (!tracksViewChanges) return;
+    const timer = setTimeout(() => setTracksViewChanges(false), 1200);
+    return () => clearTimeout(timer);
+  }, [tracksViewChanges]);
 
   const routeAnchorLocation = useMemo(
     () =>
@@ -157,23 +399,6 @@ export const LiveOrderMap = memo(function LiveOrderMap({
 
     return riderLocation ?? routeAnchorLocation;
   }, [customerLocation, riderLocation, routeAnchorLocation, status]);
-
-  const markerRenderKey = useMemo(
-    () =>
-      [
-        TRACKING_MAP_VISUAL_VERSION,
-        status,
-        customerLocation.latitude.toFixed(5),
-        customerLocation.longitude.toFixed(5),
-        resolvedRiderLocation.latitude.toFixed(5),
-        resolvedRiderLocation.longitude.toFixed(5),
-        typeof riderHeading === "number" && Number.isFinite(riderHeading)
-          ? Math.round(riderHeading).toString()
-          : "",
-        routePolyline ?? "",
-      ].join("|"),
-    [customerLocation, resolvedRiderLocation, riderHeading, routePolyline, status],
-  );
 
   const realRoutePoints = useMemo(
     () => decodePolyline(routePolyline),
@@ -195,6 +420,17 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     routeDistanceMeters / Math.max(distanceMeters, OFF_ROAD_GAP_METERS) >=
       ROUTE_DETOUR_RATIO;
   const hasRealRoute = realRoutePoints.length >= 2 && !hasRouteDetour;
+
+  // Smoothly interpolated rider position for the marker. When a real road route is
+  // available it glides along the polyline (route-snapping); otherwise it falls back
+  // to a straight glide. The discrete resolvedRiderLocation still drives the
+  // route/camera maths.
+  const riderAnimatedCoordinate = useAnimatedRiderCoordinate(
+    resolvedRiderLocation,
+    status,
+    realRoutePoints,
+    hasRealRoute,
+  );
 
   const remainingRoute = useMemo(() => {
     // Prefer the real road route from Google Directions when available;
@@ -228,14 +464,14 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   const offRoadToCustomer = useMemo(() => {
     if (!hasRealRoute) return null;
     const last = realRoutePoints[realRoutePoints.length - 1];
-    return calculateDistanceMeters(last, customerLocation) > OFF_ROAD_GAP_METERS
+    return calculateDistanceMeters(last, customerLocation) > OFF_ROAD_CONNECTOR_MIN_METERS
       ? [last, customerLocation]
       : null;
   }, [customerLocation, hasRealRoute, realRoutePoints]);
   const offRoadFromRider = useMemo(() => {
     if (!hasRealRoute) return null;
     const first = realRoutePoints[0];
-    return calculateDistanceMeters(resolvedRiderLocation, first) > OFF_ROAD_GAP_METERS
+    return calculateDistanceMeters(resolvedRiderLocation, first) > OFF_ROAD_CONNECTOR_MIN_METERS
       ? [resolvedRiderLocation, first]
       : null;
   }, [hasRealRoute, realRoutePoints, resolvedRiderLocation]);
@@ -362,6 +598,25 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     status,
   ]);
 
+  // Frame the whole route — every point of the polyline plus both markers — so the
+  // map is positioned by the actual path, not just the two pins. fitToCoordinates
+  // keeps the rider, the road it is following, and the destination all in view.
+  const fitCameraToRoute = useCallback(
+    (animated: boolean) => {
+      const points =
+        remainingRoute.length >= 2
+          ? remainingRoute
+          : [resolvedRiderLocation, customerLocation];
+      const region = getCameraRegion([
+        ...points,
+        resolvedRiderLocation,
+        customerLocation,
+      ]);
+      mapRef.current?.animateToRegion(region, animated ? 700 : 1);
+    },
+    [customerLocation, remainingRoute, resolvedRiderLocation],
+  );
+
   useEffect(() => {
     const shouldFollowRider = status === "PickedUp" || status === "Delivered";
 
@@ -374,10 +629,8 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     }
 
     lastCameraSignatureRef.current = cameraSignature;
-    const cameraDuration =
-      cameraBand === "near" || cameraBand === "arrived" ? 560 : 720;
-    mapRef.current?.animateToRegion(viewportRegion, cameraDuration);
-  }, [cameraBand, cameraSignature, status, viewportRegion]);
+    fitCameraToRoute(true);
+  }, [cameraSignature, fitCameraToRoute, status]);
 
   useEffect(() => {
     const nextState = isArriving ? "arriving" : isNearby ? "nearby" : "default";
@@ -419,29 +672,26 @@ export const LiveOrderMap = memo(function LiveOrderMap({
           onMapReady={() => {
             mapReadyRef.current = true;
             lastCameraSignatureRef.current = cameraSignature;
-            mapRef.current?.animateToRegion(viewportRegion, 1);
+            fitCameraToRoute(false);
           }}
         >
-          <Polyline
-            coordinates={remainingRoute}
-            strokeColor={ROUTE_SHADOW}
-            strokeWidth={5.5}
-            lineCap="round"
-            lineJoin="round"
-          />
+          {/* Solid line for a real road route; dotted when we only have a
+              straight-line estimate (no road route = treat as off-road). No white
+              outline/border underneath. */}
           <Polyline
             coordinates={remainingRoute}
             strokeColor={FOODPANDA_PINK}
-            strokeWidth={3.2}
+            strokeWidth={4}
             lineCap="round"
             lineJoin="round"
+            lineDashPattern={hasRealRoute ? undefined : [3, 9]}
           />
           {offRoadFromRider ? (
             <Polyline
               coordinates={offRoadFromRider}
               strokeColor={FOODPANDA_PINK}
-              strokeWidth={2.4}
-              lineDashPattern={[2, 8]}
+              strokeWidth={3}
+              lineDashPattern={[3, 9]}
               lineCap="round"
               lineJoin="round"
             />
@@ -450,36 +700,36 @@ export const LiveOrderMap = memo(function LiveOrderMap({
             <Polyline
               coordinates={offRoadToCustomer}
               strokeColor={FOODPANDA_PINK}
-              strokeWidth={2.4}
-              lineDashPattern={[2, 8]}
+              strokeWidth={3}
+              lineDashPattern={[3, 9]}
               lineCap="round"
               lineJoin="round"
             />
           ) : null}
 
           <Marker
-            key={`customer-${markerRenderKey}`}
+            key="customer-location"
             coordinate={customerLocation}
             anchor={{ x: 0.5, y: 0.78 }}
             identifier="customer-location"
             title="Your location"
             zIndex={3}
-            tracksViewChanges
+            tracksViewChanges={tracksViewChanges}
           >
             <HomeMarkerContent />
           </Marker>
 
-          <Marker
-            key={`rider-${markerRenderKey}`}
-            coordinate={resolvedRiderLocation}
+          <MarkerAnimated
+            key="deliveryman-location"
+            coordinate={riderAnimatedCoordinate as never}
             anchor={{ x: 0.5, y: 0.78 }}
             identifier="deliveryman-location"
             title={riderName}
             zIndex={4}
-            tracksViewChanges
+            tracksViewChanges={tracksViewChanges}
           >
             <RiderMarkerContent />
-          </Marker>
+          </MarkerAnimated>
         </MapView>
       </View>
 
@@ -770,11 +1020,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.foreground,
   },
   riderMarkerPin: {
-    backgroundColor: FOODPANDA_PINK,
-  },
-  riderMarkerLogo: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    backgroundColor: RIDER_PIN_YELLOW,
   },
 });

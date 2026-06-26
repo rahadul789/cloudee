@@ -47,7 +47,10 @@ const ownerOrderTransitions: Record<string, string[]> = {
 
 const systemOrderTransitions: Record<string, string[]> = {
   ReadyForPickup: ["PickedUp", "Cancelled"],
-  PickedUp: ["Delivered"],
+  // PickedUp -> Cancelled is a rider-reported failed delivery (customer no response,
+  // wrong item, etc). It runs through the same terminal pipeline as any other cancel,
+  // so refund + restaurant ledger + voucher release stay 100% consistent.
+  PickedUp: ["Delivered", "Cancelled"],
   Accepted: ["Cancelled"],
   Preparing: ["Cancelled"]
 }

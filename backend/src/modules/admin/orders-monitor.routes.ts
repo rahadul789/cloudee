@@ -18,6 +18,7 @@ import {
   getAdminRiders,
   getAdminRidersAssignmentOptions,
   patchAdminRiderAvailability,
+  postAdminRiderActiveTrip,
   patchAdminRiderStatus,
   patchAdminRiderVerification,
   patchAdminDispatchConfig,
@@ -68,6 +69,10 @@ adminOrdersMonitorRouter.patch(
 adminOrdersMonitorRouter.patch(
   "/riders/:riderId/availability",
   patchAdminRiderAvailability,
+);
+adminOrdersMonitorRouter.post(
+  "/riders/:riderId/active-trip",
+  postAdminRiderActiveTrip,
 );
 adminOrdersMonitorRouter.patch(
   "/riders/:riderId/status",

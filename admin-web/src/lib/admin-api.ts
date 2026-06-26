@@ -3511,6 +3511,11 @@ export type PlatformContent = {
       distanceIntervalMeters: number
       passiveHeartbeatSeconds: number
     }
+    failedDelivery: {
+      customerFaultRefundPercent: number
+      restaurantCompensationPercent: number
+      riderFailedTripPay: number
+    }
     payments: {
       cashOnDeliveryEnabled: boolean
       bkashEnabled: boolean
@@ -4496,6 +4501,23 @@ export async function updateAdminRiderPayrollStatus(params: {
         note: params.note,
       }),
     }
+  )
+  return response.data
+}
+
+export async function setAdminRiderActiveTrip(params: {
+  riderId: string
+  orderId: string
+}) {
+  const response = await adminRequest<AdminRiderDetails>(
+    `/admin/riders/${params.riderId}/active-trip`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ orderId: params.orderId }),
+    },
   )
   return response.data
 }

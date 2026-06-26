@@ -122,6 +122,12 @@ const defaultRoutingSettings: PlatformContent["operations"]["routing"] = {
   nearDestinationMeters: 220,
 }
 
+const defaultFailedDeliverySettings: PlatformContent["operations"]["failedDelivery"] = {
+  customerFaultRefundPercent: 80,
+  restaurantCompensationPercent: 100,
+  riderFailedTripPay: 30,
+}
+
 const MAP_STYLE_SCREEN_ASSIGNMENTS = [
   {
     key: "customer.location_picker",
@@ -362,6 +368,14 @@ function ensureRoutingSettings(content: PlatformContent) {
     ...(content.operations.routing ?? {}),
   }
   return content.operations.routing
+}
+
+function ensureFailedDeliverySettings(content: PlatformContent) {
+  content.operations.failedDelivery = {
+    ...defaultFailedDeliverySettings,
+    ...(content.operations.failedDelivery ?? {}),
+  }
+  return content.operations.failedDelivery
 }
 
 function ensureMapStyleSettings(content: PlatformContent) {
@@ -1409,6 +1423,10 @@ export function SettingsPage() {
     ...defaultRoutingSettings,
     ...(draft.operations.routing ?? {}),
   }
+  const failedDelivery = {
+    ...defaultFailedDeliverySettings,
+    ...(draft.operations.failedDelivery ?? {}),
+  }
   const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
   const selectedMapStyle =
     mapStyles.styles.find((style) => style.id === selectedMapStyleId) ??
@@ -1765,6 +1783,110 @@ export function SettingsPage() {
                         {liveTracking.passiveHeartbeatSeconds}s
                       </p>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="size-4" />
+                    Failed delivery compensation
+                  </CardTitle>
+                  <CardDescription>
+                    When a rider reports a failed delivery (picked up but undeliverable),
+                    these control the customer refund, restaurant compensation, and rider
+                    pay. The cancel and refund are handled automatically.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Customer refund on no-show (%)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={failedDelivery.customerFaultRefundPercent}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const draftSettings = ensureFailedDeliverySettings(content)
+                            draftSettings.customerFaultRefundPercent = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                failedDelivery.customerFaultRefundPercent,
+                              ),
+                              0,
+                              100,
+                            )
+                          })
+                        }
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        Remainder is kept as a no-show fee.
+                      </span>
+                    </label>
+
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Restaurant compensation (%)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={200}
+                        step={1}
+                        value={failedDelivery.restaurantCompensationPercent}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const draftSettings = ensureFailedDeliverySettings(content)
+                            draftSettings.restaurantCompensationPercent = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                failedDelivery.restaurantCompensationPercent,
+                              ),
+                              0,
+                              200,
+                            )
+                          })
+                        }
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        % of food subtotal paid to the restaurant on customer no-show.
+                      </span>
+                    </label>
+
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Rider failed-trip pay (Tk)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100000}
+                        step={1}
+                        value={failedDelivery.riderFailedTripPay}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const draftSettings = ensureFailedDeliverySettings(content)
+                            draftSettings.riderFailedTripPay = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                failedDelivery.riderFailedTripPay,
+                              ),
+                              0,
+                              100000,
+                            )
+                          })
+                        }
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        Credited to the rider&apos;s payroll for a not-at-fault trip.
+                      </span>
+                    </label>
                   </div>
                 </CardContent>
               </Card>

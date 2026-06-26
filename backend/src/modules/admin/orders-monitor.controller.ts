@@ -29,6 +29,7 @@ import {
   updateAdminOrderCodCollection,
   updateAdminDispatchSettings,
   updateAdminRiderAvailability,
+  setAdminRiderActiveTrip,
   addAdminRiderPayrollAdjustment,
   updateAdminRiderPayrollSettings,
   updateAdminRiderPayrollStatus,
@@ -216,6 +217,10 @@ const riderPayrollStatusSchema = z.object({
 
 const updateRiderAvailabilitySchema = z.object({
   isAvailableForAssignments: z.boolean(),
+});
+
+const riderActiveTripSchema = z.object({
+  orderId: z.string().min(1),
 });
 
 const updateRiderStatusSchema = z.object({
@@ -568,6 +573,21 @@ export const patchAdminRiderAvailability = asyncHandler(
 
     return sendSuccess(res, {
       message: "Rider availability updated successfully",
+      data,
+    });
+  },
+);
+
+export const postAdminRiderActiveTrip = asyncHandler(
+  async (req: Request, res: Response) => {
+    const payload = riderActiveTripSchema.parse(req.body);
+    const data = await setAdminRiderActiveTrip({
+      riderId: String(req.params.riderId ?? ""),
+      orderId: payload.orderId,
+    });
+
+    return sendSuccess(res, {
+      message: "Rider live trip updated successfully",
       data,
     });
   },

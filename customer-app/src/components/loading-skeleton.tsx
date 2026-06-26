@@ -183,13 +183,24 @@ export function PromoDetailsSkeleton() {
 }
 
 export function MenuCategoryChipsSkeleton() {
+  // Mirrors the real category rail (a horizontal ScrollView), so the placeholder
+  // chips lay out in a row that bleeds past the right edge instead of wrapping —
+  // reading as a scrollable rail. scrollEnabled stays off so a loading placeholder
+  // is never draggable.
   return (
-    <View style={styles.menuCategoryRowSkeleton}>
+    <ScrollView
+      horizontal
+      scrollEnabled={false}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.menuCategoryRowSkeleton}
+    >
       <ShimmerBlock style={styles.menuCategoryWideSkeleton} />
       <ShimmerBlock style={styles.menuCategorySkeleton} />
       <ShimmerBlock style={styles.menuCategorySmallSkeleton} />
       <ShimmerBlock style={styles.menuCategoryTinySkeleton} />
-    </View>
+      <ShimmerBlock style={styles.menuCategorySkeleton} />
+      <ShimmerBlock style={styles.menuCategorySmallSkeleton} />
+    </ScrollView>
   );
 }
 
@@ -284,11 +295,18 @@ export function RestaurantDetailsSkeleton() {
           <ShimmerBlock style={styles.detailsFact} />
         </View>
       </View>
-      <View style={styles.categorySkeletonRow}>
+      <ScrollView
+        horizontal
+        scrollEnabled={false}
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.categorySkeletonRow}
+      >
         <ShimmerBlock style={styles.categoryChipWide} />
         <ShimmerBlock style={styles.categoryChip} />
         <ShimmerBlock style={styles.categoryChipSmall} />
-      </View>
+        <ShimmerBlock style={styles.categoryChip} />
+        <ShimmerBlock style={styles.categoryChipSmall} />
+      </ScrollView>
       <View style={styles.menuSkeletonList}>
         <ShimmerBlock style={styles.menuSectionTitle} />
         <ShimmerBlock style={styles.menuItem} />

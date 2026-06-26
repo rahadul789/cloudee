@@ -756,6 +756,34 @@ export function useDeliverOrderMutation() {
   });
 }
 
+export type RiderDeliveryFailureReason =
+  | "customer_no_response"
+  | "wrong_item"
+  | "others";
+
+export function useFailDeliveryMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      orderId: string;
+      reason: RiderDeliveryFailureReason;
+      note?: string;
+    }) => {
+      const response = await apiPost<RiderOrder>(
+        `/rider/orders/${params.orderId}/fail`,
+        { reason: params.reason, note: params.note },
+      );
+      return response.data;
+    },
+    onSuccess: (data: RiderOrder) => {
+      patchRiderOrderCaches(queryClient, data, { invalidateLiveMap: true });
+      queryClient.invalidateQueries({ queryKey: ["rider", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["rider", "profile"] });
+    },
+  });
+}
+
 export function useActivateTrackingMutation() {
   const queryClient = useQueryClient();
 

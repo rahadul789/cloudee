@@ -80,12 +80,19 @@ export function AppBottomSheet({
   const [rendered, setRendered] = useState(visible);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
+  // Callers pass `snapPoints` as an inline array literal, so the reference changes
+  // on every render. Key the memo on the serialized values instead so an unchanged
+  // set of snap points keeps a stable reference — otherwise the "reset to initial
+  // snap" effect below would fire on every parent re-render, collapsing a sheet the
+  // user has expanded and replaying the open animation (the "close then reopen" jank).
+  const snapPointsKey = snapPoints.join(",");
   const normalizedSnapPoints = useMemo(() => {
     const unique = Array.from(
       new Set(snapPoints.map((point) => normalizeSnapPoint(point, screenHeight)).sort((a, b) => a - b)),
     );
     return unique.length ? unique : [0.72];
-  }, [screenHeight, snapPoints]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenHeight, snapPointsKey]);
 
   const [activeSnapIndex, setActiveSnapIndex] = useState(() =>
     getInitialSnapIndex(normalizedSnapPoints, initialSnapPoint),
@@ -172,8 +179,12 @@ export function AppBottomSheet({
     if (visible && rendered) {
       animateOpen();
     }
+    // Intentionally NOT keyed on sheetHeight: the open animation slides from the
+    // bottom regardless of height, and re-running it on a snap/height change would
+    // replay that slide-in (reads as a close-then-reopen). Snap changes resize the
+    // sheet via layout while the pan spring keeps translateY at 0.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rendered, visible, sheetHeight]);
+  }, [rendered, visible]);
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (event) => {

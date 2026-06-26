@@ -54,7 +54,11 @@
       "Bash(echo \"admin exit: $?\")",
       "Bash(node_modules/.bin/jest tests/menu-markdown.test.ts)",
       "Bash(node_modules/.bin/jest)",
-      "Bash(cd /d/cloudee/admin-web && rm -f src/components/menu-offers-page.tsx && echo \"deleted\")"
+      "Bash(cd /d/cloudee/admin-web && rm -f src/components/menu-offers-page.tsx && echo \"deleted\")",
+      "Bash(cd /d/cloudee/delivery-app && find app src -type f 2>/dev/null | grep -vE \"node_modules\" | head -120)",
+      "Read(//d/d/cloudee/delivery-app/**)",
+      "Bash(cd /d/cloudee/admin-web && find src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) | grep -iE \"rider|order|live|fleet|deliver|finance|analytic|performance\" | head -40)",
+      "Read(//d/d/cloudee/admin-web/**)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components"
