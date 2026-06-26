@@ -8,6 +8,7 @@ import {
 import { pruneAdminOperationalAlerts } from "./admin-alert.service";
 import { processDueAdminNotificationSchedules } from "./notifications.service";
 import { processPendingBkashPaymentAttemptReconciliation } from "../customer/customer.service";
+import { processDueReviewRequests } from "../customer/push.service";
 import { sendOperationalAlert } from "../monitoring/alert-notifier";
 import { classifySchedulerError } from "../monitoring/scheduler-error-policy";
 
@@ -15,6 +16,20 @@ let intervalHandle: NodeJS.Timeout | null = null;
 let isProcessing = false;
 let consecutiveFailures = 0;
 const ADMIN_SCHEDULER_INTERVAL_MS = 10_000;
+
+// Review requests only need a coarse cadence, so we gate them to ~once a minute
+// even though the surrounding scheduler ticks every 10s.
+const REVIEW_REQUEST_INTERVAL_MS = 60_000;
+let lastReviewRequestRunAt = 0;
+
+function runDueReviewRequests() {
+  const now = Date.now();
+  if (now - lastReviewRequestRunAt < REVIEW_REQUEST_INTERVAL_MS) {
+    return Promise.resolve();
+  }
+  lastReviewRequestRunAt = now;
+  return processDueReviewRequests();
+}
 
 function runAdminSchedulerCycle() {
   if (isProcessing) return;
@@ -26,6 +41,7 @@ function runAdminSchedulerCycle() {
     processAdminOperationalAlerts(),
     pruneAdminOperationalAlerts(),
     processPendingBkashPaymentAttemptReconciliation(),
+    runDueReviewRequests(),
   ])
     .then(() => {
       consecutiveFailures = 0;

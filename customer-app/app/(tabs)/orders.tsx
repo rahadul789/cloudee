@@ -72,6 +72,17 @@ function formatDateTime(value?: string) {
   });
 }
 
+function dedupeOrdersById<T extends { _id: string }>(orders: T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const order of orders) {
+    if (order?._id && seen.has(order._id)) continue;
+    if (order?._id) seen.add(order._id);
+    result.push(order);
+  }
+  return result;
+}
+
 function isActiveStatus(status: string) {
   return [
     "New",
@@ -178,13 +189,17 @@ export default function OrdersScreen() {
 
   const activeOrders = useMemo(
     () =>
-      (liveOrdersQuery.data ?? []).filter((order) =>
-        isActiveStatus(order.status),
+      dedupeOrdersById(
+        (liveOrdersQuery.data ?? []).filter((order) =>
+          isActiveStatus(order.status),
+        ),
       ),
     [liveOrdersQuery.data],
   );
   const historyOrders = useMemo(
-    () => (historyOrdersQuery.data?.pages ?? []).flat(),
+    // Infinite-query pages can overlap when the socket pushes a new order while
+    // paginating, which would render the same _id twice (duplicate React key).
+    () => dedupeOrdersById((historyOrdersQuery.data?.pages ?? []).flat()),
     [historyOrdersQuery.data?.pages],
   );
   const isLiveInitialLoading =

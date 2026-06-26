@@ -14,7 +14,7 @@ import {
   syncOrderLedgerForFinalStatus,
 } from "../owner/finance.service";
 import { NotificationModel, OrderModel } from "../owner/operational.model";
-import { SupportCaseModel } from "../owner/experience.model";
+import { ReviewModel, SupportCaseModel } from "../owner/experience.model";
 import {
   buildOrderPreparationTiming,
   buildPreparationMetaForStart,
@@ -203,6 +203,7 @@ type AdminOrderListParams = {
   paymentStatus?: "all" | "pending" | "paid" | "refund_pending" | "refunded";
   assignment?: "all" | "assigned" | "unassigned" | "stale";
   attention?: "all" | "riderDelay" | "extraTime";
+  reviewState?: "all" | "reviewed" | "requested" | "pending";
   zoneId?: string;
   districtId?: string;
   sortBy?: "newest" | "oldest" | "highestValue" | "recentlyUpdated";
@@ -2556,6 +2557,33 @@ async function buildAdminOrderQuery(params: AdminOrderListParams = {}) {
     query["preparationMeta.extraMinutes"] = { $gt: 0 };
   }
 
+  // Review-request state filter (only meaningful for delivered orders).
+  if (params.reviewState && params.reviewState !== "all") {
+    query.status = "Delivered";
+    if (params.reviewState === "reviewed") {
+      query["reviewRequest.reviewedAt"] = { $ne: null, $exists: true };
+    } else if (params.reviewState === "requested") {
+      query["reviewRequest.reviewedAt"] = { $in: [null, undefined] };
+      query["reviewRequest.pushCount"] = { $gt: 0 };
+    } else if (params.reviewState === "pending") {
+      query.$and = [
+        ...(Array.isArray(query.$and) ? query.$and : []),
+        {
+          $or: [
+            { "reviewRequest.reviewedAt": { $in: [null, undefined] } },
+            { reviewRequest: { $in: [null, undefined] } },
+          ],
+        },
+        {
+          $or: [
+            { "reviewRequest.pushCount": { $in: [null, undefined, 0] } },
+            { reviewRequest: { $in: [null, undefined] } },
+          ],
+        },
+      ];
+    }
+  }
+
   if (params.paymentMethod && params.paymentMethod !== "all") {
     query.paymentMethod = params.paymentMethod;
   }
@@ -3201,6 +3229,31 @@ function mapAdminOrderListItem(
     operationalTiming,
     preparationTiming,
     riderTracking,
+    review: buildAdminOrderReviewSummary(order),
+  };
+}
+
+function buildAdminOrderReviewSummary(order: Record<string, any>) {
+  const reviewRequest = (order.reviewRequest ?? {}) as Record<string, any>;
+  const pushCount = numberValue(reviewRequest.pushCount);
+  const reviewedAt = reviewRequest.reviewedAt
+    ? serializeDate(new Date(reviewRequest.reviewedAt))
+    : null;
+  const lastPushAt = reviewRequest.lastPushAt
+    ? serializeDate(new Date(reviewRequest.lastPushAt))
+    : null;
+  const state: "reviewed" | "requested" | "none" = reviewedAt
+    ? "reviewed"
+    : pushCount > 0
+      ? "requested"
+      : "none";
+  return {
+    state,
+    pushCount,
+    lastPushAt,
+    reviewedAt,
+    rating: numberValue(reviewRequest.rating) || null,
+    riderRating: numberValue(reviewRequest.riderRating) || null,
   };
 }
 
@@ -3234,6 +3287,7 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
         dispatchMeta: 1,
         preparationMeta: 1,
         timestamps: 1,
+        reviewRequest: 1,
         createdAt: 1,
         updatedAt: 1,
       })
@@ -4233,10 +4287,11 @@ export async function getAdminOrderMonitorDetails(orderId: string) {
     );
   }
 
-  const [restaurant, restaurantOwner, content] = await Promise.all([
+  const [restaurant, restaurantOwner, content, reviewDoc] = await Promise.all([
     RestaurantModel.findById(order.restaurantId).lean(),
     OwnerModel.findOne({ activeRestaurantId: order.restaurantId }).lean(),
     getPlatformContent(),
+    ReviewModel.findOne({ orderId: order._id }).lean(),
   ]);
   const dispatchSettings = getDispatchSettingsFromContent(content);
   const riderTracking = decorateTrackingSnapshot(
@@ -4350,6 +4405,22 @@ export async function getAdminOrderMonitorDetails(orderId: string) {
     preparationTiming,
     operationalTiming,
     riderTracking,
+    review: reviewDoc
+      ? {
+          rating: numberValue((reviewDoc as Record<string, any>).rating) || null,
+          comment: stringValue((reviewDoc as Record<string, any>).comment),
+          riderRating:
+            numberValue((reviewDoc as Record<string, any>).riderRating) || null,
+          riderComment: stringValue(
+            (reviewDoc as Record<string, any>).riderComment,
+          ),
+          createdAt: (reviewDoc as Record<string, any>).createdAt
+            ? new Date(
+                (reviewDoc as Record<string, any>).createdAt,
+              ).toISOString()
+            : null,
+        }
+      : null,
     history: Array.isArray(order.history)
       ? order.history.map((entry: Record<string, any>) => ({
           status: entry.status ?? "",

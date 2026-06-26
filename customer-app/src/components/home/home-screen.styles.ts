@@ -939,4 +939,126 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.foreground,
   },
+  // Simple, lightweight header: emoji + title inline with a small live accent.
+  timeSectionHeader: {
+    paddingHorizontal: 20,
+    gap: 3,
+  },
+  timeSectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  timeSectionEmoji: {
+    fontSize: 18,
+  },
+  timeSectionTitle: {
+    flex: 1,
+    fontSize: 16.5,
+    lineHeight: 21,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  timeSectionLivePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  timeSectionLiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  timeSectionLiveText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  timeSectionSubtitle: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: palette.mutedForeground,
+  },
+  // Compact restaurant cards (cart-recommendation style, a touch wider).
+  timeCompactRow: {
+    paddingLeft: 20,
+    paddingRight: 10,
+    gap: 12,
+  },
+  timeCompactCard: {
+    width: 150,
+  },
+  timeCompactCardPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.97 }],
+  },
+  timeCompactImage: {
+    width: "100%",
+    height: 112,
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: palette.surfaceMuted,
+  },
+  timeCompactClosed: {
+    position: "absolute",
+    left: 8,
+    top: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "rgba(31,36,48,0.78)",
+  },
+  timeCompactClosedText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  timeCompactCopy: {
+    paddingTop: 8,
+    paddingHorizontal: 2,
+    gap: 3,
+  },
+  timeCompactName: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  timeCompactMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  timeCompactMetaText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  timeCompactDot: {
+    fontSize: 11,
+    color: palette.placeholder,
+  },
+  // Compact skeleton card matching timeCompactCard.
+  timeCompactSkeletonImage: {
+    width: 150,
+    height: 112,
+    borderRadius: 18,
+  },
+  timeCompactSkeletonLine: {
+    width: 110,
+    height: 11,
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  timeCompactSkeletonLineSmall: {
+    width: 70,
+    height: 9,
+    borderRadius: 6,
+    marginTop: 6,
+  },
 });

@@ -196,13 +196,77 @@ function buildCustomerDiscoveryHomeCacheKey(params?: {
   longitude?: number;
   radiusKm?: number;
   customerId?: string;
+  timeBucket?: number;
 }) {
   return buildCacheKey("customer-discovery-home", {
     customerId: normalizeCacheString(params?.customerId),
     latitude: roundCacheCoordinate(params?.latitude),
     longitude: roundCacheCoordinate(params?.longitude),
     radiusKm: roundCacheCoordinate(params?.radiusKm),
+    // The time-based home section swaps with the Asia/Dhaka clock, so each hour
+    // gets its own cache entry. Window boundaries are hour-aligned, so this keeps
+    // the served window correct without a separate "fetch the window" round-trip.
+    timeBucket: typeof params?.timeBucket === "number" ? params.timeBucket : 0,
   });
+}
+
+// 0-23.999 decimal hour in Asia/Dhaka (minutes included for boundary accuracy).
+function getDhakaHourDecimal(now = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Dhaka",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value ?? "0");
+  return (hour === 24 ? 0 : hour) + minute / 60;
+}
+
+function isHourWithinWindow(
+  hourDecimal: number,
+  startHour: number,
+  endHour: number,
+): boolean {
+  if (endHour > startHour) {
+    return hourDecimal >= startHour && hourDecimal < endHour;
+  }
+  // end <= start: window wraps past midnight (e.g. 23 -> 5).
+  return hourDecimal >= startHour || hourDecimal < endHour;
+}
+
+function resolveActiveTimeWindow(
+  windows: Array<Record<string, any>> | undefined,
+  hourDecimal: number,
+): Record<string, any> | null {
+  if (!Array.isArray(windows)) return null;
+  return (
+    windows.find(
+      (window) =>
+        window?.isActive !== false &&
+        isHourWithinWindow(
+          hourDecimal,
+          Number(window?.startHour ?? 0),
+          Number(window?.endHour ?? 24),
+        ),
+    ) ?? null
+  );
+}
+
+function restaurantMatchesTimeTags(
+  restaurant: Record<string, any>,
+  tags: string[],
+): boolean {
+  if (!tags.length) return true;
+  const haystack = [
+    restaurant?.name,
+    ...(Array.isArray(restaurant?.cuisineTypes) ? restaurant.cuisineTypes : []),
+    ...(Array.isArray(restaurant?.tags) ? restaurant.tags : []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return tags.some((tag) => tag && haystack.includes(tag.toLowerCase()));
 }
 
 function buildCustomerRestaurantDetailsCacheKey(
@@ -2645,8 +2709,12 @@ export async function getCustomerDiscoveryHome(params?: {
   radiusKm?: number;
   customerId?: string;
 }): Promise<CustomerDiscoveryHomeResult> {
+  const dhakaHourDecimal = getDhakaHourDecimal();
   return customerDiscoveryHomeCache.getOrSet(
-    buildCustomerDiscoveryHomeCacheKey(params),
+    buildCustomerDiscoveryHomeCacheKey({
+      ...params,
+      timeBucket: Math.floor(dhakaHourDecimal),
+    }),
     async () => {
       const [
         platformContent,
@@ -2905,6 +2973,68 @@ export async function getCustomerDiscoveryHome(params?: {
               ? manualPopularNearYouRestaurants
               : autoPopularRestaurants
             ).slice(0, getHomeRestaurantSectionLimit(popularNearYouSection));
+      // Time-based section: pick the window that matches the current Asia/Dhaka
+      // hour, then resolve its restaurants (manual ids or auto tag-match), with a
+      // graceful fallback to the general nearby pool so it never renders empty.
+      const timeBasedConfig =
+        homePlatformContent.customerApp.homeCms.timeBasedSection;
+      let timeBasedSection: Record<string, any> | null = null;
+      if (timeBasedConfig?.isActive !== false) {
+        const activeWindow = resolveActiveTimeWindow(
+          timeBasedConfig?.windows,
+          dhakaHourDecimal,
+        );
+        if (activeWindow) {
+          const timeLimit = Math.max(
+            1,
+            Math.min(20, Number(timeBasedConfig?.maxItems ?? 8)),
+          );
+          const manualWindowIds = Array.isArray(activeWindow.selectedRestaurantIds)
+            ? activeWindow.selectedRestaurantIds.filter(Boolean)
+            : [];
+          let windowRestaurants: CustomerCacheRecord[] = [];
+          if (timeBasedConfig?.source === "manual" && manualWindowIds.length) {
+            const manualRows = await listDiscoverableRestaurants({
+              restaurantIds: manualWindowIds,
+              latitude: params?.latitude,
+              longitude: params?.longitude,
+              radiusKm: params?.radiusKm,
+            });
+            windowRestaurants = orderRestaurantsByIds(manualRows, manualWindowIds);
+          } else {
+            const pool = candidateRestaurants.length
+              ? candidateRestaurants
+              : await listDiscoverableRestaurants({
+                  latitude: params?.latitude,
+                  longitude: params?.longitude,
+                  radiusKm: params?.radiusKm,
+                });
+            const matchTags = Array.isArray(activeWindow.matchTags)
+              ? activeWindow.matchTags.filter(Boolean)
+              : [];
+            const matched = pool.filter((restaurant) =>
+              restaurantMatchesTimeTags(restaurant, matchTags),
+            );
+            windowRestaurants = matched.length ? matched : pool;
+          }
+          windowRestaurants = windowRestaurants.slice(0, timeLimit);
+          if (windowRestaurants.length) {
+            timeBasedSection = {
+              isActive: true,
+              windowId: activeWindow.id,
+              title: activeWindow.title,
+              subtitle: activeWindow.subtitle ?? "",
+              emoji: activeWindow.emoji ?? "",
+              icon: activeWindow.icon ?? "time-outline",
+              accentColor: activeWindow.accentColor ?? "#FF5C93",
+              layout: timeBasedConfig?.layout ?? "horizontal",
+              position: Number(timeBasedConfig?.position ?? 1),
+              maxItems: timeLimit,
+              restaurants: windowRestaurants,
+            };
+          }
+        }
+      }
       const hasCustomerOrders = params?.customerId
         ? Boolean(await OrderModel.exists({ customerId: params.customerId }))
         : false;
@@ -2922,6 +3052,7 @@ export async function getCustomerDiscoveryHome(params?: {
           ? homePlatformContent.customerApp.homeBanner
           : null,
         homeCms,
+        timeBasedSection,
         featuredRestaurants,
         restaurantsWithOffers: shouldShowRestaurantOfferSection ? offerRestaurants : [],
         discoverNewRestaurants,
@@ -5453,6 +5584,8 @@ export async function createCustomerReview(params: {
   orderId: string;
   rating: number;
   comment?: string;
+  riderRating?: number;
+  riderComment?: string;
 }) {
   const safeCustomerId = ensureCustomerIdentity(params.customerId);
   const order = await OrderModel.findOne({
@@ -5488,7 +5621,22 @@ export async function createCustomerReview(params: {
     orderId: order._id,
     rating: params.rating,
     comment: params.comment ?? "",
+    riderId: String(order.riderId ?? ""),
+    riderRating:
+      typeof params.riderRating === "number" ? params.riderRating : null,
+    riderComment: params.riderComment ?? "",
   });
+
+  // Stamp the order so the admin orders list can show review state cheaply
+  // (without a per-row ReviewModel lookup) and the scheduler stops reminding.
+  order.set("reviewRequest", {
+    ...((order.get("reviewRequest") ?? {}) as Record<string, unknown>),
+    reviewedAt: new Date(),
+    rating: params.rating,
+    riderRating:
+      typeof params.riderRating === "number" ? params.riderRating : null,
+  });
+  await order.save();
 
   const restaurant = await RestaurantModel.findById(order.restaurantId);
   if (restaurant) {

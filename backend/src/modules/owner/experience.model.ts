@@ -16,6 +16,9 @@ const reviewSchema = new Schema(
     orderId: { type: Schema.Types.ObjectId, ref: "Order", default: null },
     rating: { type: Number, required: true, min: 1, max: 5 },
     comment: { type: String, default: "" },
+    riderId: { type: String, default: "" },
+    riderRating: { type: Number, min: 1, max: 5, default: null },
+    riderComment: { type: String, default: "" },
     ownerReply: { type: reviewReplySchema, default: () => ({}) },
     moderationStatus: {
       type: String,

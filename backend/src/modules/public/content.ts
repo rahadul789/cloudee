@@ -277,6 +277,85 @@ export const platformContent = {
           allowRepeatAcrossSections: true,
         },
       },
+      timeBasedSection: {
+        isActive: true,
+        source: "auto",
+        layout: "horizontal",
+        position: 1,
+        maxItems: 8,
+        windows: [
+          {
+            id: "breakfast",
+            label: "Breakfast",
+            title: "Sokaler nasta",
+            subtitle: "Garam garam nasta diye din shuru korun.",
+            emoji: "🌅",
+            icon: "cafe-outline",
+            accentColor: "#FFB020",
+            startHour: 5,
+            endHour: 11,
+            matchTags: ["breakfast", "nasta", "paratha", "tea", "coffee", "bakery"],
+            selectedRestaurantIds: [],
+            isActive: true,
+          },
+          {
+            id: "lunch",
+            label: "Lunch",
+            title: "Dupurer khabar",
+            subtitle: "Bhat, biryani ar bhorta — pet bhore khan.",
+            emoji: "🍛",
+            icon: "restaurant-outline",
+            accentColor: "#FF5C93",
+            startHour: 11,
+            endHour: 16,
+            matchTags: ["lunch", "rice", "biryani", "bhat", "meal", "thali"],
+            selectedRestaurantIds: [],
+            isActive: true,
+          },
+          {
+            id: "snacks",
+            label: "Snacks",
+            title: "Bikeler adda",
+            subtitle: "Cha-er shathe halka kichu mukhorochok.",
+            emoji: "☕",
+            icon: "fast-food-outline",
+            accentColor: "#7C5CFF",
+            startHour: 16,
+            endHour: 19,
+            matchTags: ["snacks", "fast food", "burger", "pizza", "tea", "coffee", "dessert"],
+            selectedRestaurantIds: [],
+            isActive: true,
+          },
+          {
+            id: "dinner",
+            label: "Dinner",
+            title: "Rater khabar",
+            subtitle: "Din shesh korun moja kore — garam khabar.",
+            emoji: "🌙",
+            icon: "moon-outline",
+            accentColor: "#2B6DEF",
+            startHour: 19,
+            endHour: 23,
+            matchTags: ["dinner", "biryani", "kebab", "grill", "rice", "curry"],
+            selectedRestaurantIds: [],
+            isActive: true,
+          },
+          {
+            id: "late_night",
+            label: "Late night",
+            title: "Raat jaga khide",
+            subtitle: "Ekhono khola — raater khide mitiye nin.",
+            emoji: "✨",
+            icon: "sparkles-outline",
+            accentColor: "#0E7C66",
+            startHour: 23,
+            endHour: 5,
+            matchTags: ["fast food", "burger", "pizza", "tea", "coffee", "dessert"],
+            selectedRestaurantIds: [],
+            isActive: true,
+          },
+        ],
+      },
       cartRecommendations: {
         isActive: true,
         source: "both",
@@ -389,6 +468,27 @@ export const platformContent = {
       surchargeStartsAfterKm: 2,
       surchargeStepMeters: 500,
       surchargeAmountTaka: 5,
+    },
+    reviewRequests: {
+      // Auto post-delivery review push. Fully dynamic — no app update needed.
+      autoEnabled: true,
+      // When on, the customer app shows a separate (collapsible) rider review
+      // section alongside the food review.
+      riderReviewEnabled: true,
+      // Wait this long after delivery before the first review push.
+      delayMinutes: 20,
+      // Total pushes per order (including the first). Reminders stop once a
+      // review is submitted.
+      maxReminders: 2,
+      // Gap between reminder pushes.
+      reminderGapHours: 24,
+      // Stop requesting once the order is older than this (hours since delivery).
+      windowHours: 72,
+      // Asia/Dhaka quiet hours — no review push sent inside this range.
+      quietHoursStart: 22,
+      quietHoursEnd: 9,
+      pushTitle: "How was your order? ⭐",
+      pushBody: "Tap to rate — your feedback helps others order with confidence.",
     },
     routing: {
       // "google" = real road distance/time/ETA + route polyline via Google

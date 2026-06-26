@@ -1157,6 +1157,11 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  reviewRatingLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.amber,
+  },
   reviewStarButton: {
     width: 38,
     height: 38,
@@ -1181,7 +1186,7 @@ export const styles = StyleSheet.create({
   submitReviewButton: {
     minHeight: 48,
     borderRadius: 999,
-    backgroundColor: palette.foreground,
+    backgroundColor: palette.secondary,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -58,10 +58,18 @@
       "Bash(cd /d/cloudee/delivery-app && find app src -type f 2>/dev/null | grep -vE \"node_modules\" | head -120)",
       "Read(//d/d/cloudee/delivery-app/**)",
       "Bash(cd /d/cloudee/admin-web && find src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" \\\\\\) | grep -iE \"rider|order|live|fleet|deliver|finance|analytic|performance\" | head -40)",
-      "Read(//d/d/cloudee/admin-web/**)"
+      "Read(//d/d/cloudee/admin-web/**)",
+      "Bash(grep -rln \"CustomerDiscoveryHomeResult\\\\|restaurantSections\" backend/src/modules/customer/*.ts backend/src/**/types*)",
+      "Bash(grep -rln \"CustomerHomeRestaurantSectionConfig\\\\|CustomerHomeCms\\\\b\" customer-app/src/types/)",
+      "Bash(xargs grep -ln \"new Schema\\\\|model<\")",
+      "Bash(sed -n '385,420p' app/orders/[orderId]/tracking.tsx | grep -n \"restaurant\\\\|order\\\\.\\\\|const \" | head; echo \"=== Screen + palette amber ===\"; grep -rn \"amber\" src/theme/palette.ts; grep -n \"\\\\\"@/src/components/screen\\\\\"\\\\|components/screen\" app/orders/[orderId]/tracking.tsx)",
+      "Bash(grep -n \"assign-rider\\\\|orders/.*review\\\\|review-request\\\\|export async function.*Order\\\\|orders/\\\\${\" lib/admin-api.ts)",
+      "WebSearch",
+      "WebFetch(domain:reactnavigation.org)"
     ],
     "additionalDirectories": [
-      "d:\\d\\cloudee\\admin-web\\src\\components"
+      "d:\\d\\cloudee\\admin-web\\src\\components",
+      "D:\\cloudee\\customer-app\\app\\orders\\[orderId]"
     ]
   }
 }

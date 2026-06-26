@@ -29,7 +29,6 @@ import { RemoteImage } from "@/src/components/remote-image";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
 import { SectionHeader } from "@/src/components/section-header";
-import { DELIVERY_RADIUS_KM } from "@/src/config/service-area";
 import {
   useCustomerDiscoveryHomeQuery,
   useCustomerFavoriteRestaurantIdsQuery,
@@ -57,6 +56,24 @@ import type {
 
 function isExternalHttpUrl(value?: string | null) {
   return typeof value === "string" && /^https?:\/\//i.test(value.trim());
+}
+
+// Expands a #RGB/#RRGGBB color into an 8-digit hex with the given alpha so the
+// time-based section can tint its header from the admin-set accent color.
+function withAlpha(hex: string | undefined, alpha: number) {
+  const normalized = (hex ?? "").replace("#", "").trim();
+  if (normalized.length !== 3 && normalized.length !== 6) return hex ?? "#FF5C93";
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((char) => char + char)
+          .join("")
+      : normalized;
+  const alphaHex = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `#${full}${alphaHex}`;
 }
 
 function getOfferLabel(offer: CustomerVoucherOffer) {
@@ -431,18 +448,27 @@ export default function HomeScreen() {
   );
   const isSearching = searchQuery.trim().length > 0;
 
-  const nearbyRestaurantsQuery = useNearbyRestaurantsQuery({
-    latitude: selectedLocation?.latitude,
-    longitude: selectedLocation?.longitude,
-    radiusKm: DELIVERY_RADIUS_KM,
-    search: searchQuery,
-  });
-
   const homeQuery = useCustomerDiscoveryHomeQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
-    radiusKm: DELIVERY_RADIUS_KM,
   });
+  // Skip the separate /customer/restaurants call when admin has turned the
+  // Nearby section off. Defaults to enabled until the home feed (which carries
+  // the section config) loads, so the common (active) case still fetches in
+  // parallel without a waterfall.
+  const isNearbySectionEnabled =
+    homeQuery.data?.homeCms?.restaurantSections?.nearby?.isActive !== false;
+  // radiusKm intentionally omitted: the backend resolves the effective delivery
+  // range (service zone, else the admin-set fallback) inside the same request,
+  // so there is no extra "fetch radius first" round-trip and the admin stays in
+  // full control without an app update.
+  const nearbyRestaurantsQuery = useNearbyRestaurantsQuery({
+    latitude: selectedLocation?.latitude,
+    longitude: selectedLocation?.longitude,
+    search: searchQuery,
+    enabled: isNearbySectionEnabled,
+  });
+
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
   const orderPresenceQuery = useCustomerOrderPresenceQuery(
     isAuthenticated && !isSearching,
@@ -627,6 +653,19 @@ export default function HomeScreen() {
     popularNearYouSectionConfig,
     selectedLocation,
   ]);
+  const timeBasedSectionData = !isSearching
+    ? (homeFeed?.timeBasedSection ?? null)
+    : null;
+  const timeBasedRestaurants = useMemo(() => {
+    if (isSearching || !selectedLocation) return [];
+    if (!timeBasedSectionData || timeBasedSectionData.isActive === false) {
+      return [];
+    }
+    return timeBasedSectionData.restaurants ?? [];
+  }, [isSearching, selectedLocation, timeBasedSectionData]);
+  const shouldShowTimeBasedSection = timeBasedRestaurants.length > 0;
+  const timeSectionAccent = timeBasedSectionData?.accentColor || palette.secondary;
+
   const nearbyRestaurantsForSection = useMemo(() => {
     if (!isHomeRestaurantSectionActive(nearbySectionConfig)) return [];
     const featuredIds = new Set(
@@ -1248,6 +1287,122 @@ export default function HomeScreen() {
               />
             ) : null}
 
+            {shouldShowTimeBasedSection ? (
+              <View style={styles.section}>
+                <View style={styles.timeSectionHeader}>
+                  <View style={styles.timeSectionTitleRow}>
+                    {timeBasedSectionData?.emoji ? (
+                      <Text style={styles.timeSectionEmoji}>
+                        {timeBasedSectionData.emoji}
+                      </Text>
+                    ) : (
+                      <Ionicons
+                        name={
+                          (timeBasedSectionData?.icon ||
+                            "time-outline") as keyof typeof Ionicons.glyphMap
+                        }
+                        size={18}
+                        color={timeSectionAccent}
+                      />
+                    )}
+                    <Text style={styles.timeSectionTitle} numberOfLines={1}>
+                      {timeBasedSectionData?.title}
+                    </Text>
+                    <View
+                      style={[
+                        styles.timeSectionLivePill,
+                        { backgroundColor: withAlpha(timeSectionAccent, 0.14) },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.timeSectionLiveDot,
+                          { backgroundColor: timeSectionAccent },
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.timeSectionLiveText,
+                          { color: timeSectionAccent },
+                        ]}
+                      >
+                        Live
+                      </Text>
+                    </View>
+                  </View>
+                  {timeBasedSectionData?.subtitle ? (
+                    <Text style={styles.timeSectionSubtitle} numberOfLines={1}>
+                      {timeBasedSectionData.subtitle}
+                    </Text>
+                  ) : null}
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.timeCompactRow}
+                >
+                  {timeBasedRestaurants.map((restaurant) => (
+                    <Pressable
+                      key={restaurant._id}
+                      style={({ pressed }) => [
+                        styles.timeCompactCard,
+                        pressed ? styles.timeCompactCardPressed : null,
+                      ]}
+                      onPress={() => goToRestaurant(restaurant)}
+                    >
+                      <View style={styles.timeCompactImage}>
+                        <RemoteImage
+                          uri={
+                            restaurant.coverImage?.url ||
+                            restaurant.logo?.url ||
+                            null
+                          }
+                          style={{ width: "100%", height: "100%" }}
+                          fallbackIcon="restaurant-outline"
+                          accessibilityLabel={restaurant.name}
+                        />
+                        {restaurant.isOpen === false ? (
+                          <View style={styles.timeCompactClosed}>
+                            <Text style={styles.timeCompactClosedText}>
+                              Closed
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.timeCompactCopy}>
+                        <Text style={styles.timeCompactName} numberOfLines={1}>
+                          {restaurant.name}
+                        </Text>
+                        <View style={styles.timeCompactMetaRow}>
+                          {typeof restaurant.avgRating === "number" &&
+                          restaurant.avgRating > 0 ? (
+                            <>
+                              <Ionicons
+                                name="star"
+                                size={11}
+                                color={palette.amber}
+                              />
+                              <Text style={styles.timeCompactMetaText}>
+                                {restaurant.avgRating.toFixed(1)}
+                              </Text>
+                              {typeof restaurant.distanceKm === "number" ? (
+                                <Text style={styles.timeCompactDot}>·</Text>
+                              ) : null}
+                            </>
+                          ) : null}
+                          {typeof restaurant.distanceKm === "number" ? (
+                            <Text style={styles.timeCompactMetaText}>
+                              {restaurant.distanceKm.toFixed(1)} km
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             {featuredRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeaderWrap}>
@@ -1318,7 +1473,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {offerRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
+            {offerRestaurants.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeaderWrap}>
                   <SectionHeader
@@ -1392,7 +1547,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {discoverNewRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
+            {discoverNewRestaurants.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeaderWrap}>
                   <SectionHeader
@@ -1461,8 +1616,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {popularNearYouRestaurants.length > 0 ||
-            shouldShowHomeFeedSkeleton ? (
+            {popularNearYouRestaurants.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHeaderWrap}>
                   <SectionHeader

@@ -11,6 +11,7 @@ import {
   Ban,
   CalendarClock,
   CheckCircle2,
+  Bike,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +24,7 @@ import {
   Phone,
   RotateCcw,
   Search,
+  Star,
   TableConfig,
   Truck,
   WalletCards,
@@ -38,6 +40,7 @@ import {
   listAdminActivityLogs,
   listAdminOrders,
   listAdminRidersAssignmentOptions,
+  sendAdminOrderReviewRequest,
   updateAdminOrderRefundStatus,
   updateAdminOrderStatus,
   type AdminOrderDetails,
@@ -119,6 +122,7 @@ type PaymentStatusFilter =
   | "refunded"
 type AssignmentFilter = "all" | "assigned" | "unassigned" | "stale"
 type AttentionFilter = "all" | "riderDelay" | "extraTime"
+type ReviewStateFilter = "all" | "reviewed" | "requested" | "pending"
 type OrderSort = "newest" | "oldest" | "highestValue" | "recentlyUpdated"
 type OrderPreset = Extract<
   AdminRestaurantOrderDateFilterPreset,
@@ -686,6 +690,18 @@ function OrderActionsMenu({
   const statusActions = getStatusActions(order.status)
   const target = toOrderTarget(order)
 
+  const reviewRequestMutation = useMutation({
+    mutationFn: () => sendAdminOrderReviewRequest({ orderId: order.id }),
+    onSuccess: () => {
+      toast.success("Review request sent to the customer")
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Could not send review request",
+      )
+    },
+  })
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -704,6 +720,21 @@ function OrderActionsMenu({
           <Eye className="size-4" />
           View details
         </DropdownMenuItem>
+        {order.status === "Delivered" ? (
+          <DropdownMenuItem
+            onClick={(event) => {
+              event.preventDefault()
+              if (!reviewRequestMutation.isPending) {
+                reviewRequestMutation.mutate()
+              }
+            }}
+          >
+            <Star className="size-4" />
+            {reviewRequestMutation.isPending
+              ? "Sending..."
+              : "Send review request"}
+          </DropdownMenuItem>
+        ) : null}
         {order.status === "ReadyForPickup" ? (
           <DropdownMenuItem onClick={() => onAssign(target)}>
             <Truck className="size-4" />
@@ -787,6 +818,14 @@ function OrderDetailsSheet({
   const [nowMs, setNowMs] = React.useState(() => Date.now())
   const target = details ? toOrderTarget(details) : null
   const statusActions = details ? getStatusActions(details.status) : []
+  const reviewRequestMutation = useMutation({
+    mutationFn: () => sendAdminOrderReviewRequest({ orderId }),
+    onSuccess: () => toast.success("Review request sent to the customer"),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Could not send review request",
+      ),
+  })
   const timing = details?.operationalTiming
   const prepTiming = details?.preparationTiming
   const extraPrepMinutes = Math.max(0, Math.round(prepTiming?.extraMinutes ?? 0))
@@ -900,6 +939,18 @@ function OrderDetailsSheet({
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {details.status === "Delivered" ? (
+                    <Button
+                      variant="outline"
+                      disabled={reviewRequestMutation.isPending}
+                      onClick={() => reviewRequestMutation.mutate()}
+                    >
+                      <Star className="size-4" />
+                      {reviewRequestMutation.isPending
+                        ? "Sending..."
+                        : "Send review request"}
+                    </Button>
+                  ) : null}
                   {details.status === "ReadyForPickup" && target ? (
                     <Button variant="outline" onClick={() => onAssign(target)}>
                       <Truck className="size-4" />
@@ -1223,6 +1274,58 @@ function OrderDetailsSheet({
                       </CardContent>
                     </Card>
                   </div>
+
+                  {details.review ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Star className="size-4 text-amber-500" />
+                          Customer review
+                        </CardTitle>
+                        <CardDescription>
+                          Submitted {formatDate(details.review.createdAt)}.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="grid gap-4 text-sm sm:grid-cols-2">
+                        <div className="space-y-1.5 rounded-lg border bg-background p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Food rating
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="border-amber-200 bg-amber-50 text-amber-700"
+                            >
+                              <Star className="mr-1 size-3" />
+                              {details.review.rating ?? "—"}/5
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {details.review.comment || "No comment"}
+                          </p>
+                        </div>
+                        <div className="space-y-1.5 rounded-lg border bg-background p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              Rider rating
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="border-sky-200 bg-sky-50 text-sky-700"
+                            >
+                              <Star className="mr-1 size-3" />
+                              {details.review.riderRating
+                                ? `${details.review.riderRating}/5`
+                                : "Not rated"}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {details.review.riderComment || "No comment"}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
                 </TabsContent>
 
                 <TabsContent value="items">
@@ -1421,6 +1524,8 @@ export function OrdersPage() {
     React.useState<PaymentStatusFilter>("all")
   const [assignment, setAssignment] = React.useState<AssignmentFilter>("all")
   const [attention, setAttention] = React.useState<AttentionFilter>("all")
+  const [reviewState, setReviewState] =
+    React.useState<ReviewStateFilter>("all")
   const [sortBy, setSortBy] = React.useState<OrderSort>("newest")
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(10)
@@ -1456,6 +1561,7 @@ export function OrdersPage() {
       paymentStatus,
       assignment,
       attention,
+      reviewState,
       sortBy,
       page,
       pageSize,
@@ -1472,6 +1578,7 @@ export function OrdersPage() {
         paymentStatus,
         assignment,
         attention,
+        reviewState,
         sortBy,
         page,
         pageSize,
@@ -1524,6 +1631,7 @@ export function OrdersPage() {
     paymentStatus !== "all" ||
     assignment !== "all" ||
     attention !== "all" ||
+    reviewState !== "all" ||
     sortBy !== "newest"
 
   React.useEffect(() => {
@@ -1543,6 +1651,7 @@ export function OrdersPage() {
     paymentStatus,
     assignment,
     attention,
+    reviewState,
     sortBy,
     pageSize,
   ])
@@ -1570,6 +1679,7 @@ export function OrdersPage() {
     setPaymentStatus("all")
     setAssignment("all")
     setAttention("all")
+    setReviewState("all")
     setSortBy("newest")
     setPage(1)
   }
@@ -1893,6 +2003,22 @@ export function OrdersPage() {
                   </SelectContent>
                 </Select>
                 <Select
+                  value={reviewState}
+                  onValueChange={(value) =>
+                    setReviewState(value as ReviewStateFilter)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All reviews</SelectItem>
+                    <SelectItem value="reviewed">Reviewed</SelectItem>
+                    <SelectItem value="requested">Review requested</SelectItem>
+                    <SelectItem value="pending">Review pending</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
                   value={sortBy}
                   onValueChange={(value) => setSortBy(value as OrderSort)}
                 >
@@ -2027,6 +2153,35 @@ export function OrdersPage() {
                             <Clock className="mr-1 size-3" />
                             +{extraPrepMinutes} min prep
                           </Badge>
+                        ) : null}
+                        {order.status === "Delivered" &&
+                        order.review &&
+                        order.review.state !== "none" ? (
+                          <>
+                            <Badge
+                              variant="outline"
+                              className={
+                                order.review.state === "reviewed"
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                  : "border-sky-200 bg-sky-50 text-sky-700"
+                              }
+                            >
+                              <Star className="mr-1 size-3" />
+                              {order.review.state === "reviewed"
+                                ? `Food ${order.review.rating ?? ""}★`.trim()
+                                : "Review sent"}
+                            </Badge>
+                            {order.review.state === "reviewed" &&
+                            order.review.riderRating ? (
+                              <Badge
+                                variant="outline"
+                                className="border-sky-200 bg-sky-50 text-sky-700"
+                              >
+                                <Bike className="mr-1 size-3" />
+                                {order.review.riderRating}★
+                              </Badge>
+                            ) : null}
+                          </>
                         ) : null}
                         </div>
                       </TableCell>

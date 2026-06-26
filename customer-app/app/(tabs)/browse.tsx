@@ -20,7 +20,6 @@ import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
-import { DELIVERY_RADIUS_KM } from "@/src/config/service-area";
 import {
   useCustomerDiscoveryHomeQuery,
   useCustomerFavoriteRestaurantIdsQuery,
@@ -160,10 +159,10 @@ export default function BrowseScreen() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // radiusKm omitted: backend applies the resolved zone / admin fallback radius.
   const nearbyRestaurantsQuery = useRestaurantDiscoveryInfiniteQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
-    radiusKm: DELIVERY_RADIUS_KM,
     search: debouncedSearchQuery,
     filter: activeFilter,
     sortBy,
@@ -175,7 +174,6 @@ export default function BrowseScreen() {
   const homeDiscoveryQuery = useCustomerDiscoveryHomeQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
-    radiusKm: DELIVERY_RADIUS_KM,
   });
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();

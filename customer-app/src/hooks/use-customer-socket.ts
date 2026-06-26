@@ -309,20 +309,29 @@ export function useCustomerSocketBridge() {
               ? null
               : current ?? null,
       );
+      const previousBanneredStatus = banneredStatusRef.current.get(payload._id);
+      const isStatusTransition = previousBanneredStatus !== payload.status;
+      banneredStatusRef.current.set(payload._id, payload.status);
+
       if (payload.status === "PickedUp" && payload.riderTracking?.currentLocation) {
+        // Refresh the open tracking screen's order detail (rider location). This
+        // is a no-op refetch when that screen isn't mounted (inactive query).
         void queryClient.invalidateQueries({
           queryKey: ["customer", "orders", payload._id],
           exact: true,
         });
       }
-      if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "history"] });
+      // History/presence only change on a real status transition. Rider location
+      // pings re-emit the same status many times a minute — gating here prevents
+      // an app-wide invalidate/refetch storm that made the app sluggish during
+      // live deliveries.
+      if (isStatusTransition) {
+        if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
+          queryClient.invalidateQueries({ queryKey: ["customer", "orders", "history"] });
+        }
+        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
       }
-      queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
 
-      const previousBanneredStatus = banneredStatusRef.current.get(payload._id);
-      const isStatusTransition = previousBanneredStatus !== payload.status;
-      banneredStatusRef.current.set(payload._id, payload.status);
       if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
         // Order is finished; drop it so a future order id reuse can't be muted.
         banneredStatusRef.current.delete(payload._id);

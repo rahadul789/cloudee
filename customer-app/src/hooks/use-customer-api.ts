@@ -34,7 +34,11 @@ import {
 type NearbyRestaurantsParams = {
   latitude?: number;
   longitude?: number;
-  radiusKm: number;
+  // Optional on purpose: when omitted, the backend applies the admin-configured
+  // fallback radius (operations.serviceArea.radiusKm) or the resolved service
+  // zone. The app must NOT send a hardcoded ceiling, otherwise the server's
+  // min(appRadius, adminRadius) clamp would silently cap the admin's range.
+  radiusKm?: number;
   search?: string;
 };
 
@@ -80,6 +84,9 @@ type PlatformContentResponse = {
   operations?: {
     payments?: Partial<CustomerPaymentSettings>;
     mapStyles?: PlatformMapStyleSettings;
+    reviewRequests?: {
+      riderReviewEnabled?: boolean;
+    };
   };
 };
 
@@ -324,7 +331,9 @@ export type CustomerSupportCase = {
   messages: CustomerSupportCaseMessage[];
 };
 
-export function useNearbyRestaurantsQuery(params: NearbyRestaurantsParams) {
+export function useNearbyRestaurantsQuery(
+  params: NearbyRestaurantsParams & { enabled?: boolean },
+) {
   const query = buildQueryString(
     compactQueryParams({
       latitude: typeof params.latitude === "number" ? params.latitude : undefined,
@@ -336,8 +345,12 @@ export function useNearbyRestaurantsQuery(params: NearbyRestaurantsParams) {
 
   return useQuery({
     queryKey: ["customer", "nearby-restaurants", query],
+    // `enabled` lets the caller skip this call entirely when the Nearby home
+    // section is turned off in admin — an inactive section makes no API call.
     enabled:
-      typeof params.latitude === "number" && typeof params.longitude === "number",
+      params.enabled !== false &&
+      typeof params.latitude === "number" &&
+      typeof params.longitude === "number",
     placeholderData: keepPreviousData,
     queryFn: async () => {
       const response = await apiGet<DiscoverableRestaurant[]>(
@@ -435,6 +448,16 @@ export function useCustomerPaymentSettingsQuery() {
             : 60,
       } satisfies CustomerPaymentSettings;
     },
+  });
+}
+
+export function useCustomerRiderReviewEnabledQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) =>
+      content.operations?.reviewRequests?.riderReviewEnabled !== false,
   });
 }
 
@@ -1614,7 +1637,12 @@ export function useCustomerReviewMutation(orderId?: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (body: { rating: number; comment?: string }) => {
+    mutationFn: async (body: {
+      rating: number;
+      comment?: string;
+      riderRating?: number;
+      riderComment?: string;
+    }) => {
       if (!orderId) {
         throw new Error("Order id is required to submit a review.");
       }

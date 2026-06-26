@@ -1,11 +1,22 @@
 import mongoose from "mongoose"
+import { StatusCodes } from "http-status-codes"
 
+import { AppError } from "../../common/utils/app-error"
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
 import { logger } from "../../config/logger"
 import { emitSocketEvent } from "../../config/socket"
 import { AdminNotificationScheduleModel } from "../admin/notification-schedule.model"
 import { OrderModel } from "../owner/operational.model"
+import { ReviewModel } from "../owner/experience.model"
+import { getPlatformContent } from "../public/content.service"
 import { CustomerModel } from "./customer.model"
+
+// content.service also imports sendPushToCustomer from this module. The cycle is
+// safe because both sides only call the imported symbols inside functions (never
+// at module load), so getPlatformContent is resolved by the time it runs.
+async function loadPlatformContent() {
+  return getPlatformContent()
+}
 
 type CustomerPushPayload = {
   title: string
@@ -728,4 +739,226 @@ export async function sendPushToCustomer(params: {
   )
 
   return { sent, disabled: invalidIndexes.length, inAppCreated: 1, sentExpoTokens, ticketIds }
+}
+
+// ---------------------------------------------------------------------------
+// Post-delivery review requests (auto scheduler + manual trigger)
+// ---------------------------------------------------------------------------
+
+type ReviewRequestConfig = {
+  autoEnabled: boolean
+  delayMinutes: number
+  maxReminders: number
+  reminderGapHours: number
+  windowHours: number
+  quietHoursStart: number
+  quietHoursEnd: number
+  pushTitle: string
+  pushBody: string
+}
+
+const REVIEW_REQUEST_DEFAULTS: ReviewRequestConfig = {
+  autoEnabled: true,
+  delayMinutes: 20,
+  maxReminders: 2,
+  reminderGapHours: 24,
+  windowHours: 72,
+  quietHoursStart: 22,
+  quietHoursEnd: 9,
+  pushTitle: "How was your order? ⭐",
+  pushBody: "Tap to rate — your feedback helps others order with confidence.",
+}
+
+async function getReviewRequestConfig(): Promise<ReviewRequestConfig> {
+  try {
+    const content = await loadPlatformContent()
+    const config = (content as any)?.operations?.reviewRequests
+    return { ...REVIEW_REQUEST_DEFAULTS, ...(config ?? {}) }
+  } catch (error) {
+    logger.error(error, "Failed to load review-request config; using defaults")
+    return REVIEW_REQUEST_DEFAULTS
+  }
+}
+
+function getDhakaHour(now = new Date()): number {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Dhaka",
+      hour: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(now)
+      .find((part) => part.type === "hour")?.value ?? "0",
+  )
+  return hour === 24 ? 0 : hour
+}
+
+function isWithinQuietHours(hour: number, start: number, end: number): boolean {
+  if (start === end) return false
+  if (start < end) return hour >= start && hour < end
+  // wraps past midnight (e.g. 22 -> 9)
+  return hour >= start || hour < end
+}
+
+function buildReviewRequestPayload(
+  orderId: string,
+  config: ReviewRequestConfig,
+): CustomerPushPayload {
+  return {
+    title: config.pushTitle,
+    body: config.pushBody,
+    data: {
+      type: "review_request",
+      // Deliberately no `orderId` field: resolveCustomerPushRoute prioritizes a
+      // bare orderId into the tracking screen, which would hijack this push away
+      // from the review screen. The /orders/{id}/review path resolves on its own.
+      path: `/orders/${orderId}/review`,
+      ctaPath: `/orders/${orderId}/review`,
+      ctaLabel: "Rate order",
+    },
+  }
+}
+
+function getOrderDeliveredAtMs(order: {
+  get: (path: string) => unknown
+  updatedAt?: Date
+}): number {
+  const timestamps = (order.get("timestamps") ?? {}) as Record<string, unknown>
+  const delivered = timestamps.Delivered ?? order.updatedAt ?? null
+  const ms = delivered ? new Date(delivered as string).getTime() : NaN
+  return Number.isFinite(ms) ? ms : NaN
+}
+
+/**
+ * Manually trigger a review-request push for one order (admin action). Respects
+ * the "already reviewed" guard but ignores the auto on/off toggle and quiet
+ * hours, since an admin is explicitly sending it.
+ */
+export async function sendReviewRequestForOrder(params: {
+  orderId: string
+  force?: boolean
+}) {
+  if (!mongoose.Types.ObjectId.isValid(params.orderId)) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "INVALID_ORDER", "Invalid order id")
+  }
+
+  const order = await OrderModel.findById(params.orderId)
+  if (!order) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
+  }
+  if (order.get("status") !== "Delivered") {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_NOT_DELIVERED",
+      "Review requests can only be sent for delivered orders",
+    )
+  }
+
+  const customerId = String(order.get("customerId") ?? "").trim()
+  if (!customerId) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_HAS_NO_CUSTOMER",
+      "This order has no linked customer account to notify",
+    )
+  }
+
+  const existingReview = await ReviewModel.exists({ orderId: order._id })
+  if (existingReview && !params.force) {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "REVIEW_ALREADY_EXISTS",
+      "This order already has a review",
+    )
+  }
+
+  const config = await getReviewRequestConfig()
+  const result = await sendPushToCustomer({
+    customerId,
+    payload: buildReviewRequestPayload(String(order._id), config),
+  })
+
+  const previous = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
+  order.set("reviewRequest", {
+    ...previous,
+    pushCount: Number(previous.pushCount ?? 0) + 1,
+    lastPushAt: new Date(),
+    lastChannel: "manual",
+  })
+  await order.save()
+
+  return result
+}
+
+/**
+ * Scheduler tick: send due automatic review-request pushes for recently
+ * delivered orders that have no review yet, honoring delay, reminder caps,
+ * reminder gap, the delivery age window, and Asia/Dhaka quiet hours.
+ */
+export async function processDueReviewRequests() {
+  const config = await getReviewRequestConfig()
+  if (!config.autoEnabled) return
+
+  if (isWithinQuietHours(getDhakaHour(), config.quietHoursStart, config.quietHoursEnd)) {
+    return
+  }
+
+  const now = Date.now()
+  const windowStart = new Date(now - config.windowHours * 3_600_000)
+  const candidates = await OrderModel.find({
+    status: "Delivered",
+    customerId: { $nin: ["", null] },
+    updatedAt: { $gte: windowStart },
+  })
+    .sort({ updatedAt: 1 })
+    .limit(200)
+
+  for (const order of candidates) {
+    try {
+      const customerId = String(order.get("customerId") ?? "").trim()
+      if (!customerId) continue
+
+      const deliveredAtMs = getOrderDeliveredAtMs(order)
+      if (!Number.isFinite(deliveredAtMs)) continue
+      const ageMs = now - deliveredAtMs
+      if (ageMs < config.delayMinutes * 60_000) continue
+      if (ageMs > config.windowHours * 3_600_000) continue
+
+      const reviewState = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
+      const pushCount = Number(reviewState.pushCount ?? 0)
+      if (pushCount >= config.maxReminders) continue
+
+      const lastPushAt = reviewState.lastPushAt
+        ? new Date(reviewState.lastPushAt as string).getTime()
+        : 0
+      if (lastPushAt && now - lastPushAt < config.reminderGapHours * 3_600_000) {
+        continue
+      }
+
+      const existingReview = await ReviewModel.exists({ orderId: order._id })
+      if (existingReview) {
+        order.set("reviewRequest", { ...reviewState, reviewedAt: new Date() })
+        await order.save()
+        continue
+      }
+
+      await sendPushToCustomer({
+        customerId,
+        payload: buildReviewRequestPayload(String(order._id), config),
+      })
+
+      order.set("reviewRequest", {
+        ...reviewState,
+        pushCount: pushCount + 1,
+        lastPushAt: new Date(),
+        lastChannel: "auto",
+      })
+      await order.save()
+    } catch (error) {
+      logger.error(
+        { error, orderId: String(order._id) },
+        "Failed to send automatic review request",
+      )
+    }
+  }
 }

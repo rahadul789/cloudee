@@ -34,6 +34,7 @@ import {
   postAdminRunAutoDispatch,
   postAdminPaymentsReconcileLedger,
   postAdminOrderAssignRider,
+  postAdminOrderReviewRequest,
 } from "./orders-monitor.controller";
 
 export const adminOrdersMonitorRouter = Router();
@@ -118,4 +119,8 @@ adminOrdersMonitorRouter.patch(
 adminOrdersMonitorRouter.post(
   "/orders/:orderId/assign-rider",
   postAdminOrderAssignRider,
+);
+adminOrdersMonitorRouter.post(
+  "/orders/:orderId/review-request",
+  postAdminOrderReviewRequest,
 );

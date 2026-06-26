@@ -25,6 +25,7 @@ import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { CardListSkeleton, ShimmerBlock } from "@/src/components/loading-skeleton";
 import { LiveOrderMap } from "@/src/components/orders/live-order-map";
+import { RiderRatingCard } from "@/src/components/orders/rider-rating-card";
 import { styles } from "@/src/components/orders/order-tracking.styles";
 import { PreparationRuntime, type PreparationEstimate } from "@/src/components/orders/preparation-runtime";
 import { ReadyForPickupIcon } from "@/src/components/orders/ready-for-pickup-icon";
@@ -37,8 +38,10 @@ import {
   useCustomerReorderMutation,
   useCustomerRestaurantDetailsQuery,
   useCustomerReviewMutation,
+  useCustomerRiderReviewEnabledQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatCurrency } from "@/src/lib/currency";
+import { getRatingLabel } from "@/src/lib/rating-labels";
 import {
   getCustomerOrderStatusMeta,
   getLiveOrderJourneyIndex,
@@ -356,6 +359,8 @@ export default function OrderTrackingScreen() {
   const params = useLocalSearchParams<{ orderId?: string; justPlaced?: string }>();
   const [isDetailsOpen, setDetailsOpen] = useState(false);
   const [selectedRating, setSelectedRating] = useState(0);
+  const [selectedRiderRating, setSelectedRiderRating] = useState(0);
+  const [selectedRiderComment, setSelectedRiderComment] = useState("");
   const [reviewComment, setReviewComment] = useState("");
   const [reorderConflictMeta, setReorderConflictMeta] = useState<{
     currentRestaurantName: string;
@@ -372,6 +377,7 @@ export default function OrderTrackingScreen() {
   const trackingMapStyleQuery = useCustomerMapStyleQuery("customer.order_tracking");
   const cancelOrderMutation = useCustomerCancelOrderMutation(orderId);
   const reviewMutation = useCustomerReviewMutation(orderId);
+  const riderReviewEnabled = useCustomerRiderReviewEnabledQuery().data !== false;
   const reorderMutation = useCustomerReorderMutation();
   const showBanner = useAppBannerStore((state) => state.showBanner);
   const isOnline = useIsOnline();
@@ -633,6 +639,11 @@ export default function OrderTrackingScreen() {
     reviewMutation.mutate({
       rating: selectedRating,
       comment: reviewComment.trim() || undefined,
+      riderRating: selectedRiderRating > 0 ? selectedRiderRating : undefined,
+      riderComment:
+        selectedRiderRating > 0 && selectedRiderComment.trim()
+          ? selectedRiderComment.trim()
+          : undefined,
     });
   };
   const handleReorder = async (forceReplace = false) => {
@@ -1301,16 +1312,30 @@ export default function OrderTrackingScreen() {
                 );
               })}
             </View>
+            {selectedRating > 0 ? (
+              <Text style={styles.reviewRatingLabel}>
+                {getRatingLabel(selectedRating)}
+              </Text>
+            ) : null}
             <TextInput
               value={reviewComment}
               onChangeText={setReviewComment}
-              placeholder="Add a short note (optional)"
+              placeholder="Add a comment about the food and your order (optional)"
               placeholderTextColor={palette.placeholder}
               multiline
               numberOfLines={3}
               textAlignVertical="top"
               style={styles.reviewInput}
             />
+            {(riderPhone || order.riderSnapshot?.name) && riderReviewEnabled ? (
+              <RiderRatingCard
+                value={selectedRiderRating}
+                onChange={setSelectedRiderRating}
+                comment={selectedRiderComment}
+                onCommentChange={setSelectedRiderComment}
+                riderName={order.riderSnapshot?.name}
+              />
+            ) : null}
             <Pressable
               style={[
                 styles.submitReviewButton,

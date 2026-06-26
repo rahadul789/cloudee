@@ -5,6 +5,7 @@ import { asyncHandler } from "../../common/utils/async-handler";
 import { sendSuccess } from "../../common/utils/api-response";
 import { listAdminActivityLogs } from "./activity-log.service";
 import { reconcileAdminPlatformFinance } from "./restaurants.service";
+import { sendReviewRequestForOrder } from "../customer/push.service";
 import {
   assignAdminRiderToOrder,
   bulkAssignAdminRidersToOrders,
@@ -91,6 +92,7 @@ const ordersQuerySchema = z.object({
     .optional(),
   assignment: z.enum(["all", "assigned", "unassigned", "stale"]).optional(),
   attention: z.enum(["all", "riderDelay", "extraTime"]).optional(),
+  reviewState: z.enum(["all", "reviewed", "requested", "pending"]).optional(),
   zoneId: z.string().optional(),
   districtId: z.string().optional(),
   sortBy: z.enum(["newest", "oldest", "highestValue", "recentlyUpdated"]).optional(),
@@ -407,6 +409,20 @@ export const getAdminOrderMonitor = asyncHandler(
     );
 
     return sendSuccess(res, { data });
+  },
+);
+
+export const postAdminOrderReviewRequest = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await sendReviewRequestForOrder({
+      orderId: String(req.params.orderId ?? ""),
+      force: req.body?.force === true,
+    });
+
+    return sendSuccess(res, {
+      data,
+      message: "Review request sent to the customer",
+    });
   },
 );
 

@@ -276,7 +276,9 @@ const cancelOrderSchema = z.object({
 
 const createReviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
-  comment: z.string().optional()
+  comment: z.string().optional(),
+  riderRating: z.number().int().min(1).max(5).optional(),
+  riderComment: z.string().optional()
 })
 
 const savedLocationSchema = z.object({
@@ -1077,7 +1079,9 @@ export const postCustomerReview = asyncHandler(async (req: Request, res: Respons
     customerId: req.user?.id ?? "",
     orderId: getStringValue(req.params.orderId),
     rating: payload.rating,
-    comment: payload.comment
+    comment: payload.comment,
+    riderRating: payload.riderRating,
+    riderComment: payload.riderComment
   })
 
   return sendSuccess(res, {

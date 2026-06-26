@@ -277,9 +277,24 @@ export type CustomerCartRecommendationConfig = {
   maxItems?: number;
 };
 
+export type CustomerHomeTimeBasedSection = {
+  isActive: boolean;
+  windowId: string;
+  title: string;
+  subtitle: string;
+  emoji?: string;
+  icon?: string;
+  accentColor?: string;
+  layout?: "horizontal" | "vertical";
+  position?: number;
+  maxItems?: number;
+  restaurants: DiscoverableRestaurant[];
+};
+
 export type CustomerDiscoveryHome = {
   homeBanner: CustomerHomeBanner | null;
   homeCms?: CustomerHomeCms;
+  timeBasedSection?: CustomerHomeTimeBasedSection | null;
   featuredRestaurants: DiscoverableRestaurant[];
   restaurantsWithOffers: DiscoverableRestaurant[];
   discoverNewRestaurants?: DiscoverableRestaurant[];

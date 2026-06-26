@@ -2812,6 +2812,13 @@ export type AdminOrderDetails = {
     note: string
     createdAt: string | null
   }>
+  review?: {
+    rating: number | null
+    comment: string
+    riderRating: number | null
+    riderComment: string
+    createdAt: string | null
+  } | null
   riderTracking?: {
     isActive?: boolean
     startedAt?: string | null
@@ -2891,6 +2898,16 @@ export type AdminOrderListItem = {
   operationalTiming?: AdminOrderDetails["operationalTiming"]
   customerLifetimeOrders?: number
   customerTier?: "new" | "repeat" | "vip"
+  review?: AdminOrderReviewSummary
+}
+
+export type AdminOrderReviewSummary = {
+  state: "reviewed" | "requested" | "none"
+  pushCount: number
+  lastPushAt: string | null
+  reviewedAt: string | null
+  rating: number | null
+  riderRating: number | null
 }
 
 export type AdminOrdersListResponse = AdminListResponse<AdminOrderListItem> & {
@@ -3250,6 +3267,30 @@ export type PlatformContentCartRecommendations = {
   maxItems?: number
 }
 
+export type PlatformContentTimeBasedWindow = {
+  id: string
+  label?: string
+  title: string
+  subtitle?: string
+  emoji?: string
+  icon?: string
+  accentColor?: string
+  startHour?: number
+  endHour?: number
+  matchTags?: string[]
+  selectedRestaurantIds?: string[]
+  isActive?: boolean
+}
+
+export type PlatformContentTimeBasedSection = {
+  isActive?: boolean
+  source?: "auto" | "manual"
+  layout?: "horizontal" | "vertical"
+  position?: number
+  maxItems?: number
+  windows?: PlatformContentTimeBasedWindow[]
+}
+
 export type PlatformContent = {
   branding: {
     platformName: string
@@ -3305,6 +3346,7 @@ export type PlatformContent = {
         popularNearYou: PlatformContentHomeRestaurantSection
         nearby: PlatformContentHomeRestaurantSection
       }
+      timeBasedSection?: PlatformContentTimeBasedSection
       cartRecommendations?: PlatformContentCartRecommendations
       modal: {
         isActive: boolean
@@ -3480,6 +3522,18 @@ export type PlatformContent = {
       surchargeStartsAfterKm: number
       surchargeStepMeters: number
       surchargeAmountTaka: number
+    }
+    reviewRequests?: {
+      autoEnabled: boolean
+      riderReviewEnabled: boolean
+      delayMinutes: number
+      maxReminders: number
+      reminderGapHours: number
+      windowHours: number
+      quietHoursStart: number
+      quietHoursEnd: number
+      pushTitle: string
+      pushBody: string
     }
     routing: {
       provider: "google" | "haversine"
@@ -4951,6 +5005,7 @@ export async function listAdminOrders(params?: {
   paymentStatus?: "all" | "pending" | "paid" | "refund_pending" | "refunded"
   assignment?: "all" | "assigned" | "unassigned" | "stale"
   attention?: "all" | "riderDelay" | "extraTime"
+  reviewState?: "all" | "reviewed" | "requested" | "pending"
   sortBy?: "newest" | "oldest" | "highestValue" | "recentlyUpdated"
   page?: number
   pageSize?: number
@@ -4973,6 +5028,9 @@ export async function listAdminOrders(params?: {
   }
   if (params?.attention && params.attention !== "all") {
     searchParams.set("attention", params.attention)
+  }
+  if (params?.reviewState && params.reviewState !== "all") {
+    searchParams.set("reviewState", params.reviewState)
   }
   if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
   if (params?.page) searchParams.set("page", `${params.page}`)
@@ -5204,6 +5262,23 @@ export async function assignAdminOrderRider(params: {
       "content-type": "application/json",
     },
     body: JSON.stringify({ riderId: params.riderId }),
+  })
+  return response.data
+}
+
+export async function sendAdminOrderReviewRequest(params: {
+  orderId: string
+  force?: boolean
+}) {
+  const response = await adminRequest<{
+    sent: number
+    inAppCreated: number
+  }>(`/admin/orders/${params.orderId}/review-request`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ force: params.force === true }),
   })
   return response.data
 }

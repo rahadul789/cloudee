@@ -17,7 +17,6 @@ import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
-import { DELIVERY_RADIUS_KM } from "@/src/config/service-area";
 import {
   useCustomerDiscoveryHomeQuery,
   useCustomerFavoriteRestaurantIdsQuery,
@@ -98,11 +97,11 @@ export default function CustomerSearchScreen() {
   }, [query]);
 
   const searchQuery = debouncedQuery;
+  // radiusKm omitted: backend applies the resolved zone / admin fallback radius.
   const discoveryQuery = useRestaurantDiscoveryInfiniteQuery(
     {
       latitude: selectedLocation?.latitude,
       longitude: selectedLocation?.longitude,
-      radiusKm: DELIVERY_RADIUS_KM,
       search: searchQuery,
       pageSize: 12,
       sortBy: "nearest",
@@ -112,7 +111,6 @@ export default function CustomerSearchScreen() {
   const homeDiscoveryQuery = useCustomerDiscoveryHomeQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
-    radiusKm: DELIVERY_RADIUS_KM,
   });
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();

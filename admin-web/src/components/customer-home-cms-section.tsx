@@ -4,14 +4,17 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Eye,
   Image,
   Loader2,
   MousePointerClick,
   Palette,
+  Plus,
   RefreshCcw,
   Save,
   ShoppingCart,
+  Trash2,
   X,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
@@ -523,6 +526,85 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
       allowRepeatAcrossSections: true,
     },
   },
+  timeBasedSection: {
+    isActive: true,
+    source: "auto",
+    layout: "horizontal",
+    position: 1,
+    maxItems: 8,
+    windows: [
+      {
+        id: "breakfast",
+        label: "Breakfast",
+        title: "Sokaler nasta",
+        subtitle: "Garam garam nasta diye din shuru korun.",
+        emoji: "🌅",
+        icon: "cafe-outline",
+        accentColor: "#FFB020",
+        startHour: 5,
+        endHour: 11,
+        matchTags: ["breakfast", "nasta", "paratha", "tea", "coffee", "bakery"],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+      {
+        id: "lunch",
+        label: "Lunch",
+        title: "Dupurer khabar",
+        subtitle: "Bhat, biryani ar bhorta — pet bhore khan.",
+        emoji: "🍛",
+        icon: "restaurant-outline",
+        accentColor: "#FF5C93",
+        startHour: 11,
+        endHour: 16,
+        matchTags: ["lunch", "rice", "biryani", "bhat", "meal", "thali"],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+      {
+        id: "snacks",
+        label: "Snacks",
+        title: "Bikeler adda",
+        subtitle: "Cha-er shathe halka kichu mukhorochok.",
+        emoji: "☕",
+        icon: "fast-food-outline",
+        accentColor: "#7C5CFF",
+        startHour: 16,
+        endHour: 19,
+        matchTags: ["snacks", "fast food", "burger", "pizza", "tea", "coffee", "dessert"],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+      {
+        id: "dinner",
+        label: "Dinner",
+        title: "Rater khabar",
+        subtitle: "Din shesh korun moja kore — garam khabar.",
+        emoji: "🌙",
+        icon: "moon-outline",
+        accentColor: "#2B6DEF",
+        startHour: 19,
+        endHour: 23,
+        matchTags: ["dinner", "biryani", "kebab", "grill", "rice", "curry"],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+      {
+        id: "late_night",
+        label: "Late night",
+        title: "Raat jaga khide",
+        subtitle: "Ekhono khola — raater khide mitiye nin.",
+        emoji: "✨",
+        icon: "sparkles-outline",
+        accentColor: "#0E7C66",
+        startHour: 23,
+        endHour: 5,
+        matchTags: ["fast food", "burger", "pizza", "tea", "coffee", "dessert"],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+    ],
+  },
   cartRecommendations: {
     isActive: true,
     source: "both",
@@ -685,6 +767,9 @@ function normalizeContentForCms(content: PlatformContent | null) {
   const cartRecommendations = (homeCms.cartRecommendations ?? {}) as Partial<
     NonNullable<PlatformContent["customerApp"]["homeCms"]["cartRecommendations"]>
   >
+  const timeBasedSection = (homeCms.timeBasedSection ?? {}) as Partial<
+    NonNullable<PlatformContent["customerApp"]["homeCms"]["timeBasedSection"]>
+  >
   const howToOrderGuide = (homeCms.howToOrderGuide ?? {}) as Partial<
     PlatformContent["customerApp"]["homeCms"]["howToOrderGuide"]
   >
@@ -783,6 +868,22 @@ function normalizeContentForCms(content: PlatformContent | null) {
             cartRecommendations.maxItems ??
             DEFAULT_HOME_CMS.cartRecommendations?.maxItems ??
             8,
+        },
+        timeBasedSection: {
+          ...DEFAULT_HOME_CMS.timeBasedSection,
+          ...timeBasedSection,
+          isActive:
+            timeBasedSection.isActive ??
+            DEFAULT_HOME_CMS.timeBasedSection?.isActive ??
+            true,
+          source: timeBasedSection.source ?? "auto",
+          layout: timeBasedSection.layout ?? "horizontal",
+          position: timeBasedSection.position ?? 1,
+          maxItems: timeBasedSection.maxItems ?? 8,
+          windows: arrayOrDefault(
+            timeBasedSection.windows,
+            DEFAULT_HOME_CMS.timeBasedSection?.windows ?? []
+          ),
         },
         modal: {
           ...DEFAULT_HOME_CMS.modal,
@@ -1043,6 +1144,70 @@ export function CustomerHomeCmsSection({
         [key]: value,
       },
     })
+  }
+
+  function updateTimeBasedSection<
+    K extends keyof NonNullable<typeof currentCms.timeBasedSection>,
+  >(key: K, value: NonNullable<typeof currentCms.timeBasedSection>[K]) {
+    updateCms({
+      ...currentCms,
+      timeBasedSection: {
+        ...(currentCms.timeBasedSection ?? DEFAULT_HOME_CMS.timeBasedSection!),
+        [key]: value,
+      },
+    })
+  }
+
+  function updateTimeBasedWindow(
+    index: number,
+    patch: Partial<
+      NonNullable<
+        NonNullable<typeof currentCms.timeBasedSection>["windows"]
+      >[number]
+    >
+  ) {
+    const section =
+      currentCms.timeBasedSection ?? DEFAULT_HOME_CMS.timeBasedSection!
+    const windows = section.windows ?? []
+    updateTimeBasedSection(
+      "windows",
+      windows.map((window, windowIndex) =>
+        windowIndex === index ? { ...window, ...patch } : window
+      )
+    )
+  }
+
+  function addTimeBasedWindow() {
+    const section =
+      currentCms.timeBasedSection ?? DEFAULT_HOME_CMS.timeBasedSection!
+    const windows = section.windows ?? []
+    updateTimeBasedSection("windows", [
+      ...windows,
+      {
+        id: `window-${Date.now()}`,
+        label: "New window",
+        title: "New time window",
+        subtitle: "",
+        emoji: "",
+        icon: "time-outline",
+        accentColor: "#FF5C93",
+        startHour: 0,
+        endHour: 6,
+        matchTags: [],
+        selectedRestaurantIds: [],
+        isActive: true,
+      },
+    ])
+  }
+
+  function removeTimeBasedWindow(index: number) {
+    const section =
+      currentCms.timeBasedSection ?? DEFAULT_HOME_CMS.timeBasedSection!
+    const windows = section.windows ?? []
+    updateTimeBasedSection(
+      "windows",
+      windows.filter((_, windowIndex) => windowIndex !== index)
+    )
   }
 
   function updateModal<K extends keyof typeof currentCms.modal>(
@@ -2910,6 +3075,302 @@ export function CustomerHomeCmsSection({
                 Both mode shows those first, then fills empty slots with
                 available popular or lower-priced items from the same
                 restaurant.
+              </p>
+            </div>
+          </CmsDetailsCard>
+
+          <CmsDetailsCard
+            title="Time-based section"
+            description="A single home row that swaps with the Asia/Dhaka clock (breakfast, lunch, snacks, dinner, late night). The customer app shows whichever window is live now."
+            icon={<Clock className="size-5" />}
+            summary={
+              <div className="hidden items-center gap-2 sm:flex">
+                <Badge
+                  variant={
+                    cms.timeBasedSection?.isActive !== false
+                      ? "default"
+                      : "outline"
+                  }
+                >
+                  {cms.timeBasedSection?.isActive !== false ? "Active" : "Off"}
+                </Badge>
+                <Badge variant="secondary">
+                  {(cms.timeBasedSection?.windows?.length ?? 0)} windows
+                </Badge>
+              </div>
+            }
+          >
+            <div className="grid gap-4 lg:grid-cols-4">
+              <div className="flex items-center justify-between rounded-lg border p-3 lg:col-span-4">
+                <div>
+                  <Label>Show time-based row on home</Label>
+                  <p className="text-xs text-muted-foreground">
+                    When off, the whole row is hidden no matter the time. No app
+                    update needed.
+                  </p>
+                </div>
+                <Switch
+                  checked={cms.timeBasedSection?.isActive !== false}
+                  onCheckedChange={(checked) =>
+                    updateTimeBasedSection("isActive", checked)
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Restaurant source</Label>
+                <Select
+                  value={cms.timeBasedSection?.source ?? "auto"}
+                  onValueChange={(value) =>
+                    updateTimeBasedSection(
+                      "source",
+                      value as NonNullable<
+                        typeof cms.timeBasedSection
+                      >["source"]
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">
+                      Auto (match by tags)
+                    </SelectItem>
+                    <SelectItem value="manual">
+                      Manual (pick per window)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Layout</Label>
+                <Select
+                  value={cms.timeBasedSection?.layout ?? "horizontal"}
+                  onValueChange={(value) =>
+                    updateTimeBasedSection(
+                      "layout",
+                      value as NonNullable<
+                        typeof cms.timeBasedSection
+                      >["layout"]
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="horizontal">Horizontal</SelectItem>
+                    <SelectItem value="vertical">Vertical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Position</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={cms.timeBasedSection?.position ?? 1}
+                  onChange={(event) =>
+                    updateTimeBasedSection(
+                      "position",
+                      Number(event.target.value || 1)
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Max items</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={cms.timeBasedSection?.maxItems ?? 8}
+                  onChange={(event) =>
+                    updateTimeBasedSection(
+                      "maxItems",
+                      Number(event.target.value || 1)
+                    )
+                  }
+                />
+              </div>
+
+              <div className="space-y-3 lg:col-span-4">
+                <div className="flex items-center justify-between">
+                  <Label>Time windows</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addTimeBasedWindow}
+                  >
+                    <Plus className="mr-1 size-4" /> Add window
+                  </Button>
+                </div>
+
+                {(cms.timeBasedSection?.windows ?? []).map((window, index) => (
+                  <div
+                    key={window.id || index}
+                    className="space-y-3 rounded-lg border p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-block size-4 rounded-full border"
+                          style={{
+                            backgroundColor: window.accentColor || "#FF5C93",
+                          }}
+                        />
+                        <span className="text-sm font-medium">
+                          {window.label || window.title || "Window"}
+                        </span>
+                        <Badge variant="secondary">
+                          {(window.startHour ?? 0)}:00 –{" "}
+                          {(window.endHour ?? 24)}:00
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={window.isActive !== false}
+                          onCheckedChange={(checked) =>
+                            updateTimeBasedWindow(index, { isActive: checked })
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeTimeBasedWindow(index)}
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 lg:grid-cols-4">
+                      <div className="space-y-1.5 lg:col-span-2">
+                        <Label className="text-xs">Title (shown)</Label>
+                        <Input
+                          value={window.title ?? ""}
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              title: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Emoji</Label>
+                        <Input
+                          value={window.emoji ?? ""}
+                          placeholder="🍛"
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              emoji: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Accent color</Label>
+                        <Input
+                          type="color"
+                          value={window.accentColor || "#FF5C93"}
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              accentColor: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5 lg:col-span-4">
+                        <Label className="text-xs">Subtitle</Label>
+                        <Input
+                          value={window.subtitle ?? ""}
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              subtitle: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Start hour (0–23)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={window.startHour ?? 0}
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              startHour: Number(event.target.value || 0),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">End hour (1–24)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={24}
+                          value={window.endHour ?? 24}
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              endHour: Number(event.target.value || 24),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5 lg:col-span-2">
+                        <Label className="text-xs">
+                          Match tags (comma separated)
+                        </Label>
+                        <Input
+                          value={(window.matchTags ?? []).join(", ")}
+                          placeholder="biryani, rice, lunch"
+                          onChange={(event) =>
+                            updateTimeBasedWindow(index, {
+                              matchTags: event.target.value
+                                .split(",")
+                                .map((tag) => tag.trim())
+                                .filter(Boolean),
+                            })
+                          }
+                        />
+                      </div>
+                      {cms.timeBasedSection?.source === "manual" ? (
+                        <div className="space-y-1.5 lg:col-span-4">
+                          <Label className="text-xs">
+                            Manual restaurant IDs (comma separated)
+                          </Label>
+                          <Input
+                            value={(window.selectedRestaurantIds ?? []).join(
+                              ", "
+                            )}
+                            onChange={(event) =>
+                              updateTimeBasedWindow(index, {
+                                selectedRestaurantIds: event.target.value
+                                  .split(",")
+                                  .map((id) => id.trim())
+                                  .filter(Boolean),
+                              })
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground lg:col-span-4">
+                Hours use the Asia/Dhaka clock. If end hour is less than or equal
+                to start hour, the window wraps past midnight (e.g. 23 → 5). In
+                Auto mode, restaurants are matched by tags against cuisine/name;
+                if none match, popular nearby places fill the row so it never
+                shows empty.
               </p>
             </div>
           </CmsDetailsCard>

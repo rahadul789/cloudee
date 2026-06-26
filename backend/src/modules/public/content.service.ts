@@ -353,6 +353,44 @@ const platformContentSchema = z.object({
             allowRepeatAcrossSections: true,
           },
         }),
+      timeBasedSection: z
+        .object({
+          isActive: z.boolean().optional().default(true),
+          source: z.enum(["auto", "manual"]).optional().default("auto"),
+          layout: z.enum(["horizontal", "vertical"]).optional().default("horizontal"),
+          position: z.number().int().min(1).max(20).optional().default(1),
+          maxItems: z.number().int().min(1).max(20).optional().default(8),
+          windows: z
+            .array(
+              z.object({
+                id: z.string().trim().min(1),
+                label: z.string().trim().optional().default(""),
+                title: z.string().trim().min(1),
+                subtitle: z.string().trim().optional().default(""),
+                emoji: z.string().trim().optional().default(""),
+                icon: z.string().trim().optional().default("time-outline"),
+                accentColor: z.string().trim().optional().default("#FF5C93"),
+                // 0-23 start hour, 1-24 end hour (Asia/Dhaka). end <= start means
+                // the window wraps past midnight (e.g. 22 -> 2).
+                startHour: z.number().min(0).max(23).optional().default(0),
+                endHour: z.number().min(1).max(24).optional().default(24),
+                matchTags: z.array(z.string().trim()).optional().default([]),
+                selectedRestaurantIds: z.array(z.string().trim()).optional().default([]),
+                isActive: z.boolean().optional().default(true),
+              }),
+            )
+            .optional()
+            .default([]),
+        })
+        .optional()
+        .default({
+          isActive: true,
+          source: "auto",
+          layout: "horizontal",
+          position: 1,
+          maxItems: 8,
+          windows: [],
+        }),
       cartRecommendations: z
         .object({
           isActive: z.boolean().optional().default(true),
@@ -555,6 +593,40 @@ const platformContentSchema = z.object({
       surchargeStepMeters: z.number().int().min(100).max(10000).optional().default(500),
       surchargeAmountTaka: z.number().int().min(0).max(5000).optional().default(5),
     }),
+    reviewRequests: z
+      .object({
+        autoEnabled: z.boolean().optional().default(true),
+        riderReviewEnabled: z.boolean().optional().default(true),
+        delayMinutes: z.number().int().min(0).max(1440).optional().default(20),
+        maxReminders: z.number().int().min(1).max(5).optional().default(2),
+        reminderGapHours: z.number().min(1).max(168).optional().default(24),
+        windowHours: z.number().min(1).max(336).optional().default(72),
+        quietHoursStart: z.number().int().min(0).max(23).optional().default(22),
+        quietHoursEnd: z.number().int().min(0).max(23).optional().default(9),
+        pushTitle: z
+          .string()
+          .trim()
+          .optional()
+          .default("How was your order? ⭐"),
+        pushBody: z
+          .string()
+          .trim()
+          .optional()
+          .default("Tap to rate — your feedback helps others order with confidence."),
+      })
+      .optional()
+      .default({
+        autoEnabled: true,
+        riderReviewEnabled: true,
+        delayMinutes: 20,
+        maxReminders: 2,
+        reminderGapHours: 24,
+        windowHours: 72,
+        quietHoursStart: 22,
+        quietHoursEnd: 9,
+        pushTitle: "How was your order? ⭐",
+        pushBody: "Tap to rate — your feedback helps others order with confidence.",
+      }),
     routing: z
       .object({
         provider: z.enum(["google", "haversine"]).optional().default("google"),
@@ -1045,6 +1117,7 @@ function buildHomeCmsAreaOverride(homeCms: PlatformContent["customerApp"]["homeC
     offerStrip: normalizedHomeCms.offerStrip,
     homeCategories: normalizedHomeCms.homeCategories,
     restaurantSections: normalizedHomeCms.restaurantSections,
+    timeBasedSection: normalizedHomeCms.timeBasedSection,
     cartRecommendations: normalizedHomeCms.cartRecommendations,
     modal: normalizedHomeCms.modal,
     howToOrderGuide: normalizedHomeCms.howToOrderGuide,

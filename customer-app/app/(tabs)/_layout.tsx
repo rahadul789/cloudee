@@ -15,6 +15,10 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        // Matches restaurant-owner-app exactly: the fade transition keeps tab
+        // screens mounted/warm (so their React Query observers stay active and
+        // the in-memory cache is never garbage-collected) → instant, blank-free
+        // switching. Verified against the owner app which uses this same config.
         animation: "fade",
         transitionSpec: {
           animation: "timing",

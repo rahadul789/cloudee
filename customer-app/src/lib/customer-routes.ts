@@ -26,6 +26,7 @@ const staticCustomerRoutes = new Set([
 const dynamicCustomerRoutes = [
   /^\/orders\/[A-Za-z0-9_-]+$/,
   /^\/orders\/[A-Za-z0-9_-]+\/tracking$/,
+  /^\/orders\/[A-Za-z0-9_-]+\/review$/,
   /^\/restaurants\/[A-Za-z0-9_-]+$/,
   /^\/restaurants\/[A-Za-z0-9_-]+\/reviews$/,
 ];

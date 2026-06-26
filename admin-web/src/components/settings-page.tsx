@@ -128,6 +128,21 @@ const defaultFailedDeliverySettings: PlatformContent["operations"]["failedDelive
   riderFailedTripPay: 30,
 }
 
+const defaultReviewRequestSettings: NonNullable<
+  PlatformContent["operations"]["reviewRequests"]
+> = {
+  autoEnabled: true,
+  riderReviewEnabled: true,
+  delayMinutes: 20,
+  maxReminders: 2,
+  reminderGapHours: 24,
+  windowHours: 72,
+  quietHoursStart: 22,
+  quietHoursEnd: 9,
+  pushTitle: "How was your order? ⭐",
+  pushBody: "Tap to rate — your feedback helps others order with confidence.",
+}
+
 const MAP_STYLE_SCREEN_ASSIGNMENTS = [
   {
     key: "customer.location_picker",
@@ -376,6 +391,14 @@ function ensureFailedDeliverySettings(content: PlatformContent) {
     ...(content.operations.failedDelivery ?? {}),
   }
   return content.operations.failedDelivery
+}
+
+function ensureReviewRequestSettings(content: PlatformContent) {
+  content.operations.reviewRequests = {
+    ...defaultReviewRequestSettings,
+    ...(content.operations.reviewRequests ?? {}),
+  }
+  return content.operations.reviewRequests
 }
 
 function ensureMapStyleSettings(content: PlatformContent) {
@@ -1427,6 +1450,10 @@ export function SettingsPage() {
     ...defaultFailedDeliverySettings,
     ...(draft.operations.failedDelivery ?? {}),
   }
+  const reviewRequests = {
+    ...defaultReviewRequestSettings,
+    ...(draft.operations.reviewRequests ?? {}),
+  }
   const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
   const selectedMapStyle =
     mapStyles.styles.find((style) => style.id === selectedMapStyleId) ??
@@ -1682,7 +1709,7 @@ export function SettingsPage() {
                       : "Delivery radius, base fee, extra distance fee, rain reserve, and dispatch overrides are managed per zone."}
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-3">
                   <div className="rounded-lg border border-dashed bg-muted/30 p-4">
                     <p className="text-sm text-muted-foreground">
                       {isScopedSettings
@@ -1700,6 +1727,32 @@ export function SettingsPage() {
                       Open Service Areas
                     </Button>
                   </div>
+
+                  <SettingRow
+                    title="Fallback delivery radius (km)"
+                    description="Used for customer discovery when a customer is not inside any active service zone. The customer app never sends its own radius, so this value (or a matched zone) decides how far they can see and order."
+                  >
+                    <Input
+                      type="number"
+                      min={0.5}
+                      max={50}
+                      step={0.5}
+                      className="w-28"
+                      value={serviceArea.radiusKm}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          content.operations.serviceArea.radiusKm = clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              serviceArea.radiusKm,
+                            ),
+                            0.5,
+                            50,
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
                 </CardContent>
               </Card>
 
@@ -1888,6 +1941,244 @@ export function SettingsPage() {
                       </span>
                     </label>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <MessageSquareText className="size-4" />
+                    Review requests
+                  </CardTitle>
+                  <CardDescription>
+                    Automatic post-delivery push asking the customer to rate
+                    their order. Fully dynamic — changes apply without an app
+                    update.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Auto review push"
+                    description="When on, a push is sent after delivery (respecting the delay, reminder cap, and quiet hours below)."
+                  >
+                    <Switch
+                      checked={reviewRequests.autoEnabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureReviewRequestSettings(content).autoEnabled =
+                            checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+
+                  <SettingRow
+                    title="Collect rider rating"
+                    description="When on, customers get a separate (collapsible) rider rating + comment alongside the food review."
+                  >
+                    <Switch
+                      checked={reviewRequests.riderReviewEnabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureReviewRequestSettings(
+                            content,
+                          ).riderReviewEnabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        First push delay (minutes)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={1440}
+                        step={5}
+                        value={reviewRequests.delayMinutes}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(content).delayMinutes =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  reviewRequests.delayMinutes,
+                                ),
+                                0,
+                                1440,
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Max reminders / order
+                      </span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={5}
+                        step={1}
+                        value={reviewRequests.maxReminders}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(content).maxReminders =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  reviewRequests.maxReminders,
+                                ),
+                                1,
+                                5,
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Reminder gap (hours)
+                      </span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={168}
+                        step={1}
+                        value={reviewRequests.reminderGapHours}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(
+                              content,
+                            ).reminderGapHours = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                reviewRequests.reminderGapHours,
+                              ),
+                              1,
+                              168,
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Stop after (hours since delivery)
+                      </span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={336}
+                        step={1}
+                        value={reviewRequests.windowHours}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(content).windowHours =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  reviewRequests.windowHours,
+                                ),
+                                1,
+                                336,
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Quiet hours start (0–23)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={23}
+                        step={1}
+                        value={reviewRequests.quietHoursStart}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(
+                              content,
+                            ).quietHoursStart = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                reviewRequests.quietHoursStart,
+                              ),
+                              0,
+                              23,
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Quiet hours end (0–23)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={23}
+                        step={1}
+                        value={reviewRequests.quietHoursEnd}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureReviewRequestSettings(content).quietHoursEnd =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  reviewRequests.quietHoursEnd,
+                                ),
+                                0,
+                                23,
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Push title
+                    </span>
+                    <Input
+                      value={reviewRequests.pushTitle}
+                      maxLength={80}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureReviewRequestSettings(content).pushTitle =
+                            event.target.value
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Push body
+                    </span>
+                    <Input
+                      value={reviewRequests.pushBody}
+                      maxLength={160}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureReviewRequestSettings(content).pushBody =
+                            event.target.value
+                        })
+                      }
+                    />
+                  </label>
+                  <p className="rounded-lg bg-muted/40 p-3 text-[11px] text-muted-foreground">
+                    Quiet hours use the Asia/Dhaka clock and wrap past midnight
+                    (e.g. 22 → 9). Reminders stop automatically once the customer
+                    submits a review. Admins can also send a one-off request from
+                    an order in Orders monitoring.
+                  </p>
                 </CardContent>
               </Card>
 

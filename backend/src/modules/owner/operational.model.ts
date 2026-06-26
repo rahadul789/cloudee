@@ -165,6 +165,9 @@ const orderSchema = new Schema(
     appliedVouchers: { type: [Schema.Types.Mixed], default: [] },
     itemsSnapshot: { type: [orderItemSnapshotSchema], default: [] },
     timestamps: { type: Schema.Types.Mixed, default: {} },
+    // Tracks automated post-delivery review-request pushes:
+    // { pushCount, lastPushAt, lastChannel }.
+    reviewRequest: { type: Schema.Types.Mixed, default: {} },
     history: { type: [orderHistoryEntrySchema], default: [] }
   },
   { timestamps: true }
