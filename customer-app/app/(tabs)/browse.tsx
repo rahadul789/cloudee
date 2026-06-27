@@ -14,6 +14,7 @@ import { FlashList } from "@shopify/flash-list";
 
 import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { styles } from "@/src/components/browse/browse-screen.styles";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
@@ -201,7 +202,10 @@ export default function BrowseScreen() {
   ]);
 
   const restaurants = useMemo(
-    () => nearbyRestaurantsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    () =>
+      dedupeById(
+        nearbyRestaurantsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+      ),
     [nearbyRestaurantsQuery.data]
   );
   const totalRestaurantCount =
@@ -636,14 +640,14 @@ export default function BrowseScreen() {
                 isOnline && searchQuery.trim()
                   ? "No matching food found"
                   : isOnline
-                    ? "No restaurants found"
+                    ? "Foodbela isn't in this area yet"
                     : "Restaurants are unavailable offline"
               }
               description={
                 isOnline && searchQuery.trim()
                   ? "Try another spelling, food name, cuisine, or restaurant. Your location is still selected."
                   : isOnline
-                    ? "Try another filter or search to see more restaurants in this area."
+                    ? "We don't deliver to this location yet. Try a different delivery point where Foodbela is available."
                   : "Check your internet connection to load restaurants for this area again."
               }
             />

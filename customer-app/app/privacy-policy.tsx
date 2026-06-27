@@ -50,7 +50,18 @@ export default function PrivacyPolicyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.iconButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons
               name="chevron-back"
               size={20}
@@ -127,7 +138,15 @@ export default function PrivacyPolicyScreen() {
           </View>
           <View style={styles.actionRow}>
             <Pressable
-              style={styles.primaryButton}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
+              ]}
               onPress={() => router.push("/support")}
             >
               <Text style={styles.primaryButtonText}>Support</Text>

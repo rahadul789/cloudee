@@ -19,6 +19,7 @@ import {
 import { resolveCustomerPushRoute } from "@/src/lib/customer-routes";
 import { refreshCustomerOrderCacheForPath } from "@/src/lib/customer-order-cache";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
+import { dedupeById } from "@/src/lib/dedupe";
 import { palette } from "@/src/theme/palette";
 
 type NotificationTab = "all" | "orders" | "offers";
@@ -130,7 +131,9 @@ export default function NotificationsScreen() {
   const markAllMutation = useCustomerMarkAllNotificationsReadMutation();
   const pushedNotificationKey = params.notificationId || params.campaignId || "";
   const allNotifications = useMemo(() => {
-    const rawNotifications = notificationsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+    const rawNotifications = dedupeById(
+      notificationsQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    );
     if (!pushedNotificationKey) return rawNotifications;
     return [...rawNotifications].sort((left, right) => {
       const leftMatch =

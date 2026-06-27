@@ -86,7 +86,18 @@ export default function SupportScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.iconButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons
               name="chevron-back"
               size={20}
@@ -95,7 +106,15 @@ export default function SupportScreen() {
           </Pressable>
           <Text style={styles.topTitle}>Help center</Text>
           <Pressable
-            style={styles.iconButton}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
             onPress={() => router.push("/support-chat")}
           >
             <Ionicons
@@ -122,13 +141,32 @@ export default function SupportScreen() {
 
           <View style={styles.contactRow}>
             <Pressable
-              style={styles.primaryContact}
+              style={({ pressed }) => [
+                styles.primaryContact,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
+              ]}
               onPress={() => router.push("/support-chat")}
             >
               <Ionicons name="chatbubble-outline" size={17} color="#fff" />
               <Text style={styles.primaryContactText}>Chat now</Text>
             </Pressable>
-            <Pressable style={styles.secondaryContact} onPress={openEmailSupport}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.secondaryContact,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
+              ]}
+              onPress={openEmailSupport}
+            >
               <Ionicons
                 name="mail-outline"
                 size={17}
@@ -145,9 +183,15 @@ export default function SupportScreen() {
             {quickTopics.map((topic, index) => (
               <Pressable
                 key={topic.id}
-                style={[
+                style={({ pressed }) => [
                   styles.topicRow,
                   index === quickTopics.length - 1 ? styles.topicRowLast : null,
+                  pressed
+                    ? {
+                        transform: [{ scale: 0.993 }, { translateY: 1 }],
+                        opacity: 0.95,
+                      }
+                    : null,
                 ]}
                 onPress={() =>
                   router.push(resolveCustomerRoute(topic.route, "/support") as never)

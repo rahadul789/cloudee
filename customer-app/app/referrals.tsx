@@ -46,7 +46,18 @@ export default function ReferralsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons name="chevron-back" size={21} color={palette.foreground} />
           </Pressable>
           <Text style={styles.topBarTitle}>Refer & earn</Text>
@@ -104,9 +115,15 @@ export default function ReferralsScreen() {
                   <Text style={styles.codeValue}>{summary.referralCode}</Text>
                 </View>
                 <Pressable
-                  style={[
+                  style={({ pressed }) => [
                     styles.shareButton,
                     !summary.enabled ? styles.shareButtonDisabled : null,
+                    pressed && summary.enabled
+                      ? {
+                          transform: [{ scale: 0.985 }, { translateY: 1 }],
+                          opacity: 0.96,
+                        }
+                      : null,
                   ]}
                   onPress={handleShare}
                   disabled={!summary.enabled}

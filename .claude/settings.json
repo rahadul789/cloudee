@@ -65,7 +65,12 @@
       "Bash(sed -n '385,420p' app/orders/[orderId]/tracking.tsx | grep -n \"restaurant\\\\|order\\\\.\\\\|const \" | head; echo \"=== Screen + palette amber ===\"; grep -rn \"amber\" src/theme/palette.ts; grep -n \"\\\\\"@/src/components/screen\\\\\"\\\\|components/screen\" app/orders/[orderId]/tracking.tsx)",
       "Bash(grep -n \"assign-rider\\\\|orders/.*review\\\\|review-request\\\\|export async function.*Order\\\\|orders/\\\\${\" lib/admin-api.ts)",
       "WebSearch",
-      "WebFetch(domain:reactnavigation.org)"
+      "WebFetch(domain:reactnavigation.org)",
+      "Bash(cd /d/cloudee/delivery-app && echo \"=== typecheck ===\"; npx tsc --noEmit 2>&1 | head -20; echo \"=== typecheck done ===\"; echo \"\"; echo \"=== version parity vs customer \\(RN/expo/screens\\) ===\"; grep -E '\"\\(expo|react-native|react-native-screens|@react-navigation/bottom-tabs|react\\)\":' package.json; echo \"--- customer ---\"; grep -E '\"\\(expo|react-native|react-native-screens|@react-navigation/bottom-tabs|react\\)\":' ../customer-app/package.json)",
+      "Read(//d/customer-app/**)",
+      "Bash(npx tsc *)",
+      "Bash(rm -f src/lib/query-persister.ts)",
+      "Bash(npm uninstall *)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

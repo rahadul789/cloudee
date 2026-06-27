@@ -1772,7 +1772,15 @@ export default function HomeScreen() {
                   </View>
 
                   <Pressable
-                    style={styles.browseAllButton}
+                    style={({ pressed }) => [
+                      styles.browseAllButton,
+                      pressed
+                        ? {
+                            transform: [{ scale: 0.985 }, { translateY: 1 }],
+                            opacity: 0.96,
+                          }
+                        : null,
+                    ]}
                     onPress={() => router.push("/(tabs)/browse")}
                   >
                     <Text style={styles.browseAllButtonText}>
@@ -1789,12 +1797,12 @@ export default function HomeScreen() {
                 <EmptyStateCard
                   title={
                     isOnline
-                      ? "No nearby restaurants yet"
-                      : "Nearby restaurants are unavailable offline"
+                      ? "Foodbela isn't in this area yet"
+                      : "Restaurants are unavailable offline"
                   }
                   description={
                     isOnline
-                      ? "No active place is delivering to your selected point right now."
+                      ? "We don't deliver to this location yet. Try a different delivery point where Foodbela is available."
                       : "Connect to the internet to load places near your delivery point."
                   }
                   actionLabel={isOnline ? "Change location" : undefined}

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useCustomerPaymentSettingsQuery } from "@/src/hooks/use-customer-api";
@@ -10,6 +10,8 @@ import {
   type CustomerPreferredPaymentMethod,
 } from "@/src/store/payment-preferences-store";
 import { palette } from "@/src/theme/palette";
+
+const bkashLogo = require("../assets/images/bkash.png");
 
 export default function PaymentPreferencesScreen() {
   const router = useRouter();
@@ -46,6 +48,7 @@ export default function PaymentPreferencesScreen() {
           ? "Pay online from the official bKash checkout."
           : "bKash is not available right now.",
         icon: "phone-portrait-outline" as const,
+        imageSource: bkashLogo,
         disabled: !paymentSettings.bkashEnabled,
       },
     ],
@@ -75,7 +78,18 @@ export default function PaymentPreferencesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
           </Pressable>
           <View style={styles.headerCopy}>
@@ -105,10 +119,16 @@ export default function PaymentPreferencesScreen() {
             return (
               <Pressable
                 key={option.id}
-                style={[
+                style={({ pressed }) => [
                   styles.optionCard,
                   active ? styles.optionCardActive : null,
                   option.disabled ? styles.optionCardDisabled : null,
+                  pressed && !option.disabled
+                    ? {
+                        transform: [{ scale: 0.985 }, { translateY: 1 }],
+                        shadowOpacity: 0.05,
+                      }
+                    : null,
                 ]}
                 disabled={option.disabled}
                 onPress={() => setSelectedMethod(option.id)}
@@ -119,11 +139,19 @@ export default function PaymentPreferencesScreen() {
                     active ? styles.optionIconActive : null,
                   ]}
                 >
-                  <Ionicons
-                    name={option.icon}
-                    size={20}
-                    color={active ? palette.secondary : palette.foreground}
-                  />
+                  {option.imageSource ? (
+                    <Image
+                      source={option.imageSource}
+                      resizeMode="contain"
+                      style={{ width: 36, height: 36 }}
+                    />
+                  ) : (
+                    <Ionicons
+                      name={option.icon}
+                      size={20}
+                      color={active ? palette.secondary : palette.foreground}
+                    />
+                  )}
                 </View>
                 <View style={styles.optionCopy}>
                   <Text style={styles.optionTitle}>{option.title}</Text>
@@ -147,7 +175,16 @@ export default function PaymentPreferencesScreen() {
         ]}
       >
         <Pressable
-          style={[styles.saveButton, !canSave ? styles.saveButtonDisabled : null]}
+          style={({ pressed }) => [
+            styles.saveButton,
+            !canSave ? styles.saveButtonDisabled : null,
+            pressed && canSave
+              ? {
+                  transform: [{ scale: 0.985 }, { translateY: 1 }],
+                  opacity: 0.96,
+                }
+              : null,
+          ]}
           disabled={!canSave}
           onPress={handleSave}
         >

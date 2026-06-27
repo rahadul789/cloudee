@@ -23,6 +23,7 @@ import {
 } from "@/src/hooks/use-customer-api";
 import { resolveCustomerPushRoute } from "@/src/lib/customer-routes";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
+import { dedupeById } from "@/src/lib/dedupe";
 import { palette } from "@/src/theme/palette";
 
 function offerTarget(notification: CustomerNotification) {
@@ -71,7 +72,8 @@ export default function OffersScreen() {
   const offersQuery = useCustomerNotificationsInfiniteQuery(true, 20, "personal_offers");
   const markReadMutation = useCustomerMarkNotificationReadMutation();
   const offers = useMemo(
-    () => offersQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    () =>
+      dedupeById(offersQuery.data?.pages.flatMap((page) => page.items) ?? []),
     [offersQuery.data?.pages],
   );
   const isInitialLoading = offersQuery.isLoading && offers.length === 0;

@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { AppBootstrapGate } from "@/src/components/app-bootstrap-gate";
 import { CustomerAnalyticsBridge } from "@/src/components/customer-analytics-bridge";
+import { DeferredMount } from "@/src/components/deferred-mount";
 import { AppProviders } from "@/src/providers/app-providers";
 
 export default function RootLayout() {
@@ -10,7 +11,9 @@ export default function RootLayout() {
     <AppProviders>
       <StatusBar style="dark" />
       <AppBootstrapGate>
-        <CustomerAnalyticsBridge />
+        <DeferredMount>
+          <CustomerAnalyticsBridge />
+        </DeferredMount>
         <Stack
           screenOptions={{
             headerShown: false,

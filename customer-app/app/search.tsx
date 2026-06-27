@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
@@ -116,7 +117,8 @@ export default function CustomerSearchScreen() {
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();
 
   const restaurants = useMemo(
-    () => discoveryQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    () =>
+      dedupeById(discoveryQuery.data?.pages.flatMap((page) => page.items) ?? []),
     [discoveryQuery.data],
   );
   const total = discoveryQuery.data?.pages[0]?.total ?? restaurants.length;

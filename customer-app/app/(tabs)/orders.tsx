@@ -696,10 +696,17 @@ function OrderCard({
           <View style={styles.compactHistoryActions}>
             {order.status === "Delivered" && onReorderPress ? (
               <Pressable
-                style={[
+                android_ripple={{ color: "rgba(216, 27, 96, 0.08)" }}
+                style={({ pressed }) => [
                   styles.reorderButton,
                   styles.reorderButtonCompact,
                   reorderPending ? styles.reorderButtonDisabled : null,
+                  pressed && !reorderPending
+                    ? {
+                        transform: [{ scale: 0.98 }, { translateY: 1 }],
+                        opacity: 0.96,
+                      }
+                    : null,
                 ]}
                 onPress={onReorderPress}
                 disabled={reorderPending}
@@ -823,9 +830,16 @@ function OrderCard({
 
       {order.status === "Delivered" && onReorderPress ? (
         <Pressable
-          style={[
+          android_ripple={{ color: "rgba(216, 27, 96, 0.08)" }}
+          style={({ pressed }) => [
             styles.reorderButton,
             reorderPending ? styles.reorderButtonDisabled : null,
+            pressed && !reorderPending
+              ? {
+                  transform: [{ scale: 0.98 }, { translateY: 1 }],
+                  opacity: 0.96,
+                }
+              : null,
           ]}
           onPress={onReorderPress}
           disabled={reorderPending}

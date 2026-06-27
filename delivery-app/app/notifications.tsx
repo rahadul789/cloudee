@@ -19,6 +19,7 @@ import {
   useMarkRiderNotificationReadMutation,
   useRiderNotificationsInfiniteQuery,
 } from "@/src/hooks/use-rider-api";
+import { dedupeById } from "@/src/lib/dedupe";
 import { palette } from "@/src/theme/palette";
 
 const allowedPaths = new Set([
@@ -94,7 +95,9 @@ export default function RiderNotificationsScreen() {
   const markAllMutation = useMarkAllRiderNotificationsReadMutation();
   const notifications = useMemo(
     () =>
-      notificationsQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+      dedupeById(
+        notificationsQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
+      ),
     [notificationsQuery.data?.pages],
   );
   const notificationRows = useMemo(() => {

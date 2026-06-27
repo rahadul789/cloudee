@@ -247,7 +247,18 @@ export default function ProfileEditScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topBar}>
-            <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Pressable
+              onPress={() => router.back()}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.97 }, { translateY: 1 }],
+                      opacity: 0.92,
+                    }
+                  : null,
+              ]}
+            >
               <Ionicons
                 name="chevron-back"
                 size={20}
@@ -296,10 +307,21 @@ export default function ProfileEditScreen() {
 
             <View style={styles.photoActionRow}>
               <Pressable
-                style={[
+                style={({ pressed }) => [
                   styles.photoButton,
-                  profileImage?.url ? styles.photoButtonHalf : styles.photoButtonPrimaryFull,
+                  profileImage?.url
+                    ? styles.photoButtonHalf
+                    : styles.photoButtonPrimaryFull,
                   styles.photoButtonPrimary,
+                  pressed &&
+                  !isUploadingImage &&
+                  !updateMutation.isPending &&
+                  isOnline
+                    ? {
+                        transform: [{ scale: 0.985 }, { translateY: 1 }],
+                        opacity: 0.96,
+                      }
+                    : null,
                 ]}
                 onPress={handlePickImage}
                 disabled={isUploadingImage || updateMutation.isPending || !isOnline}
@@ -318,7 +340,16 @@ export default function ProfileEditScreen() {
 
               {profileImage?.url ? (
                 <Pressable
-                  style={[styles.photoButton, styles.photoButtonHalf]}
+                  style={({ pressed }) => [
+                    styles.photoButton,
+                    styles.photoButtonHalf,
+                    pressed && !isUploadingImage && !updateMutation.isPending && isOnline
+                      ? {
+                          transform: [{ scale: 0.985 }, { translateY: 1 }],
+                          opacity: 0.96,
+                        }
+                      : null,
+                  ]}
                   onPress={handleRemoveImage}
                   disabled={isUploadingImage || updateMutation.isPending || !isOnline}
                 >
@@ -412,7 +443,15 @@ export default function ProfileEditScreen() {
             </View>
 
             <Pressable
-              style={styles.locationLinkCard}
+              style={({ pressed }) => [
+                styles.locationLinkCard,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      shadowOpacity: 0.06,
+                    }
+                  : null,
+              ]}
               onPress={() => router.push("/location-picker")}
             >
               <View style={styles.locationLinkIcon}>
@@ -441,12 +480,17 @@ export default function ProfileEditScreen() {
             {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
             <Pressable
-              style={[
+              style={({ pressed }) => [
                 styles.primaryButton,
                 (!hasChanges || updateMutation.isPending || isUploadingImage) &&
                   styles.primaryButtonDisabled,
-                !isOnline &&
-                  styles.primaryButtonDisabled,
+                !isOnline && styles.primaryButtonDisabled,
+                pressed && hasChanges && !updateMutation.isPending && !isUploadingImage && isOnline
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
               ]}
               onPress={handleSave}
               disabled={!hasChanges || updateMutation.isPending || isUploadingImage || !isOnline}

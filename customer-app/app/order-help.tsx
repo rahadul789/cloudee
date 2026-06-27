@@ -53,7 +53,18 @@ export default function OrderHelpScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
           </Pressable>
         </View>
@@ -70,7 +81,15 @@ export default function OrderHelpScreen() {
 
           {videoUrl ? (
             <Pressable
-              style={styles.videoAction}
+              style={({ pressed }) => [
+                styles.videoAction,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
+              ]}
               onPress={() => void Linking.openURL(videoUrl)}
             >
               <View style={styles.videoIcon}>
@@ -84,7 +103,18 @@ export default function OrderHelpScreen() {
             </Pressable>
           ) : null}
 
-          <Pressable style={styles.primaryAction} onPress={() => router.push("/(tabs)/browse")}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.primaryAction,
+              pressed
+                ? {
+                    transform: [{ scale: 0.985 }, { translateY: 1 }],
+                    opacity: 0.96,
+                  }
+                : null,
+            ]}
+            onPress={() => router.push("/(tabs)/browse")}
+          >
             <View style={styles.primaryActionIcon}>
               <Ionicons name="open-outline" size={18} color={palette.foreground} />
             </View>
@@ -121,7 +151,18 @@ export default function OrderHelpScreen() {
             <Text style={styles.tipText}>
               Share your order ID, a short issue summary, and a photo if an item is wrong or missing.
             </Text>
-            <Pressable style={styles.supportAction} onPress={() => router.push("/support")}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.supportAction,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
+              ]}
+              onPress={() => router.push("/support")}
+            >
               <Ionicons name="headset-outline" size={18} color={palette.surface} />
               <Text style={styles.supportActionText}>Open support</Text>
             </Pressable>

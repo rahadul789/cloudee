@@ -621,7 +621,18 @@ export default function LocationPickerScreen() {
 
       <View style={styles.screenBody}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={() => router.back()}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.headerButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
+            onPress={() => router.back()}
+          >
             <Ionicons
               name="chevron-back"
               size={22}
@@ -645,7 +656,15 @@ export default function LocationPickerScreen() {
           </View>
 
           <Pressable
-            style={styles.headerLocateButton}
+            style={({ pressed }) => [
+              styles.headerLocateButton,
+              pressed
+                ? {
+                    transform: [{ scale: 0.97 }, { translateY: 1 }],
+                    opacity: 0.92,
+                  }
+                : null,
+            ]}
             onPress={handleGoToCurrentLocation}
           >
             {isLocating ? (
@@ -766,7 +785,15 @@ export default function LocationPickerScreen() {
                 ]}
               >
                 <Pressable
-                  style={styles.currentLocationFabInner}
+                  style={({ pressed }) => [
+                    styles.currentLocationFabInner,
+                    pressed
+                      ? {
+                          transform: [{ scale: 0.96 }],
+                          opacity: 0.92,
+                        }
+                      : null,
+                  ]}
                   onPress={handleGoToCurrentLocation}
                 >
                   {isLocating ? (
@@ -812,7 +839,15 @@ export default function LocationPickerScreen() {
                     choose your exact delivery point.
                   </Text>
                   <Pressable
-                    style={styles.mapFallbackButton}
+                    style={({ pressed }) => [
+                      styles.mapFallbackButton,
+                      pressed
+                        ? {
+                            transform: [{ scale: 0.985 }, { translateY: 1 }],
+                            opacity: 0.96,
+                          }
+                        : null,
+                    ]}
                     onPress={() => void openLocationPermissionSettings()}
                   >
                     <Ionicons

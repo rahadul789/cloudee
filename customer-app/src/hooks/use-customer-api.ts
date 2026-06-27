@@ -1327,7 +1327,11 @@ export function useCustomerActiveOrderQuery(enabled = true) {
   return useQuery({
     queryKey: ["customer", "orders", "active"],
     enabled: enabled && isAuthenticated,
-    refetchInterval: (query) => (query.state.data ? 10_000 : false),
+    // Socket-primary: the socket pushes order.updated into this cache in real
+    // time, so this poll is only a slow fallback for when the socket is down.
+    // (Previously 10s everywhere, which kept the whole app busy during a live
+    // order. The fast, map-grade refresh now lives only on the tracking screen.)
+    refetchInterval: (query) => (query.state.data ? 45_000 : false),
     refetchIntervalInBackground: false,
     queryFn: async () => {
       const response = await apiProtectedGet<CustomerOrderResponse[]>(
@@ -1371,6 +1375,21 @@ export function useCustomerOrderDetailsQuery(orderId?: string) {
     staleTime: 15_000,
     refetchOnMount: "always",
     refetchOnReconnect: true,
+    // Map-grade fallback poll, but ONLY while a live order is on screen. This
+    // query is only mounted on order-specific screens (tracking/review), and the
+    // interval is gated on a live status, so a delivered/cancelled order never
+    // polls. Socket pushes remain the primary real-time channel; this just keeps
+    // the rider marker moving if the socket drops.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status &&
+        ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"].includes(
+          status,
+        )
+        ? 12_000
+        : false;
+    },
+    refetchIntervalInBackground: false,
     queryFn: async () => {
       const response = await apiProtectedGet<CustomerOrderResponse>(
         `/customer/orders/${orderId}`
@@ -1663,7 +1682,7 @@ export function useCustomerReviewMutation(orderId?: string) {
       }>(`/customer/orders/${orderId}/review`, body);
       return response.data;
     },
-    onSuccess: async () => {
+    onSuccess: (review) => {
       useAppBannerStore.getState().showBanner({
         title: "Review submitted",
         description: "Thanks for sharing your feedback. The restaurant can now review it.",
@@ -1671,10 +1690,64 @@ export function useCustomerReviewMutation(orderId?: string) {
         path: orderId ? `/orders/${orderId}/tracking` : undefined,
         actionLabel: orderId ? "View order" : undefined,
       });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", orderId] }),
-      ]);
+
+      if (!orderId) return;
+
+      // Surgical, in-place cache update instead of invalidating the whole
+      // ["customer","orders"] tree. A blanket invalidate refetches the paginated
+      // history list, and during that multi-page refetch the just-reviewed order
+      // can shift across a page boundary and appear twice → duplicate React key.
+      // Flipping the single order in place avoids the refetch entirely.
+      const customerReview = {
+        id: review._id,
+        rating: review.rating,
+        comment: review.comment,
+        createdAt: review.createdAt,
+        ownerReply: null,
+      };
+      const markReviewed = (
+        order: CustomerOrderResponse | null | undefined,
+      ): CustomerOrderResponse | null | undefined =>
+        order && order._id === orderId
+          ? { ...order, hasCustomerReview: true, customerReview }
+          : order;
+
+      queryClient.setQueryData<CustomerOrderResponse | null>(
+        ["customer", "orders", orderId],
+        (current) => markReviewed(current) ?? null,
+      );
+      queryClient.setQueryData<CustomerOrderResponse | null>(
+        ["customer", "orders", "active"],
+        (current) => markReviewed(current) ?? null,
+      );
+      for (const listKey of [["customer", "orders"], ["customer", "orders", "live"]]) {
+        queryClient.setQueryData<CustomerOrderResponse[]>(listKey, (current) =>
+          Array.isArray(current)
+            ? current.map((order) => markReviewed(order) as CustomerOrderResponse)
+            : current,
+        );
+      }
+      // History is an infinite query keyed with a pageSize suffix; match any.
+      queryClient.setQueriesData<{
+        pages: CustomerOrderResponse[][];
+        pageParams: unknown[];
+      }>({ queryKey: ["customer", "orders", "history"] }, (current) =>
+        current?.pages
+          ? {
+              ...current,
+              pages: current.pages.map((page) =>
+                page.map((order) => markReviewed(order) as CustomerOrderResponse),
+              ),
+            }
+          : current,
+      );
+
+      // Refresh ONLY the single order detail (authoritative server fields) —
+      // exact:true so the paginated lists are never refetched.
+      void queryClient.invalidateQueries({
+        queryKey: ["customer", "orders", orderId],
+        exact: true,
+      });
     },
   });
 }

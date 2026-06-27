@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -54,6 +55,7 @@ import { usePaymentPreferencesStore } from "@/src/store/payment-preferences-stor
 import { palette } from "@/src/theme/palette";
 
 type PaymentMethod = "Cash" | "Bkash";
+const bkashLogo = require("../assets/images/bkash.png");
 
 const VOUCHER_ATTEMPT_LIMIT = 5;
 const VOUCHER_ATTEMPT_WINDOW_MS = 2 * 60 * 1000;
@@ -76,6 +78,7 @@ const paymentOptions: {
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
+  imageSource?: number;
   accentColor: string;
 }[] = [
   {
@@ -90,6 +93,7 @@ const paymentOptions: {
     title: "bKash",
     subtitle: "Continue to the official hosted payment page.",
     icon: "phone-portrait-outline",
+    imageSource: bkashLogo,
     accentColor: "#FFE4EF",
   },
 ];
@@ -1266,11 +1270,19 @@ export default function CheckoutScreen() {
                       { backgroundColor: option.accentColor },
                     ]}
                   >
-                    <Ionicons
-                      name={option.icon}
-                      size={18}
-                      color={palette.foreground}
-                    />
+                    {option.imageSource ? (
+                      <Image
+                        source={option.imageSource}
+                        resizeMode="contain"
+                        style={{ width: 28, height: 28 }}
+                      />
+                    ) : (
+                      <Ionicons
+                        name={option.icon}
+                        size={18}
+                        color={palette.foreground}
+                      />
+                    )}
                   </View>
                   <View style={styles.paymentCopy}>
                     <Text style={styles.paymentTitle}>{option.title}</Text>

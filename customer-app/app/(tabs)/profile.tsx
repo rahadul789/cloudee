@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
@@ -19,6 +19,7 @@ import {
   useCustomerReferralSummaryQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
+import { dedupeById } from "@/src/lib/dedupe";
 import { formatDeliveryAddress } from "@/src/lib/location-address";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import { useIsOnline } from "@/src/hooks/use-network-status";
@@ -28,6 +29,8 @@ import {
   usePaymentPreferencesStore,
 } from "@/src/store/payment-preferences-store";
 import { palette } from "@/src/theme/palette";
+
+const bkashLogo = require("../../assets/images/bkash.png");
 
 function getCustomerDisplayName(fullName?: string | null) {
   const trimmed = fullName?.trim() ?? "";
@@ -66,7 +69,10 @@ export default function ProfileScreen() {
   const isOnline = useIsOnline();
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
   const personalOffers = useMemo(
-    () => personalOffersQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    () =>
+      dedupeById(
+        personalOffersQuery.data?.pages.flatMap((page) => page.items) ?? [],
+      ),
     [personalOffersQuery.data?.pages],
   );
   const highlightedOffer = personalOffers[0];
@@ -301,6 +307,7 @@ export default function ProfileScreen() {
               <View style={styles.cardStack}>
                 <ProfileNavCard
                   icon={preferredPaymentMethod === "Bkash" ? "phone-portrait-outline" : "cash-outline"}
+                  imageSource={preferredPaymentMethod === "Bkash" ? bkashLogo : undefined}
                   tint="#FFF0F6"
                   title="Default payment method"
                   caption={
@@ -608,6 +615,7 @@ function ReferralOverviewCardSkeleton() {
 
 function ProfileNavCard({
   icon,
+  imageSource,
   tint,
   title,
   caption,
@@ -617,6 +625,7 @@ function ProfileNavCard({
   trailingIcon = "chevron-forward",
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  imageSource?: number;
   tint: string;
   title: string;
   caption?: string;
@@ -627,11 +636,28 @@ function ProfileNavCard({
 }) {
   return (
     <Pressable
-      style={[styles.navCard, highlight ? styles.navCardHighlighted : null]}
+      style={({ pressed }) => [
+        styles.navCard,
+        highlight ? styles.navCardHighlighted : null,
+        pressed
+          ? {
+              transform: [{ scale: 0.985 }, { translateY: 1 }],
+              shadowOpacity: 0.06,
+            }
+          : null,
+      ]}
       onPress={onPress}
     >
       <View style={[styles.navIconWrap, { backgroundColor: tint }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
+        {imageSource ? (
+          <Image
+            source={imageSource}
+            resizeMode="contain"
+            style={{ width: 26, height: 26 }}
+          />
+        ) : (
+          <Ionicons name={icon} size={18} color={iconColor} />
+        )}
       </View>
       <View style={styles.navCopy}>
         <Text style={styles.navTitle}>{title}</Text>

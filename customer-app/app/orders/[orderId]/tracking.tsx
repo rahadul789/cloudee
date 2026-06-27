@@ -214,10 +214,14 @@ function KitchenStartCountdown({ estimate }: { estimate: PreparationEstimate }) 
           ]}
         />
       </View>
-      <Text style={styles.kitchenStartTitle}>{estimate.rangeLabel}</Text>
-      <Text style={styles.kitchenStartTimer}>{countdownText}</Text>
-      <Text style={styles.kitchenStartMeta}>
+      <Text style={styles.kitchenStartTitle}>
+        {countdownText || "Kitchen starts soon"}
+      </Text>
+      <Text style={styles.kitchenStartTimer}>
         Ready around {estimate.targetTimeLabel}
+      </Text>
+      <Text style={styles.kitchenStartMeta}>
+        {estimate.supportingText || "The kitchen is getting ready now."}
       </Text>
     </View>
   );
@@ -974,12 +978,13 @@ export default function OrderTrackingScreen() {
                 {(estimate) => (
                   <>
                     <Text style={styles.preparingRange}>
-                      {estimate?.rangeLabel ??
-                        (remainingMinutes !== null
+                      {estimate
+                        ? `Ready around ${estimate.targetTimeLabel}`
+                        : remainingMinutes !== null
                           ? `${formatDurationMinutes(
                               Math.max(remainingMinutes, 1),
                             )} left`
-                          : "Preparing now")}
+                          : "Preparing now"}
                     </Text>
                     <Text style={styles.preparingRangeMeta}>
                       {estimate?.supportingText ??
@@ -1266,19 +1271,17 @@ export default function OrderTrackingScreen() {
             <View style={styles.reviewHeaderRow}>
               <View>
                 <Text style={styles.reviewTitle}>Your review</Text>
-                <Text style={styles.reviewHint}>Already shared</Text>
+                <Text style={styles.reviewHint}>Thanks for your feedback</Text>
               </View>
               <View style={styles.reviewDoneBadge}>
-                <Ionicons name="star" size={14} color={palette.amber} />
-                <Text style={styles.reviewDoneBadgeText}>
-                  {order.customerReview.rating}/5
-                </Text>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={16}
+                  color={palette.successText}
+                />
+                <Text style={styles.reviewDoneBadgeText}>Reviewed</Text>
               </View>
             </View>
-            <Text style={styles.reviewDoneText}>
-              {order.customerReview.comment ||
-                "You submitted a rating without a comment."}
-            </Text>
           </View>
         ) : null}
 

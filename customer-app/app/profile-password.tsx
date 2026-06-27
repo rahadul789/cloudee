@@ -153,7 +153,18 @@ export default function ProfilePasswordScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topBar}>
-            <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Pressable
+              onPress={() => router.back()}
+              style={({ pressed }) => [
+                styles.backButton,
+                pressed
+                  ? {
+                      transform: [{ scale: 0.97 }, { translateY: 1 }],
+                      opacity: 0.92,
+                    }
+                  : null,
+              ]}
+            >
               <Ionicons
                 name="chevron-back"
                 size={20}
@@ -298,9 +309,15 @@ export default function ProfilePasswordScreen() {
             ) : null}
 
             <Pressable
-              style={[
+              style={({ pressed }) => [
                 styles.primaryButton,
                 !canPressSave ? styles.primaryButtonDisabled : null,
+                pressed && canPressSave
+                  ? {
+                      transform: [{ scale: 0.985 }, { translateY: 1 }],
+                      opacity: 0.96,
+                    }
+                  : null,
               ]}
               onPress={handleSave}
               disabled={!canPressSave}
@@ -358,7 +375,15 @@ function PasswordField({
 }) {
   return (
     <Pressable
-      style={[styles.field, focused ? styles.fieldFocused : null]}
+      style={({ pressed }) => [
+        styles.field,
+        focused ? styles.fieldFocused : null,
+        pressed
+          ? {
+              transform: [{ scale: 0.995 }],
+            }
+          : null,
+      ]}
       onPress={onPress}
     >
       <View style={styles.fieldIcon}>
@@ -398,7 +423,15 @@ function PasswordField({
           accessibilityLabel={visible ? "Hide password" : "Show password"}
           hitSlop={8}
           onPress={onToggleVisible}
-          style={styles.visibilityButton}
+          style={({ pressed }) => [
+            styles.visibilityButton,
+            pressed
+              ? {
+                  transform: [{ scale: 0.94 }],
+                  opacity: 0.78,
+                }
+              : null,
+          ]}
         >
           <Ionicons
             name={visible ? "eye-off-outline" : "eye-outline"}
