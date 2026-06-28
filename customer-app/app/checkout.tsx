@@ -728,6 +728,7 @@ export default function CheckoutScreen() {
         clientOrderId: clientOrderIdRef.current,
         items: itemPayload,
         voucherCode: appliedVoucherCode || undefined,
+        note: sanitizedRestaurantOrderNote || undefined,
         walletNumber: bkashWalletNumber,
         deliveryAddress: {
           label: selectedLocation.label,

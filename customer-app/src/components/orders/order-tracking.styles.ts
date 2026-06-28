@@ -1113,6 +1113,43 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  noteCard: {
+    marginHorizontal: 18,
+    backgroundColor: palette.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 6,
+  },
+  noteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  noteHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  noteTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  noteBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  noteBodyPreview: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "600",
+    color: palette.placeholder,
+  },
   reviewHeaderRow: {
     flexDirection: "row",
     alignItems: "center",

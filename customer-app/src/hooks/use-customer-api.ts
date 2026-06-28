@@ -838,6 +838,7 @@ type CustomerOrderResponse = {
   paymentStatus?: string;
   terminalReason?: string;
   cancelledBy?: string;
+  note?: string;
   paymentSnapshot?: {
     provider?: string;
     sessionId?: string;
@@ -1459,6 +1460,7 @@ export function useBkashInitiateMutation() {
       clientOrderId?: string;
       items: CartQuoteItemPayload[];
       voucherCode?: string;
+      note?: string;
       walletNumber: string;
       deliveryAddress: {
         label: string;

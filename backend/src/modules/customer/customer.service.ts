@@ -147,6 +147,7 @@ const CUSTOMER_ORDER_LIST_SELECT = [
   "restaurantId",
   "orderNumber",
   "status",
+  "note",
   "paymentMethod",
   "terminalReason",
   "cancelledBy",
@@ -3471,6 +3472,28 @@ function buildQuoteFromOrder(order: Record<string, any>) {
   };
 }
 
+function getCustomerOrderNote(order: Record<string, any>) {
+  const directNote = trimLimitedString(order.note, "", 240);
+  if (directNote) return directNote;
+
+  const placedHistoryNote = Array.isArray(order.history)
+    ? order.history.find(
+        (entry: Record<string, any>) =>
+          entry?.status === "New" && entry?.actor === "customer",
+      )?.note
+    : "";
+  return trimLimitedString(placedHistoryNote, "", 240);
+}
+
+function serializeCustomerOrder(order: any) {
+  const orderObject =
+    order && typeof order.toObject === "function" ? order.toObject() : order;
+  return {
+    ...(orderObject ?? {}),
+    note: getCustomerOrderNote(orderObject ?? {}),
+  };
+}
+
 async function findIdempotentOrder(customerId: string, clientOrderId: string) {
   if (!clientOrderId) return null;
   return OrderModel.findOne({ customerId, clientOrderId });
@@ -3999,7 +4022,7 @@ export async function placeCustomerOrder(params: {
   const existingOrder = await findIdempotentOrder(customer.id, clientOrderId);
   if (existingOrder) {
     return {
-      order: existingOrder,
+      order: serializeCustomerOrder(existingOrder),
       quote: buildQuoteFromOrder(existingOrder.toObject()),
     };
   }
@@ -4036,6 +4059,7 @@ export async function placeCustomerOrder(params: {
   const orderId = new mongoose.Types.ObjectId();
   const paymentSettings = await getPaymentMethodSettings();
   const shouldAutoAcceptOrder = false;
+  const orderNote = trimLimitedString(params.note, "", 240);
   let order: any | null = null;
   let createdOrder = false;
 
@@ -4158,7 +4182,7 @@ export async function placeCustomerOrder(params: {
         {
           status: "New",
           actor: "customer",
-          note: params.note ?? "",
+          note: orderNote,
           createdAt: placedAt,
         },
         ...(shouldAutoAcceptOrder
@@ -4182,6 +4206,7 @@ export async function placeCustomerOrder(params: {
             clientOrderId,
             orderNumber: createOrderNumber(),
             status: initialStatus,
+            note: orderNote,
             paymentMethod: params.paymentMethod,
             paymentStatus,
             paymentSnapshot,
@@ -4448,7 +4473,7 @@ export async function placeCustomerOrder(params: {
       const duplicateOrder = await findIdempotentOrder(customer.id, clientOrderId);
       if (duplicateOrder) {
         return {
-          order: duplicateOrder,
+          order: serializeCustomerOrder(duplicateOrder),
           quote: buildQuoteFromOrder(duplicateOrder.toObject()),
         };
       }
@@ -4463,7 +4488,7 @@ export async function placeCustomerOrder(params: {
     const latestOrder = await findIdempotentOrder(customer.id, clientOrderId);
     if (latestOrder) {
       return {
-        order: latestOrder,
+        order: serializeCustomerOrder(latestOrder),
         quote: buildQuoteFromOrder(latestOrder.toObject()),
       };
     }
@@ -4498,7 +4523,7 @@ export async function placeCustomerOrder(params: {
       }
     }
 
-    const orderObject = order.toObject();
+    const orderObject = serializeCustomerOrder(order);
     const platformContent = await getPlatformContent();
     const ownerOrderObject = buildOwnerFacingOrderPayload(orderObject, platformContent);
 
@@ -4597,7 +4622,7 @@ export async function placeCustomerOrder(params: {
   }
 
   return {
-    order,
+    order: serializeCustomerOrder(order),
     quote,
   };
 }
@@ -4608,6 +4633,7 @@ export async function initiateBkashPayment(params: {
   clientOrderId?: string;
   items: CartInputItem[];
   voucherCode?: string;
+  note?: string;
   walletNumber: string;
   deliveryAddress: CustomerDeliveryAddressInput;
 }) {
@@ -4644,10 +4670,12 @@ export async function initiateBkashPayment(params: {
 
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
   const payerReference = params.walletNumber;
+  const orderNote = trimLimitedString(params.note, "", 240);
   const checkoutSnapshot = {
     clientOrderId: normalizeClientOrderId(params.clientOrderId),
     items: params.items,
     voucherCode: params.voucherCode ?? "",
+    note: orderNote,
     deliveryAddress: params.deliveryAddress,
     serviceArea: quote.serviceArea ?? null,
   };
@@ -4770,6 +4798,7 @@ function getBkashCheckoutSnapshot(session: any) {
       typeof snapshot.voucherCode === "string" && snapshot.voucherCode.trim()
         ? snapshot.voucherCode.trim()
         : undefined,
+    note: typeof snapshot.note === "string" ? snapshot.note : "",
     deliveryAddress: {
       label: deliveryAddress.label,
       addressLine: deliveryAddress.addressLine,
@@ -4830,6 +4859,7 @@ async function finalizeConfirmedBkashSessionOrder(session: any) {
       clientOrderId: checkoutSnapshot.clientOrderId,
       items: checkoutSnapshot.items,
       voucherCode: checkoutSnapshot.voucherCode,
+      note: checkoutSnapshot.note,
       paymentMethod: "Bkash",
       paymentReference: {
         provider: "Bkash",
@@ -5337,6 +5367,7 @@ export async function listCustomerOrders(
     const orderObject = order as Record<string, any>;
     return {
       ...orderObject,
+      note: getCustomerOrderNote(orderObject),
       preparationTiming: buildOrderPreparationTiming({
         order: orderObject,
         restaurant: restaurantById.get(String(order.restaurantId ?? "")),
@@ -5418,6 +5449,7 @@ export async function getCustomerOrderDetails(params: {
 
   return {
     ...orderObject,
+    note: getCustomerOrderNote(orderObject),
     paymentSnapshot,
     preparationTiming: buildOrderPreparationTiming({
       order: orderObject,
@@ -5540,6 +5572,25 @@ export async function cancelCustomerOrder(params: {
         descriptionBn: `অর্ডার ${order.orderNumber} কাস্টমার ক্যানসেল করেছে।`,
         actionPath: `/orders?orderId=${order.id}`,
       });
+    })
+
+    enqueueBackgroundTask("customer.order_cancelled.owner_push", async () => {
+      await sendLocalizedPushToOwner({
+        ownerId: restaurant.ownerId.toString(),
+        en: {
+          title: "Order cancelled",
+          body: `Order ${order.orderNumber} was cancelled by the customer. You can stop preparing it.`,
+        },
+        bn: {
+          title: "অর্ডার ক্যানসেল হয়েছে",
+          body: `অর্ডার ${order.orderNumber} কাস্টমার ক্যানসেল করেছে। প্রস্তুত করা বন্ধ করতে পারেন।`,
+        },
+        data: {
+          type: "order.cancelled",
+          orderId: order.id,
+          path: `/orders/${order.id}`,
+        },
+      })
     })
 
     emitSocketEvent(

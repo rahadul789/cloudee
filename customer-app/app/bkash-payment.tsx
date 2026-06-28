@@ -63,10 +63,20 @@ export default function BkashPaymentScreen() {
   );
 
   const markSuccessProcessingIfNeeded = useCallback(
-    (url: string) => {
+    (url: string, title = "") => {
       const isBackendPaymentStep =
         url.startsWith(bkashCallbackPrefix) || url.startsWith(bkashReturnPrefix);
+      const successHint = `${url} ${title}`.toLowerCase();
       if (isBackendPaymentStep && url.includes("status=success")) {
+        setPaymentProcessing(true);
+        return;
+      }
+      if (
+        isTrustedBkashPaymentUrl(url) &&
+        (successHint.includes("success") ||
+          successHint.includes("successful") ||
+          successHint.includes("completed"))
+      ) {
         setPaymentProcessing(true);
       }
     },
@@ -337,46 +347,30 @@ export default function BkashPaymentScreen() {
       <View style={styles.root}>
         <View style={styles.webviewFrame}>
           <View style={styles.webviewWrap}>
-          {paymentProcessing ? (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color={palette.secondary} />
-              <Text style={styles.processingTitle}>Confirming bKash payment</Text>
-              <Text style={styles.processingText}>
-                Please wait while we create your order.
-              </Text>
-            </View>
-          ) : null}
+            <WebView
+              source={{ uri: paymentUrl }}
+              sharedCookiesEnabled
+              thirdPartyCookiesEnabled
+              javaScriptEnabled
+              domStorageEnabled
+              onLoadStart={(event) => {
+                markSuccessProcessingIfNeeded(event.nativeEvent.url);
+              }}
+              onShouldStartLoadWithRequest={(request) => {
+                if (handleReturnUrl(request.url)) {
+                  return false;
+                }
 
-          <WebView
-            source={{ uri: paymentUrl }}
-            startInLoadingState
-            sharedCookiesEnabled
-            thirdPartyCookiesEnabled
-            javaScriptEnabled
-            domStorageEnabled
-            onLoadStart={(event) => {
-              markSuccessProcessingIfNeeded(event.nativeEvent.url);
-            }}
-            onShouldStartLoadWithRequest={(request) => {
-              if (handleReturnUrl(request.url)) {
-                return false;
-              }
-
-              return true;
-            }}
-            onNavigationStateChange={(state) => {
-              handleReturnUrl(state.url);
-            }}
-            onError={() => {
-              setLoadError("Could not load the bKash checkout.");
-            }}
-            renderLoading={() => (
-              <View style={styles.loadingOverlay}>
-                <ActivityIndicator size="large" color={palette.secondary} />
-                <Text style={styles.processingTitle}>Opening bKash checkout</Text>
-              </View>
-            )}
-          />
+                return true;
+              }}
+              onNavigationStateChange={(state) => {
+                markSuccessProcessingIfNeeded(state.url, state.title ?? "");
+                handleReturnUrl(state.url);
+              }}
+              onError={() => {
+                setLoadError("Could not load the bKash checkout.");
+              }}
+            />
           </View>
         </View>
 
@@ -403,6 +397,17 @@ export default function BkashPaymentScreen() {
                 <Text style={styles.retryButtonText}>Create order</Text>
               </Pressable>
             ) : null}
+          </View>
+        ) : null}
+
+        {paymentProcessing && !loadError ? (
+          <View style={[styles.bottomNotice, { bottom: Math.max(insets.bottom, 12) }]}>
+            <View style={styles.bottomLoadingRow}>
+              <ActivityIndicator size="small" color={palette.secondary} />
+              <Text style={styles.bottomLoadingText}>
+                Confirming payment and opening your order
+              </Text>
+            </View>
           </View>
         ) : null}
       </View>
@@ -491,6 +496,20 @@ const styles = StyleSheet.create({
   bottomNoticeText: {
     fontSize: 13,
     lineHeight: 18,
+    color: palette.foreground,
+    textAlign: "center",
+  },
+  bottomLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  bottomLoadingText: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },

@@ -362,12 +362,12 @@ function buildCleanCustomerOrderStatusMessage(nextStatus: string) {
     case "Rejected":
       return {
         title: "😕 Order not accepted",
-        body: "Your order could not be accepted. If you paid online, support will review the refund.",
+        body: "Your order could not be accepted. Please try another restaurant.",
       };
     case "Cancelled":
       return {
         title: "❌ Order cancelled",
-        body: "Your order was cancelled. If you paid online, support will review the refund.",
+        body: "Your order was cancelled. You can order again anytime.",
       };
     default:
       return {

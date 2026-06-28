@@ -152,6 +152,7 @@ const orderSchema = new Schema(
     terminalReason: { type: String, default: "" },
     cancelledBy: { type: String, default: "" },
     rejectionReason: { type: String, default: "" },
+    note: { type: String, default: "", trim: true },
     paymentMethod: { type: String, default: "Cash" },
     paymentStatus: { type: String, default: "pending" },
     paymentSnapshot: { type: Schema.Types.Mixed, default: {} },

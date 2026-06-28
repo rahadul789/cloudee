@@ -362,6 +362,7 @@ export default function OrderTrackingScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ orderId?: string; justPlaced?: string }>();
   const [isDetailsOpen, setDetailsOpen] = useState(false);
+  const [noteExpanded, setNoteExpanded] = useState(false);
   const [selectedRating, setSelectedRating] = useState(0);
   const [selectedRiderRating, setSelectedRiderRating] = useState(0);
   const [selectedRiderComment, setSelectedRiderComment] = useState("");
@@ -550,10 +551,6 @@ export default function OrderTrackingScreen() {
             </View>
           )}
         </ScrollView>
-        <OrderSuccessCelebration
-          visible={showOrderSuccessCelebration}
-          onDone={dismissOrderSuccessCelebration}
-        />
       </SafeAreaView>
     );
   }
@@ -703,17 +700,11 @@ export default function OrderTrackingScreen() {
         reason: "customer_cancelled_before_acceptance",
       });
       closeDetailsSheet();
-      const isBkashPaidOrder =
-        order.paymentMethod === "Bkash" &&
-        ["paid", "refund_pending"].includes(order.paymentStatus ?? "");
       showBanner({
         title: "Order cancelled",
-        description: isBkashPaidOrder
-          ? `Your bKash refund is now in review. We will process it within ${formatRefundEta(
-              order.paymentSnapshot?.refundEtaMinutes,
-            )}.`
-          : "The restaurant had not accepted it yet. No refund is needed for cash on delivery.",
+        description: "Your order was cancelled.",
         tone: "success",
+        dedupeKey: `order:${order._id}:Cancelled`,
       });
     } catch (error) {
       showBanner({
@@ -1163,6 +1154,38 @@ export default function OrderTrackingScreen() {
             <Text style={styles.detailsButtonText}>Order details</Text>
           </Pressable>
         </View>
+
+        {order.note?.trim() ? (
+          <View style={styles.noteCard}>
+            <Pressable
+              style={styles.noteHeader}
+              onPress={() => setNoteExpanded((value) => !value)}
+              accessibilityRole="button"
+              accessibilityLabel="Your order note"
+            >
+              <View style={styles.noteHeaderLeft}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={17}
+                  color={palette.secondary}
+                />
+                <Text style={styles.noteTitle}>Your note</Text>
+              </View>
+              <Ionicons
+                name={noteExpanded ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={palette.mutedForeground}
+              />
+            </Pressable>
+            {noteExpanded ? (
+              <Text style={styles.noteBody}>{order.note.trim()}</Text>
+            ) : (
+              <Text style={styles.noteBodyPreview} numberOfLines={1}>
+                {order.note.trim()}
+              </Text>
+            )}
+          </View>
+        ) : null}
 
         {journeyIndex >= 0 && !isDeliveredOrder ? (
           <View style={styles.journeyCard}>

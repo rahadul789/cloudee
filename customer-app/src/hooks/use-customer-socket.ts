@@ -184,7 +184,16 @@ function upsertLiveOrderList(
   return upsertOrderList(current, nextOrder);
 }
 
-function getOrderBanner(status: string) {
+function getOrderBanner(status: string, cancelledBy?: string) {
+  // A customer-initiated cancel must never read as "restaurant didn't accept".
+  if (status === "Rejected" && cancelledBy === "customer") {
+    return {
+      tone: "warning" as const,
+      emoji: "⚠️",
+      title: "Order cancelled",
+      description: "Your order was cancelled.",
+    };
+  }
   switch (status) {
     case "New":
       return null;
@@ -266,6 +275,9 @@ export function useCustomerSocketBridge() {
   // minute; without this guard the store's 8s dedupe lets a fresh "On the way"
   // banner through every 8 seconds, which reads as spam.
   const banneredStatusRef = React.useRef<Map<string, string>>(new Map());
+  // Orders that already showed a Cancelled/Rejected banner — prevents a second
+  // contradictory "ended without delivery" banner for the same order.
+  const cancelBanneredRef = React.useRef<Set<string>>(new Set());
 
   React.useEffect(() => {
     if (!customer?.id || !accessToken) {
@@ -332,12 +344,25 @@ export function useCustomerSocketBridge() {
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
       }
 
-      if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
-        // Order is finished; drop it so a future order id reuse can't be muted.
-        banneredStatusRef.current.delete(payload._id);
+      // Keep the bannered status for finished orders (order ids are unique
+      // ObjectIds and never reused) so a duplicate terminal event cannot re-fire a
+      // banner.
+      let banner = isStatusTransition
+        ? getOrderBanner(payload.status, payload.cancelledBy)
+        : null;
+      // Cancelled and Rejected both mean "ended without delivery". Show at most one
+      // such banner per order, so a customer cancel never also pops a contradictory
+      // "restaurant did not accept your order" banner right after.
+      if (
+        banner &&
+        (payload.status === "Cancelled" || payload.status === "Rejected")
+      ) {
+        if (cancelBanneredRef.current.has(payload._id)) {
+          banner = null;
+        } else {
+          cancelBanneredRef.current.add(payload._id);
+        }
       }
-
-      const banner = isStatusTransition ? getOrderBanner(payload.status) : null;
       if (banner) {
         showBanner({
           ...banner,

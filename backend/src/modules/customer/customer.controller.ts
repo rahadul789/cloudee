@@ -245,7 +245,7 @@ const placeOrderSchema = z.object({
       walletNumber: z.string().optional()
     })
     .optional(),
-  note: z.string().optional(),
+  note: z.string().trim().max(240).optional(),
   deliveryAddress: z.object({
     label: z.string().min(1),
     addressLine: z.string().min(1),
@@ -260,6 +260,7 @@ const bkashInitiateSchema = z.object({
   clientOrderId: z.string().trim().min(8).max(120).optional(),
   items: z.array(cartItemSchema).min(1).max(50),
   voucherCode: z.string().optional(),
+  note: z.string().trim().max(240).optional(),
   walletNumber: z.string().regex(/^01\d{9}$/),
   deliveryAddress: z.object({
     label: z.string().min(1),
