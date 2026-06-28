@@ -406,6 +406,7 @@ export function useCustomerDiscoveryHomeQuery(params: {
   latitude?: number;
   longitude?: number;
   radiusKm?: number;
+  enabled?: boolean;
 }) {
   const query = buildQueryString(
     compactQueryParams({
@@ -417,6 +418,7 @@ export function useCustomerDiscoveryHomeQuery(params: {
 
   return useQuery({
     queryKey: ["customer", "discovery-home", query],
+    enabled: params.enabled !== false,
     placeholderData: keepPreviousData,
     staleTime: 2 * 60_000,
     gcTime: 10 * 60_000,
@@ -1268,6 +1270,18 @@ export function useCustomerMediaUploadSignatureMutation() {
   });
 }
 
+export function useCustomerMediaDeleteMutation() {
+  return useMutation({
+    mutationFn: async (body: { publicId: string; resourceType?: string }) => {
+      const response = await apiProtectedPost<{ deleted: boolean }>(
+        "/media/delete",
+        body,
+      );
+      return response.data;
+    },
+  });
+}
+
 export function useCustomerOrdersQuery(enabled = true) {
   const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
 
@@ -1376,21 +1390,9 @@ export function useCustomerOrderDetailsQuery(orderId?: string) {
     staleTime: 15_000,
     refetchOnMount: "always",
     refetchOnReconnect: true,
-    // Map-grade fallback poll, but ONLY while a live order is on screen. This
-    // query is only mounted on order-specific screens (tracking/review), and the
-    // interval is gated on a live status, so a delivered/cancelled order never
-    // polls. Socket pushes remain the primary real-time channel; this just keeps
-    // the rider marker moving if the socket drops.
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status &&
-        ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"].includes(
-          status,
-        )
-        ? 12_000
-        : false;
-    },
-    refetchIntervalInBackground: false,
+    // Realtime order/rider updates arrive through the customer socket bridge.
+    // The tracking screen owns the socket-aware fallback poll, so this shared
+    // details query should not keep polling while the socket is healthy.
     queryFn: async () => {
       const response = await apiProtectedGet<CustomerOrderResponse>(
         `/customer/orders/${orderId}`

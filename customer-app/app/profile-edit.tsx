@@ -19,10 +19,12 @@ import { Screen } from "@/src/components/screen";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
 import {
+  useCustomerMediaDeleteMutation,
   useCustomerMediaUploadSignatureMutation,
   useCustomerProfileUpdateMutation,
 } from "@/src/hooks/use-customer-api";
 import { getCustomerAuthErrorMessage } from "@/src/lib/auth-error-message";
+import { fetchWithTimeout } from "@/src/lib/api";
 import { formatDeliveryAddress } from "@/src/lib/location-address";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
@@ -34,6 +36,20 @@ type ProfileImageValue = {
   publicId?: string;
 };
 
+const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_LABEL = "2 MB";
+const PROFILE_IMAGE_UPLOAD_TIMEOUT_MS = 45_000;
+
+async function getPickedImageSize(asset: ImagePicker.ImagePickerAsset) {
+  if (typeof asset.fileSize === "number" && asset.fileSize > 0) {
+    return asset.fileSize;
+  }
+
+  const response = await fetch(asset.uri);
+  const blob = await response.blob();
+  return blob.size;
+}
+
 export default function ProfileEditScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -42,6 +58,7 @@ export default function ProfileEditScreen() {
   const isOnline = useIsOnline();
   const updateMutation = useCustomerProfileUpdateMutation();
   const uploadSignatureMutation = useCustomerMediaUploadSignatureMutation();
+  const deleteMediaMutation = useCustomerMediaDeleteMutation();
   const scrollViewRef = useRef<ScrollView | null>(null);
   const fullNameInputRef = useRef<TextInput | null>(null);
   const [fullName, setFullName] = useState(customer?.fullName ?? "");
@@ -51,6 +68,7 @@ export default function ProfileEditScreen() {
   );
   const [errorText, setErrorText] = useState("");
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [fullNameFocused, setFullNameFocused] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
 
@@ -76,6 +94,7 @@ export default function ProfileEditScreen() {
   const trimmedEmail = email.trim();
   const normalizedCustomerImage = customer?.profileImage?.url?.trim() ?? "";
   const normalizedProfileImage = profileImage?.url?.trim() ?? "";
+  const originalProfilePublicId = customer?.profileImage?.publicId?.trim() ?? "";
   const hasChanges = useMemo(
     () =>
       trimmedFullName !== (customer?.fullName?.trim() ?? "") ||
@@ -132,20 +151,37 @@ export default function ProfileEditScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        quality: 0.9,
-        allowsEditing: true,
-        aspect: [1, 1],
+        quality: 0.78,
         selectionLimit: 1,
-        legacy: true,
       });
 
       if (result.canceled || !result.assets?.[0]) {
         return;
       }
 
+      const asset = result.assets[0];
+      const imageSize = await getPickedImageSize(asset);
+      if (imageSize > MAX_PROFILE_IMAGE_BYTES) {
+        setErrorText(`Profile photo must be ${MAX_PROFILE_IMAGE_LABEL} or smaller.`);
+        return;
+      }
+
       setIsUploadingImage(true);
 
-      const asset = result.assets[0];
+      const previousPublicId = profileImage?.publicId?.trim();
+      if (previousPublicId && previousPublicId !== originalProfilePublicId) {
+        const deleteResult = await deleteMediaMutation.mutateAsync({
+          publicId: previousPublicId,
+          resourceType: "image",
+        });
+
+        if (!deleteResult.deleted) {
+          throw new Error("Could not replace the previous profile photo. Please try again.");
+        }
+
+        setProfileImage({ url: "", publicId: "" });
+      }
+
       const signature = await uploadSignatureMutation.mutateAsync({
         folder: "foodbela/customer/profile",
         resourceType: "image",
@@ -162,12 +198,14 @@ export default function ProfileEditScreen() {
       formData.append("signature", signature.signature);
       formData.append("folder", signature.folder);
 
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://api.cloudinary.com/v1_1/${signature.cloudName}/${signature.resourceType}/upload`,
         {
           method: "POST",
           body: formData,
-        }
+        },
+        PROFILE_IMAGE_UPLOAD_TIMEOUT_MS,
+        "Profile photo upload timed out. Please try again."
       );
 
       const payload = (await response.json()) as {
@@ -195,12 +233,42 @@ export default function ProfileEditScreen() {
     }
   }
 
-  function handleRemoveImage() {
-    setProfileImage({ url: "", publicId: "" });
-    setErrorText("");
+  async function handleRemoveImage() {
+    if (!isOnline) {
+      setErrorText("Reconnect to remove your profile photo.");
+      return;
+    }
+
+    try {
+      setErrorText("");
+      setIsUploadingImage(true);
+
+      const publicId = profileImage?.publicId?.trim();
+      if (publicId && publicId !== originalProfilePublicId) {
+        const deleteResult = await deleteMediaMutation.mutateAsync({
+          publicId,
+          resourceType: "image",
+        });
+
+        if (!deleteResult.deleted) {
+          throw new Error("Could not delete the profile photo. Please try again.");
+        }
+      }
+
+      setProfileImage({ url: "", publicId: "" });
+    } catch (error) {
+      setErrorText(
+        getCustomerAuthErrorMessage(error, "Could not remove profile photo.")
+      );
+    } finally {
+      setIsUploadingImage(false);
+    }
   }
 
   async function handleSave() {
+    if (isSavingProfile || isUploadingImage || updateMutation.isPending) {
+      return;
+    }
     if (!isOnline) {
       setErrorText("Reconnect to save your profile changes.");
       return;
@@ -216,6 +284,19 @@ export default function ProfileEditScreen() {
 
     try {
       setErrorText("");
+      setIsSavingProfile(true);
+      const nextProfilePublicId = profileImage?.publicId?.trim() ?? "";
+      if (originalProfilePublicId && originalProfilePublicId !== nextProfilePublicId) {
+        const deleteResult = await deleteMediaMutation.mutateAsync({
+          publicId: originalProfilePublicId,
+          resourceType: "image",
+        });
+
+        if (!deleteResult.deleted) {
+          throw new Error("Could not delete the previous profile photo. Please try again.");
+        }
+      }
+
       await updateMutation.mutateAsync({
         fullName: trimmedFullName,
         email: trimmedEmail,
@@ -226,6 +307,8 @@ export default function ProfileEditScreen() {
       setErrorText(
         getCustomerAuthErrorMessage(error, "Could not update profile.")
       );
+    } finally {
+      setIsSavingProfile(false);
     }
   }
 
@@ -290,7 +373,7 @@ export default function ProfileEditScreen() {
                   </View>
                 )}
 
-                {(isUploadingImage || updateMutation.isPending) ? (
+                {(isUploadingImage || isSavingProfile || updateMutation.isPending) ? (
                   <View style={styles.avatarOverlay}>
                     <ActivityIndicator size="small" color="#fff" />
                   </View>
@@ -315,6 +398,7 @@ export default function ProfileEditScreen() {
                   styles.photoButtonPrimary,
                   pressed &&
                   !isUploadingImage &&
+                  !isSavingProfile &&
                   !updateMutation.isPending &&
                   isOnline
                     ? {
@@ -324,7 +408,7 @@ export default function ProfileEditScreen() {
                     : null,
                 ]}
                 onPress={handlePickImage}
-                disabled={isUploadingImage || updateMutation.isPending || !isOnline}
+                disabled={isUploadingImage || isSavingProfile || updateMutation.isPending || !isOnline}
               >
                 {isUploadingImage ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -343,15 +427,17 @@ export default function ProfileEditScreen() {
                   style={({ pressed }) => [
                     styles.photoButton,
                     styles.photoButtonHalf,
-                    pressed && !isUploadingImage && !updateMutation.isPending && isOnline
+                    pressed && !isUploadingImage && !isSavingProfile && !updateMutation.isPending && isOnline
                       ? {
                           transform: [{ scale: 0.985 }, { translateY: 1 }],
                           opacity: 0.96,
                         }
                       : null,
                   ]}
-                  onPress={handleRemoveImage}
-                  disabled={isUploadingImage || updateMutation.isPending || !isOnline}
+                  onPress={() => {
+                    void handleRemoveImage();
+                  }}
+                  disabled={isUploadingImage || isSavingProfile || updateMutation.isPending || !isOnline}
                 >
                   <Ionicons
                     name="trash-outline"
@@ -482,10 +568,15 @@ export default function ProfileEditScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.primaryButton,
-                (!hasChanges || updateMutation.isPending || isUploadingImage) &&
+                (!hasChanges || isSavingProfile || updateMutation.isPending || isUploadingImage) &&
                   styles.primaryButtonDisabled,
                 !isOnline && styles.primaryButtonDisabled,
-                pressed && hasChanges && !updateMutation.isPending && !isUploadingImage && isOnline
+                pressed &&
+                hasChanges &&
+                !isSavingProfile &&
+                !updateMutation.isPending &&
+                !isUploadingImage &&
+                isOnline
                   ? {
                       transform: [{ scale: 0.985 }, { translateY: 1 }],
                       opacity: 0.96,
@@ -493,9 +584,15 @@ export default function ProfileEditScreen() {
                   : null,
               ]}
               onPress={handleSave}
-              disabled={!hasChanges || updateMutation.isPending || isUploadingImage || !isOnline}
+              disabled={
+                !hasChanges ||
+                isSavingProfile ||
+                updateMutation.isPending ||
+                isUploadingImage ||
+                !isOnline
+              }
             >
-              {updateMutation.isPending ? (
+              {isSavingProfile || updateMutation.isPending ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <>

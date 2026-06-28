@@ -2523,62 +2523,65 @@ const POPULAR_RESTAURANT_ORDER_STATUSES = [
 ]
 
 async function getPopularRestaurantIdsFromOrders(limit = 80) {
-  const since = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
-  const rows = await OrderModel.aggregate<{
-    _id: mongoose.Types.ObjectId
-    recentOrders: number
-    deliveredOrders: number
-    totalOrders: number
-    deliveredRevenue: number
-  }>([
-    {
-      $match: {
-        status: { $in: POPULAR_RESTAURANT_ORDER_STATUSES },
-        restaurantId: { $ne: null },
+  const safeLimit = Math.max(1, Math.min(200, limit))
+  return popularRestaurantIdsCache.getOrSet(`popular-order-ids:${safeLimit}`, async () => {
+    const since = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
+    const rows = await OrderModel.aggregate<{
+      _id: mongoose.Types.ObjectId
+      recentOrders: number
+      deliveredOrders: number
+      totalOrders: number
+      deliveredRevenue: number
+    }>([
+      {
+        $match: {
+          status: { $in: POPULAR_RESTAURANT_ORDER_STATUSES },
+          restaurantId: { $ne: null },
+        },
       },
-    },
-    {
-      $group: {
-        _id: "$restaurantId",
-        totalOrders: { $sum: 1 },
-        recentOrders: {
-          $sum: {
-            $cond: [{ $gte: ["$createdAt", since] }, 1, 0],
+      {
+        $group: {
+          _id: "$restaurantId",
+          totalOrders: { $sum: 1 },
+          recentOrders: {
+            $sum: {
+              $cond: [{ $gte: ["$createdAt", since] }, 1, 0],
+            },
+          },
+          deliveredOrders: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "Delivered"] }, 1, 0],
+            },
+          },
+          deliveredRevenue: {
+            $sum: {
+              $cond: [
+                { $eq: ["$status", "Delivered"] },
+                { $ifNull: ["$pricing.total", 0] },
+                0,
+              ],
+            },
           },
         },
-        deliveredOrders: {
-          $sum: {
-            $cond: [{ $eq: ["$status", "Delivered"] }, 1, 0],
-          },
-        },
-        deliveredRevenue: {
-          $sum: {
-            $cond: [
-              { $eq: ["$status", "Delivered"] },
-              { $ifNull: ["$pricing.total", 0] },
-              0,
+      },
+      {
+        $addFields: {
+          score: {
+            $add: [
+              { $multiply: ["$recentOrders", 140] },
+              { $multiply: ["$deliveredOrders", 150] },
+              { $multiply: ["$totalOrders", 24] },
+              { $min: [{ $divide: ["$deliveredRevenue", 120] }, 180] },
             ],
           },
         },
       },
-    },
-    {
-      $addFields: {
-        score: {
-          $add: [
-            { $multiply: ["$recentOrders", 140] },
-            { $multiply: ["$deliveredOrders", 150] },
-            { $multiply: ["$totalOrders", 24] },
-            { $min: [{ $divide: ["$deliveredRevenue", 120] }, 180] },
-          ],
-        },
-      },
-    },
-    { $sort: { score: -1, deliveredOrders: -1, recentOrders: -1, totalOrders: -1 } },
-    { $limit: Math.max(1, Math.min(200, limit)) },
-  ])
+      { $sort: { score: -1, deliveredOrders: -1, recentOrders: -1, totalOrders: -1 } },
+      { $limit: safeLimit },
+    ])
 
-  return rows.map((row) => row._id?.toString?.() ?? "").filter(Boolean)
+    return rows.map((row) => row._id?.toString?.() ?? "").filter(Boolean)
+  })
 }
 
 async function rankPopularRestaurants(
@@ -2771,6 +2774,7 @@ export async function getCustomerDiscoveryHome(params?: {
       const offersSection = homeRestaurantSections.offers;
       const discoverNewSection = homeRestaurantSections.discoverNew;
       const popularNearYouSection = homeRestaurantSections.popularNearYou;
+      const nearbySection = homeRestaurantSections.nearby;
 
       const collectionFeaturedRestaurantIds =
         featuredCollection?.restaurantIds.map((id) => id.toString()) ?? [];
@@ -2872,7 +2876,7 @@ export async function getCustomerDiscoveryHome(params?: {
       });
 
       const shouldLoadDiscoveryCandidates =
-        discoverNewSection.isActive !== false;
+        discoverNewSection.isActive !== false || nearbySection.isActive !== false;
       const candidateRestaurants = shouldLoadDiscoveryCandidates
         ? await listDiscoverableRestaurants({
             latitude: params?.latitude,
@@ -2880,6 +2884,8 @@ export async function getCustomerDiscoveryHome(params?: {
             radiusKm: params?.radiusKm,
           })
         : [];
+      const nearbyRestaurants =
+        nearbySection.isActive === false ? [] : candidateRestaurants.slice(0, 20);
       const shouldLoadPopularCandidates =
         popularNearYouSection.isActive !== false;
       const popularRestaurantIds = shouldLoadPopularCandidates
@@ -3058,6 +3064,7 @@ export async function getCustomerDiscoveryHome(params?: {
         restaurantsWithOffers: shouldShowRestaurantOfferSection ? offerRestaurants : [],
         discoverNewRestaurants,
         popularNearYouRestaurants,
+        nearbyRestaurants,
         campaignPlacements: [],
         activeOffers: visibleActiveOffers.map((offer) => ({
               _id: offer._id.toString(),
@@ -6021,7 +6028,14 @@ const customerDiscoveryHomeCache =
   createInMemoryAsyncCache<CustomerDiscoveryHomeResult>({
     ttlMs: CUSTOMER_READ_CACHE_TTL_MS,
     maxEntries: CUSTOMER_READ_CACHE_MAX_ENTRIES,
-    staleWhileRevalidateMs: 0,
+    staleWhileRevalidateMs: 60_000,
+  })
+
+const popularRestaurantIdsCache =
+  createInMemoryAsyncCache<string[]>({
+    ttlMs: 2 * 60_000,
+    maxEntries: 8,
+    staleWhileRevalidateMs: 5 * 60_000,
   })
 
 const customerRestaurantDetailsCache =

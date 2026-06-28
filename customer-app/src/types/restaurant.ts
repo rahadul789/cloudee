@@ -299,6 +299,7 @@ export type CustomerDiscoveryHome = {
   restaurantsWithOffers: DiscoverableRestaurant[];
   discoverNewRestaurants?: DiscoverableRestaurant[];
   popularNearYouRestaurants?: DiscoverableRestaurant[];
+  nearbyRestaurants?: DiscoverableRestaurant[];
   campaignPlacements?: CustomerCampaignPlacement[];
   activeOffers: CustomerVoucherOffer[];
 };

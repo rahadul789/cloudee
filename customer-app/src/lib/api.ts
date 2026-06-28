@@ -3,11 +3,77 @@ import { API_BASE_URL } from "@/src/config/runtime";
 
 let refreshPromise: Promise<boolean> | null = null;
 
+const API_REQUEST_TIMEOUT_MS = 18_000;
+const API_REFRESH_TIMEOUT_MS = 12_000;
+
 type ApiResponse<T> = {
   success: boolean;
   message?: string;
   data: T;
 };
+
+export class ApiRequestError extends Error {
+  status?: number;
+  isTimeout?: boolean;
+
+  constructor(message: string, options?: { status?: number; isTimeout?: boolean }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = options?.status;
+    this.isTimeout = options?.isTimeout;
+  }
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || /aborted/i.test(error.message))
+  );
+}
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  timeoutMessage = "Request timed out. Please check your connection and try again.",
+) {
+  const controller = new AbortController();
+  const externalSignal = init?.signal;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let didTimeout = false;
+
+  const abortFromExternalSignal = () => {
+    controller.abort();
+  };
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal);
+  }
+
+  timeout = setTimeout(() => {
+    didTimeout = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (didTimeout || isAbortError(error)) {
+      throw new ApiRequestError(timeoutMessage, { isTimeout: didTimeout });
+    }
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+  }
+}
 
 async function parseResponse<T>(response: Response) {
   const text = await response.text();
@@ -19,18 +85,20 @@ async function parseResponse<T>(response: Response) {
 
     if (contentType.includes("application/json") && text) {
       const payload = JSON.parse(text) as { message?: string };
-      throw new Error(
+      throw new ApiRequestError(
         payload.message ??
           (response.status === 429
             ? defaultRateLimitMessage
-            : `Request failed with status ${response.status}`)
+            : `Request failed with status ${response.status}`),
+        { status: response.status }
       );
     }
 
-    throw new Error(
+    throw new ApiRequestError(
       response.status === 429
         ? defaultRateLimitMessage
-        : `Request failed with status ${response.status}`
+        : `Request failed with status ${response.status}`,
+      { status: response.status }
     );
   }
 
@@ -42,6 +110,10 @@ async function parseResponse<T>(response: Response) {
 }
 
 function getNetworkAwareErrorMessage(error: unknown) {
+  if (isAbortError(error)) {
+    return "Request timed out. Please check your connection and try again.";
+  }
+
   if (error instanceof TypeError) {
     return "You appear to be offline. Reconnect and try again.";
   }
@@ -59,13 +131,17 @@ async function refreshCustomerSession() {
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/customer/auth/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    response = await fetchWithTimeout(
+      `${API_BASE_URL}/customer/auth/refresh`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refreshToken }),
       },
-      body: JSON.stringify({ refreshToken }),
-    });
+      API_REFRESH_TIMEOUT_MS
+    );
   } catch {
     return false;
   }
@@ -137,12 +213,21 @@ async function apiRequest<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      headers,
-    });
+    response = await fetchWithTimeout(
+      `${API_BASE_URL}${path}`,
+      {
+        ...init,
+        headers,
+      },
+      API_REQUEST_TIMEOUT_MS
+    );
   } catch (error) {
-    throw new Error(getNetworkAwareErrorMessage(error));
+    if (error instanceof ApiRequestError) {
+      throw error;
+    }
+    throw new ApiRequestError(getNetworkAwareErrorMessage(error), {
+      isTimeout: isAbortError(error),
+    });
   }
 
   if (response.status === 401 && allowRetry && !path.includes("/customer/auth/refresh")) {

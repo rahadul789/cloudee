@@ -26,7 +26,6 @@ import {
   ListChecks,
   Loader2,
   LocateOff,
-  MapPin,
   Navigation,
   PackageCheck,
   PanelLeftOpen,
@@ -51,6 +50,7 @@ import {
   getAdminLiveMap,
   getAdminDispatchSettings,
   listAdminRidersAssignmentOptions,
+  setAdminRiderActiveTrip,
   updateAdminOrderStatus,
   type AdminDispatchSettings,
   type AdminLiveMapDelivery,
@@ -121,6 +121,24 @@ type NearbyRiderCandidate = {
   rider: AdminLiveMapRider
   distanceKm: number
   freshness: ReturnType<typeof riderFreshness>
+}
+
+type LiveTripCandidate = {
+  id: string
+  orderNumber: string
+  status: AdminLiveMapDelivery["status"]
+  restaurantName: string
+  customerName: string
+  etaLabel: string | null
+  realtimeLabel: string
+  trackingLastUpdatedAt: string | null
+  isLive: boolean
+}
+
+type LiveTripSwitchContext = {
+  riderId: string
+  activeTrackingOrderId: string
+  trips: LiveTripCandidate[]
 }
 
 type LiveMapConnectionState = "connecting" | "live" | "offline"
@@ -790,6 +808,65 @@ function getNearbyRiders(
     .slice(0, limit)
 }
 
+function getLiveTripContextForSelection(
+  selected: SelectedMapItem | null,
+  deliveries: AdminLiveMapDelivery[]
+): LiveTripSwitchContext {
+  if (!selected) {
+    return { riderId: "", activeTrackingOrderId: "", trips: [] }
+  }
+
+  const riderId =
+    selected.type === "rider"
+      ? selected.item.id
+      : selected.type === "delivery"
+        ? (selected.item.rider?.id ?? "")
+        : ""
+
+  if (!riderId) {
+    return { riderId: "", activeTrackingOrderId: "", trips: [] }
+  }
+
+  const activeTrackingOrderId =
+    selected.type === "rider"
+      ? selected.item.activeTrackingOrderId || selected.item.liveOrderId || ""
+      : selected.type === "delivery"
+        ? (selected.item.rider?.activeTrackingOrderId ?? "")
+        : ""
+
+  const trips = deliveries
+    .filter(
+      (delivery) =>
+        delivery.status === "PickedUp" && delivery.rider?.id === riderId
+    )
+    .sort((left, right) => {
+      if (left.id === activeTrackingOrderId) return -1
+      if (right.id === activeTrackingOrderId) return 1
+      return getDeliveryPriorityScore(right) - getDeliveryPriorityScore(left)
+    })
+    .map((delivery) => ({
+      id: delivery.id,
+      orderNumber: delivery.orderNumber,
+      status: delivery.status,
+      restaurantName: delivery.restaurant.name,
+      customerName: delivery.customer.name,
+      etaLabel: getDeliveryEtaLabel(delivery),
+      realtimeLabel: getDeliveryRealtimeLabel(delivery),
+      trackingLastUpdatedAt: delivery.tracking.lastUpdatedAt,
+      isLive: delivery.id === activeTrackingOrderId,
+    }))
+
+  return { riderId, activeTrackingOrderId, trips }
+}
+
+function getLiveTripSummary(context: LiveTripSwitchContext) {
+  if (!context.riderId) return "No rider selected"
+  if (context.trips.length === 0) return "No picked-up trip"
+  const liveTrip = context.trips.find((trip) => trip.isLive)
+  if (liveTrip) return `${liveTrip.orderNumber} live now`
+  return "No live trip selected"
+}
+
 function getDeliveryPriorityScore(delivery: AdminLiveMapDelivery) {
   let score =
     delivery.status === "ReadyForPickup"
@@ -1264,6 +1341,20 @@ export function LiveMapPage() {
     onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Order status update failed."
+      )
+    },
+  })
+  const activeTripMutation = useMutation({
+    mutationFn: setAdminRiderActiveTrip,
+    onSuccess: () => {
+      toast.success("Live trip switched. Customer map will update.")
+      void queryClient.invalidateQueries({ queryKey: ["admin-live-map"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders-monitor"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders"] })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Could not switch live trip."
       )
     },
   })
@@ -1779,6 +1870,11 @@ export function LiveMapPage() {
       : []
   }, [selected, snapshot?.deliveries, snapshot?.riders])
 
+  const selectedLiveTripContext = React.useMemo(
+    () => getLiveTripContextForSelection(selected, snapshot?.deliveries ?? []),
+    [selected, snapshot?.deliveries]
+  )
+
   const fleetPulse = React.useMemo(() => {
     const allRiders = snapshot?.riders ?? []
     const allDeliveries = snapshot?.deliveries ?? []
@@ -2186,6 +2282,12 @@ export function LiveMapPage() {
 
           <div className="flex max-w-[calc(100vw-2rem)] flex-wrap gap-1.5">
             <StatCard
+              label="Active"
+              value={liveOrderMetrics.total}
+              icon={ListChecks}
+              tone="bg-slate-100 text-slate-700"
+            />
+            <StatCard
               label="Live trips"
               value={summary?.liveTrips ?? 0}
               icon={Truck}
@@ -2198,34 +2300,10 @@ export function LiveMapPage() {
               tone="bg-pink-100 text-pink-700"
             />
             <StatCard
-              label="Preparing"
-              value={liveOrderMetrics.statusCounts.Preparing ?? 0}
-              icon={Clock}
-              tone="bg-amber-100 text-amber-700"
-            />
-            <StatCard
-              label="Riders"
-              value={summary?.availableRiders ?? 0}
-              icon={Bike}
-              tone="bg-emerald-100 text-emerald-700"
-            />
-            <StatCard
-              label="Stores"
-              value={`${summary?.onlineRestaurants ?? 0}/${summary?.restaurants ?? 0}`}
-              icon={Store}
-              tone="bg-orange-100 text-orange-700"
-            />
-            <StatCard
               label="Delayed"
               value={summary?.delayedTrips ?? 0}
               icon={AlertTriangle}
               tone="bg-rose-100 text-rose-700"
-            />
-            <StatCard
-              label="Near"
-              value={summary?.nearCustomer ?? 0}
-              icon={MapPin}
-              tone="bg-violet-100 text-violet-700"
             />
           </div>
         </div>
@@ -2268,8 +2346,8 @@ export function LiveMapPage() {
       </div>
 
       <div className="pointer-events-none absolute right-4 bottom-4 z-[40] flex flex-col items-end gap-3">
-        <div className="pointer-events-auto rounded-2xl border border-white/70 bg-white/94 px-4 py-3 text-xs text-slate-500 shadow-xl backdrop-blur">
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <div className="pointer-events-auto w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-white/70 bg-white/94 px-3 py-2.5 text-xs text-slate-500 shadow-xl backdrop-blur">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Badge
               className={cn(
                 "rounded-full",
@@ -2304,61 +2382,73 @@ export function LiveMapPage() {
               </Badge>
             ) : null}
           </div>
-          <p>Last synced {formatDateTime(snapshot?.lastUpdatedAt)}</p>
-          <p className="mt-1 font-semibold text-slate-700">
-            Queue: {liveOrderMetrics.total} active,{" "}
-            {liveOrderMetrics.statusCounts.Preparing} preparing,{" "}
-            {liveOrderMetrics.statusCounts.ReadyForPickup} ready,{" "}
-            {liveOrderMetrics.statusCounts.PickedUp} on trip.
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Visible markers: {visibleMarkerCount}/{totalFilteredMarkerCount} -
-            zoom {camera.zoom}
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Area restaurants: {snapshot?.restaurants.length ?? 0} lightweight markers
-          </p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="font-semibold text-slate-700">
+              {liveOrderMetrics.total} active -{" "}
+              {liveOrderMetrics.statusCounts.ReadyForPickup} ready -{" "}
+              {liveOrderMetrics.statusCounts.PickedUp} trips
+            </span>
+            <span className="shrink-0 text-[11px]">
+              {formatDateTime(snapshot?.lastUpdatedAt)}
+            </span>
+          </div>
           {liveOrderMetrics.unassigned > 0 ? (
-            <p className="mt-1 text-[11px] font-semibold text-orange-600">
+            <p className="mt-1 rounded-xl bg-orange-50 px-2 py-1 text-[11px] font-semibold text-orange-700">
               {liveOrderMetrics.unassigned} ready order needs rider assignment.
             </p>
           ) : null}
-          {missingLocationSummary.total > 0 ? (
-            <p className="mt-1 text-[11px] text-slate-500">
-              Hidden: {missingLocationSummary.hiddenOrders} orders,{" "}
-              {missingLocationSummary.hiddenRiders} riders,{" "}
-              {missingLocationSummary.hiddenRestaurants} stores.
-            </p>
-          ) : null}
-          {visibleServiceZones.length > 0 ? (
-            <div className="mt-3 border-t border-slate-200 pt-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[11px] font-semibold text-slate-700">
-                  Area circle
-                </span>
-                <Badge className="rounded-md bg-pink-500 text-[10px] text-white">
-                  {coveragePreviewRadiusKm.toFixed(1)} km
-                </Badge>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={0.1}
-                value={coveragePreviewRadiusKm}
-                onChange={(event) =>
-                  setCoveragePreviewRadiusKm(Number(event.target.value))
-                }
-                className="mt-2 h-2 w-full accent-pink-500"
-                aria-label="Selected area circle radius"
-              />
-              <div className="mt-1 flex justify-between text-[10px] text-slate-400">
-                <span>1 km</span>
-                <span>3 km</span>
-                <span>5 km</span>
-              </div>
+          <details className="mt-2 border-t border-slate-200 pt-2">
+            <summary className="cursor-pointer text-[11px] font-semibold text-slate-600">
+              Map details
+            </summary>
+            <div className="mt-2 space-y-1.5 text-[11px] text-slate-500">
+              <p>
+                Visible markers: {visibleMarkerCount}/{totalFilteredMarkerCount}
+                {" - "}zoom {camera.zoom}
+              </p>
+              <p>
+                Queue: {liveOrderMetrics.statusCounts.Preparing} preparing,{" "}
+                {liveOrderMetrics.statusCounts.ReadyForPickup} ready,{" "}
+                {liveOrderMetrics.statusCounts.PickedUp} on trip.
+              </p>
+              {missingLocationSummary.total > 0 ? (
+                <p>
+                  Hidden: {missingLocationSummary.hiddenOrders} orders,{" "}
+                  {missingLocationSummary.hiddenRiders} riders,{" "}
+                  {missingLocationSummary.hiddenRestaurants} stores.
+                </p>
+              ) : null}
+              {visibleServiceZones.length > 0 ? (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold text-slate-700">
+                      Area circle
+                    </span>
+                    <Badge className="rounded-md bg-pink-500 text-[10px] text-white">
+                      {coveragePreviewRadiusKm.toFixed(1)} km
+                    </Badge>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={0.1}
+                    value={coveragePreviewRadiusKm}
+                    onChange={(event) =>
+                      setCoveragePreviewRadiusKm(Number(event.target.value))
+                    }
+                    className="mt-2 h-2 w-full accent-pink-500"
+                    aria-label="Selected area circle radius"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                    <span>1 km</span>
+                    <span>3 km</span>
+                    <span>5 km</span>
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </details>
         </div>
       </div>
 
@@ -2447,8 +2537,17 @@ export function LiveMapPage() {
             isRiderOptionsLoading={riderAssignmentOptionsQuery.isPending}
             assigningOrderId={assignRiderMutation.variables?.orderId ?? null}
             isAssigningRider={assignRiderMutation.isPending}
+            liveTripContext={selectedLiveTripContext}
+            activeTripPendingOrderId={
+              activeTripMutation.isPending
+                ? (activeTripMutation.variables?.orderId ?? "")
+                : ""
+            }
             onAssignmentDraftChange={handleAssignmentDraftChange}
             onAssignRider={handleManualAssign}
+            onSetActiveTrip={(riderId, orderId) =>
+              activeTripMutation.mutate({ riderId, orderId })
+            }
             onCancelOrder={(delivery) =>
               statusMutation.mutate({
                 orderId: delivery.id,
@@ -2490,8 +2589,11 @@ function DetailsPanel({
   isRiderOptionsLoading,
   assigningOrderId,
   isAssigningRider,
+  liveTripContext,
+  activeTripPendingOrderId,
   onAssignmentDraftChange,
   onAssignRider,
+  onSetActiveTrip,
   onCancelOrder,
   isCancellingOrder,
 }: {
@@ -2506,8 +2608,11 @@ function DetailsPanel({
   isRiderOptionsLoading: boolean
   assigningOrderId: string | null
   isAssigningRider: boolean
+  liveTripContext: LiveTripSwitchContext
+  activeTripPendingOrderId: string
   onAssignmentDraftChange: (orderId: string, riderId: string) => void
   onAssignRider: (orderId: string, riderId: string) => void
+  onSetActiveTrip: (riderId: string, orderId: string) => void
   onCancelOrder: (delivery: AdminLiveMapDelivery) => void
   isCancellingOrder: boolean
 }) {
@@ -2556,6 +2661,7 @@ function DetailsPanel({
                 delivery={selected.item}
                 isAutoAssigning={isAutoAssigning}
                 isCancellingOrder={isCancellingOrder}
+                liveTripContext={liveTripContext}
                 nearbyRiders={nearbyRiders}
                 onAutoAssign={onAutoAssign}
                 onCancelOrder={onCancelOrder}
@@ -2566,6 +2672,7 @@ function DetailsPanel({
             {selected.type === "rider" ? (
               <RiderDetails
                 rider={selected.item}
+                liveTripContext={liveTripContext}
                 nearbyRiders={nearbyRiders}
                 onFocus={onFocus}
                 onOpen={onOpen}
@@ -2598,8 +2705,11 @@ function DetailsPanel({
               isRiderOptionsLoading={isRiderOptionsLoading}
               assigningOrderId={assigningOrderId}
               isAssigningRider={isAssigningRider}
+              liveTripContext={liveTripContext}
+              activeTripPendingOrderId={activeTripPendingOrderId}
               onAssignmentDraftChange={onAssignmentDraftChange}
               onAssignRider={onAssignRider}
+              onSetActiveTrip={onSetActiveTrip}
               onAutoAssign={onAutoAssign}
               onCancelOrder={onCancelOrder}
               onFocus={onFocus}
@@ -2766,8 +2876,11 @@ function SelectedActionsTab({
   isRiderOptionsLoading,
   assigningOrderId,
   isAssigningRider,
+  liveTripContext,
+  activeTripPendingOrderId,
   onAssignmentDraftChange,
   onAssignRider,
+  onSetActiveTrip,
   onAutoAssign,
   onCancelOrder,
   onFocus,
@@ -2781,8 +2894,11 @@ function SelectedActionsTab({
   isRiderOptionsLoading: boolean
   assigningOrderId: string | null
   isAssigningRider: boolean
+  liveTripContext: LiveTripSwitchContext
+  activeTripPendingOrderId: string
   onAssignmentDraftChange: (orderId: string, riderId: string) => void
   onAssignRider: (orderId: string, riderId: string) => void
+  onSetActiveTrip: (riderId: string, orderId: string) => void
   onAutoAssign: (orderId: string) => void
   onCancelOrder: (delivery: AdminLiveMapDelivery) => void
   onFocus: () => void
@@ -2795,21 +2911,30 @@ function SelectedActionsTab({
     const canCancel = delivery.status === "ReadyForPickup"
     return (
       <>
-        <ManualRiderAssignmentControl
-          delivery={delivery}
-          riders={riderOptions}
-          selectedRiderId={
-            assignmentDrafts[delivery.id] ?? delivery.rider?.id ?? ""
-          }
-          isLoading={isRiderOptionsLoading}
-          isAssigning={isAssigningRider && assigningOrderId === delivery.id}
-          onChange={(riderId) => onAssignmentDraftChange(delivery.id, riderId)}
-          onAssign={() =>
-            onAssignRider(
-              delivery.id,
+        {delivery.status === "ReadyForPickup" ? (
+          <ManualRiderAssignmentControl
+            delivery={delivery}
+            riders={riderOptions}
+            selectedRiderId={
               assignmentDrafts[delivery.id] ?? delivery.rider?.id ?? ""
-            )
-          }
+            }
+            isLoading={isRiderOptionsLoading}
+            isAssigning={isAssigningRider && assigningOrderId === delivery.id}
+            onChange={(riderId) =>
+              onAssignmentDraftChange(delivery.id, riderId)
+            }
+            onAssign={() =>
+              onAssignRider(
+                delivery.id,
+                assignmentDrafts[delivery.id] ?? delivery.rider?.id ?? ""
+              )
+            }
+          />
+        ) : null}
+        <LiveTripSwitchPanel
+          context={liveTripContext}
+          pendingOrderId={activeTripPendingOrderId}
+          onSetActiveTrip={onSetActiveTrip}
         />
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -2877,43 +3002,50 @@ function SelectedActionsTab({
   if (selected.type === "rider") {
     const rider = selected.item
     return (
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          className="rounded-2xl bg-slate-950 hover:bg-slate-800"
-          onClick={() =>
-            onOpen(`/riders?riderId=${rider.id}&riderTab=live-assignment`)
-          }
-        >
-          Open rider
-        </Button>
-        <Button
-          variant="outline"
-          className="rounded-2xl"
-          onClick={() => callPhone(rider.phone)}
-        >
-          <Phone className="size-4" />
-          Call rider
-        </Button>
-        <Button
-          variant="outline"
-          className="rounded-2xl"
-          onClick={() =>
-            openMapMarker(getPoint(rider.currentLocation), "Rider location")
-          }
-        >
-          <Navigation className="size-4" />
-          Marker
-        </Button>
-        {rider.liveOrderId ? (
+      <>
+        <LiveTripSwitchPanel
+          context={liveTripContext}
+          pendingOrderId={activeTripPendingOrderId}
+          onSetActiveTrip={onSetActiveTrip}
+        />
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            className="rounded-2xl bg-slate-950 hover:bg-slate-800"
+            onClick={() =>
+              onOpen(`/riders?riderId=${rider.id}&riderTab=live-assignment`)
+            }
+          >
+            Open rider
+          </Button>
           <Button
             variant="outline"
             className="rounded-2xl"
-            onClick={() => onOpen(`/orders?orderId=${rider.liveOrderId}`)}
+            onClick={() => callPhone(rider.phone)}
           >
-            Open order
+            <Phone className="size-4" />
+            Call rider
           </Button>
-        ) : null}
-      </div>
+          <Button
+            variant="outline"
+            className="rounded-2xl"
+            onClick={() =>
+              openMapMarker(getPoint(rider.currentLocation), "Rider location")
+            }
+          >
+            <Navigation className="size-4" />
+            Marker
+          </Button>
+          {rider.liveOrderId ? (
+            <Button
+              variant="outline"
+              className="rounded-2xl"
+              onClick={() => onOpen(`/orders?orderId=${rider.liveOrderId}`)}
+            >
+              Open order
+            </Button>
+          ) : null}
+        </div>
+      </>
     )
   }
 
@@ -2954,6 +3086,107 @@ function SelectedActionsTab({
         </Button>
       ) : null}
     </div>
+  )
+}
+
+function LiveTripSwitchPanel({
+  context,
+  pendingOrderId,
+  onSetActiveTrip,
+}: {
+  context: LiveTripSwitchContext
+  pendingOrderId: string
+  onSetActiveTrip: (riderId: string, orderId: string) => void
+}) {
+  if (!context.riderId) return null
+
+  return (
+    <Card size="sm" className="border-blue-100 bg-blue-50/45 shadow-none">
+      <CardHeader className="px-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-sm font-black text-slate-950">
+              Live trip switch
+            </CardTitle>
+            <p className="mt-1 text-xs text-slate-500">
+              Changes only the customer live map. It does not reassign orders.
+            </p>
+          </div>
+          <Badge variant="outline" className="rounded-full bg-white">
+            {context.trips.length} trip
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 px-4">
+        {context.trips.length === 0 ? (
+          <div className="rounded-2xl bg-white px-3 py-2 text-sm font-medium text-slate-500">
+            No picked-up trip is available for this rider.
+          </div>
+        ) : null}
+        {context.trips.map((trip) => {
+          const isPending = pendingOrderId === trip.id
+          const isAnyPending = Boolean(pendingOrderId)
+          return (
+            <div
+              key={trip.id}
+              className={cn(
+                "rounded-2xl border bg-white px-3 py-2",
+                trip.isLive ? "border-blue-200 ring-1 ring-blue-100" : ""
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate text-sm font-black text-slate-950">
+                      {trip.orderNumber}
+                    </span>
+                    {trip.isLive ? (
+                      <Badge className="rounded-full bg-blue-600">
+                        Live now
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {trip.restaurantName} - {trip.customerName}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">
+                    {trip.etaLabel ?? trip.realtimeLabel}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={trip.isLive ? "secondary" : "outline"}
+                  className="rounded-full bg-white"
+                  disabled={trip.isLive || isAnyPending}
+                  onClick={() => onSetActiveTrip(context.riderId, trip.id)}
+                >
+                  {isPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Route className="size-3.5" />
+                  )}
+                  {trip.isLive ? "Active" : "Make live"}
+                </Button>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "rounded-full bg-white",
+                    getDeliveryStatusBadgeClass(trip.status)
+                  )}
+                >
+                  {getDeliveryStatusLabel(trip.status)}
+                </Badge>
+                <span>
+                  Last GPS {formatDateTime(trip.trackingLastUpdatedAt)}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -3768,6 +4001,7 @@ function DeliveryDetails({
   delivery,
   isAutoAssigning,
   isCancellingOrder,
+  liveTripContext,
   nearbyRiders,
   onAutoAssign,
   onCancelOrder,
@@ -3777,6 +4011,7 @@ function DeliveryDetails({
   delivery: AdminLiveMapDelivery
   isAutoAssigning: boolean
   isCancellingOrder: boolean
+  liveTripContext: LiveTripSwitchContext
   nearbyRiders: NearbyRiderCandidate[]
   onAutoAssign: (orderId: string) => void
   onCancelOrder: (delivery: AdminLiveMapDelivery) => void
@@ -3828,6 +4063,12 @@ function DeliveryDetails({
         <DetailRow
           label="Rider load"
           value={`${delivery.rider.activeOrderCount ?? 0} active (${delivery.rider.readyOrderCount ?? 0} ready, ${delivery.rider.pickedUpOrderCount ?? 0} trip)`}
+        />
+      ) : null}
+      {delivery.rider ? (
+        <DetailRow
+          label="Live trip"
+          value={getLiveTripSummary(liveTripContext)}
         />
       ) : null}
       <DetailRow label="Next target" value={getDeliveryTargetLabel(delivery)} />
@@ -3931,11 +4172,13 @@ function DeliveryDetails({
 
 function RiderDetails({
   rider,
+  liveTripContext,
   nearbyRiders,
   onFocus,
   onOpen,
 }: {
   rider: AdminLiveMapRider
+  liveTripContext: LiveTripSwitchContext
   nearbyRiders: NearbyRiderCandidate[]
   onFocus: () => void
   onOpen: (path: string) => void
@@ -3972,6 +4215,10 @@ function RiderDetails({
       <DetailRow
         label="Active load"
         value={`${rider.activeOrderCount ?? 0} active (${rider.readyOrderCount ?? 0} ready, ${rider.pickedUpOrderCount ?? 0} trip)`}
+      />
+      <DetailRow
+        label="Live trip"
+        value={getLiveTripSummary(liveTripContext)}
       />
       <DetailRow
         label="Last location"

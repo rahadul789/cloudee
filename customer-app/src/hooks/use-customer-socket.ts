@@ -135,6 +135,7 @@ const LIVE_ORDER_STATUSES = [
 ];
 
 const HISTORY_ORDER_STATUSES = ["Delivered", "Rejected", "Cancelled"];
+const LIVE_ROUTE_REFRESH_THROTTLE_MS = 30_000;
 
 function isLiveOrderStatus(status: string) {
   return LIVE_ORDER_STATUSES.includes(status);
@@ -278,6 +279,9 @@ export function useCustomerSocketBridge() {
   // Orders that already showed a Cancelled/Rejected banner — prevents a second
   // contradictory "ended without delivery" banner for the same order.
   const cancelBanneredRef = React.useRef<Set<string>>(new Set());
+  // Socket payloads keep the rider marker moving. A full detail refetch is only
+  // needed occasionally to refresh the backend-calculated route and ETA.
+  const routeRefreshedAtRef = React.useRef<Map<string, number>>(new Map());
 
   React.useEffect(() => {
     if (!customer?.id || !accessToken) {
@@ -326,12 +330,17 @@ export function useCustomerSocketBridge() {
       banneredStatusRef.current.set(payload._id, payload.status);
 
       if (payload.status === "PickedUp" && payload.riderTracking?.currentLocation) {
-        // Refresh the open tracking screen's order detail (rider location). This
-        // is a no-op refetch when that screen isn't mounted (inactive query).
-        void queryClient.invalidateQueries({
-          queryKey: ["customer", "orders", payload._id],
-          exact: true,
-        });
+        const now = Date.now();
+        const lastRouteRefreshAt = routeRefreshedAtRef.current.get(payload._id) ?? 0;
+        if (now - lastRouteRefreshAt >= LIVE_ROUTE_REFRESH_THROTTLE_MS) {
+          routeRefreshedAtRef.current.set(payload._id, now);
+          void queryClient.invalidateQueries({
+            queryKey: ["customer", "orders", payload._id],
+            exact: true,
+          });
+        }
+      } else if (!isLiveOrderStatus(payload.status)) {
+        routeRefreshedAtRef.current.delete(payload._id);
       }
       // History/presence only change on a real status transition. Rider location
       // pings re-emit the same status many times a minute — gating here prevents

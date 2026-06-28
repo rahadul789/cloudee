@@ -316,13 +316,11 @@ function RestaurantMapSheet({
   const isLeadPickedUp = leadOrder?.status === "PickedUp";
   const riderToRestaurantDistance = calculateDistanceKm(riderLocation, restaurant?.location);
   const riderToCustomerDistance = calculateDistanceKm(riderLocation, leadOrder?.customer?.location);
-  const restaurantToCustomerDistance = calculateDistanceKm(restaurant?.location, leadOrder?.customer?.location);
   const riderToRestaurantEta = estimateEtaMinutes(
     isLeadPickedUp ? riderToCustomerDistance : riderToRestaurantDistance,
     speedKmph,
     routeFactor
   );
-  const restaurantToCustomerEta = estimateEtaMinutes(restaurantToCustomerDistance, speedKmph, routeFactor);
 
   const closeWithAnimation = useCallback(() => {
     Animated.timing(translateY, {

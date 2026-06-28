@@ -14,6 +14,17 @@ type ApiResponse<T> = {
 let refreshSessionPromise: Promise<boolean> | null = null;
 const AUTH_STORAGE_KEY = "delivery-rider-auth";
 const API_REQUEST_TIMEOUT_MS = 18_000;
+const API_REFRESH_TIMEOUT_MS = 12_000;
+
+export class ApiRequestError extends Error {
+  status?: number;
+
+  constructor(message: string, options?: { status?: number }) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = options?.status;
+  }
+}
 
 async function parseResponse<T>(response: Response) {
   const text = await response.text();
@@ -25,18 +36,20 @@ async function parseResponse<T>(response: Response) {
 
     if (contentType.includes("application/json") && text) {
       const payload = JSON.parse(text) as { message?: string };
-      throw new Error(
+      throw new ApiRequestError(
         payload.message ??
           (response.status === 429
             ? defaultRateLimitMessage
-            : `Request failed with status ${response.status}`)
+            : `Request failed with status ${response.status}`),
+        { status: response.status }
       );
     }
 
-    throw new Error(
+    throw new ApiRequestError(
       response.status === 429
         ? defaultRateLimitMessage
-        : `Request failed with status ${response.status}`
+        : `Request failed with status ${response.status}`,
+      { status: response.status }
     );
   }
 
@@ -102,6 +115,11 @@ async function refreshRiderSession() {
   if (!refreshToken) return false;
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutTimer = setTimeout(() => {
+    controller.abort();
+  }, API_REFRESH_TIMEOUT_MS);
+
   try {
     response = await fetch(`${API_BASE_URL}/rider/auth/refresh`, {
       method: "POST",
@@ -109,6 +127,7 @@ async function refreshRiderSession() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ refreshToken }),
+      signal: controller.signal,
     });
     setDeliveryNetworkOnline(true);
   } catch (error) {
@@ -116,6 +135,8 @@ async function refreshRiderSession() {
       await markConnectionFailure();
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutTimer);
   }
 
   if (!response.ok) {

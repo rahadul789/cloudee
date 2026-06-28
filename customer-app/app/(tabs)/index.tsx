@@ -32,8 +32,6 @@ import { SectionHeader } from "@/src/components/section-header";
 import {
   useCustomerDiscoveryHomeQuery,
   useCustomerFavoriteRestaurantIdsQuery,
-  useCustomerOrderPresenceQuery,
-  useNearbyRestaurantsQuery,
   useCustomerToggleFavoriteRestaurantMutation,
 } from "@/src/hooks/use-customer-api";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
@@ -427,10 +425,8 @@ export default function HomeScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const lastTrackedSearchRef = useRef("");
   const customer = useCustomerAuthStore((state) => state.customer);
-  const isAuthenticated = useCustomerAuthStore((state) =>
-    Boolean(state.accessToken),
-  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
+  const isLocationHydrated = useLocationStore((state) => state.isHydrated);
   const locationKey = selectedLocation
     ? `${selectedLocation.id}:${selectedLocation.latitude}:${selectedLocation.longitude}`
     : "";
@@ -451,33 +447,14 @@ export default function HomeScreen() {
   const homeQuery = useCustomerDiscoveryHomeQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
+    enabled: isLocationHydrated,
   });
-  // Skip the separate /customer/restaurants call when admin has turned the
-  // Nearby section off. Defaults to enabled until the home feed (which carries
-  // the section config) loads, so the common (active) case still fetches in
-  // parallel without a waterfall.
-  const isNearbySectionEnabled =
-    homeQuery.data?.homeCms?.restaurantSections?.nearby?.isActive !== false;
-  // radiusKm intentionally omitted: the backend resolves the effective delivery
-  // range (service zone, else the admin-set fallback) inside the same request,
-  // so there is no extra "fetch radius first" round-trip and the admin stays in
-  // full control without an app update.
-  const nearbyRestaurantsQuery = useNearbyRestaurantsQuery({
-    latitude: selectedLocation?.latitude,
-    longitude: selectedLocation?.longitude,
-    search: searchQuery,
-    enabled: isNearbySectionEnabled,
-  });
-
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
-  const orderPresenceQuery = useCustomerOrderPresenceQuery(
-    isAuthenticated && !isSearching,
-  );
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();
 
   const nearbyRestaurants = useMemo(
-    () => nearbyRestaurantsQuery.data ?? [],
-    [nearbyRestaurantsQuery.data],
+    () => homeQuery.data?.nearbyRestaurants ?? [],
+    [homeQuery.data?.nearbyRestaurants],
   );
   const homeFeed = homeQuery.data;
   const homeBanner = !isSearching ? (homeFeed?.homeBanner ?? null) : null;
@@ -706,12 +683,12 @@ export default function HomeScreen() {
   const shouldShowSearchSkeleton =
     isSearching &&
     Boolean(selectedLocation) &&
-    nearbyRestaurantsQuery.isLoading &&
+    homeQuery.isLoading &&
     nearbyRestaurants.length === 0;
   const shouldShowNearbySkeleton =
     !isSearching &&
     Boolean(selectedLocation) &&
-    nearbyRestaurantsQuery.isLoading &&
+    homeQuery.isLoading &&
     nearbyRestaurants.length === 0;
   const shimmerTranslateX = useHomeShimmer(
     isHomeFocused &&
@@ -724,9 +701,7 @@ export default function HomeScreen() {
   const shouldShowHowToOrderGuide =
     Boolean(homeCms) &&
     !isSearching &&
-    (!isAuthenticated ||
-      (orderPresenceQuery.isSuccess &&
-        !orderPresenceQuery.data.hasCompletedOrders));
+    homeCms?.howToOrderGuide?.isActive !== false;
   const isUpdatingLocationResults = Boolean(
     isHomeFocused &&
     pendingLocationUpdateKey &&
@@ -734,7 +709,7 @@ export default function HomeScreen() {
     isOnline &&
     !isRefreshing &&
     !isSearching &&
-    (nearbyRestaurantsQuery.isFetching || homeQuery.isFetching),
+    homeQuery.isFetching,
   );
 
   useEffect(() => {
@@ -761,13 +736,12 @@ export default function HomeScreen() {
       return;
     }
 
-    if (!nearbyRestaurantsQuery.isFetching && !homeQuery.isFetching) {
+    if (!homeQuery.isFetching) {
       setPendingLocationUpdateKey("");
     }
   }, [
     homeQuery.isFetching,
     isOnline,
-    nearbyRestaurantsQuery.isFetching,
     pendingLocationUpdateKey,
   ]);
 
@@ -842,11 +816,7 @@ export default function HomeScreen() {
     try {
       await Promise.all([
         homeQuery.refetch(),
-        nearbyRestaurantsQuery.refetch(),
         favoriteRestaurantIdsQuery.refetch(),
-        ...(isAuthenticated && !isSearching
-          ? [orderPresenceQuery.refetch()]
-          : []),
       ]);
     } finally {
       setIsRefreshing(false);
@@ -1718,13 +1688,13 @@ export default function HomeScreen() {
                   count={3}
                   variant="nearby"
                 />
-              ) : nearbyRestaurantsQuery.isError ? (
+              ) : homeQuery.isError ? (
                 isOnline ? (
                   <EmptyStateCard
                     title="We could not load nearby restaurants"
                     description="Please try again in a moment. Your saved location is still ready."
                     actionLabel="Try again"
-                    onPress={() => nearbyRestaurantsQuery.refetch()}
+                    onPress={() => homeQuery.refetch()}
                   />
                 ) : (
                   <EmptyStateCard

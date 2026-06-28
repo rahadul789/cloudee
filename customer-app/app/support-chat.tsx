@@ -33,6 +33,7 @@ import {
   useCustomerSupportCaseQuery,
 } from "@/src/hooks/use-customer-api";
 import { getCustomerAuthErrorMessage } from "@/src/lib/auth-error-message";
+import { fetchWithTimeout } from "@/src/lib/api";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import {
   useSafeAnimationFrame,
@@ -48,6 +49,8 @@ type DatedSupportMessage = CustomerSupportCase["messages"][number] & {
   clientStatus?: "sending" | "failed";
   localImageUri?: string | null;
 };
+
+const SUPPORT_ATTACHMENT_UPLOAD_TIMEOUT_MS = 45_000;
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
@@ -318,8 +321,7 @@ export default function SupportChatScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        quality: 0.9,
-        allowsEditing: true,
+        quality: 0.78,
         selectionLimit: 1,
       });
 
@@ -346,8 +348,7 @@ export default function SupportChatScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
-        quality: 0.9,
-        allowsEditing: true,
+        quality: 0.78,
       });
 
       if (!result.canceled && result.assets?.[0]?.uri) {
@@ -391,12 +392,14 @@ export default function SupportChatScreen() {
     formData.append("signature", signature.signature);
     formData.append("folder", signature.folder);
 
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://api.cloudinary.com/v1_1/${signature.cloudName}/${signature.resourceType}/upload`,
       {
         method: "POST",
         body: formData,
       },
+      SUPPORT_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      "Image upload timed out. Please try again.",
     );
 
     const payload = (await response.json()) as {
