@@ -11,7 +11,8 @@ import {
   createSigninLimiter,
   createSupportWriteLimiter,
   createAnalyticsEventLimiter,
-  createCartQuoteLimiter
+  createCartQuoteLimiter,
+  createCouponAttemptLimiter
 } from "../../common/middleware/rate-limit"
 
 import { requireAuth, requireRole } from "../../common/middleware/auth"
@@ -71,17 +72,18 @@ import {
 } from "./customer.controller"
 
 export const customerRouter = Router()
-const customerAuthStartLimiter = createOtpSendLimiter()
-const customerAuthStartIpLimiter = createOtpSendIpLimiter()
-const customerPasswordSigninLimiter = createSigninLimiter()
-const customerOtpVerifyLimiter = createOtpVerifyLimiter()
-const customerPasswordRecoveryLimiter = createPasswordRecoveryLimiter()
-const customerRefreshLimiter = createRefreshLimiter()
+const customerAuthStartLimiter = createOtpSendLimiter("customer")
+const customerAuthStartIpLimiter = createOtpSendIpLimiter("customer")
+const customerPasswordSigninLimiter = createSigninLimiter("customer")
+const customerOtpVerifyLimiter = createOtpVerifyLimiter("customer")
+const customerPasswordRecoveryLimiter = createPasswordRecoveryLimiter("customer")
+const customerRefreshLimiter = createRefreshLimiter("customer")
 const customerSupportWriteLimiter = createSupportWriteLimiter()
 const customerPaymentLimiter = createPaymentLimiter()
 const customerOrderActionLimiter = createOrderActionLimiter()
 const customerAnalyticsEventLimiter = createAnalyticsEventLimiter()
 const customerCartQuoteLimiter = createCartQuoteLimiter()
+const customerCouponAttemptLimiter = createCouponAttemptLimiter()
 const customerOrderPlaceLimiter = createOrderPlaceLimiter()
 
 customerRouter.post("/analytics/events", customerAnalyticsEventLimiter, postCustomerAnalyticsEvent)
@@ -147,12 +149,17 @@ customerRouter.post(
 customerRouter.post("/auth/refresh", customerRefreshLimiter, refreshCustomerAuth)
 customerRouter.post("/auth/logout", logoutCustomerAuth)
 customerRouter.get("/discovery/home", getCustomerDiscoveryHomePage)
-customerRouter.post("/vouchers/display-event", postCustomerVoucherDisplayEvent)
+customerRouter.post("/vouchers/display-event", customerAnalyticsEventLimiter, postCustomerVoucherDisplayEvent)
 customerRouter.post("/push-events/open", requireAuth, requireRole("customer"), postCustomerPushOpenEvent)
 customerRouter.get("/restaurants", getCustomerDiscovery)
 customerRouter.get("/restaurants/search", getCustomerDiscoverySearch)
 customerRouter.get("/restaurants/:restaurantId", getCustomerRestaurant)
-customerRouter.post("/cart/quote", customerCartQuoteLimiter, postCustomerCartQuote)
+customerRouter.post(
+  "/cart/quote",
+  customerCouponAttemptLimiter,
+  customerCartQuoteLimiter,
+  postCustomerCartQuote
+)
 customerRouter.get("/payments/bkash/callback", getBkashCallback)
 customerRouter.get("/payments/bkash/return", getBkashReturnPage)
 customerRouter.post(

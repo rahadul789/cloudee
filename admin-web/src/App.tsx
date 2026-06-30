@@ -299,6 +299,11 @@ const OperationsHealthPage = React.lazy(() =>
     default: module.OperationsHealthPage,
   }))
 )
+const RateLimitsPage = React.lazy(() =>
+  import("@/components/rate-limits-page").then((module) => ({
+    default: module.RateLimitsPage,
+  }))
+)
 const TestPage = React.lazy(() =>
   import("@/components/test-page").then((module) => ({
     default: module.TestPage,
@@ -3482,6 +3487,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <OperationsHealthPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "rate-limits",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <RateLimitsPage />
           </React.Suspense>
         ),
       },

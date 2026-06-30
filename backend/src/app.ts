@@ -3,7 +3,6 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 
 import { apiRouter } from "./routes";
@@ -15,6 +14,7 @@ import { notFoundMiddleware } from "./common/middleware/not-found";
 import { requestIdMiddleware } from "./common/middleware/request-id";
 import { attachAuthUser } from "./common/middleware/auth";
 import { requestMonitorMiddleware } from "./common/middleware/request-monitor";
+import { createGlobalLimiter } from "./common/middleware/rate-limit";
 
 function isRoutineRequestLog(req: express.Request) {
   if (
@@ -72,29 +72,10 @@ export function createApp() {
       },
     }),
   );
-  if (env.RATE_LIMIT_ENABLED) {
-    app.use(
-      rateLimit({
-        windowMs: env.RATE_LIMIT_WINDOW_MS,
-        limit: env.RATE_LIMIT_MAX,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: {
-          message: "Too many requests. Please slow down and try again shortly.",
-        },
-        skip: (req) =>
-          (req.method === "POST" &&
-            /^\/api\/v1\/rider\/orders\/[^/]+\/location$/.test(req.path)) ||
-          (req.method === "PATCH" &&
-            req.path === `${env.API_PREFIX}/rider/profile/location`) ||
-          (req.method === "POST" &&
-            req.path === `${env.API_PREFIX}/customer/analytics/events`) ||
-          (req.method === "POST" &&
-            req.path === `${env.API_PREFIX}/media/upload-signature`),
-      }),
-    );
-  }
   app.use(attachAuthUser);
+  if (env.RATE_LIMIT_ENABLED) {
+    app.use(createGlobalLimiter());
+  }
 
   app.use(env.API_PREFIX, apiRouter);
 

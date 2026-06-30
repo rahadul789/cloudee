@@ -842,6 +842,117 @@ export type AdminRiderDetails = AdminRiderSummary & {
   }>
 }
 
+export type AdminRateLimitSnapshot = {
+  generatedAt: string
+  enabled: boolean
+  trustProxyHops: number
+  traffic: {
+    app: "all" | "admin" | "owner" | "rider" | "customer" | "public" | "system" | "unknown"
+    bucketSeconds: number
+    generatedAt: string
+    range: "60s" | "5m" | "15m" | "1h" | "6h" | "24h"
+    rangeSeconds: number
+    retentionHours: number
+    summary: {
+      totalRequests: number
+      successRequests: number
+      errorRequests: number
+      rateLimitedRequests: number
+      requestsPerMinute: number
+      requestsPerSecond: number
+      averageDurationMs: number
+      p95DurationMs: number
+    }
+    timeline: Array<{
+      timestamp: string
+      totalRequests: number
+      successRequests: number
+      errorRequests: number
+      rateLimitedRequests: number
+      intensityPercent: number
+    }>
+    byApp: Array<{
+      app: string
+      totalRequests: number
+      errorRequests: number
+      rateLimitedRequests: number
+      lastSeenAt: string | null
+    }>
+    endpoints: Array<{
+      app: string
+      key: string
+      method: string
+      route: string
+      totalRequests: number
+      errorRequests: number
+      rateLimitedRequests: number
+      averageDurationMs: number
+      p95DurationMs: number
+      statusCounts: Record<string, number>
+      lastSeenAt: string | null
+    }>
+    actors: Array<{
+      apps: Record<string, number>
+      errorRequests: number
+      key: string
+      lastSeenAt: string | null
+      rateLimitedRequests: number
+      role: string
+      totalRequests: number
+    }>
+  }
+  orderRequests: {
+    windowMinutes: number
+    orders: Array<{
+      orderId: string
+      totalRequests: number
+      errorRequests: number
+      lastSeenAt: string | null
+      apps: Record<string, number>
+      actors: Array<{
+        key: string
+        role: string
+        totalRequests: number
+        lastSeenAt: string | null
+      }>
+      endpoints: Array<{
+        key: string
+        method: string
+        route: string
+        totalRequests: number
+      }>
+    }>
+  }
+  limiters: Array<{
+    id: string
+    label: string
+    category: "global" | "auth" | "business"
+    windowMs: number
+    limit: number
+    settingKey?: string
+    activeBuckets: number
+    buckets: Array<{
+      key: string
+      resetToken: string
+      totalHits: number
+      resetAt: string
+      resetInSeconds: number
+      remaining: number
+      usedPercent: number
+    }>
+  }>
+}
+
+export type AdminRateLimitBucketResetResult = {
+  limiterId: string
+  label?: string
+  reset: boolean
+  key?: string
+  totalHits?: number
+  resetAt?: string
+  reason?: "limiter_not_found" | "bucket_not_found"
+}
+
 export type AdminRiderAssignmentCandidate = {
   id: string
   orderNumber: string
@@ -3654,6 +3765,7 @@ export type PlatformContent = {
       orderPlacePerWindow: number
       orderActionPerWindow: number
       cartQuotePerWindow: number
+      couponAttemptPerWindow: number
       supportWritePerWindow: number
       analyticsEventsPerWindow: number
       riderLocationPerWindow: number
@@ -6158,6 +6270,39 @@ export async function getAdminRestaurantPromotionTargets(
 export async function getAdminOperationalHealth() {
   const response = await adminRequest<AdminOperationalHealthSnapshot>(
     "/admin/operations/health"
+  )
+  return response.data
+}
+
+export async function getAdminRateLimitSnapshot(params?: {
+  app?: AdminRateLimitSnapshot["traffic"]["app"]
+  range?: AdminRateLimitSnapshot["traffic"]["range"]
+}) {
+  const search = new URLSearchParams()
+  if (params?.app) search.set("app", params.app)
+  if (params?.range) search.set("range", params.range)
+  const query = search.toString()
+  const response = await adminRequest<AdminRateLimitSnapshot>(
+    `/admin/operations/rate-limits${query ? `?${query}` : ""}`
+  )
+  return response.data
+}
+
+export async function resetAdminRateLimitBucket(params: {
+  limiterId: string
+  resetToken: string
+  reason: string
+}) {
+  const response = await adminRequest<AdminRateLimitBucketResetResult>(
+    `/admin/operations/rate-limits/${encodeURIComponent(params.limiterId)}/reset`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        resetToken: params.resetToken,
+        reason: params.reason,
+      }),
+    }
   )
   return response.data
 }

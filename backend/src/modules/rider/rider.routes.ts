@@ -1,5 +1,6 @@
 import { Router } from "express"
 import {
+  createOtpSendIpLimiter,
   createOtpSendLimiter,
   createOtpVerifyLimiter,
   createPasswordRecoveryLimiter,
@@ -40,17 +41,18 @@ import {
 } from "./rider.controller"
 
 export const riderRouter = Router()
-const riderAuthStartLimiter = createOtpSendLimiter()
-const riderAuthVerifyLimiter = createOtpVerifyLimiter()
-const riderSigninLimiter = createSigninLimiter()
-const riderPasswordRecoveryLimiter = createPasswordRecoveryLimiter()
-const riderRefreshLimiter = createRefreshLimiter()
+const riderAuthStartLimiter = createOtpSendLimiter("rider")
+const riderAuthStartIpLimiter = createOtpSendIpLimiter("rider")
+const riderAuthVerifyLimiter = createOtpVerifyLimiter("rider")
+const riderSigninLimiter = createSigninLimiter("rider")
+const riderPasswordRecoveryLimiter = createPasswordRecoveryLimiter("rider")
+const riderRefreshLimiter = createRefreshLimiter("rider")
 const riderLocationLimiter = createRiderLocationLimiter()
 
-riderRouter.post("/auth/phone/start", riderAuthStartLimiter, startRiderPhoneAuth)
+riderRouter.post("/auth/phone/start", riderAuthStartIpLimiter, riderAuthStartLimiter, startRiderPhoneAuth)
 riderRouter.post("/auth/phone/verify", riderAuthVerifyLimiter, verifyRiderPhoneAuth)
 riderRouter.post("/auth/password/signin", riderSigninLimiter, signinRiderPasswordAuth)
-riderRouter.post("/auth/password/forgot", riderPasswordRecoveryLimiter, startRiderPasswordResetAuth)
+riderRouter.post("/auth/password/forgot", riderAuthStartIpLimiter, riderPasswordRecoveryLimiter, startRiderPasswordResetAuth)
 riderRouter.post("/auth/password/verify", riderAuthVerifyLimiter, verifyRiderPasswordResetAuth)
 riderRouter.post("/auth/password/reset", riderPasswordRecoveryLimiter, resetRiderPasswordAuth)
 riderRouter.post("/auth/refresh", riderRefreshLimiter, refreshRiderAuth)

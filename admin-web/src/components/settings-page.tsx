@@ -341,6 +341,7 @@ const defaultRateLimitSettings: PlatformContent["auth"]["rateLimits"] = {
   orderPlacePerWindow: 12,
   orderActionPerWindow: 10,
   cartQuotePerWindow: 300,
+  couponAttemptPerWindow: 20,
   supportWritePerWindow: 20,
   analyticsEventsPerWindow: 240,
   riderLocationPerWindow: 900,
@@ -860,6 +861,14 @@ const rateLimitFields: Array<{
     min: 60,
     max: 1000,
     step: 10,
+  },
+  {
+    key: "couponAttemptPerWindow",
+    title: "Coupon attempts",
+    description: "Voucher/coupon code apply attempts during checkout.",
+    windowLabel: "15 minutes",
+    min: 5,
+    max: 200,
   },
   {
     key: "supportWritePerWindow",

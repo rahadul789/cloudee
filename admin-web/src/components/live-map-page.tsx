@@ -154,7 +154,7 @@ type MapCamera = {
 }
 
 const netrokonaCenter: [number, number] = [24.8835, 90.7271]
-const LIVE_MAP_SOCKET_REFETCH_THROTTLE_MS = 3_500
+const LIVE_MAP_SOCKET_REFETCH_THROTTLE_MS = 10_000
 const LIVE_MAP_VIEW_PADDING_DEGREES = 0.035
 
 function isValidCoordinate(

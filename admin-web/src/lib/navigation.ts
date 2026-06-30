@@ -7,6 +7,7 @@ import {
   CreditCard,
   Gift,
   Globe2,
+  Gauge,
   HeartPulse,
   Headphones,
   Image,
@@ -221,6 +222,11 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
   {
     label: "System",
     items: [
+      {
+        title: "Rate Limits",
+        to: "/rate-limits",
+        icon: Gauge,
+      },
       {
         title: "Operations Health",
         to: "/operations",

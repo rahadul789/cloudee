@@ -732,6 +732,7 @@ export const platformContent = {
       orderPlacePerWindow: 12,
       orderActionPerWindow: 10,
       cartQuotePerWindow: 300,
+      couponAttemptPerWindow: 20,
       supportWritePerWindow: 20,
       analyticsEventsPerWindow: 240,
       riderLocationPerWindow: 900,

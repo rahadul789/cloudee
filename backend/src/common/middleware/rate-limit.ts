@@ -1,4 +1,10 @@
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit, {
+  ipKeyGenerator,
+  type ClientRateLimitInfo,
+  type Options,
+  type Store,
+} from "express-rate-limit";
+import { createHmac, timingSafeEqual } from "crypto";
 import type { Request, RequestHandler } from "express";
 
 import { env } from "../../config/env";
@@ -13,6 +19,203 @@ const passThroughLimiter: RequestHandler = (_req, _res, next) => next();
 type RateLimitSettingKey = keyof AuthRateLimitSettings;
 type RateLimitKeyStrategy = "ip" | "user";
 const writeMethods = ["POST", "PATCH", "PUT", "DELETE"];
+const snapshotBucketLimit = 8;
+
+type RateLimitBucket = {
+  totalHits: number;
+  resetTime: Date;
+};
+
+type RateLimitMeta = {
+  id: string;
+  label: string;
+  category: "global" | "auth" | "business";
+  windowMs: number;
+  limit: number;
+  settingKey?: RateLimitSettingKey;
+};
+
+function scopedLimiter(baseId: string, baseLabel: string, scope?: string) {
+  const normalizedScope = scope?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!normalizedScope) {
+    return { id: baseId, label: baseLabel };
+  }
+
+  return {
+    id: `${baseId}.${normalizedScope}`,
+    label: `${baseLabel} (${normalizedScope})`,
+  };
+}
+
+class ObservableMemoryStore implements Store {
+  localKeys = true;
+  prefix: string;
+  private buckets = new Map<string, RateLimitBucket>();
+  private windowMs: number;
+
+  constructor(
+    private readonly id: string,
+    windowMs: number,
+  ) {
+    this.prefix = `${id}:`;
+    this.windowMs = windowMs;
+  }
+
+  init(options: Options) {
+    if (typeof options.windowMs === "number") {
+      this.windowMs = options.windowMs;
+    }
+  }
+
+  increment(key: string) {
+    const now = Date.now();
+    const existing = this.buckets.get(key);
+    if (!existing || existing.resetTime.getTime() <= now) {
+      const next = {
+        totalHits: 1,
+        resetTime: new Date(now + this.windowMs),
+      };
+      this.buckets.set(key, next);
+      return next;
+    }
+
+    existing.totalHits += 1;
+    return existing;
+  }
+
+  get(key: string): ClientRateLimitInfo | undefined {
+    const bucket = this.buckets.get(key);
+    if (!bucket) return undefined;
+    if (bucket.resetTime.getTime() <= Date.now()) {
+      this.buckets.delete(key);
+      return undefined;
+    }
+    return bucket;
+  }
+
+  decrement(key: string) {
+    const bucket = this.buckets.get(key);
+    if (!bucket) return;
+    bucket.totalHits = Math.max(0, bucket.totalHits - 1);
+    if (bucket.totalHits === 0) {
+      this.buckets.delete(key);
+    }
+  }
+
+  resetKey(key: string) {
+    this.buckets.delete(key);
+  }
+
+  resetAll() {
+    this.buckets.clear();
+  }
+
+  snapshot(limit = snapshotBucketLimit) {
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetTime.getTime() <= now) {
+        this.buckets.delete(key);
+      }
+    }
+
+    return Array.from(this.buckets.entries())
+      .sort((left, right) => right[1].totalHits - left[1].totalHits)
+      .slice(0, limit)
+      .map(([key, bucket]) => ({
+        key: formatRateLimitKey(key),
+        resetToken: createBucketResetToken(this.id, key, bucket.resetTime),
+        totalHits: bucket.totalHits,
+        resetAt: bucket.resetTime.toISOString(),
+        resetInSeconds: Math.max(0, Math.ceil((bucket.resetTime.getTime() - now) / 1000)),
+      }));
+  }
+
+  resetByToken(resetToken: string) {
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetTime.getTime() <= now) {
+        this.buckets.delete(key);
+        continue;
+      }
+
+      const expectedToken = createBucketResetToken(this.id, key, bucket.resetTime);
+      if (!constantTimeEqual(expectedToken, resetToken)) continue;
+
+      this.buckets.delete(key);
+      return {
+        reset: true,
+        key: formatRateLimitKey(key),
+        totalHits: bucket.totalHits,
+        resetAt: bucket.resetTime.toISOString(),
+      };
+    }
+
+    return { reset: false };
+  }
+
+  size() {
+    this.snapshot(0);
+    return this.buckets.size;
+  }
+}
+
+const limiterStores = new Map<string, ObservableMemoryStore>();
+const limiterMeta = new Map<string, RateLimitMeta>();
+
+function formatRateLimitKey(key: string) {
+  if (!key) return "unknown";
+  if (key.includes(":")) {
+    const [scope, ...rest] = key.split(":");
+    const value = rest.join(":");
+    if (["admin", "owner", "rider", "customer"].includes(scope) && value.length > 8) {
+      return `${scope}:${value.slice(0, 4)}...${value.slice(-4)}`;
+    }
+    return key;
+  }
+
+  if (key.includes(".")) {
+    const parts = key.split(".");
+    if (parts.length === 4) {
+      return `ip:${parts[0]}.${parts[1]}.x.x`;
+    }
+  }
+
+  if (key.includes(":") || key.length < 16) return key;
+  return `${key.slice(0, 6)}...${key.slice(-4)}`;
+}
+
+function toBase64Url(value: string) {
+  return value.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function createBucketResetToken(limiterId: string, key: string, resetTime: Date) {
+  return toBase64Url(
+    createHmac("sha256", env.JWT_ACCESS_SECRET)
+      .update(limiterId)
+      .update("\0")
+      .update(key)
+      .update("\0")
+      .update(String(resetTime.getTime()))
+      .digest("base64"),
+  );
+}
+
+function constantTimeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+
+  return (
+    leftBuffer.length === rightBuffer.length &&
+    timingSafeEqual(leftBuffer, rightBuffer)
+  );
+}
+
+function registerLimiter(meta: RateLimitMeta) {
+  limiterMeta.set(meta.id, meta);
+  const store = new ObservableMemoryStore(meta.id, meta.windowMs);
+  limiterStores.set(meta.id, store);
+  return store;
+}
 
 function withIdentity(req: Request, fieldNames: string[]) {
   const body = req.body as Record<string, unknown> | undefined;
@@ -47,19 +250,34 @@ async function getConfiguredLimit(key: RateLimitSettingKey, fallback: number) {
   }
 }
 
+async function getLimiterLimit(meta: RateLimitMeta) {
+  return meta.settingKey ? getConfiguredLimit(meta.settingKey, meta.limit) : meta.limit;
+}
+
 function buildLimiter(options: {
+  id: string;
+  label: string;
+  category?: RateLimitMeta["category"];
   windowMs: number;
   limit: number;
   settingKey?: RateLimitSettingKey;
   keyStrategy?: RateLimitKeyStrategy;
   fieldNames?: string[];
   methods?: string[];
+  skip?: (req: Request) => boolean;
   message: string;
   event?: string;
 }): RequestHandler {
   if (!env.RATE_LIMIT_ENABLED) {
     return passThroughLimiter;
   }
+
+  const keyGenerator = (req: Request) =>
+    options.fieldNames?.length
+      ? withIdentity(req, options.fieldNames)
+      : options.keyStrategy === "user"
+        ? withUser(req)
+      : ipKeyGenerator(req.ip ?? "");
 
   return rateLimit({
     windowMs: options.windowMs,
@@ -71,16 +289,18 @@ function buildLimiter(options: {
     message: {
       message: options.message,
     },
+    store: registerLimiter({
+      id: options.id,
+      label: options.label,
+      category: options.category ?? "business",
+      windowMs: options.windowMs,
+      limit: options.limit,
+      settingKey: options.settingKey,
+    }),
     skip: (req) =>
-      Boolean(
-        options.methods?.length && !options.methods.includes(req.method.toUpperCase()),
-      ),
-    keyGenerator: (req) =>
-      options.fieldNames?.length
-        ? withIdentity(req, options.fieldNames)
-        : options.keyStrategy === "user"
-          ? withUser(req)
-        : ipKeyGenerator(req.ip ?? ""),
+      Boolean(options.skip?.(req)) ||
+      Boolean(options.methods?.length && !options.methods.includes(req.method.toUpperCase())),
+    keyGenerator,
     handler: (req, res, _next, limiterOptions) => {
       logger.warn(
         {
@@ -103,8 +323,12 @@ function buildLimiter(options: {
   });
 }
 
-export function createSigninLimiter(): RequestHandler {
+export function createSigninLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.signin", "Sign-in attempts", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 15 * 60 * 1000,
     limit: 10,
     settingKey: "signinAttemptsPerWindow",
@@ -114,8 +338,12 @@ export function createSigninLimiter(): RequestHandler {
   });
 }
 
-export function createSignupLimiter(): RequestHandler {
+export function createSignupLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.signup", "Sign-up attempts", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 30 * 60 * 1000,
     limit: 5,
     settingKey: "signupAttemptsPerWindow",
@@ -125,8 +353,12 @@ export function createSignupLimiter(): RequestHandler {
   });
 }
 
-export function createOtpSendLimiter(): RequestHandler {
+export function createOtpSendLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.otp_send_phone", "OTP send per phone", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 10 * 60 * 1000,
     limit: 5,
     settingKey: "otpSendPerPhoneWindow",
@@ -136,8 +368,12 @@ export function createOtpSendLimiter(): RequestHandler {
   });
 }
 
-export function createOtpSendIpLimiter(): RequestHandler {
+export function createOtpSendIpLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.otp_send_ip", "OTP send per IP", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 10 * 60 * 1000,
     limit: 12,
     settingKey: "otpSendPerIpWindow",
@@ -146,8 +382,12 @@ export function createOtpSendIpLimiter(): RequestHandler {
   });
 }
 
-export function createOtpVerifyLimiter(): RequestHandler {
+export function createOtpVerifyLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.otp_verify", "OTP verify attempts", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 10 * 60 * 1000,
     limit: 8,
     settingKey: "otpVerifyAttemptsPerWindow",
@@ -157,8 +397,12 @@ export function createOtpVerifyLimiter(): RequestHandler {
   });
 }
 
-export function createPasswordRecoveryLimiter(): RequestHandler {
+export function createPasswordRecoveryLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.password_recovery", "Password recovery", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 15 * 60 * 1000,
     limit: 5,
     settingKey: "passwordRecoveryPerWindow",
@@ -170,6 +414,8 @@ export function createPasswordRecoveryLimiter(): RequestHandler {
 
 export function createSupportWriteLimiter(): RequestHandler {
   return buildLimiter({
+    id: "support.write",
+    label: "Support writes",
     windowMs: 15 * 60 * 1000,
     limit: 20,
     settingKey: "supportWritePerWindow",
@@ -181,6 +427,8 @@ export function createSupportWriteLimiter(): RequestHandler {
 
 export function createPaymentLimiter(): RequestHandler {
   return buildLimiter({
+    id: "payment.initiate",
+    label: "Payment initiation",
     windowMs: 15 * 60 * 1000,
     limit: 8,
     settingKey: "paymentInitiatePerWindow",
@@ -192,6 +440,8 @@ export function createPaymentLimiter(): RequestHandler {
 
 export function createOrderActionLimiter(): RequestHandler {
   return buildLimiter({
+    id: "order.action",
+    label: "Order actions",
     windowMs: 15 * 60 * 1000,
     limit: 10,
     settingKey: "orderActionPerWindow",
@@ -201,8 +451,12 @@ export function createOrderActionLimiter(): RequestHandler {
   });
 }
 
-export function createRefreshLimiter(): RequestHandler {
+export function createRefreshLimiter(scope?: string): RequestHandler {
+  const limiter = scopedLimiter("auth.refresh", "Session refresh", scope);
   return buildLimiter({
+    id: limiter.id,
+    label: limiter.label,
+    category: "auth",
     windowMs: 15 * 60 * 1000,
     limit: 30,
     settingKey: "refreshPerWindow",
@@ -213,6 +467,8 @@ export function createRefreshLimiter(): RequestHandler {
 
 export function createAnalyticsEventLimiter(): RequestHandler {
   return buildLimiter({
+    id: "analytics.events",
+    label: "Analytics events",
     windowMs: 15 * 60 * 1000,
     limit: 240,
     settingKey: "analyticsEventsPerWindow",
@@ -224,16 +480,38 @@ export function createAnalyticsEventLimiter(): RequestHandler {
 
 export function createCartQuoteLimiter(): RequestHandler {
   return buildLimiter({
+    id: "cart.quote",
+    label: "Cart quotes",
     windowMs: 15 * 60 * 1000,
     limit: 300,
     settingKey: "cartQuotePerWindow",
+    keyStrategy: "user",
     message: "Too many cart quote requests. Please wait a moment and try again.",
     event: "cart.quote.rate_limited",
   });
 }
 
+export function createCouponAttemptLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "coupon.attempt",
+    label: "Coupon attempts",
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    settingKey: "couponAttemptPerWindow",
+    keyStrategy: "user",
+    skip: (req) => {
+      const body = req.body as Record<string, unknown> | undefined;
+      return typeof body?.voucherCode !== "string" || !body.voucherCode.trim();
+    },
+    message: "Too many voucher attempts. Please try again later.",
+    event: "coupon.attempt.rate_limited",
+  });
+}
+
 export function createOrderPlaceLimiter(): RequestHandler {
   return buildLimiter({
+    id: "order.place",
+    label: "Order placement",
     windowMs: 15 * 60 * 1000,
     limit: 12,
     settingKey: "orderPlacePerWindow",
@@ -245,6 +523,8 @@ export function createOrderPlaceLimiter(): RequestHandler {
 
 export function createRiderLocationLimiter(): RequestHandler {
   return buildLimiter({
+    id: "rider.location",
+    label: "Rider location updates",
     windowMs: 15 * 60 * 1000,
     limit: 900,
     settingKey: "riderLocationPerWindow",
@@ -256,6 +536,8 @@ export function createRiderLocationLimiter(): RequestHandler {
 
 export function createAdminWriteLimiter(): RequestHandler {
   return buildLimiter({
+    id: "admin.write",
+    label: "Admin writes",
     windowMs: 15 * 60 * 1000,
     limit: 240,
     settingKey: "adminWritePerWindow",
@@ -268,6 +550,8 @@ export function createAdminWriteLimiter(): RequestHandler {
 
 export function createOwnerWriteLimiter(): RequestHandler {
   return buildLimiter({
+    id: "owner.write",
+    label: "Owner writes",
     windowMs: 15 * 60 * 1000,
     limit: 240,
     settingKey: "ownerWritePerWindow",
@@ -276,4 +560,81 @@ export function createOwnerWriteLimiter(): RequestHandler {
     message: "Too many owner changes. Please slow down and try again shortly.",
     event: "owner.write.rate_limited",
   });
+}
+
+export function createGlobalLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "global.api",
+    label: "Global API",
+    category: "global",
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    limit: env.RATE_LIMIT_MAX,
+    keyStrategy: "user",
+    skip: (req) =>
+      (req.method === "POST" &&
+        /^\/api\/v1\/rider\/orders\/[^/]+\/location$/.test(req.path)) ||
+      (req.method === "PATCH" &&
+        req.path === `${env.API_PREFIX}/rider/profile/location`) ||
+      (req.method === "POST" &&
+        req.path === `${env.API_PREFIX}/customer/analytics/events`) ||
+      (req.method === "POST" &&
+        req.path === `${env.API_PREFIX}/media/upload-signature`),
+    message: "Too many requests. Please slow down and try again shortly.",
+    event: "global.rate_limited",
+  });
+}
+
+export async function getRateLimitSnapshot() {
+  const limiters = await Promise.all(
+    Array.from(limiterMeta.values()).map(async (meta) => {
+      const store = limiterStores.get(meta.id);
+      const limit = await getLimiterLimit(meta);
+      const buckets = store?.snapshot() ?? [];
+      return {
+        ...meta,
+        limit,
+        activeBuckets: store?.size() ?? 0,
+        buckets: buckets.map((bucket) => ({
+          ...bucket,
+          remaining: Math.max(0, limit - bucket.totalHits),
+          usedPercent: limit > 0 ? Math.min(100, Math.round((bucket.totalHits / limit) * 100)) : 0,
+        })),
+      };
+    }),
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    enabled: env.RATE_LIMIT_ENABLED,
+    trustProxyHops: env.TRUST_PROXY_HOPS,
+    limiters: limiters.sort((left, right) => {
+      const categoryOrder = { global: 0, auth: 1, business: 2 };
+      return categoryOrder[left.category] - categoryOrder[right.category] || left.label.localeCompare(right.label);
+    }),
+  };
+}
+
+export function resetRateLimitBucket(params: {
+  limiterId: string;
+  resetToken: string;
+}) {
+  const meta = limiterMeta.get(params.limiterId);
+  const store = limiterStores.get(params.limiterId);
+
+  if (!meta || !store) {
+    return {
+      reset: false,
+      limiterId: params.limiterId,
+      reason: "limiter_not_found" as const,
+    };
+  }
+
+  const result = store.resetByToken(params.resetToken);
+
+  return {
+    limiterId: meta.id,
+    label: meta.label,
+    ...result,
+    reason: result.reset ? undefined : ("bucket_not_found" as const),
+  };
 }

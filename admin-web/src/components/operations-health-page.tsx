@@ -1817,7 +1817,7 @@ const autoHitDefinitions: Array<{
   {
     app: "Delivery app",
     label: "Active trip location",
-    endpoint: "PATCH /rider/profile/location + order tracking socket fanout",
+    endpoint: "PATCH /rider/profile/location + POST /rider/orders/:orderId/location",
     intervalMs: 15_000,
     condition: "Only while rider has picked up an order and live tracking is active",
     mode: "conditional",
@@ -2329,7 +2329,7 @@ function RefreshPolicySheet() {
                 <div className="space-y-2">
                   <div className="font-medium">Rate limiter docs</div>
                   <p className="text-sm text-muted-foreground">
-                    Settings &gt; Security থেকে business-specific limiter গুলো change করা যায়। Broad/global limiter .env থেকে থাকে, আর Nginx production এ real IP detect করার জন্য TRUST_PROXY_HOPS=1 রাখা দরকার।
+                    Settings &gt; Security theke business-specific limiters change kora jay. Broad/global limiter .env theke ashe. Caddy reverse proxy-r pichone real client IP detect korar jonno TRUST_PROXY_HOPS=1 thaka dorkar.
                   </p>
                   <div className="overflow-hidden rounded-lg border">
                     <Table>
@@ -2345,8 +2345,8 @@ function RefreshPolicySheet() {
                         <TableRow>
                           <TableCell className="font-medium">Global API</TableCell>
                           <TableCell>RATE_LIMIT_MAX / RATE_LIMIT_WINDOW_MS</TableCell>
-                          <TableCell>IP</TableCell>
-                          <TableCell>Unknown spam, crawler, বা accidental loops থেকে পুরো API protect করে।</TableCell>
+                          <TableCell>Logged-in user, otherwise IP</TableCell>
+                          <TableCell>Unknown spam, crawler, ba accidental loops theke API protect kore, but authenticated users alada bucket pay.</TableCell>
                         </TableRow>
                         <TableRow>
                           <TableCell className="font-medium">Sign-in / signup</TableCell>
@@ -2357,8 +2357,8 @@ function RefreshPolicySheet() {
                         <TableRow>
                           <TableCell className="font-medium">OTP send / verify</TableCell>
                           <TableCell>5 phone OTP / 10m, 12 IP OTP / 10m, 8 verify / 10m</TableCell>
-                          <TableCell>Phone/session/IP</TableCell>
-                          <TableCell>SMS cost, OTP abuse, wrong code brute force কমায়। DB guard daily/hourly count আলাদা করে রাখে।</TableCell>
+                          <TableCell>Phone/session/IP, scoped by app</TableCell>
+                          <TableCell>SMS cost, OTP abuse, wrong code brute force komay. Customer, owner, rider, admin flows alada visible bucket pay, and DB guard daily/hourly count rakhe.</TableCell>
                         </TableRow>
                         <TableRow>
                           <TableCell className="font-medium">Password recovery / refresh</TableCell>
@@ -2371,6 +2371,12 @@ function RefreshPolicySheet() {
                           <TableCell>300 quote, 12 order, 8 payment / 15m</TableCell>
                           <TableCell>Customer or IP</TableCell>
                           <TableCell>Checkout calculation, order spam, payment session spam control করে।</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="font-medium">Coupon / voucher</TableCell>
+                          <TableCell>20 coupon attempts, 300 quote / 15m</TableCell>
+                          <TableCell>Customer or IP/session</TableCell>
+                          <TableCell>Coupon-code validation runs through cart quote, voucher CRUD runs through admin/owner write limiter, and display tracking is analytics-limited.</TableCell>
                         </TableRow>
                         <TableRow>
                           <TableCell className="font-medium">Support / analytics</TableCell>
@@ -2396,7 +2402,7 @@ function RefreshPolicySheet() {
                 </div>
 
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                  Recommended: notifications 60s, operations health 30s, sessions 30s, rider details 30s, live map 15-30s। High load এর সময় live map 30s এবং dashboard auto-refresh off রাখা best।
+                  Recommended: notifications 60s, operations health 30s, sessions 30s, rider details 30s, live map 30s. High load er shomoy dashboard auto-refresh off rakha best.
                 </div>
               </CardContent>
             </Card>

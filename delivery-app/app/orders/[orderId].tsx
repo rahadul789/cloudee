@@ -27,6 +27,7 @@ import {
   useRiderLiveTrackingPolicyQuery,
   useRiderOrderDetailsQuery,
   useRiderSupportContactQuery,
+  useUpdateRiderLocationMutation,
   useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
@@ -57,6 +58,7 @@ type LiveRider = { latitude: number; longitude: number; heading: number | null }
 
 const HOLD_DURATION_MS = 900;
 const UI_POSITION_THROTTLE_MS = 1600;
+const SERVER_LOCATION_SEND_MIN_MS = 10_000;
 const DEFAULT_DELIVERY_THRESHOLDS = {
   deliveryWatchAfterPickupMinutes: 20,
   deliveryLateAfterPickupMinutes: 25,
@@ -344,6 +346,9 @@ export default function RiderOrderDetailsScreen() {
   const liveMapRef = useRef<RiderLiveMapHandle | null>(null);
   const latestLiveRiderRef = useRef<LiveRider | null>(null);
   const lastUiPositionAtRef = useRef(0);
+  const lastServerLocationSentAtRef = useRef(0);
+  const serverLocationBackoffUntilRef = useRef(0);
+  const isServerLocationSendPendingRef = useRef(false);
   const routeWarmupOrderRef = useRef<string | null>(null);
   const isCompletingDeliveryRef = useRef(false);
 
@@ -358,6 +363,7 @@ export default function RiderOrderDetailsScreen() {
   const deliverMutation = useDeliverOrderMutation();
   const failDeliveryMutation = useFailDeliveryMutation();
   const profileLocationMutation = useUpdateRiderProfileLocationMutation();
+  const orderLocationMutation = useUpdateRiderLocationMutation(orderId);
 
   const order = orderQuery.data;
   const supportPhone = supportContactQuery.data?.phone;
@@ -629,6 +635,48 @@ export default function RiderOrderDetailsScreen() {
     liveMapRef.current?.setLiveRider(nextLiveRider);
   }, []);
 
+  const sendForegroundLocation = useCallback(
+    (position: Location.LocationObject) => {
+      if (!orderId || !isNetworkOnline || isCompletingDeliveryRef.current) return;
+
+      const now = Date.now();
+      const sendIntervalMs = Math.max(
+        SERVER_LOCATION_SEND_MIN_MS,
+        trackingPolicy.updateIntervalSeconds * 1000,
+      );
+      if (
+        isServerLocationSendPendingRef.current ||
+        now < serverLocationBackoffUntilRef.current ||
+        now - lastServerLocationSentAtRef.current < sendIntervalMs
+      ) {
+        return;
+      }
+
+      isServerLocationSendPendingRef.current = true;
+      lastServerLocationSentAtRef.current = now;
+
+      orderLocationMutation
+        .mutateAsync(getRiderLocationPayload(position))
+        .then(() => {
+          serverLocationBackoffUntilRef.current = 0;
+          setTrackingError("");
+        })
+        .catch((error: unknown) => {
+          const status =
+            typeof error === "object" && error !== null && "status" in error
+              ? Number((error as { status?: unknown }).status)
+              : 0;
+          if (status === 429) {
+            serverLocationBackoffUntilRef.current = Date.now() + 60_000;
+          }
+        })
+        .finally(() => {
+          isServerLocationSendPendingRef.current = false;
+        });
+    },
+    [isNetworkOnline, orderId, orderLocationMutation, trackingPolicy.updateIntervalSeconds],
+  );
+
   useEffect(() => {
     if (order?.status === "PickedUp") return;
     latestLiveRiderRef.current = null;
@@ -662,6 +710,7 @@ export default function RiderOrderDetailsScreen() {
         });
         if (isMounted && !isCompletingDeliveryRef.current) {
           updateLiveRider(currentPosition);
+          sendForegroundLocation(currentPosition);
           setTrackingError("");
         }
       } catch {
@@ -678,6 +727,7 @@ export default function RiderOrderDetailsScreen() {
           if (!isMounted || isCompletingDeliveryRef.current) return;
           setTrackingError("");
           updateLiveRider(position);
+          sendForegroundLocation(position);
         },
       );
     };
@@ -699,6 +749,7 @@ export default function RiderOrderDetailsScreen() {
     orderId,
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.updateIntervalSeconds,
+    sendForegroundLocation,
     updateLiveRider,
   ]);
 

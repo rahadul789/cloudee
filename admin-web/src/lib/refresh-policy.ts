@@ -13,7 +13,7 @@ export const DEFAULT_ADMIN_REFRESH_POLICY: AdminRefreshPolicy = {
   notificationsMs: 60_000,
   dashboardMs: 30_000,
   operationsHealthMs: 30_000,
-  liveMapMs: 15_000,
+  liveMapMs: 30_000,
   sessionsMs: 30_000,
   riderDetailsMs: 30_000,
 }

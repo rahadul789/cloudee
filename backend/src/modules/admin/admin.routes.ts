@@ -9,8 +9,8 @@ import {
 } from "./admin.controller"
 
 export const adminAuthRouter = Router()
-const adminSigninLimiter = createSigninLimiter()
-const adminRefreshLimiter = createRefreshLimiter()
+const adminSigninLimiter = createSigninLimiter("admin")
+const adminRefreshLimiter = createRefreshLimiter("admin")
 
 adminAuthRouter.post("/bootstrap", postAdminBootstrap)
 adminAuthRouter.post("/signin", adminSigninLimiter, postAdminSignin)

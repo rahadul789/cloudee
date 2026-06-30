@@ -31,7 +31,6 @@ import { trackCustomerEvent } from "@/src/lib/analytics";
 import { apiProtectedPost } from "@/src/lib/api";
 import { saveBkashPaymentDraft } from "@/src/lib/bkash-payment-draft";
 import { formatCurrency } from "@/src/lib/currency";
-import { formatDurationMinutes } from "@/src/lib/date-time";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { getStableCustomerInstallId } from "@/src/lib/customer-install-id";
 import {
@@ -56,15 +55,6 @@ import { palette } from "@/src/theme/palette";
 
 type PaymentMethod = "Cash" | "Bkash";
 const bkashLogo = require("../assets/images/bkash.png");
-
-const VOUCHER_ATTEMPT_LIMIT = 5;
-const VOUCHER_ATTEMPT_WINDOW_MS = 2 * 60 * 1000;
-
-function formatVoucherRetryDelay(milliseconds: number) {
-  const seconds = Math.max(1, Math.ceil(milliseconds / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  return formatDurationMinutes(Math.ceil(seconds / 60));
-}
 
 function sanitizeCheckoutCode(value: string) {
   return value
@@ -128,7 +118,6 @@ export default function CheckoutScreen() {
   const hasCompletedCheckoutRef = useRef(false);
   const checkoutTrackedKeyRef = useRef("");
   const clientOrderIdRef = useRef(createClientOrderId());
-  const voucherAttemptTimestampsRef = useRef<number[]>([]);
   const hasInitializedPaymentMethodRef = useRef(false);
   const [bkashPayment, setBkashPayment] = useState<{
     sessionId: string;
@@ -532,25 +521,6 @@ export default function CheckoutScreen() {
       return;
     }
 
-    const now = Date.now();
-    voucherAttemptTimestampsRef.current =
-      voucherAttemptTimestampsRef.current.filter(
-        (timestamp) => now - timestamp < VOUCHER_ATTEMPT_WINDOW_MS,
-      );
-
-    if (voucherAttemptTimestampsRef.current.length >= VOUCHER_ATTEMPT_LIMIT) {
-      const oldestAttempt = voucherAttemptTimestampsRef.current[0] ?? now;
-      const retryInMs = VOUCHER_ATTEMPT_WINDOW_MS - (now - oldestAttempt);
-      setVoucherFeedback({
-        type: "error",
-        message: `Too many voucher tries. Please wait ${formatVoucherRetryDelay(
-          retryInMs,
-        )} before applying again.`,
-      });
-      return;
-    }
-
-    voucherAttemptTimestampsRef.current.push(now);
     setIsApplyingVoucher(true);
     setVoucherFeedback(null);
 

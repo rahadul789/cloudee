@@ -1,5 +1,5 @@
-# This repo contains multiple apps, but this EAS build is for customer-app.
-# EAS is archiving the git repo root, so explicitly exclude sibling projects.
+# This repo contains multiple apps. Keep EAS archives small while allowing
+# app-specific builds from the repo root.
 .claude/
 .claude/**
 .git/
@@ -9,8 +9,6 @@ admin-web/
 admin-web/**
 backend/
 backend/**
-delivery-app/
-delivery-app/**
 deploy/
 deploy/**
 eas-archive-inspect/
@@ -66,3 +64,42 @@ customer-app/*.p12
 customer-app/*.key
 customer-app/*.mobileprovision
 customer-app/*.pem
+
+# delivery-app dependencies and local state
+delivery-app/node_modules/
+delivery-app/node_modules/**
+delivery-app/.expo/
+delivery-app/.expo/**
+delivery-app/.vscode/
+delivery-app/.vscode/**
+delivery-app/.env
+delivery-app/.env*.local
+delivery-app/expo-env.d.ts
+delivery-app/*.tsbuildinfo
+delivery-app/.metro-health-check*
+
+# generated/native build output
+delivery-app/android/
+delivery-app/android/**
+delivery-app/ios/
+delivery-app/ios/**
+delivery-app/dist/
+delivery-app/dist/**
+delivery-app/web-build/
+delivery-app/web-build/**
+delivery-app/**/build/
+delivery-app/**/.gradle/
+delivery-app/**/.kotlin/
+delivery-app/**/intermediates/
+delivery-app/**/.cxx/
+delivery-app/*.orig.*
+delivery-app/*.log
+
+# credentials and server-only secrets
+delivery-app/*-firebase-adminsdk-*.json
+delivery-app/*.jks
+delivery-app/*.p8
+delivery-app/*.p12
+delivery-app/*.key
+delivery-app/*.mobileprovision
+delivery-app/*.pem
