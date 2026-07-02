@@ -24,6 +24,7 @@ const listCustomersQuerySchema = z.object({
   requestStatus: z
     .enum(["all", "pending", "cancelled", "reviewed", "completed", "none"])
     .optional(),
+  customOffer: z.enum(["all", "eligible", "requested", "ready", "locked"]).optional(),
   customerGroupKey: z.string().trim().optional(),
   zoneId: z.string().trim().optional(),
   districtId: z.string().trim().optional(),
@@ -84,6 +85,12 @@ function getStringParam(value: unknown) {
 
 function getAdminId(req: AuthenticatedRequest) {
   return req.user?.id ?? "";
+}
+
+async function assertCustomerInAdminArea(req: AuthenticatedRequest) {
+  const scope = detailsQuerySchema.pick({ zoneId: true, districtId: true }).parse(req.query);
+  if (!scope.zoneId && !scope.districtId) return;
+  await getAdminCustomerDetails(getStringParam(req.params.customerId), scope);
 }
 
 export const getAdminCustomers = asyncHandler(
@@ -191,6 +198,7 @@ export const getAdminCustomer = asyncHandler(
 export const getAdminCustomerOrders = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = listCustomerOrdersQuerySchema.parse(req.query);
+    await assertCustomerInAdminArea(req);
     const data = await listAdminCustomerOrders(
       getStringParam(req.params.customerId),
       query,
@@ -202,6 +210,7 @@ export const getAdminCustomerOrders = asyncHandler(
 
 export const deleteAdminCustomerOffer = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertCustomerInAdminArea(req);
     const data = await deleteAdminCustomerPersonalOffer({
       customerId: getStringParam(req.params.customerId),
       notificationId: getStringParam(req.params.notificationId),
@@ -218,6 +227,7 @@ export const deleteAdminCustomerOffer = asyncHandler(
 export const patchAdminCustomerStatus = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = statusSchema.parse(req.body);
+    await assertCustomerInAdminArea(req);
     const data = await updateAdminCustomerStatus({
       customerId: getStringParam(req.params.customerId),
       status: payload.status,

@@ -177,6 +177,10 @@ export type CustomerHomeCms = {
     textColor: string;
     accentColor: string;
   };
+  myOfferSection?: {
+    enabled: boolean;
+    activeFrom?: string;
+  };
   homeCategories?: {
     isActive: boolean;
     title: string;

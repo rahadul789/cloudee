@@ -12,9 +12,12 @@ type ApiResponse<T> = {
 };
 
 let refreshSessionPromise: Promise<boolean> | null = null;
+let lastRefreshFailureAtMs = 0;
 const AUTH_STORAGE_KEY = "delivery-rider-auth";
 const API_REQUEST_TIMEOUT_MS = 18_000;
 const API_REFRESH_TIMEOUT_MS = 12_000;
+const TOKEN_REFRESH_BUFFER_MS = 90_000;
+const REFRESH_RETRY_COOLDOWN_MS = 10_000;
 
 export class ApiRequestError extends Error {
   status?: number;
@@ -109,6 +112,54 @@ async function getPersistedRefreshToken() {
   }
 }
 
+function decodeBase64Url(value: string) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "="
+  );
+
+  if (typeof globalThis.atob === "function") {
+    return globalThis.atob(padded);
+  }
+
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let buffer = 0;
+  let bits = 0;
+  let output = "";
+
+  for (const char of padded) {
+    if (char === "=") break;
+    const valueIndex = chars.indexOf(char);
+    if (valueIndex < 0) continue;
+    buffer = (buffer << 6) | valueIndex;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output += String.fromCharCode((buffer >> bits) & 0xff);
+    }
+  }
+
+  return output;
+}
+
+export function getAccessTokenExpiresAtMs(accessToken: string) {
+  try {
+    const payload = accessToken.split(".")[1];
+    if (!payload) return null;
+    const parsed = JSON.parse(decodeBase64Url(payload)) as { exp?: unknown };
+    return typeof parsed.exp === "number" ? parsed.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldRefreshAccessToken(accessToken: string, bufferMs: number) {
+  const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
+  return typeof expiresAtMs === "number" && expiresAtMs - Date.now() <= bufferMs;
+}
+
 async function refreshRiderSession() {
   const storeRefreshToken = useRiderAuthStore.getState().refreshToken;
   const refreshToken = (await getPersistedRefreshToken()) || storeRefreshToken;
@@ -134,12 +185,14 @@ async function refreshRiderSession() {
     if (isLikelyNetworkError(error)) {
       await markConnectionFailure();
     }
-    throw error;
+    lastRefreshFailureAtMs = Date.now();
+    return false;
   } finally {
     clearTimeout(timeoutTimer);
   }
 
   if (!response.ok) {
+    lastRefreshFailureAtMs = Date.now();
     if (response.status === 401 || response.status === 403) {
       useRiderAuthStore.getState().clearSession();
     }
@@ -157,6 +210,7 @@ async function refreshRiderSession() {
     refreshToken: payload.data.refreshToken,
     rider: payload.data.rider,
   });
+  lastRefreshFailureAtMs = 0;
 
   return true;
 }
@@ -171,7 +225,37 @@ async function refreshRiderSessionOnce() {
   return refreshSessionPromise;
 }
 
+export async function ensureFreshRiderSession(options?: {
+  force?: boolean;
+  bufferMs?: number;
+}) {
+  const { accessToken, refreshToken } = useRiderAuthStore.getState();
+  if (!refreshToken) return false;
+
+  if (!options?.force && accessToken) {
+    const bufferMs = options?.bufferMs ?? TOKEN_REFRESH_BUFFER_MS;
+    if (!shouldRefreshAccessToken(accessToken, bufferMs)) {
+      return true;
+    }
+
+    if (
+      lastRefreshFailureAtMs > 0 &&
+      Date.now() - lastRefreshFailureAtMs < REFRESH_RETRY_COOLDOWN_MS
+    ) {
+      return false;
+    }
+  }
+
+  return refreshRiderSessionOnce();
+}
+
+export async function getFreshRiderAccessToken() {
+  await ensureFreshRiderSession();
+  return useRiderAuthStore.getState().accessToken;
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit, allowRetry = true) {
+  await ensureFreshRiderSession();
   const { accessToken } = useRiderAuthStore.getState();
   const headers = new Headers(init?.headers ?? {});
   const controller = new AbortController();
@@ -225,7 +309,7 @@ async function apiRequest<T>(path: string, init?: RequestInit, allowRetry = true
   }
 
   if (response.status === 401 && allowRetry && !path.includes("/rider/auth/refresh")) {
-    const refreshed = await refreshRiderSessionOnce();
+    const refreshed = await ensureFreshRiderSession({ force: true });
     if (refreshed) {
       return apiRequest<T>(path, init, false);
     }

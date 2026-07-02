@@ -6,10 +6,15 @@ import { emitSocketEvent } from "../../config/socket"
 import { VoucherAuditModel, VoucherModel, VoucherRedemptionModel } from "../customer/customer.model"
 import { CustomerModel } from "../customer/customer.model"
 import { sendPushToCustomer } from "../customer/push.service"
+import { markCustomerCustomOfferFulfilled } from "../customer/custom-offer.service"
 import { CategoryModel, MenuItemModel, OrderModel } from "../owner/operational.model"
 import { OwnerModel } from "../auth/auth.model"
 import { RestaurantModel } from "../auth/auth.model"
-import { buildRestaurantServiceAreaScopeFilter } from "../service-area/service-area.service"
+import { ServiceZoneModel } from "../service-area/service-area.model"
+import {
+  buildRestaurantServiceAreaScopeFilter,
+  serviceAreaSnapshotMatchesScope,
+} from "../service-area/service-area.service"
 
 type VoucherListParams = {
   restaurantId?: string
@@ -58,6 +63,15 @@ type VoucherAnalytics = {
     revenue: number
     released: boolean
   }>
+}
+
+type AdminAreaScopeParams = {
+  zoneId?: string
+  districtId?: string
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : ""
 }
 
 function emitOwnerVoucherChanged(params: {
@@ -140,11 +154,13 @@ type VoucherArchiveParams = {
   adminId: string
   voucherId: string
   reason?: string
+  adminScope?: AdminAreaScopeParams
 }
 
 type VoucherPushParams = {
   adminId: string
   voucherId: string
+  adminScope?: AdminAreaScopeParams
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -311,6 +327,159 @@ function assertNotMarkdownSurface(params: { surface?: string }) {
   }
 }
 
+function hasAdminAreaScope(scope?: AdminAreaScopeParams) {
+  return Boolean(scope?.zoneId?.trim() || scope?.districtId?.trim())
+}
+
+async function resolveAdminVoucherScopeIds(scope: AdminAreaScopeParams = {}) {
+  const zoneId = scope.zoneId?.trim()
+  const districtId = scope.districtId?.trim()
+  if (!zoneId && !districtId) return null
+
+  const zoneIds = new Set<string>()
+  const districtIds = new Set<string>()
+  if (zoneId) {
+    zoneIds.add(zoneId)
+    const zone = mongoose.Types.ObjectId.isValid(zoneId)
+      ? await ServiceZoneModel.findById(zoneId, { districtId: 1 }).lean()
+      : null
+    const parentDistrictId = objectIdString(zone?.districtId)
+    if (parentDistrictId) districtIds.add(parentDistrictId)
+  } else if (districtId) {
+    districtIds.add(districtId)
+    const zones = await ServiceZoneModel.find(
+      { districtId, status: { $ne: "archived" } },
+      { _id: 1 },
+    ).lean()
+    zones.forEach((zone) => {
+      const scopedZoneId = objectIdString(zone._id)
+      if (scopedZoneId) zoneIds.add(scopedZoneId)
+    })
+  }
+
+  return { zoneIds, districtIds }
+}
+
+async function buildVoucherAreaScopeCondition(params: AdminAreaScopeParams) {
+  if (!hasAdminAreaScope(params)) return null
+  const restaurantIds = await RestaurantModel.distinct(
+    "_id",
+    buildRestaurantServiceAreaScopeFilter(params),
+  )
+  const scopeIds = await resolveAdminVoucherScopeIds(params)
+  const zoneIds = scopeIds ? Array.from(scopeIds.zoneIds) : []
+  const districtIds = scopeIds ? Array.from(scopeIds.districtIds) : []
+  const allRestaurantAreaClauses: Record<string, unknown>[] = []
+  if (zoneIds.length) allRestaurantAreaClauses.push({ zoneIds: { $in: zoneIds } })
+  if (districtIds.length) allRestaurantAreaClauses.push({ districtIds: { $in: districtIds } })
+
+  return {
+    $or: [
+      ...(allRestaurantAreaClauses.length
+        ? [{ scopeType: "all_restaurants", $or: allRestaurantAreaClauses }]
+        : []),
+      { restaurantId: { $in: restaurantIds } },
+      { selectedRestaurantIds: { $in: restaurantIds } },
+    ],
+  }
+}
+
+function appendAndQuery(query: Record<string, unknown>, condition: Record<string, unknown> | null) {
+  if (!condition) return query
+  query.$and = Array.isArray(query.$and) ? [...query.$and, condition] : [condition]
+  return query
+}
+
+function applyAdminVoucherScopeDefaults<T extends Partial<VoucherMutationParams>>(
+  params: T,
+  scope?: AdminAreaScopeParams,
+): T {
+  if (!hasAdminAreaScope(scope)) return params
+  if ((params.scopeType ?? "restaurant") !== "all_restaurants") return params
+  return {
+    ...params,
+    zoneIds:
+      params.zoneIds !== undefined
+        ? params.zoneIds
+        : scope?.zoneId?.trim()
+          ? [scope.zoneId.trim()]
+          : [],
+    districtIds:
+      params.districtIds !== undefined
+        ? params.districtIds
+        : scope?.districtId?.trim()
+          ? [scope.districtId.trim()]
+          : [],
+  }
+}
+
+async function assertVoucherRestaurantTargetsInAdminScope(
+  params: Pick<VoucherMutationParams, "restaurantId" | "scopeType" | "selectedRestaurantIds">,
+  scope?: AdminAreaScopeParams,
+) {
+  if (!hasAdminAreaScope(scope)) return
+  const scopeType = params.scopeType ?? "restaurant"
+  if (scopeType === "restaurant" && params.restaurantId) {
+    const restaurant = await RestaurantModel.findById(params.restaurantId, { serviceArea: 1 }).lean()
+    if (!restaurant || !serviceAreaSnapshotMatchesScope(restaurant.serviceArea, scope)) {
+      throw new AppError(StatusCodes.NOT_FOUND, "RESTAURANT_NOT_FOUND", "Restaurant not found in this area")
+    }
+  }
+  if (scopeType === "selected_restaurants" && params.selectedRestaurantIds?.length) {
+    const selectedIds = [...new Set(params.selectedRestaurantIds.map(stringValue).filter(Boolean))]
+    const count = await RestaurantModel.countDocuments({
+      _id: { $in: selectedIds },
+      ...buildRestaurantServiceAreaScopeFilter(scope ?? {}),
+    })
+    if (count !== selectedIds.length) {
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        "VOUCHER_SCOPE_MISMATCH",
+        "Selected restaurants must belong to the current area",
+      )
+    }
+  }
+}
+
+async function voucherMatchesAdminAreaScope(
+  voucher: Record<string, any>,
+  scope?: AdminAreaScopeParams,
+) {
+  if (!hasAdminAreaScope(scope)) return true
+  const restaurantId = objectIdString(voucher.restaurantId)
+  if (restaurantId) {
+    const restaurant = await RestaurantModel.findById(restaurantId, { serviceArea: 1 }).lean()
+    return Boolean(restaurant && serviceAreaSnapshotMatchesScope(restaurant.serviceArea, scope))
+  }
+  if (voucher.scopeType === "selected_restaurants" && Array.isArray(voucher.selectedRestaurantIds)) {
+    const selectedIds = voucher.selectedRestaurantIds.map(objectIdString).filter(Boolean)
+    if (!selectedIds.length) return false
+    const count = await RestaurantModel.countDocuments({
+      _id: { $in: selectedIds },
+      ...buildRestaurantServiceAreaScopeFilter(scope ?? {}),
+    })
+    return count === selectedIds.length
+  }
+  if (voucher.scopeType === "all_restaurants") {
+    const scopeIds = await resolveAdminVoucherScopeIds(scope ?? {})
+    const voucherZoneIds = new Set((voucher.zoneIds ?? []).map(objectIdString).filter(Boolean))
+    const voucherDistrictIds = new Set((voucher.districtIds ?? []).map(objectIdString).filter(Boolean))
+    if (!voucherZoneIds.size && !voucherDistrictIds.size) return false
+    if (scopeIds && Array.from(scopeIds.zoneIds).some((zoneId) => voucherZoneIds.has(zoneId))) return true
+    if (scopeIds && Array.from(scopeIds.districtIds).some((districtId) => voucherDistrictIds.has(districtId))) return true
+  }
+  return false
+}
+
+async function assertVoucherRecordInAdminScope(
+  voucher: Record<string, any>,
+  scope?: AdminAreaScopeParams,
+) {
+  if (!(await voucherMatchesAdminAreaScope(voucher, scope))) {
+    throw new AppError(StatusCodes.NOT_FOUND, "VOUCHER_NOT_FOUND", "Voucher not found in this area")
+  }
+}
+
 /**
  * Menu markdowns are platform-funded, code-less, and only flat/percentage. Coerce funding
  * and mode so callers can't accidentally create an owner-funded or coupon-coded markdown,
@@ -453,12 +622,7 @@ async function buildVoucherQuery(params: VoucherListParams) {
 
   if (params.restaurantId) query.restaurantId = toObjectIdOrThrow(params.restaurantId, "Restaurant")
   if (!params.restaurantId && (params.zoneId?.trim() || params.districtId?.trim())) {
-    const restaurantIds = await RestaurantModel.distinct("_id", buildRestaurantServiceAreaScopeFilter(params))
-    query.$or = [
-      { scopeType: "all_restaurants" },
-      { restaurantId: { $in: restaurantIds } },
-      { selectedRestaurantIds: { $in: restaurantIds } },
-    ]
+    appendAndQuery(query, await buildVoucherAreaScopeCondition(params))
   }
   if (params.scopeType && params.scopeType !== "all") query.scopeType = params.scopeType
   if (params.surface === "all") {
@@ -1043,9 +1207,13 @@ export async function updateOwnerVoucher(params: VoucherPatchParams & {
 
 export async function createAdminVoucher(params: VoucherMutationParams & {
   adminId: string
+  adminScope?: AdminAreaScopeParams
 }) {
+  const adminScope = params.adminScope
+  params = applyAdminVoucherScopeDefaults(params, adminScope)
   params = normalizeMarkdownMutation(params)
   assertAdminCreatedVoucherFunding({ fundedBy: params.fundedBy })
+  await assertVoucherRestaurantTargetsInAdminScope(params, adminScope)
   const scopeType = params.scopeType ?? "restaurant"
   const restaurant =
     scopeType === "restaurant" && params.restaurantId
@@ -1103,12 +1271,25 @@ export async function createAdminVoucher(params: VoucherMutationParams & {
 export async function updateAdminVoucher(params: VoucherPatchParams & {
   adminId: string
   voucherId: string
+  adminScope?: AdminAreaScopeParams
 }) {
   const voucher = await VoucherModel.findById(params.voucherId)
 
   if (!voucher) {
     throw new AppError(StatusCodes.NOT_FOUND, "VOUCHER_NOT_FOUND", "Voucher not found")
   }
+  await assertVoucherRecordInAdminScope(voucher.toObject(), params.adminScope)
+  params = applyAdminVoucherScopeDefaults(params, params.adminScope)
+  await assertVoucherRestaurantTargetsInAdminScope(
+    {
+      restaurantId: params.restaurantId ?? objectIdString(voucher.restaurantId),
+      scopeType: params.scopeType ?? (voucher.scopeType as VoucherMutationParams["scopeType"]),
+      selectedRestaurantIds:
+        params.selectedRestaurantIds ??
+        ((voucher.selectedRestaurantIds as unknown as string[] | undefined) ?? undefined),
+    },
+    params.adminScope,
+  )
 
   const before = voucher.toObject()
   const effectiveSurface = params.surface ?? voucher.surface
@@ -1139,6 +1320,7 @@ export async function archiveAdminVoucher(params: VoucherArchiveParams) {
   if (!voucher) {
     throw new AppError(StatusCodes.NOT_FOUND, "VOUCHER_NOT_FOUND", "Voucher not found")
   }
+  await assertVoucherRecordInAdminScope(voucher.toObject(), params.adminScope)
   const before = voucher.toObject()
   const archivedAt = new Date()
   voucher.archivedAt = archivedAt
@@ -1185,6 +1367,7 @@ export async function restoreAdminVoucher(params: VoucherArchiveParams) {
   if (!voucher) {
     throw new AppError(StatusCodes.NOT_FOUND, "VOUCHER_NOT_FOUND", "Voucher not found")
   }
+  await assertVoucherRecordInAdminScope(voucher.toObject(), params.adminScope)
   const before = voucher.toObject()
   voucher.archivedAt = null
   voucher.archivedByAdminId = ""
@@ -1224,6 +1407,7 @@ export async function sendAdminVoucherPushCampaign(params: VoucherPushParams) {
   if (!voucher) {
     throw new AppError(StatusCodes.NOT_FOUND, "VOUCHER_NOT_FOUND", "Voucher not found")
   }
+  await assertVoucherRecordInAdminScope(voucher as Record<string, any>, params.adminScope)
   const campaign = (voucher as any).pushCampaign ?? {}
   if (!campaign.enabled || !campaign.title || !campaign.body) {
     throw new AppError(
@@ -1237,9 +1421,12 @@ export async function sendAdminVoucherPushCampaign(params: VoucherPushParams) {
   let sentCount = 0
   let disabledCount = 0
   const sentExpoTokens = new Set<string>()
+  const voucherId = objectIdString((voucher as any)._id)
+  const personalOffer = (voucher as any).audienceType === "selected_users"
   for (const customer of customers) {
+    const customerId = objectIdString(customer._id)
     const result = await sendPushToCustomer({
-      customerId: objectIdString(customer._id),
+      customerId,
       excludeExpoTokens: sentExpoTokens,
       payload: {
         title: campaign.title,
@@ -1247,13 +1434,27 @@ export async function sendAdminVoucherPushCampaign(params: VoucherPushParams) {
         data: {
           type: "promotion",
           path: campaign.path || (voucher as any).display?.ctaPath || "/(tabs)/browse",
-          voucherId: objectIdString((voucher as any)._id)
+          voucherId,
+          voucherCode: stringValue((voucher as any).code),
+          voucherLabel: stringValue((voucher as any).display?.title) || stringValue((voucher as any).name),
+          voucherExpiresAt: (voucher as any).endsAt,
+          voucherMinOrder: (voucher as any).minimumOrderAmount,
+          personalOffer
         }
       }
     })
     sentCount += result.sent
     disabledCount += result.disabled
     result.sentExpoTokens.forEach((token) => sentExpoTokens.add(token))
+    if (personalOffer) {
+      await markCustomerCustomOfferFulfilled({
+        customerId,
+        voucherId,
+        voucherCode: stringValue((voucher as any).code),
+        voucherLabel: stringValue((voucher as any).display?.title) || stringValue((voucher as any).name),
+        adminId: params.adminId
+      }).catch(() => undefined)
+    }
   }
   await VoucherModel.updateOne(
     { _id: params.voucherId },

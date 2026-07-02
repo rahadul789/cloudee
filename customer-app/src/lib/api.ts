@@ -2,9 +2,12 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { API_BASE_URL } from "@/src/config/runtime";
 
 let refreshPromise: Promise<boolean> | null = null;
+let lastRefreshFailureAtMs = 0;
 
 const API_REQUEST_TIMEOUT_MS = 18_000;
 const API_REFRESH_TIMEOUT_MS = 12_000;
+const TOKEN_REFRESH_BUFFER_MS = 90_000;
+const REFRESH_RETRY_COOLDOWN_MS = 10_000;
 
 type ApiResponse<T> = {
   success: boolean;
@@ -125,6 +128,54 @@ function getNetworkAwareErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed. Please try again.";
 }
 
+function decodeBase64Url(value: string) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "="
+  );
+
+  if (typeof globalThis.atob === "function") {
+    return globalThis.atob(padded);
+  }
+
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let buffer = 0;
+  let bits = 0;
+  let output = "";
+
+  for (const char of padded) {
+    if (char === "=") break;
+    const valueIndex = chars.indexOf(char);
+    if (valueIndex < 0) continue;
+    buffer = (buffer << 6) | valueIndex;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output += String.fromCharCode((buffer >> bits) & 0xff);
+    }
+  }
+
+  return output;
+}
+
+export function getAccessTokenExpiresAtMs(accessToken: string) {
+  try {
+    const payload = accessToken.split(".")[1];
+    if (!payload) return null;
+    const parsed = JSON.parse(decodeBase64Url(payload)) as { exp?: unknown };
+    return typeof parsed.exp === "number" ? parsed.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldRefreshAccessToken(accessToken: string, bufferMs: number) {
+  const expiresAtMs = getAccessTokenExpiresAtMs(accessToken);
+  return typeof expiresAtMs === "number" && expiresAtMs - Date.now() <= bufferMs;
+}
+
 async function refreshCustomerSession() {
   const { refreshToken } = useCustomerAuthStore.getState();
   if (!refreshToken) return false;
@@ -143,10 +194,12 @@ async function refreshCustomerSession() {
       API_REFRESH_TIMEOUT_MS
     );
   } catch {
+    lastRefreshFailureAtMs = Date.now();
     return false;
   }
 
   if (!response.ok) {
+    lastRefreshFailureAtMs = Date.now();
     if (response.status === 401 || response.status === 403) {
       useCustomerAuthStore.getState().clearSession();
     }
@@ -183,6 +236,7 @@ async function refreshCustomerSession() {
     refreshToken: payload.data.refreshToken,
     customer: payload.data.customer,
   });
+  lastRefreshFailureAtMs = 0;
 
   return true;
 }
@@ -197,17 +251,57 @@ function refreshCustomerSessionOnce() {
   return refreshPromise;
 }
 
+export async function ensureFreshCustomerSession(options?: {
+  force?: boolean;
+  bufferMs?: number;
+}) {
+  const { accessToken, refreshToken } = useCustomerAuthStore.getState();
+  if (!refreshToken) return false;
+
+  if (!options?.force && accessToken) {
+    const bufferMs = options?.bufferMs ?? TOKEN_REFRESH_BUFFER_MS;
+    if (!shouldRefreshAccessToken(accessToken, bufferMs)) {
+      return true;
+    }
+
+    if (
+      lastRefreshFailureAtMs > 0 &&
+      Date.now() - lastRefreshFailureAtMs < REFRESH_RETRY_COOLDOWN_MS
+    ) {
+      return false;
+    }
+  }
+
+  return refreshCustomerSessionOnce();
+}
+
+export async function getFreshCustomerAccessToken() {
+  await ensureFreshCustomerSession();
+  return useCustomerAuthStore.getState().accessToken;
+}
+
+type ApiRequestOptions = {
+  auth?: "none" | "required";
+  allowRetry?: boolean;
+};
+
 async function apiRequest<T>(
   path: string,
   init?: RequestInit,
-  allowRetry = true
+  options: ApiRequestOptions = {}
 ) {
+  const requiresAuth = options.auth === "required";
+  const allowRetry = options.allowRetry !== false;
+  if (requiresAuth) {
+    await ensureFreshCustomerSession();
+  }
+
   const { accessToken } = useCustomerAuthStore.getState();
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
   }
-  if (accessToken) {
+  if (requiresAuth && accessToken) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
@@ -230,10 +324,15 @@ async function apiRequest<T>(
     });
   }
 
-  if (response.status === 401 && allowRetry && !path.includes("/customer/auth/refresh")) {
-    const refreshed = await refreshCustomerSessionOnce();
+  if (
+    requiresAuth &&
+    response.status === 401 &&
+    allowRetry &&
+    !path.includes("/customer/auth/refresh")
+  ) {
+    const refreshed = await ensureFreshCustomerSession({ force: true });
     if (refreshed) {
-      return apiRequest<T>(path, init, false);
+      return apiRequest<T>(path, init, { auth: "required", allowRetry: false });
     }
   }
 
@@ -241,7 +340,7 @@ async function apiRequest<T>(
 }
 
 export async function apiGet<T>(path: string) {
-  return apiRequest<T>(path, { method: "GET" });
+  return apiRequest<T>(path, { method: "GET" }, { auth: "none" });
 }
 
 export async function apiPost<T>(
@@ -253,31 +352,31 @@ export async function apiPost<T>(
     ...init,
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, { auth: "none" });
 }
 
 export async function apiProtectedGet<T>(path: string) {
-  return apiRequest<T>(path, { method: "GET" });
+  return apiRequest<T>(path, { method: "GET" }, { auth: "required" });
 }
 
 export async function apiProtectedPost<T>(path: string, body?: unknown) {
   return apiRequest<T>(path, {
     method: "POST",
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, { auth: "required" });
 }
 
 export async function apiPatch<T>(path: string, body?: unknown) {
   return apiRequest<T>(path, {
     method: "PATCH",
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, { auth: "required" });
 }
 
 export async function apiDelete<T>(path: string) {
   return apiRequest<T>(path, {
     method: "DELETE",
-  });
+  }, { auth: "required" });
 }
 
 export function getApiBaseUrl() {

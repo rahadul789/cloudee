@@ -32,6 +32,7 @@ export default function RootLayout() {
           <Stack.Screen name="privacy-policy" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="offers" />
+          <Stack.Screen name="offer-details" />
           <Stack.Screen name="support" />
           <Stack.Screen name="support-chat" />
           <Stack.Screen name="favorite-restaurants" />

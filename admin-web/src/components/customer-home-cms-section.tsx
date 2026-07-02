@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   Eye,
+  Gift,
   Image,
   Loader2,
   MousePointerClick,
@@ -74,6 +75,24 @@ function formatDate(value?: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "N/A"
   return date.toLocaleString()
+}
+
+function formatDateTimeLocalInput(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function isoFromDateTimeLocalInput(value: string) {
+  if (!value.trim()) return ""
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString()
 }
 
 function getAudienceLabel(value?: string) {
@@ -281,6 +300,10 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
     backgroundColor: "#FFF0F6",
     textColor: "#3F2432",
     accentColor: "#FF5C93",
+  },
+  myOfferSection: {
+    enabled: true,
+    activeFrom: "",
   },
   homeCategories: {
     isActive: true,
@@ -755,6 +778,9 @@ function normalizeContentForCms(content: PlatformContent | null) {
   const offerStrip = (homeCms.offerStrip ?? {}) as Partial<
     PlatformContent["customerApp"]["homeCms"]["offerStrip"]
   >
+  const myOfferSection = (homeCms.myOfferSection ?? {}) as Partial<
+    NonNullable<PlatformContent["customerApp"]["homeCms"]["myOfferSection"]>
+  >
   const modal = (homeCms.modal ?? {}) as Partial<
     PlatformContent["customerApp"]["homeCms"]["modal"]
   >
@@ -802,6 +828,14 @@ function normalizeContentForCms(content: PlatformContent | null) {
             offerStrip.carouselImages,
             DEFAULT_HOME_CMS.offerStrip.carouselImages
           ),
+        },
+        myOfferSection: {
+          ...DEFAULT_HOME_CMS.myOfferSection,
+          ...myOfferSection,
+          enabled: myOfferSection.enabled ?? true,
+          activeFrom:
+            myOfferSection.activeFrom ||
+            (myOfferSection.enabled === false ? "" : new Date().toISOString()),
         },
         homeCategories: {
           ...DEFAULT_HOME_CMS.homeCategories,
@@ -1084,6 +1118,23 @@ export function CustomerHomeCmsSection({
           value === "voucher_strip"
             ? true
             : currentCms.offerStrip.showVoucherStrip,
+      },
+    })
+  }
+
+  function updateMyOfferSection<K extends keyof NonNullable<typeof currentCms.myOfferSection>>(
+    key: K,
+    value: NonNullable<typeof currentCms.myOfferSection>[K]
+  ) {
+    const currentSection = (currentCms.myOfferSection ??
+      DEFAULT_HOME_CMS.myOfferSection ??
+      {}) as Partial<NonNullable<typeof currentCms.myOfferSection>>
+    updateCms({
+      ...currentCms,
+      myOfferSection: {
+        enabled: currentSection.enabled ?? true,
+        activeFrom: currentSection.activeFrom ?? "",
+        [key]: value,
       },
     })
   }
@@ -2623,6 +2674,65 @@ export function CustomerHomeCmsSection({
                       </div>
                     ))
                   : null}
+              </div>
+            </CmsDetailsCard>
+
+            <CmsDetailsCard
+              title="My offer profile card"
+              description="Area-based visibility for the personalized offer card on the customer profile screen."
+              icon={<Gift className="size-5" />}
+              summary={
+                <Badge
+                  variant={
+                    cms.myOfferSection?.enabled !== false
+                      ? "default"
+                      : "outline"
+                  }
+                >
+                  {cms.myOfferSection?.enabled !== false ? "Shown" : "Hidden"}
+                </Badge>
+              }
+            >
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <Label>Show My offer on profile</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Saves for the selected district or zone. Eligibility,
+                    threshold, and voucher rules still come from Settings.
+                  </p>
+                </div>
+                <Switch
+                  checked={cms.myOfferSection?.enabled !== false}
+                  onCheckedChange={(checked) =>
+                    updateCms({
+                      ...cms,
+                      myOfferSection: {
+                        ...(cms.myOfferSection ?? DEFAULT_HOME_CMS.myOfferSection),
+                        enabled: checked,
+                        activeFrom: checked
+                          ? cms.myOfferSection?.activeFrom || new Date().toISOString()
+                          : cms.myOfferSection?.activeFrom || "",
+                      },
+                    })
+                  }
+                />
+              </div>
+              <div className="mt-3 space-y-2 rounded-lg border p-3">
+                <Label>Count orders from</Label>
+                <Input
+                  type="datetime-local"
+                  value={formatDateTimeLocalInput(cms.myOfferSection?.activeFrom)}
+                  onChange={(event) =>
+                    updateMyOfferSection(
+                      "activeFrom",
+                      isoFromDateTimeLocalInput(event.target.value)
+                    )
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Delivered orders before this area activation time will not
+                  count toward My offer progress.
+                </p>
               </div>
             </CmsDetailsCard>
           </div>

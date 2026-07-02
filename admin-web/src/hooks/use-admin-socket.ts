@@ -43,6 +43,13 @@ function invalidateAdminRealtimeQueries(
     void queryClient.invalidateQueries({ queryKey: ["admin-bkash-payment-attempts"] })
     void queryClient.invalidateQueries({ queryKey: ["admin-action-center"] })
   }
+  if (payload?.entityType === "customer" || payload?.path?.startsWith("/users")) {
+    void queryClient.invalidateQueries({ queryKey: ["admin-customers"] })
+    if (payload.entityId) {
+      void queryClient.invalidateQueries({ queryKey: ["admin-customer-details", payload.entityId] })
+    }
+    void queryClient.invalidateQueries({ queryKey: ["admin-action-center"] })
+  }
   if (payload?.entityType === "payout_method" || payload?.path?.startsWith("/payouts")) {
     void queryClient.invalidateQueries({ queryKey: ["admin-payout-method-approvals"] })
     void queryClient.invalidateQueries({ queryKey: ["admin-finance-payouts"] })
@@ -56,6 +63,7 @@ function resolveAdminNotificationPath(payload: Partial<AdminNotificationCenterIt
     payload.path?.startsWith("/support") ||
     payload.path?.startsWith("/reviews") ||
     payload.path?.startsWith("/restaurants") ||
+    payload.path?.startsWith("/users") ||
     payload.path?.startsWith("/riders") ||
     payload.path?.startsWith("/payments") ||
     payload.path?.startsWith("/payouts") ||

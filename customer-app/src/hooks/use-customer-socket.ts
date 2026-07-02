@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useCustomerActiveOrderQuery } from "@/src/hooks/use-customer-api";
 import { connectCustomerSocket, disconnectCustomerSocket, getCustomerSocket } from "@/src/lib/socket-client";
+import { getFreshCustomerAccessToken } from "@/src/lib/api";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
 
@@ -39,6 +40,16 @@ type CustomerOrderPayload = {
     phone?: string;
     vehicleType?: string;
   };
+  preparationTiming?: {
+    phase?: string;
+    baseMinutes?: number;
+    extraMinutes?: number;
+    totalMinutes?: number;
+    targetStartAt?: string | null;
+    targetReadyAt?: string | null;
+    remainingSeconds?: number | null;
+    lateBySeconds?: number | null;
+  } | null;
   riderTracking?: {
     isActive?: boolean;
     startedAt?: string;
@@ -82,6 +93,7 @@ type CustomerOrderPayload = {
     note?: string;
     createdAt: string;
   }[];
+  hasCustomerReview?: boolean;
   timestamps?: {
     placedAt?: string;
     acceptedAt?: string;
@@ -100,6 +112,9 @@ type CustomerNotificationPayload = {
   title: string;
   description: string;
   path: string;
+  voucherId?: string;
+  voucherCode?: string;
+  personalOffer?: boolean;
   isRead: boolean;
   readAt: string | null;
   createdAt: string;
@@ -155,14 +170,66 @@ function mergeOrderPayload(
   };
 }
 
+function getOrderSummarySignature(order: CustomerOrderPayload | null | undefined) {
+  if (!order) return "";
+
+  return JSON.stringify({
+    id: order._id,
+    restaurantId: order.restaurantId ?? "",
+    orderNumber: order.orderNumber,
+    status: order.status,
+    paymentMethod: order.paymentMethod,
+    terminalReason: order.terminalReason ?? "",
+    cancelledBy: order.cancelledBy ?? "",
+    createdAt: order.createdAt,
+    addressLine: order.customerSnapshot?.deliveryAddress?.addressLine ?? "",
+    pricingTotal: order.pricing?.total ?? null,
+    riderName: order.riderSnapshot?.name ?? "",
+    riderPhone: order.riderSnapshot?.phone ?? "",
+    hasCustomerReview: order.hasCustomerReview ?? false,
+    preparationTiming: {
+      phase: order.preparationTiming?.phase ?? "",
+      totalMinutes: order.preparationTiming?.totalMinutes ?? null,
+      targetStartAt: order.preparationTiming?.targetStartAt ?? null,
+      targetReadyAt: order.preparationTiming?.targetReadyAt ?? null,
+    },
+    timestamps: {
+      placedAt: order.timestamps?.placedAt ?? "",
+      acceptedAt: order.timestamps?.acceptedAt ?? "",
+      preparingAt: order.timestamps?.preparingAt ?? "",
+      readyForPickupAt: order.timestamps?.readyForPickupAt ?? "",
+      pickedUpAt: order.timestamps?.pickedUpAt ?? "",
+      deliveredAt: order.timestamps?.deliveredAt ?? "",
+      cancelledAt: order.timestamps?.cancelledAt ?? "",
+    },
+    items: (order.itemsSnapshot ?? []).map((item) => ({
+      itemId: item.itemId ?? "",
+      name: item.name ?? "",
+      quantity: item.quantity ?? 0,
+      unitPrice: item.unitPrice ?? 0,
+    })),
+  });
+}
+
+function hasOrderSummaryChanged(
+  current: CustomerOrderPayload | null | undefined,
+  nextOrder: CustomerOrderPayload,
+) {
+  return getOrderSummarySignature(current) !== getOrderSummarySignature(nextOrder);
+}
+
 function upsertOrderList(
   current: CustomerOrderPayload[] | undefined,
   nextOrder: CustomerOrderPayload
 ) {
   const list = current ?? [];
-  const exists = list.some((order) => order._id === nextOrder._id);
+  const existing = list.find((order) => order._id === nextOrder._id);
 
-  const updated = exists
+  if (existing && !hasOrderSummaryChanged(existing, nextOrder)) {
+    return current ?? list;
+  }
+
+  const updated = existing
     ? list.map((order) =>
         order._id === nextOrder._id ? mergeOrderPayload(order, nextOrder) : order
       )
@@ -290,44 +357,69 @@ export function useCustomerSocketBridge() {
       return;
     }
 
-    const connectIfNeeded = () => {
+    const socket = getCustomerSocket();
+    const connectIfNeeded = async () => {
       if (!hasLiveOrder) {
         joinedRef.current = null;
         disconnectCustomerSocket();
         return null;
       }
 
-      connectCustomerSocket(customer.id, accessToken);
+      const freshAccessToken = await getFreshCustomerAccessToken();
+      if (!freshAccessToken) {
+        joinedRef.current = null;
+        disconnectCustomerSocket();
+        return null;
+      }
+
+      connectCustomerSocket(customer.id, freshAccessToken);
       joinedRef.current = customer.id;
-      return getCustomerSocket();
+      return socket;
     };
 
-    const socket = appStateRef.current === "active" ? connectIfNeeded() : null;
-    const ensureJoined = () => socket?.emit("customer:join", customer.id);
+    if (appStateRef.current === "active") {
+      void connectIfNeeded();
+    }
+
+    const ensureJoined = () => socket.emit("customer:join", customer.id);
 
     const handleOrderEvent = (payload: CustomerOrderPayload) => {
-      queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders"], (current) =>
-        upsertOrderList(current, payload)
-      );
-      queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders", "live"], (current) =>
-        upsertLiveOrderList(current, payload)
-      );
       queryClient.setQueryData<CustomerOrderPayload | null>(
         ["customer", "orders", payload._id],
         (current) => mergeOrderPayload(current, payload),
       );
-      queryClient.setQueryData<CustomerOrderPayload | null>(
-        ["customer", "orders", "active"],
-        (current) =>
-          isLiveOrderStatus(payload.status)
-            ? mergeOrderPayload(current, payload)
-            : current?._id === payload._id
-              ? null
-              : current ?? null,
-      );
       const previousBanneredStatus = banneredStatusRef.current.get(payload._id);
       const isStatusTransition = previousBanneredStatus !== payload.status;
       banneredStatusRef.current.set(payload._id, payload.status);
+
+      const shouldPatchSummaryCaches =
+        isStatusTransition ||
+        hasOrderSummaryChanged(
+          queryClient.getQueryData<CustomerOrderPayload>([
+            "customer",
+            "orders",
+            "active",
+          ]),
+          payload,
+        );
+
+      if (shouldPatchSummaryCaches) {
+        queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders"], (current) =>
+          upsertOrderList(current, payload)
+        );
+        queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders", "live"], (current) =>
+          upsertLiveOrderList(current, payload)
+        );
+        queryClient.setQueryData<CustomerOrderPayload | null>(
+          ["customer", "orders", "active"],
+          (current) =>
+            isLiveOrderStatus(payload.status)
+              ? mergeOrderPayload(current, payload)
+              : current?._id === payload._id
+                ? null
+                : current ?? null,
+        );
+      }
 
       if (payload.status === "PickedUp" && payload.riderTracking?.currentLocation) {
         const now = Date.now();
@@ -349,6 +441,14 @@ export function useCustomerSocketBridge() {
       if (isStatusTransition) {
         if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
           queryClient.invalidateQueries({ queryKey: ["customer", "orders", "history"] });
+        }
+        if (payload.status === "Delivered") {
+          queryClient.invalidateQueries({
+            queryKey: ["customer", "offers", "custom-summary"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["customer", "notifications", "infinite"],
+          });
         }
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
       }
@@ -386,6 +486,19 @@ export function useCustomerSocketBridge() {
       queryClient.invalidateQueries({ queryKey: ["customer", "notifications"] });
       queryClient.invalidateQueries({ queryKey: ["customer", "profile"] });
 
+      if (
+        notification?.type === "custom_offer_qualified" ||
+        notification?.personalOffer === true ||
+        Boolean(notification?.voucherId || notification?.voucherCode)
+      ) {
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "offers", "custom-summary"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "notifications", "infinite"],
+        });
+      }
+
       const orderId = extractOrderIdFromPath(notification?.path);
       if (orderId) {
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", orderId] });
@@ -408,10 +521,14 @@ export function useCustomerSocketBridge() {
 
       if (nextState === "active") {
         void refetchActiveOrder();
-        const activeSocket = connectIfNeeded();
-        activeSocket?.emit("customer:join", customer.id);
+        void connectIfNeeded().then((activeSocket) => {
+          activeSocket?.emit("customer:join", customer.id);
+        });
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", "active"] });
         queryClient.invalidateQueries({ queryKey: ["customer", "orders", "live"] });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "offers", "custom-summary"],
+        });
         queryClient.invalidateQueries({ queryKey: ["customer", "support-case"] });
         return;
       }
@@ -420,20 +537,20 @@ export function useCustomerSocketBridge() {
       disconnectCustomerSocket();
     };
 
-    socket?.on("connect", ensureJoined);
-    socket?.on("customer.order.created", handleOrderEvent);
-    socket?.on("customer.order.updated", handleOrderEvent);
-    socket?.on("customer.notification.created", handleNotificationCreated);
-    socket?.on("customer.support.updated", handleSupportUpdated);
+    socket.on("connect", ensureJoined);
+    socket.on("customer.order.created", handleOrderEvent);
+    socket.on("customer.order.updated", handleOrderEvent);
+    socket.on("customer.notification.created", handleNotificationCreated);
+    socket.on("customer.support.updated", handleSupportUpdated);
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
     return () => {
       subscription.remove();
-      socket?.off("connect", ensureJoined);
-      socket?.off("customer.order.created", handleOrderEvent);
-      socket?.off("customer.order.updated", handleOrderEvent);
-      socket?.off("customer.notification.created", handleNotificationCreated);
-      socket?.off("customer.support.updated", handleSupportUpdated);
+      socket.off("connect", ensureJoined);
+      socket.off("customer.order.created", handleOrderEvent);
+      socket.off("customer.order.updated", handleOrderEvent);
+      socket.off("customer.notification.created", handleNotificationCreated);
+      socket.off("customer.support.updated", handleSupportUpdated);
     };
   }, [accessToken, customer?.id, hasLiveOrder, queryClient, refetchActiveOrder, showBanner]);
 }

@@ -37,6 +37,10 @@ function getStringParam(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function getAdminAreaScope(req: AuthenticatedRequest) {
+  return listCategoriesQuerySchema.pick({ zoneId: true, districtId: true }).parse(req.query);
+}
+
 export const getAdminCategories = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const query = listCategoriesQuerySchema.parse(req.query);
   const data = await listAdminCategories(query);
@@ -44,7 +48,10 @@ export const getAdminCategories = asyncHandler(async (req: AuthenticatedRequest,
 });
 
 export const getAdminCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const data = await getAdminCategoryDetails(getStringParam(req.params.categoryId));
+  const data = await getAdminCategoryDetails(
+    getStringParam(req.params.categoryId),
+    getAdminAreaScope(req),
+  );
   return sendSuccess(res, { data });
 });
 
@@ -56,6 +63,7 @@ export const patchAdminCategoryStatus = asyncHandler(async (req: AuthenticatedRe
     reason: payload.reason,
     notifyOwner: payload.notifyOwner,
     adminId: req.user?.id ?? "",
+    ...getAdminAreaScope(req),
   });
 
   return sendSuccess(res, {
@@ -72,6 +80,7 @@ export const patchAdminCategoriesBulkStatus = asyncHandler(async (req: Authentic
     reason: payload.reason,
     notifyOwner: payload.notifyOwner,
     adminId: req.user?.id ?? "",
+    ...getAdminAreaScope(req),
   });
 
   return sendSuccess(res, {

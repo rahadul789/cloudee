@@ -85,10 +85,19 @@ const campaignRecipientsParamsSchema = z.object({
 });
 
 const campaignRecipientsQuerySchema = z.object({
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
   status: z.enum(["all", "received", "opened", "not_reached"]).optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
 });
+
+function getAreaScope(query: Record<string, unknown>) {
+  return listNotificationsQuerySchema.pick({ zoneId: true, districtId: true }).parse({
+    zoneId: typeof query.zoneId === "string" ? query.zoneId : undefined,
+    districtId: typeof query.districtId === "string" ? query.districtId : undefined,
+  });
+}
 
 export const getAdminNotifications = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
@@ -130,7 +139,10 @@ export const getAdminNotificationCampaignRecipients = asyncHandler(
 export const postAdminNotificationCampaignConversions = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const params = campaignRecipientsParamsSchema.parse(req.params);
-    const data = await refreshAdminNotificationCampaignConversions(params.campaignId);
+    const data = await refreshAdminNotificationCampaignConversions(
+      params.campaignId,
+      getAreaScope(req.query),
+    );
 
     return sendSuccess(res, {
       message: data.refreshed ? "Campaign conversions refreshed" : "Campaign conversions unavailable",
@@ -142,7 +154,10 @@ export const postAdminNotificationCampaignConversions = asyncHandler(
 export const postAdminNotificationCampaignReceipts = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const params = campaignRecipientsParamsSchema.parse(req.params);
-    const data = await checkAdminNotificationCampaignReceipts(params.campaignId);
+    const data = await checkAdminNotificationCampaignReceipts(
+      params.campaignId,
+      getAreaScope(req.query),
+    );
 
     return sendSuccess(res, {
       message: data.unavailableReason ? data.unavailableReason : "Campaign receipts checked",
@@ -154,7 +169,10 @@ export const postAdminNotificationCampaignReceipts = asyncHandler(
 export const patchAdminNotificationRead = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const params = readNotificationParamsSchema.parse(req.params);
-    const data = await markAdminNotificationRead(params);
+    const data = await markAdminNotificationRead({
+      ...params,
+      ...getAreaScope(req.query),
+    });
 
     return sendSuccess(res, {
       message: data.updated ? "Notification marked as read" : "Notification not found",
@@ -180,7 +198,7 @@ export const patchAdminNotificationsReadAll = asyncHandler(
 export const postAdminNotificationScheduleCancel = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const { scheduleId } = scheduleParamsSchema.parse(req.params);
-    const data = await cancelAdminNotificationSchedule(scheduleId);
+    const data = await cancelAdminNotificationSchedule(scheduleId, getAreaScope(req.query));
 
     return sendSuccess(res, {
       message: data.updated ? "Scheduled notification cancelled" : "Scheduled notification not changed",
@@ -192,7 +210,7 @@ export const postAdminNotificationScheduleCancel = asyncHandler(
 export const postAdminNotificationScheduleRetry = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const { scheduleId } = scheduleParamsSchema.parse(req.params);
-    const data = await retryAdminNotificationSchedule(scheduleId);
+    const data = await retryAdminNotificationSchedule(scheduleId, getAreaScope(req.query));
 
     return sendSuccess(res, {
       message: data.updated ? "Scheduled notification retried" : "Scheduled notification not retried",

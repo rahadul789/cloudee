@@ -16,6 +16,8 @@ import {
 } from "./review.service"
 
 const listReviewCasesQuerySchema = z.object({
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
   status: z.enum(["submitted", "under_review", "approved", "rejected"]).optional()
 })
 
@@ -76,12 +78,24 @@ function getOptionalStringParam(value: unknown) {
   return normalized.length > 0 ? normalized : undefined
 }
 
+function getAdminAreaScope(req: AuthenticatedRequest) {
+  return listAdminReviewsQuerySchema.pick({ zoneId: true, districtId: true }).parse({
+    zoneId: getOptionalStringParam(req.query.zoneId),
+    districtId: getOptionalStringParam(req.query.districtId),
+  })
+}
+
 export const getAdminReviewCases = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = listReviewCasesQuerySchema.parse({
+      zoneId: getOptionalStringParam(req.query.zoneId),
+      districtId: getOptionalStringParam(req.query.districtId),
       status: getOptionalStringParam(req.query.status)
     })
-    const reviewCases = await listReviewCases(query.status)
+    const reviewCases = await listReviewCases(query.status, {
+      zoneId: query.zoneId,
+      districtId: query.districtId,
+    })
 
     return sendSuccess(res, {
       data: reviewCases
@@ -108,7 +122,10 @@ export const getAdminReviews = asyncHandler(async (req: AuthenticatedRequest, re
 })
 
 export const getAdminReview = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const data = await getAdminReviewDetails(getStringParam(req.params.reviewId))
+  const data = await getAdminReviewDetails(
+    getStringParam(req.params.reviewId),
+    getAdminAreaScope(req),
+  )
   return sendSuccess(res, { data })
 })
 
@@ -118,7 +135,8 @@ export const patchAdminReviewModeration = asyncHandler(async (req: Authenticated
     reviewId: getStringParam(req.params.reviewId),
     status: payload.status,
     reason: payload.reason,
-    adminId: getAdminId(req)
+    adminId: getAdminId(req),
+    ...getAdminAreaScope(req),
   })
   return sendSuccess(res, { message: "Review moderation updated", data })
 })
@@ -129,7 +147,8 @@ export const patchAdminReviewsBulkModeration = asyncHandler(async (req: Authenti
     reviewIds: payload.reviewIds,
     status: payload.status,
     reason: payload.reason,
-    adminId: getAdminId(req)
+    adminId: getAdminId(req),
+    ...getAdminAreaScope(req),
   })
   return sendSuccess(res, { message: "Reviews updated", data })
 })
@@ -137,7 +156,8 @@ export const patchAdminReviewsBulkModeration = asyncHandler(async (req: Authenti
 export const startAdminReview = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const result = await moveReviewCaseToUnderReview(
     getStringParam(req.params.reviewCaseId),
-    getAdminId(req)
+    getAdminId(req),
+    getAdminAreaScope(req)
   )
 
   return sendSuccess(res, {
@@ -151,6 +171,7 @@ export const rejectAdminReview = asyncHandler(async (req: AuthenticatedRequest, 
   const result = await rejectReviewCase({
     reviewCaseId: getStringParam(req.params.reviewCaseId),
     adminId: getAdminId(req),
+    ...getAdminAreaScope(req),
     reviewNote: payload.reviewNote,
     reviewIssues: payload.reviewIssues
   })
@@ -162,7 +183,11 @@ export const rejectAdminReview = asyncHandler(async (req: AuthenticatedRequest, 
 })
 
 export const approveAdminReview = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const result = await approveReviewCase(getStringParam(req.params.reviewCaseId), getAdminId(req))
+  const result = await approveReviewCase(
+    getStringParam(req.params.reviewCaseId),
+    getAdminId(req),
+    getAdminAreaScope(req),
+  )
 
   return sendSuccess(res, {
     message: "Review approved and restaurant published successfully",

@@ -5,7 +5,9 @@ import { AppError } from "../../common/utils/app-error";
 import {
   CustomerModel,
   CustomerRefreshTokenSessionModel,
+  VoucherRedemptionModel,
 } from "../customer/customer.model";
+import { getCustomerCustomOfferSettings } from "../customer/custom-offer.service";
 import { sendPushToCustomer } from "../customer/push.service";
 import { RestaurantModel } from "../auth/auth.model";
 import { ReviewModel } from "../owner/experience.model";
@@ -30,6 +32,7 @@ type CustomerListParams = {
   search?: string;
   status?: "all" | "active" | "suspended" | "locked";
   requestStatus?: "all" | "pending" | "cancelled" | "reviewed" | "completed" | "none";
+  customOffer?: "all" | "eligible" | "requested" | "ready" | "locked";
   customerGroupKey?: string;
   zoneId?: string;
   districtId?: string;
@@ -351,7 +354,7 @@ async function applyCustomerGroupFilter(
   if (customerGroupKey === "has_push_token") {
     query.pushTokens = {
       $elemMatch: {
-        token: { $exists: true, $ne: "" },
+        expoPushToken: { $exists: true, $ne: "" },
         disabledAt: null,
       },
     };
@@ -520,6 +523,16 @@ function mapCustomerSummary(customer: Record<string, any>) {
     deliveredOrders: numberValue(customer.deliveredOrders),
     deliveredSpend: numberValue(customer.deliveredSpend),
     lastOrderAt: serializeDate(customer.lastOrderAt),
+    customOffer: {
+      status: stringValue(customer.customOfferStatus, "locked"),
+      cycleDeliveredOrders: numberValue(customer.customOfferCycleDeliveredOrders),
+      targetOrders: numberValue(customer.customOfferTargetOrders, 10),
+      remainingOrders: numberValue(customer.customOfferRemainingOrders),
+      requestedCode: stringValue(customer.customOfferRequest?.requestedCode),
+      requestedAt: serializeDate(customer.customOfferRequest?.requestedAt),
+      qualifiedAt: serializeDate(customer.customOfferRequest?.qualifiedAt),
+      fulfilledAt: serializeDate(customer.customOfferRequest?.fulfilledAt),
+    },
     customerTier:
       typeof customer.customerTier === "string"
         ? (customer.customerTier as CustomerTier)
@@ -753,6 +766,8 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
   await applyCustomerServiceAreaFilter(query, params);
   await applyCustomerGroupFilter(query, params.customerGroupKey, params);
   const sort = buildCustomerSort(params.sortBy);
+  const customOfferSettings = await getCustomerCustomOfferSettings();
+  const customOfferTarget = customOfferSettings.thresholdDeliveredOrders;
   // Shared enrichment so the listing, the tier filter, and the filtered total
   // all compute totals/tier identically (no pagination drift).
   const enrichmentStages: mongoose.PipelineStage[] = [
@@ -763,6 +778,22 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
         localField: "customerIdString",
         foreignField: "customerId",
         as: "orders",
+      },
+    },
+    {
+      $lookup: {
+        from: VoucherRedemptionModel.collection.name,
+        let: { customerIdString: "$customerIdString" },
+        pipeline: [
+          {
+            $match: {
+              releasedAt: null,
+              $expr: { $eq: ["$voucherSnapshot.customerId", "$$customerIdString"] },
+            },
+          },
+          { $project: { voucherIdString: { $toString: "$voucherId" } } },
+        ],
+        as: "activeVoucherRedemptions",
       },
     },
     {
@@ -787,6 +818,80 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
             },
           },
         },
+        customOfferCycleDeliveredOrders: {
+          $size: {
+            $filter: {
+              input: "$orders",
+              as: "order",
+              cond: {
+                $and: [
+                  { $eq: ["$$order.status", "Delivered"] },
+                  {
+                    $or: [
+                      {
+                        $eq: [
+                          { $ifNull: ["$customOfferRequest.cycleStartedAt", null] },
+                          null,
+                        ],
+                      },
+                      {
+                        $gt: [
+                          {
+                            $ifNull: [
+                              "$$order.timestamps.Delivered",
+                              {
+                                $ifNull: [
+                                  "$$order.timestamps.deliveredAt",
+                                  "$$order.updatedAt",
+                                ],
+                              },
+                            ],
+                          },
+                          "$customOfferRequest.cycleStartedAt",
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+        activePersonalOfferCount: {
+          $size: {
+            $filter: {
+              input: { $ifNull: ["$notifications", []] },
+              as: "notification",
+              cond: {
+                $and: [
+                  { $eq: ["$$notification.personalOffer", true] },
+                  {
+                    $or: [
+                      { $eq: [{ $ifNull: ["$$notification.voucherExpiresAt", null] }, null] },
+                      { $gt: ["$$notification.voucherExpiresAt", "$$NOW"] },
+                    ],
+                  },
+                  {
+                    $not: [
+                      {
+                        $in: [
+                          "$$notification.voucherId",
+                          {
+                            $map: {
+                              input: { $ifNull: ["$activeVoucherRedemptions", []] },
+                              as: "redemption",
+                              in: "$$redemption.voucherIdString",
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
         deliveredSpend: {
           $sum: {
             $map: {
@@ -806,6 +911,26 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
     },
     {
       $addFields: {
+        customOfferStatus: {
+          $switch: {
+            branches: [
+              { case: { $gt: ["$activePersonalOfferCount", 0] }, then: "ready" },
+              {
+                case: { $eq: ["$customOfferRequest.status", "requested"] },
+                then: "requested",
+              },
+              {
+                case: { $gte: ["$customOfferCycleDeliveredOrders", customOfferTarget] },
+                then: "eligible",
+              },
+            ],
+            default: "locked",
+          },
+        },
+        customOfferRemainingOrders: {
+          $max: [{ $subtract: [customOfferTarget, "$customOfferCycleDeliveredOrders"] }, 0],
+        },
+        customOfferTargetOrders: customOfferTarget,
         customerTier: {
           $let: {
             vars: {
@@ -849,22 +974,27 @@ export async function listAdminCustomers(params: CustomerListParams = {}) {
     params.tier && params.tier !== "all"
       ? [{ $match: { customerTier: params.tier } }]
       : [];
-  const isTierFiltered = tierMatchStages.length > 0;
+  const customOfferMatchStages: mongoose.PipelineStage[] =
+    params.customOffer && params.customOffer !== "all"
+      ? [{ $match: { customOfferStatus: params.customOffer } }]
+      : [];
+  const filteredMatchStages = [...tierMatchStages, ...customOfferMatchStages];
+  const isAggregateFiltered = filteredMatchStages.length > 0;
   const [items, total, summaryRows, behavior, tierRows] = await Promise.all([
     CustomerModel.aggregate<Record<string, any>>([
       { $match: query },
       ...enrichmentStages,
-      ...tierMatchStages,
+      ...filteredMatchStages,
       { $sort: sort },
       { $skip: (page - 1) * pageSize },
       { $limit: pageSize },
       { $project: { orders: 0, customerIdString: 0 } },
     ]),
-    isTierFiltered
+    isAggregateFiltered
       ? CustomerModel.aggregate<{ total: number }>([
           { $match: query },
           ...enrichmentStages,
-          ...tierMatchStages,
+          ...filteredMatchStages,
           { $count: "total" },
         ]).then((rows) => rows[0]?.total ?? 0)
       : CustomerModel.countDocuments(query),
@@ -1132,8 +1262,16 @@ export async function getAdminCustomerDetails(
   if (!customer) {
     throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found");
   }
+  const customerScopeFilter = buildCustomerServiceAreaScopeFilter(params ?? {});
+  if (
+    Object.keys(customerScopeFilter).length > 0 &&
+    !(await CustomerModel.exists({ _id: safeCustomerId, ...customerScopeFilter }))
+  ) {
+    throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found");
+  }
 
   const customerIdString = safeCustomerId.toString();
+  const customOfferSettings = await getCustomerCustomOfferSettings();
   const dateMatch = buildDateMatch(params);
   const serviceAreaFilter = buildOrderServiceAreaScopeFilter(params ?? {});
   const restaurantServiceAreaFilter = buildRestaurantServiceAreaScopeFilter(params ?? {});
@@ -1324,6 +1462,7 @@ export async function getAdminCustomerDetails(
   const customerPushTokens = asRecordArray(customer.pushTokens);
   const customerPreviousPhones = asRecordArray(customer.previousPhones);
   const accountRequestHistory = asRecordArray(customer.accountRequest?.history);
+  const customOfferRequestHistory = asRecordArray(customer.customOfferRequest?.history);
 
   return {
     ...mapCustomerSummary({
@@ -1388,6 +1527,35 @@ export async function getAdminCustomerDetails(
           })),
         }
       : null,
+    customOfferRequest:
+      customer.customOfferRequest?.status && customer.customOfferRequest.status !== "none"
+        ? {
+            status: stringValue(customer.customOfferRequest.status, "none"),
+            requestedAt: serializeDate(customer.customOfferRequest.requestedAt),
+            expectedReadyAt: serializeDate(customer.customOfferRequest.expectedReadyAt),
+            fulfilledAt: serializeDate(customer.customOfferRequest.fulfilledAt),
+            cycleStartedAt: serializeDate(customer.customOfferRequest.cycleStartedAt),
+            cycleNumber: numberValue(customer.customOfferRequest.cycleNumber, 1),
+            qualifiedAt: serializeDate(customer.customOfferRequest.qualifiedAt),
+            qualificationNotifiedAt: serializeDate(
+              customer.customOfferRequest.qualificationNotifiedAt,
+            ),
+            lastRequestOrderCount: numberValue(customer.customOfferRequest.lastRequestOrderCount),
+            targetOrderCount: customOfferSettings.thresholdDeliveredOrders,
+            requestedCode: stringValue(customer.customOfferRequest.requestedCode),
+            voucherId: stringValue(customer.customOfferRequest.voucherId),
+            voucherCode: stringValue(customer.customOfferRequest.voucherCode),
+            voucherLabel: stringValue(customer.customOfferRequest.voucherLabel),
+            adminNote: stringValue(customer.customOfferRequest.adminNote),
+            analytics: customer.customOfferRequest.analytics ?? {},
+            history: customOfferRequestHistory.map((entry) => ({
+              action: stringValue(entry.action),
+              note: stringValue(entry.note),
+              actorName: stringValue(entry.actorName),
+              createdAt: serializeDate(entry.createdAt),
+            })),
+          }
+        : null,
     topRestaurants: topRestaurants.map((row) => ({
       restaurantId: objectIdString(row._id),
       restaurantName: stringValue(row.restaurant?.name, "Restaurant"),

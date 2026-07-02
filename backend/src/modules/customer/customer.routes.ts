@@ -12,7 +12,8 @@ import {
   createSupportWriteLimiter,
   createAnalyticsEventLimiter,
   createCartQuoteLimiter,
-  createCouponAttemptLimiter
+  createCouponAttemptLimiter,
+  createCustomerOrderReadLimiter
 } from "../../common/middleware/rate-limit"
 
 import { requireAuth, requireRole } from "../../common/middleware/auth"
@@ -20,11 +21,13 @@ import { postCustomerAnalyticsEvent } from "./customer-analytics.controller"
 import {
   getCustomerOrder,
   getCustomerOrders,
+  getCustomerCustomOfferSummaryController,
   getCustomerProfileSummary,
   getCustomerReferralSummaryController,
   postCustomerReferralApplyController,
   getCustomerLocations,
   getCustomerNotifications,
+  getCustomerNotification,
   getCustomerNotificationCampaign,
   deleteCustomerPushToken,
   getCustomerDiscovery,
@@ -56,6 +59,7 @@ import {
   postCustomerCartQuote,
   postCustomerOrder,
   postCustomerOrderCancel,
+  postCustomerCustomOfferRequestController,
   postCustomerReview,
   postCustomerSupportCaseController,
   postCustomerSupportCaseMessageController,
@@ -85,6 +89,7 @@ const customerAnalyticsEventLimiter = createAnalyticsEventLimiter()
 const customerCartQuoteLimiter = createCartQuoteLimiter()
 const customerCouponAttemptLimiter = createCouponAttemptLimiter()
 const customerOrderPlaceLimiter = createOrderPlaceLimiter()
+const customerOrderReadLimiter = createCustomerOrderReadLimiter()
 
 customerRouter.post("/analytics/events", customerAnalyticsEventLimiter, postCustomerAnalyticsEvent)
 customerRouter.post("/auth/phone/start", customerAuthStartIpLimiter, customerAuthStartLimiter, startCustomerPhoneAuth)
@@ -118,6 +123,19 @@ customerRouter.post("/auth/google", signinCustomerGoogle)
 customerRouter.get("/profile", requireAuth, requireRole("customer"), getCustomerProfileSummary)
 customerRouter.get("/referrals/summary", requireAuth, requireRole("customer"), getCustomerReferralSummaryController)
 customerRouter.post("/referrals/apply", requireAuth, requireRole("customer"), postCustomerReferralApplyController)
+customerRouter.get(
+  "/offers/custom-summary",
+  requireAuth,
+  requireRole("customer"),
+  getCustomerCustomOfferSummaryController
+)
+customerRouter.post(
+  "/offers/custom-request",
+  requireAuth,
+  requireRole("customer"),
+  customerSupportWriteLimiter,
+  postCustomerCustomOfferRequestController
+)
 customerRouter.patch("/profile", requireAuth, requireRole("customer"), patchCustomerProfile)
 customerRouter.patch("/profile/password", requireAuth, requireRole("customer"), patchCustomerPassword)
 customerRouter.get(
@@ -215,6 +233,12 @@ customerRouter.get(
   requireRole("customer"),
   getCustomerNotificationCampaign
 )
+customerRouter.get(
+  "/notifications/:notificationId",
+  requireAuth,
+  requireRole("customer"),
+  getCustomerNotification
+)
 customerRouter.patch(
   "/notifications/:notificationId/read",
   requireAuth,
@@ -240,7 +264,13 @@ customerRouter.delete(
   deleteCustomerLocation
 )
 customerRouter.get("/orders", requireAuth, requireRole("customer"), getCustomerOrders)
-customerRouter.get("/orders/:orderId", requireAuth, requireRole("customer"), getCustomerOrder)
+customerRouter.get(
+  "/orders/:orderId",
+  requireAuth,
+  requireRole("customer"),
+  customerOrderReadLimiter,
+  getCustomerOrder
+)
 customerRouter.post(
   "/orders",
   requireAuth,

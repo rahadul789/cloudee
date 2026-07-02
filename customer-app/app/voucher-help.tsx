@@ -59,7 +59,11 @@ export default function VoucherHelpScreen() {
       >
         <View style={styles.topBar}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={palette.foreground}
+            />
           </Pressable>
         </View>
 
@@ -67,20 +71,31 @@ export default function VoucherHelpScreen() {
           <View style={styles.heroGlowPrimary} />
           <View style={styles.heroGlowSecondary} />
           <Text style={styles.kicker}>Voucher Help</Text>
-          <Text style={styles.title}>Offer and voucher rules, made clearer</Text>
+          <Text style={styles.title}>
+            Offer and voucher rules, made clearer
+          </Text>
           <Text style={styles.subtitle}>
-            If a deal does not apply, these are the most common reasons and the quickest checks to try first.
+            If a deal does not apply, these are the most common reasons and the
+            quickest checks to try first.
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Why a voucher may not work</Text>
-          <Text style={styles.sectionSubtitle}>These are the reasons users hit most often.</Text>
+          <Text style={styles.sectionSubtitle}>
+            These are the reasons users hit most often.
+          </Text>
           <View style={styles.stack}>
             {voucherIssueCards.map((item) => (
               <View key={item.id} style={styles.card}>
-                <View style={[styles.cardIconWrap, { backgroundColor: item.tint }]}>
-                  <Ionicons name={item.icon} size={18} color={palette.foreground} />
+                <View
+                  style={[styles.cardIconWrap, { backgroundColor: item.tint }]}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={18}
+                    color={palette.foreground}
+                  />
                 </View>
                 <View style={styles.cardCopy}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
@@ -93,7 +108,9 @@ export default function VoucherHelpScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Before you try again</Text>
-          <Text style={styles.sectionSubtitle}>A quick checklist saves time at cart or checkout.</Text>
+          <Text style={styles.sectionSubtitle}>
+            A quick checklist saves time at cart or checkout.
+          </Text>
           <View style={styles.tipCard}>
             {voucherChecklist.map((item) => (
               <View key={item} style={styles.tipRow}>
@@ -106,14 +123,30 @@ export default function VoucherHelpScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Still looks valid?</Text>
-          <Text style={styles.sectionSubtitle}>Use support if the campaign should still work.</Text>
+          <Text style={styles.sectionSubtitle}>
+            Use support if the campaign should still work.
+          </Text>
           <View style={styles.ctaRow}>
-            <Pressable style={styles.secondaryAction} onPress={() => router.push("/support-chat")}>
-              <Ionicons name="chatbubble-ellipses-outline" size={18} color={palette.foreground} />
+            <Pressable
+              style={styles.secondaryAction}
+              onPress={() => router.push("/support-chat")}
+            >
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={18}
+                color={palette.foreground}
+              />
               <Text style={styles.secondaryActionText}>Open live chat</Text>
             </Pressable>
-            <Pressable style={styles.secondaryAction} onPress={() => router.push("/(tabs)/browse")}>
-              <Ionicons name="search-outline" size={18} color={palette.foreground} />
+            <Pressable
+              style={styles.secondaryAction}
+              onPress={() => router.push("/offers")}
+            >
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={palette.foreground}
+              />
               <Text style={styles.secondaryActionText}>Browse offers</Text>
             </Pressable>
           </View>
@@ -163,12 +196,33 @@ const styles = StyleSheet.create({
     borderRadius: 61,
     backgroundColor: "#FFF0C8",
   },
-  kicker: { fontSize: 11, lineHeight: 15, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase", color: palette.secondary },
-  title: { fontSize: 28, lineHeight: 34, fontWeight: "800", color: palette.foreground },
+  kicker: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: palette.secondary,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
   subtitle: { fontSize: 14, lineHeight: 22, color: palette.mutedForeground },
   section: { gap: 8 },
-  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "800", color: palette.foreground },
-  sectionSubtitle: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
+  sectionTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: palette.mutedForeground,
+  },
   stack: { gap: 10 },
   card: {
     padding: 14,
@@ -179,9 +233,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  cardIconWrap: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cardCopy: { flex: 1, gap: 4 },
-  cardTitle: { fontSize: 14, lineHeight: 19, fontWeight: "800", color: palette.foreground },
+  cardTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
   cardText: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
   tipCard: {
     borderRadius: 24,
@@ -192,7 +257,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tipRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  tipDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.secondary, marginTop: 6 },
+  tipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: palette.secondary,
+    marginTop: 6,
+  },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
   ctaRow: { flexDirection: "row", gap: 10 },
   secondaryAction: {
@@ -208,5 +279,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 10,
   },
-  secondaryActionText: { fontSize: 13, lineHeight: 18, fontWeight: "700", color: palette.foreground },
+  secondaryActionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
 });

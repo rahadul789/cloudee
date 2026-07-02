@@ -1,5 +1,11 @@
 import * as React from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
   Bell,
@@ -107,6 +113,7 @@ import {
 } from "@/lib/admin-api"
 import {
   getAdminZoneScope,
+  getAdminZoneScopeKey,
   getAdminZoneScopeQueryParams,
   setAdminZoneScope,
   subscribeAdminZoneScope,
@@ -126,6 +133,31 @@ type AdminAuthContextValue = {
   adminProfile: AdminProfile | null
   setAdminProfile: React.Dispatch<React.SetStateAction<AdminProfile | null>>
   signOut: () => Promise<void>
+}
+
+const ADMIN_AREA_SCOPE_QUERY_EXCLUSIONS = new Set([
+  "admin-service-areas",
+  "admin-alert-settings",
+])
+
+function isAdminAreaScopedQueryKey(queryKey: QueryKey) {
+  const root = String(queryKey[0] ?? "")
+  if (!root || ADMIN_AREA_SCOPE_QUERY_EXCLUSIONS.has(root)) return false
+  return root.startsWith("admin-") || root === "platform-content"
+}
+
+async function refreshAdminAreaScopedQueries(queryClient: QueryClient) {
+  const predicate = (query: { queryKey: QueryKey }) =>
+    isAdminAreaScopedQueryKey(query.queryKey)
+
+  await queryClient.cancelQueries({ predicate })
+  queryClient.removeQueries({
+    predicate: (query) =>
+      predicate(query) &&
+      typeof query.getObserversCount === "function" &&
+      query.getObserversCount() === 0,
+  })
+  await queryClient.resetQueries({ predicate, type: "active" })
 }
 
 type DashboardMetric = {
@@ -1067,8 +1099,12 @@ function AdminZoneScopeSelector() {
   }, [districts, serviceAreasQuery.isLoading, scope, zones])
 
   function changeScope(nextScope: AdminZoneScope) {
+    if (getAdminZoneScopeKey(scope) === getAdminZoneScopeKey(nextScope)) return
     setAdminZoneScope(nextScope)
-    void queryClient.invalidateQueries()
+    window.setTimeout(() => {
+      void refreshAdminAreaScopedQueries(queryClient)
+      void queryClient.invalidateQueries({ queryKey: ["admin-service-areas"] })
+    }, 0)
   }
 
   const selectedLabel = scope.type === "all" ? "All areas" : scope.label
@@ -1175,6 +1211,7 @@ function AdminLayout() {
   const [adminZoneScope, setAdminZoneScopeState] = React.useState<AdminZoneScope>(() =>
     getAdminZoneScope()
   )
+  const adminScopeKey = getAdminZoneScopeKey(adminZoneScope)
   const [navNotificationLimit, setNavNotificationLimit] = React.useState(
     NAV_NOTIFICATION_INITIAL_LIMIT
   )
@@ -1521,6 +1558,7 @@ function AdminLayout() {
 
           <section className="flex-1 overflow-auto">
             <div
+              key={adminScopeKey}
               className={cn(
                 "flex w-full min-w-0 flex-col gap-6",
                 isFullBleedRoute

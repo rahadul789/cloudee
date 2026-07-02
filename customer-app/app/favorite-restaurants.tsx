@@ -1,7 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { FlashList } from "@shopify/flash-list";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -71,6 +77,7 @@ function FavoriteRestaurantListSkeleton({ count = 3 }: { count?: number }) {
 
 export default function FavoriteRestaurantsScreen() {
   const router = useRouter();
+  const { height } = useWindowDimensions();
   const customer = useCustomerAuthStore((state) => state.customer);
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const favoriteRestaurantsQuery = useCustomerFavoriteRestaurantsQuery({
@@ -84,80 +91,106 @@ export default function FavoriteRestaurantsScreen() {
 
   const favoriteRestaurantIdsSet = useMemo(
     () => new Set(favoriteRestaurantIdsQuery.data ?? []),
-    [favoriteRestaurantIdsQuery.data]
+    [favoriteRestaurantIdsQuery.data],
   );
 
   const restaurants = useMemo(
     () =>
       (favoriteRestaurantsQuery.data ?? []).filter((restaurant) =>
-        favoriteRestaurantIdsSet.has(restaurant._id)
+        favoriteRestaurantIdsSet.has(restaurant._id),
       ),
-    [favoriteRestaurantIdsSet, favoriteRestaurantsQuery.data]
+    [favoriteRestaurantIdsSet, favoriteRestaurantsQuery.data],
   );
 
-  const isInitialLoading = favoriteRestaurantsQuery.isLoading && !restaurants.length;
+  const isInitialLoading =
+    favoriteRestaurantsQuery.isLoading && !restaurants.length;
   const isRefreshing =
-    favoriteRestaurantsQuery.isRefetching && !favoriteRestaurantsQuery.isFetching;
+    favoriteRestaurantsQuery.isRefetching &&
+    !favoriteRestaurantsQuery.isFetching;
+  const emptyStateMinHeight = Math.max(360, height - 440);
 
-  const handleToggleFavorite = async (restaurantId: string) => {
-    if (!customer || pendingFavoriteIds.includes(restaurantId)) {
-      return;
-    }
+  const handleToggleFavorite = useCallback(
+    async (restaurantId: string) => {
+      if (!customer || pendingFavoriteIds.includes(restaurantId)) {
+        return;
+      }
 
-    setPendingFavoriteIds((current) => [...current, restaurantId]);
-    try {
-      await toggleFavoriteMutation.mutateAsync(restaurantId);
-    } catch (error) {
-      const message = getCustomerAuthErrorMessage(
-        error,
-        "Could not update favorites right now."
-      );
-      if (__DEV__) console.warn(message);
-    } finally {
-      setPendingFavoriteIds((current) => current.filter((id) => id !== restaurantId));
-    }
-  };
+      setPendingFavoriteIds((current) => [...current, restaurantId]);
+      try {
+        await toggleFavoriteMutation.mutateAsync(restaurantId);
+      } catch (error) {
+        const message = getCustomerAuthErrorMessage(
+          error,
+          "Could not update favorites right now.",
+        );
+        if (__DEV__) console.warn(message);
+      } finally {
+        setPendingFavoriteIds((current) =>
+          current.filter((id) => id !== restaurantId),
+        );
+      }
+    },
+    [customer, pendingFavoriteIds, toggleFavoriteMutation],
+  );
+
+  const openBrowse = useCallback(() => {
+    router.push("/(tabs)/browse");
+  }, [router]);
+
+  const renderRestaurant = useCallback(
+    ({ item }: { item: DiscoverableRestaurant }) => (
+      <RestaurantHeroCard
+        compact
+        name={item.name}
+        subtitle={restaurantSubtitle(item)}
+        imageUrl={item.coverImage?.url ?? item.logo?.url ?? null}
+        isOpen={item.isOpen ?? true}
+        offerLabel={undefined}
+        distanceKm={item.distanceKm}
+        avgRating={item.avgRating}
+        reviewCount={item.reviewCount}
+        preparationTimeMinutes={item.preparationTimeMinutes}
+        lowestMenuPrice={item.lowestMenuPrice}
+        isFavorite={favoriteRestaurantIdsSet.has(item._id)}
+        favoriteDisabled={pendingFavoriteIds.includes(item._id)}
+        onToggleFavorite={() => {
+          void handleToggleFavorite(item._id);
+        }}
+        onPress={() => router.push(`/restaurants/${item._id}` as never)}
+      />
+    ),
+    [
+      favoriteRestaurantIdsSet,
+      handleToggleFavorite,
+      pendingFavoriteIds,
+      router,
+    ],
+  );
 
   return (
     <Screen>
       <FlashList
         data={restaurants}
         keyExtractor={(item) => item._id}
-        renderItem={({ item }) => (
-          <RestaurantHeroCard
-            compact
-            name={item.name}
-            subtitle={restaurantSubtitle(item)}
-            imageUrl={item.coverImage?.url ?? item.logo?.url ?? null}
-            isOpen={item.isOpen ?? true}
-            offerLabel={undefined}
-            distanceKm={item.distanceKm}
-            avgRating={item.avgRating}
-            reviewCount={item.reviewCount}
-            preparationTimeMinutes={item.preparationTimeMinutes}
-            lowestMenuPrice={item.lowestMenuPrice}
-            isFavorite={favoriteRestaurantIdsSet.has(item._id)}
-            favoriteDisabled={pendingFavoriteIds.includes(item._id)}
-            onToggleFavorite={() => {
-              void handleToggleFavorite(item._id);
-            }}
-            onPress={() => router.push(`/restaurants/${item._id}` as never)}
-          />
-        )}
+        renderItem={renderRestaurant}
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View style={styles.header}>
             <Pressable style={styles.backButton} onPress={() => router.back()}>
-              <Ionicons name="chevron-back" size={20} color={palette.foreground} />
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={palette.foreground}
+              />
             </Pressable>
             <View style={styles.headerCopy}>
               <Text style={styles.kicker}>Favorites</Text>
               <Text style={styles.title}>Saved restaurants</Text>
-              <Text style={styles.subtitle}>
+              {/* <Text style={styles.subtitle}>
                 Revisit the places you liked most and keep them one tap away.
-              </Text>
+              </Text> */}
             </View>
           </View>
         }
@@ -167,12 +200,14 @@ export default function FavoriteRestaurantsScreen() {
               <FavoriteRestaurantListSkeleton count={3} />
             </View>
           ) : (
-            <View style={styles.feedbackWrap}>
+            <View
+              style={[styles.feedbackWrap, { minHeight: emptyStateMinHeight }]}
+            >
               <EmptyStateCard
                 title="No favorites yet"
                 description="Tap the heart on any restaurant card and it will appear here for quick access."
                 actionLabel="Browse restaurants"
-                onPress={() => router.push("/(tabs)/browse")}
+                onPress={openBrowse}
               />
             </View>
           )
@@ -184,6 +219,8 @@ export default function FavoriteRestaurantsScreen() {
           ]);
         }}
         refreshing={isRefreshing}
+        drawDistance={700}
+        removeClippedSubviews
       />
     </Screen>
   );
@@ -244,7 +281,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 48,
+    paddingVertical: 24,
   },
   loadingWrap: {
     width: "100%",
@@ -260,11 +297,6 @@ const styles = StyleSheet.create({
     width: "100%",
     borderRadius: 14,
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
   },
   skeletonImageWrap: {
     position: "relative",

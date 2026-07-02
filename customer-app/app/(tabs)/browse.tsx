@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -30,6 +31,7 @@ import {
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useBrowseHistoryStore } from "@/src/store/browse-history-store";
 import { useIsOnline } from "@/src/hooks/use-network-status";
+import { useRetainedTabContent } from "@/src/hooks/use-retained-tab-content";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
@@ -39,6 +41,10 @@ type BrowseFilter = "all" | "open" | "offers" | "featured";
 type BrowseSort = "nearest" | "fastest" | "topRated";
 type BrowseRating = 0 | 4 | 4.5;
 type BrowseLowestPrice = 0 | 200 | 400 | 700;
+
+function RestaurantSeparator() {
+  return <View style={styles.restaurantSeparator} />;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function restaurantSubtitle(restaurant: DiscoverableRestaurant) {
@@ -130,9 +136,13 @@ export default function BrowseScreen() {
   const [draftMaximumLowestPrice, setDraftMaximumLowestPrice] =
     useState<BrowseLowestPrice>(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const isBrowseFocused = useIsFocused();
+  const shouldRenderBrowseContent = useRetainedTabContent(isBrowseFocused, 0);
+  const searchQueryRef = useRef(searchQuery);
   const isAuthenticated = useCustomerAuthStore((state) =>
     Boolean(state.accessToken)
   );
+  const isAuthenticatedRef = useRef(isAuthenticated);
   const recentSearches = useBrowseHistoryStore((state) => state.recentSearches);
   const recentVisitedRestaurants = useBrowseHistoryStore(
     (state) => state.recentVisitedRestaurants
@@ -152,6 +162,22 @@ export default function BrowseScreen() {
   const isOnline = useIsOnline();
   const permissionGranted = useLocationStore((state) => state.permissionGranted);
 
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setIsFilterOpen(false);
+      };
+    }, []),
+  );
+
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
+
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery.trim());
@@ -170,13 +196,15 @@ export default function BrowseScreen() {
     minimumRating,
     maximumLowestPrice,
     pageSize: 12,
-  });
+  }, isBrowseFocused);
 
   const homeDiscoveryQuery = useCustomerDiscoveryHomeQuery({
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
+    enabled: isBrowseFocused,
   });
-  const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
+  const favoriteRestaurantIdsQuery =
+    useCustomerFavoriteRestaurantIdsQuery(isBrowseFocused);
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();
   const handleBrowseRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -215,6 +243,7 @@ export default function BrowseScreen() {
     () => buildRestaurantOfferMap(homeDiscoveryQuery.data?.activeOffers ?? []),
     [homeDiscoveryQuery.data?.activeOffers]
   );
+  const offerLabelByRestaurantIdRef = useRef(offerLabelByRestaurantId);
   const favoriteRestaurantIdsSet = useMemo(
     () => new Set(favoriteRestaurantIdsQuery.data ?? []),
     [favoriteRestaurantIdsQuery.data]
@@ -240,7 +269,7 @@ export default function BrowseScreen() {
     () =>
       recentVisitedRestaurants.filter((restaurant) =>
         currentRestaurantIds.has(restaurant.id)
-      ),
+      ).slice(0, 6),
     [currentRestaurantIds, recentVisitedRestaurants]
   );
   useEffect(() => {
@@ -257,6 +286,15 @@ export default function BrowseScreen() {
   const favoritePendingRestaurantId = toggleFavoriteMutation.isPending
     ? toggleFavoriteMutation.variables
     : null;
+  const favoritePendingRestaurantIdRef = useRef(favoritePendingRestaurantId);
+
+  useEffect(() => {
+    offerLabelByRestaurantIdRef.current = offerLabelByRestaurantId;
+  }, [offerLabelByRestaurantId]);
+
+  useEffect(() => {
+    favoritePendingRestaurantIdRef.current = favoritePendingRestaurantId;
+  }, [favoritePendingRestaurantId]);
 
   const filteredRestaurants = restaurants;
 
@@ -282,33 +320,33 @@ export default function BrowseScreen() {
     return count;
   }, [activeFilter, maximumLowestPrice, minimumRating, sortBy]);
 
-  const openFilters = () => {
+  const openFilters = useCallback(() => {
     setDraftFilter(activeFilter);
     setDraftSortBy(sortBy);
     setDraftMinimumRating(minimumRating);
     setDraftMaximumLowestPrice(maximumLowestPrice);
     setIsFilterOpen(true);
-  };
+  }, [activeFilter, maximumLowestPrice, minimumRating, sortBy]);
 
-  const openLocationPicker = () => {
+  const openLocationPicker = useCallback(() => {
     router.push("/location-picker");
-  };
+  }, [router]);
 
-  const handleMissingLocationPress = () => {
+  const handleMissingLocationPress = useCallback(() => {
     if (permissionGranted === false) {
       void openLocationPermissionSettings();
       return;
     }
 
     openLocationPicker();
-  };
+  }, [openLocationPicker, permissionGranted]);
 
-  const commitRecentSearch = () => {
-    addRecentSearch(searchQuery);
-  };
+  const commitRecentSearch = useCallback(() => {
+    addRecentSearch(searchQuery.trim());
+  }, [addRecentSearch, searchQuery]);
 
-  const handleToggleFavorite = async (restaurantId: string) => {
-    if (!isAuthenticated) {
+  const handleToggleFavorite = useCallback(async (restaurantId: string) => {
+    if (!isAuthenticatedRef.current) {
       router.push({
         pathname: "/sign-in",
         params: { redirectTo: "/(tabs)/browse" },
@@ -316,7 +354,7 @@ export default function BrowseScreen() {
       return;
     }
 
-    if (favoritePendingRestaurantId === restaurantId) {
+    if (favoritePendingRestaurantIdRef.current === restaurantId) {
       return;
     }
 
@@ -325,11 +363,15 @@ export default function BrowseScreen() {
     } catch {
       return;
     }
-  };
+  }, [
+    router,
+    toggleFavoriteMutation,
+  ]);
 
-  const openRestaurant = (restaurant: DiscoverableRestaurant) => {
-    if (searchQuery.trim()) {
-      commitRecentSearch();
+  const openRestaurant = useCallback((restaurant: DiscoverableRestaurant) => {
+    const currentSearch = searchQueryRef.current.trim();
+    if (currentSearch) {
+      addRecentSearch(currentSearch);
     }
 
     addRecentVisitedRestaurant({
@@ -338,7 +380,7 @@ export default function BrowseScreen() {
       subtitle: restaurantCardSubtitle(restaurant),
       imageUrl: restaurant.coverImage?.url || restaurant.logo?.url || null,
       isOpen: restaurant.isOpen !== false,
-      offerLabel: offerLabelByRestaurantId.get(restaurant._id) ?? null,
+      offerLabel: offerLabelByRestaurantIdRef.current.get(restaurant._id) ?? null,
       distanceKm: restaurant.distanceKm,
       avgRating: restaurant.avgRating,
       reviewCount: restaurant.reviewCount,
@@ -350,9 +392,22 @@ export default function BrowseScreen() {
       pathname: "/restaurants/[restaurantId]",
       params: { restaurantId: restaurant._id },
     });
-  };
+  }, [addRecentSearch, addRecentVisitedRestaurant, router]);
 
-  const renderRestaurant = ({ item }: { item: DiscoverableRestaurant }) => (
+  const listExtraData = useMemo(
+    () => ({
+      favorites: favoriteRestaurantIdsQuery.data?.join("|") ?? "",
+      pending: favoritePendingRestaurantId ?? "",
+      offers: offerLabelByRestaurantId.size,
+    }),
+    [
+      favoritePendingRestaurantId,
+      favoriteRestaurantIdsQuery.data,
+      offerLabelByRestaurantId.size,
+    ],
+  );
+
+  const renderRestaurant = useCallback(({ item }: { item: DiscoverableRestaurant }) => (
     <RestaurantHeroCard
       name={item.name}
       subtitle={restaurantCardSubtitle(item)}
@@ -368,10 +423,25 @@ export default function BrowseScreen() {
       favoriteDisabled={favoritePendingRestaurantId === item._id}
       onToggleFavorite={() => handleToggleFavorite(item._id)}
       compact
+      flat
       variant={isFeaturedRestaurant(item) ? "featured" : "nearby"}
       onPress={() => openRestaurant(item)}
     />
-  );
+  ), [
+    favoritePendingRestaurantId,
+    favoriteRestaurantIdsSet,
+    handleToggleFavorite,
+    offerLabelByRestaurantId,
+    openRestaurant,
+  ]);
+
+  if (!shouldRenderBrowseContent) {
+    return (
+      <Screen>
+        <View style={styles.offscreenPlaceholder} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -379,9 +449,11 @@ export default function BrowseScreen() {
         data={filteredRestaurants}
         keyExtractor={(item) => item._id}
         renderItem={renderRestaurant}
+        extraData={listExtraData}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
-        ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
+        ItemSeparatorComponent={RestaurantSeparator}
+        drawDistance={560}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -425,7 +497,7 @@ export default function BrowseScreen() {
                     placeholderTextColor={palette.mutedForeground}
                     style={[
                       styles.searchInput,
-                      !searchQuery.trim() ? styles.searchInputCentered : null,
+                      searchQuery.length === 0 ? styles.searchInputCentered : null,
                     ]}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -433,13 +505,25 @@ export default function BrowseScreen() {
                     returnKeyType="search"
                     onSubmitEditing={commitRecentSearch}
                   />
-                  {searchQuery.trim() ? (
-                    <Pressable onPress={() => setSearchQuery("")} style={styles.clearButton}>
+                  {searchQuery.length > 0 ? (
+                    <Pressable
+                      onPress={() => setSearchQuery("")}
+                      style={({ pressed }) => [
+                        styles.clearButton,
+                        pressed ? styles.pressablePressed : null,
+                      ]}
+                    >
                       <Ionicons name="close" size={16} color={palette.mutedForeground} />
                     </Pressable>
                   ) : null}
                 </View>
-                <Pressable style={styles.filterButton} onPress={openFilters}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.filterButton,
+                    pressed ? styles.pressablePressed : null,
+                  ]}
+                  onPress={openFilters}
+                >
                   <Ionicons name="options-outline" size={16} color="#fff" />
                   {activeFilterCount ? (
                     <View style={styles.filterBadge}>
@@ -456,7 +540,10 @@ export default function BrowseScreen() {
                 </Text>
                 {activeFilterCount > 0 ? (
                   <Pressable
-                    style={styles.clearFiltersBadge}
+                    style={({ pressed }) => [
+                      styles.clearFiltersBadge,
+                      pressed ? styles.chipPressed : null,
+                    ]}
                     onPress={() => {
                       setActiveFilter("all");
                       setSortBy("nearest");
@@ -484,7 +571,10 @@ export default function BrowseScreen() {
                     {recentSearches.map((query) => (
                       <View key={query} style={styles.recentSearchChip}>
                         <Pressable
-                          style={styles.recentSearchMain}
+                          style={({ pressed }) => [
+                            styles.recentSearchMain,
+                            pressed ? styles.chipPressed : null,
+                          ]}
                           onPress={() => setSearchQuery(query)}
                         >
                           <Ionicons
@@ -502,7 +592,10 @@ export default function BrowseScreen() {
                         <Pressable
                           onPress={() => removeRecentSearch(query)}
                           hitSlop={8}
-                          style={styles.recentSearchRemove}
+                          style={({ pressed }) => [
+                            styles.recentSearchRemove,
+                            pressed ? styles.pressablePressed : null,
+                          ]}
                         >
                           <Ionicons
                             name="close"
@@ -529,7 +622,10 @@ export default function BrowseScreen() {
                         style={styles.recentVisitedCardWrap}
                       >
                         <Pressable
-                          style={styles.recentVisitedCard}
+                          style={({ pressed }) => [
+                            styles.recentVisitedCard,
+                            pressed ? styles.cardPressed : null,
+                          ]}
                           onPress={() =>
                             router.push({
                               pathname: "/restaurants/[restaurantId]",
@@ -567,11 +663,12 @@ export default function BrowseScreen() {
                             </Text>
                           </View>
                           <Pressable
-                            style={[
+                            style={({ pressed }) => [
                               styles.recentVisitedHeart,
                               favoriteRestaurantIdsSet.has(restaurant.id)
                                 ? styles.recentVisitedHeartActive
                                 : null,
+                              pressed ? styles.pressablePressed : null,
                             ]}
                             onPress={() =>
                               handleToggleFavorite(restaurant.id)
@@ -666,7 +763,10 @@ export default function BrowseScreen() {
         footer={
           <View style={styles.filterFooter}>
             <Pressable
-              style={styles.filterResetButton}
+              style={({ pressed }) => [
+                styles.filterResetButton,
+                pressed ? styles.pressablePressed : null,
+              ]}
               onPress={() => {
                 setDraftFilter("all");
                 setDraftSortBy("nearest");
@@ -678,7 +778,10 @@ export default function BrowseScreen() {
               <Text style={styles.filterResetText}>Reset</Text>
             </Pressable>
             <Pressable
-              style={styles.filterApplyButton}
+              style={({ pressed }) => [
+                styles.filterApplyButton,
+                pressed ? styles.pressablePressed : null,
+              ]}
               onPress={() => {
                 setActiveFilter(draftFilter);
                 setSortBy(draftSortBy);
@@ -727,7 +830,11 @@ export default function BrowseScreen() {
               return (
                 <Pressable
                   key={filter.key}
-                  style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    isActive ? styles.filterChipActive : null,
+                    pressed ? styles.chipPressed : null,
+                  ]}
                   onPress={() => setDraftFilter(filter.key as BrowseFilter)}
                 >
                   <Ionicons
@@ -766,7 +873,11 @@ export default function BrowseScreen() {
               return (
                 <Pressable
                   key={option.key}
-                  style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    isActive ? styles.filterChipActive : null,
+                    pressed ? styles.chipPressed : null,
+                  ]}
                   onPress={() => setDraftSortBy(option.key as BrowseSort)}
                 >
                   <Ionicons
@@ -805,7 +916,11 @@ export default function BrowseScreen() {
               return (
                 <Pressable
                   key={option.label}
-                  style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+                  style={({ pressed }) => [
+                    styles.filterChip,
+                    isActive ? styles.filterChipActive : null,
+                    pressed ? styles.chipPressed : null,
+                  ]}
                   onPress={() => setDraftMinimumRating(option.key as BrowseRating)}
                 >
                   <Ionicons
@@ -845,9 +960,10 @@ export default function BrowseScreen() {
               return (
                 <Pressable
                   key={option.label}
-                  style={[
+                  style={({ pressed }) => [
                     styles.filterChip,
                     isActive ? styles.filterChipActive : null,
+                    pressed ? styles.chipPressed : null,
                   ]}
                   onPress={() =>
                     setDraftMaximumLowestPrice(

@@ -57,6 +57,13 @@ function getAdminId(req: AuthenticatedRequest) {
   return req.user?.id ?? "system-admin"
 }
 
+function getAdminAreaScope(req: AuthenticatedRequest) {
+  return listSupportQuerySchema.pick({ zoneId: true, districtId: true }).parse({
+    zoneId: getOptionalStringParam(req.query.zoneId),
+    districtId: getOptionalStringParam(req.query.districtId),
+  })
+}
+
 export const getAdminSupportCases = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const query = listSupportQuerySchema.parse({
     search: getOptionalStringParam(req.query.search),
@@ -77,7 +84,10 @@ export const getAdminSupportCases = asyncHandler(async (req: AuthenticatedReques
 })
 
 export const getAdminSupportCase = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-  const data = await getSupportCaseDetails(getStringParam(req.params.supportCaseId))
+  const data = await getSupportCaseDetails(
+    getStringParam(req.params.supportCaseId),
+    getAdminAreaScope(req),
+  )
   return sendSuccess(res, { data })
 })
 
@@ -88,6 +98,7 @@ export const postAdminSupportReply = asyncHandler(async (req: AuthenticatedReque
     adminId: getAdminId(req),
     message: payload.message,
     status: payload.status,
+    ...getAdminAreaScope(req),
   })
   return sendSuccess(res, { message: "Support reply sent successfully", data })
 })
@@ -97,6 +108,7 @@ export const patchAdminSupportCase = asyncHandler(async (req: AuthenticatedReque
   const data = await updateSupportCase({
     supportCaseId: getStringParam(req.params.supportCaseId),
     adminId: getAdminId(req),
+    ...getAdminAreaScope(req),
     ...payload,
   })
   return sendSuccess(res, { message: "Support case updated", data })
@@ -108,6 +120,7 @@ export const postAdminSupportInternalNote = asyncHandler(async (req: Authenticat
     supportCaseId: getStringParam(req.params.supportCaseId),
     adminId: getAdminId(req),
     note: payload.note,
+    ...getAdminAreaScope(req),
   })
   return sendSuccess(res, { message: "Internal note added", data })
 })

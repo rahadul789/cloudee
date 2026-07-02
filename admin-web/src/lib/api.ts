@@ -51,9 +51,9 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit) {
     throw new ApiError(500, "Unexpected response from server.")
 }
 
-function withAdminZoneScope(path: string, init?: RequestInit & { skipAuth?: boolean }) {
-  const method = (init?.method ?? "GET").toUpperCase()
-  if (method !== "GET" || !path.startsWith("/admin/")) return path
+function withAdminZoneScope(path: string) {
+  if (!path.startsWith("/admin/")) return path
+  if (path.startsWith("/admin/auth/") || path.startsWith("/admin/service-areas")) return path
 
   const scope = getAdminZoneScopeQueryParams()
   if (!("zoneId" in scope) && !("districtId" in scope)) return path
@@ -137,7 +137,7 @@ export async function adminRequest<T>(
   }
 
   try {
-    const scopedPath = withAdminZoneScope(path, init)
+    const scopedPath = withAdminZoneScope(path)
     return await fetchJson<T>(`${API_BASE_URL}${scopedPath}`, {
       ...init,
       headers
@@ -156,7 +156,7 @@ export async function adminRequest<T>(
         throw refreshError
       }
       headers.set("authorization", `Bearer ${newToken}`)
-      const scopedPath = withAdminZoneScope(path, init)
+      const scopedPath = withAdminZoneScope(path)
       return await fetchJson<T>(`${API_BASE_URL}${scopedPath}`, {
         ...init,
         headers

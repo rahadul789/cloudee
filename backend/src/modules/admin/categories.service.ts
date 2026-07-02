@@ -501,14 +501,17 @@ export async function listAdminCategories(params: ListAdminCategoriesParams) {
   };
 }
 
-export async function getAdminCategoryDetails(categoryId: string) {
+export async function getAdminCategoryDetails(
+  categoryId: string,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
   if (!mongoose.Types.ObjectId.isValid(categoryId)) {
     throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Category not found");
   }
 
   const rows = await CategoryModel.aggregate([
     { $match: { _id: new mongoose.Types.ObjectId(categoryId) } },
-    ...buildBasePipeline({}),
+    ...buildBasePipeline(params),
     { $limit: 1 },
   ]);
   const category = rows[0];
@@ -564,6 +567,8 @@ export async function updateAdminCategoryStatus(params: {
   reason?: string;
   adminId?: string;
   notifyOwner?: boolean;
+  zoneId?: string;
+  districtId?: string;
 }) {
   if (!mongoose.Types.ObjectId.isValid(params.categoryId)) {
     throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Category not found");
@@ -571,6 +576,13 @@ export async function updateAdminCategoryStatus(params: {
 
   const category = await CategoryModel.findById(params.categoryId);
   if (!category) {
+    throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Category not found");
+  }
+  const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
+  if (
+    Object.keys(restaurantScopeFilter).length > 0 &&
+    !(await RestaurantModel.exists({ _id: category.restaurantId, ...restaurantScopeFilter }))
+  ) {
     throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Category not found");
   }
 
@@ -629,6 +641,8 @@ export async function bulkUpdateAdminCategoryStatus(params: {
   reason?: string;
   adminId?: string;
   notifyOwner?: boolean;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const ids = [...new Set(params.categoryIds)].filter((id) => mongoose.Types.ObjectId.isValid(id));
   if (!ids.length) {
@@ -644,6 +658,8 @@ export async function bulkUpdateAdminCategoryStatus(params: {
         reason: params.reason,
         adminId: params.adminId,
         notifyOwner: params.notifyOwner,
+        zoneId: params.zoneId,
+        districtId: params.districtId,
       })
     );
   }

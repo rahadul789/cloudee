@@ -47,12 +47,17 @@ import {
   verifyCustomerPhoneSignin,
   verifyCustomerPasswordResetOtp
 } from "./customer.service"
+import {
+  getCustomerCustomOfferSummary,
+  requestCustomerCustomOffer,
+} from "./custom-offer.service"
 import { quoteCustomerCart } from "./customer-cart.service"
 import { recordVoucherDisplayEvent, recordVoucherPushOpenEvent } from "../promotions/promotions.service"
 import { recordCustomerHomePushOpen } from "../public/content.service"
 import { invalidateAdminNotificationsCache } from "../admin/notifications.service"
 import {
   getCustomerNotificationByCampaignId,
+  getCustomerNotificationById,
   listCustomerNotifications,
   markAllCustomerNotificationsAsRead,
   markCustomerNotificationAsRead,
@@ -361,6 +366,10 @@ const referralApplySchema = z.object({
   installId: z.string().trim().max(160).optional()
 })
 
+const customOfferRequestSchema = z.object({
+  requestedCode: z.string().trim().max(24).optional()
+})
+
 function getStringValue(value: unknown) {
   if (typeof value === "string") return value
   if (Array.isArray(value)) {
@@ -433,6 +442,29 @@ export const postCustomerReferralApplyController = asyncHandler(async (req: Requ
 
   return sendSuccess(res, {
     message: "Referral code applied successfully",
+    data
+  })
+})
+
+export const getCustomerCustomOfferSummaryController = asyncHandler(async (req: Request, res: Response) => {
+  const data = await getCustomerCustomOfferSummary(req.user?.id ?? "")
+
+  return sendSuccess(res, {
+    message: "My offer summary loaded successfully",
+    data
+  })
+})
+
+export const postCustomerCustomOfferRequestController = asyncHandler(async (req: Request, res: Response) => {
+  const payload = customOfferRequestSchema.parse(req.body ?? {})
+  const data = await requestCustomerCustomOffer({
+    customerId: req.user?.id ?? "",
+    requestedCode: payload.requestedCode
+  })
+
+  return sendSuccess(res, {
+    statusCode: StatusCodes.ACCEPTED,
+    message: "My offer request submitted successfully",
     data
   })
 })
@@ -1024,6 +1056,15 @@ export const getCustomerNotificationCampaign = asyncHandler(async (req: Request,
   const data = await getCustomerNotificationByCampaignId({
     customerId: req.user?.id ?? "",
     campaignId: getStringValue(req.params.campaignId)
+  })
+
+  return sendSuccess(res, { data })
+})
+
+export const getCustomerNotification = asyncHandler(async (req: Request, res: Response) => {
+  const data = await getCustomerNotificationById({
+    customerId: req.user?.id ?? "",
+    notificationId: getStringValue(req.params.notificationId)
   })
 
   return sendSuccess(res, { data })

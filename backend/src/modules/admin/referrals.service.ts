@@ -2,6 +2,7 @@ import type { PipelineStage } from "mongoose";
 import mongoose from "mongoose";
 
 import { CustomerModel } from "../customer/customer.model";
+import { buildCustomerServiceAreaScopeFilter } from "../service-area/service-area.service";
 
 type ReferralStatus =
   | "pending"
@@ -20,6 +21,8 @@ type ReferralListParams = {
   sortBy?: "newest" | "oldest" | "rewardedAt" | "risk";
   page?: number;
   pageSize?: number;
+  zoneId?: string;
+  districtId?: string;
 };
 
 type ReferralBaseParams = ReferralListParams & {
@@ -131,6 +134,7 @@ function buildSort(sortBy?: ReferralListParams["sortBy"]) {
 
 function buildBasePipeline(params: ReferralBaseParams): PipelineStage[] {
   const match: Record<string, unknown> = {
+    ...buildCustomerServiceAreaScopeFilter(params),
     referredByCustomerId: { $ne: null },
   };
   const dateMatch = buildDateMatch(params);
@@ -425,11 +429,14 @@ export async function listAdminReferrals(params: ReferralListParams = {}) {
   };
 }
 
-export async function getAdminReferralDetails(referralId: string) {
+export async function getAdminReferralDetails(
+  referralId: string,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
   if (!mongoose.Types.ObjectId.isValid(referralId)) return null;
 
   const [row] = await CustomerModel.aggregate([
-    ...buildBasePipeline({ skipDefaultDate: true }),
+    ...buildBasePipeline({ skipDefaultDate: true, ...params }),
     { $match: { _id: new mongoose.Types.ObjectId(referralId) } },
     { $limit: 1 },
   ]);

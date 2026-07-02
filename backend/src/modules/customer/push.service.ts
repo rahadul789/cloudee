@@ -9,7 +9,7 @@ import { AdminNotificationScheduleModel } from "../admin/notification-schedule.m
 import { OrderModel } from "../owner/operational.model"
 import { ReviewModel } from "../owner/experience.model"
 import { getPlatformContent } from "../public/content.service"
-import { CustomerModel } from "./customer.model"
+import { CustomerModel, VoucherRedemptionModel } from "./customer.model"
 
 // content.service also imports sendPushToCustomer from this module. The cycle is
 // safe because both sides only call the imported symbols inside functions (never
@@ -43,6 +43,10 @@ type CustomerNotificationRecord = {
   voucherLabel: string
   voucherExpiresAt: string | null
   voucherMinOrder: number | null
+  voucherUsageStatus: "available" | "used" | "expired" | "info"
+  voucherAppliedAt: string | null
+  voucherOrderId: string
+  isOfferDisabled: boolean
   personalOffer: boolean
   zoneId: string
   districtId: string
@@ -133,8 +137,10 @@ function normalizeOrderTrackingPath(path: string, orderId: string) {
 
 function stripVisibleOrderReferences(text: string) {
   return text
+    .replace(/\bYour\s+Order\s+#?[A-Z0-9][A-Z0-9-]{3,}\b/gi, "Your order")
     .replace(/\bOrder\s+#?[A-Z0-9][A-Z0-9-]{3,}\b/gi, "Your order")
     .replace(/\b#[A-Z0-9][A-Z0-9-]{3,}\b/g, "your order")
+    .replace(/\bYour\s+Your\s+order\b/gi, "Your order")
     .replace(/\s+/g, " ")
     .trim()
 }
@@ -206,6 +212,14 @@ function normalizeCustomerPushPayload(payload: CustomerPushPayload): CustomerPus
   const type = stringValue(data.type)
   const orderId = stringValue(data.orderId ?? data.order_id)
   const path = stringValue(data.path)
+
+  if (type === "review_request") {
+    return {
+      ...payload,
+      data
+    }
+  }
+
   const isOrderRelated =
     Boolean(orderId) ||
     path.startsWith("/orders/") ||
@@ -268,6 +282,10 @@ function mapCustomerNotification(notification: {
   voucherLabel?: string
   voucherExpiresAt?: Date | string | null
   voucherMinOrder?: number | null
+  voucherUsageStatus?: "available" | "used" | "expired" | "info"
+  voucherAppliedAt?: Date | string | null
+  voucherOrderId?: string
+  isOfferDisabled?: boolean
   personalOffer?: boolean
   zoneId?: string
   districtId?: string
@@ -275,6 +293,15 @@ function mapCustomerNotification(notification: {
   readAt?: Date | string | null
   createdAt?: Date | string | null
 }): CustomerNotificationRecord {
+  const voucherExpiresAt = notification.voucherExpiresAt
+    ? new Date(notification.voucherExpiresAt).toISOString()
+    : null
+  const isExpired = voucherExpiresAt
+    ? new Date(voucherExpiresAt).getTime() <= Date.now()
+    : false
+  const voucherUsageStatus =
+    notification.voucherUsageStatus ?? (isExpired ? "expired" : notification.voucherId || notification.voucherCode ? "available" : "info")
+
   return {
     id: String(notification._id ?? ""),
     type: notification.type ?? "system",
@@ -290,11 +317,18 @@ function mapCustomerNotification(notification: {
     voucherId: notification.voucherId ?? "",
     voucherCode: notification.voucherCode ?? "",
     voucherLabel: notification.voucherLabel ?? "",
-    voucherExpiresAt: notification.voucherExpiresAt
-      ? new Date(notification.voucherExpiresAt).toISOString()
-      : null,
+    voucherExpiresAt,
     voucherMinOrder:
       typeof notification.voucherMinOrder === "number" ? notification.voucherMinOrder : null,
+    voucherUsageStatus,
+    voucherAppliedAt: notification.voucherAppliedAt
+      ? new Date(notification.voucherAppliedAt).toISOString()
+      : null,
+    voucherOrderId: notification.voucherOrderId ?? "",
+    isOfferDisabled:
+      notification.isOfferDisabled === true ||
+      voucherUsageStatus === "used" ||
+      voucherUsageStatus === "expired",
     personalOffer: notification.personalOffer === true,
     zoneId: notification.zoneId ?? "",
     districtId: notification.districtId ?? "",
@@ -304,6 +338,63 @@ function mapCustomerNotification(notification: {
       ? new Date(notification.createdAt).toISOString()
       : new Date().toISOString()
   }
+}
+
+async function enrichNotificationVoucherUsage(
+  customerId: string,
+  items: CustomerNotificationRecord[],
+) {
+  const voucherIds = items
+    .map((item) => item.voucherId)
+    .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId))
+
+  if (!voucherIds.length) return items
+
+  const redemptions = await VoucherRedemptionModel.find({
+    voucherId: { $in: voucherIds },
+    releasedAt: null,
+    "voucherSnapshot.customerId": customerId,
+  })
+    .select("voucherId orderId appliedAt")
+    .sort({ appliedAt: -1, createdAt: -1 })
+    .lean()
+  const redemptionByVoucherId = new Map(
+    redemptions.map((redemption) => [String(redemption.voucherId), redemption]),
+  )
+
+  return items.map((item) => {
+    const isExpired = item.voucherExpiresAt
+      ? new Date(item.voucherExpiresAt).getTime() <= Date.now()
+      : false
+    const redemption = redemptionByVoucherId.get(item.voucherId)
+
+    if (isExpired) {
+      return {
+        ...item,
+        voucherUsageStatus: "expired" as const,
+        isOfferDisabled: true,
+      }
+    }
+
+    if (redemption) {
+      return {
+        ...item,
+        voucherUsageStatus: "used" as const,
+        voucherAppliedAt: redemption.appliedAt
+          ? new Date(redemption.appliedAt).toISOString()
+          : item.voucherAppliedAt,
+        voucherOrderId: String(redemption.orderId ?? ""),
+        isOfferDisabled: true,
+      }
+    }
+
+    return {
+      ...item,
+      voucherUsageStatus:
+        item.voucherId || item.voucherCode ? ("available" as const) : item.voucherUsageStatus,
+      isOfferDisabled: false,
+    }
+  })
 }
 
 export async function createCustomerNotification(params: {
@@ -454,7 +545,10 @@ export async function listCustomerNotifications(customerId: string, params?: {
   const limit = Math.min(Math.max(params?.limit ?? 20, 1), 50)
   const page = Math.max(params?.page ?? 1, 1)
   const start = (page - 1) * limit
-  const items = mappedNotifications.slice(start, start + limit)
+  const items = await enrichNotificationVoucherUsage(
+    customerId,
+    mappedNotifications.slice(start, start + limit),
+  )
   const total = mappedNotifications.length
 
   return {
@@ -488,7 +582,38 @@ export async function getCustomerNotificationByCampaignId(params: {
   ).select("notifications")
 
   const notification = customer?.notifications?.[0]
-  return notification ? mapCustomerNotification(notification.toObject()) : null
+  if (!notification) return null
+  const [item] = await enrichNotificationVoucherUsage(params.customerId, [
+    mapCustomerNotification(notification.toObject()),
+  ])
+  return item ?? null
+}
+
+export async function getCustomerNotificationById(params: {
+  customerId: string
+  notificationId: string
+}) {
+  const notificationId = params.notificationId.trim()
+  if (!notificationId) return null
+
+  const customer = await CustomerModel.findOne(
+    {
+      _id: params.customerId,
+      "notifications._id": notificationId,
+    },
+    {
+      notifications: {
+        $elemMatch: { _id: notificationId },
+      },
+    },
+  ).select("notifications")
+
+  const notification = customer?.notifications?.[0]
+  if (!notification) return null
+  const [item] = await enrichNotificationVoucherUsage(params.customerId, [
+    mapCustomerNotification(notification.toObject()),
+  ])
+  return item ?? null
 }
 
 export async function markCustomerNotificationAsRead(params: {
@@ -765,15 +890,30 @@ const REVIEW_REQUEST_DEFAULTS: ReviewRequestConfig = {
   windowHours: 72,
   quietHoursStart: 22,
   quietHoursEnd: 9,
-  pushTitle: "How was your order? ⭐",
-  pushBody: "Tap to rate — your feedback helps others order with confidence.",
+  pushTitle: "How was your food?",
+  pushBody: "Tap to rate your order and help others choose with confidence.",
+}
+
+function cleanReviewRequestText(value: unknown, fallback: string): string {
+  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : ""
+  if (!text) return fallback
+  if (/[�]|[âÃÂ]/.test(text)) return fallback
+  if (/\byour\s+your\b/i.test(text) || /\border\s+user\b/i.test(text)) {
+    return fallback
+  }
+  return text
 }
 
 async function getReviewRequestConfig(): Promise<ReviewRequestConfig> {
   try {
     const content = await loadPlatformContent()
     const config = (content as any)?.operations?.reviewRequests
-    return { ...REVIEW_REQUEST_DEFAULTS, ...(config ?? {}) }
+    const merged = { ...REVIEW_REQUEST_DEFAULTS, ...(config ?? {}) }
+    return {
+      ...merged,
+      pushTitle: cleanReviewRequestText(merged.pushTitle, REVIEW_REQUEST_DEFAULTS.pushTitle),
+      pushBody: cleanReviewRequestText(merged.pushBody, REVIEW_REQUEST_DEFAULTS.pushBody),
+    }
   } catch (error) {
     logger.error(error, "Failed to load review-request config; using defaults")
     return REVIEW_REQUEST_DEFAULTS
@@ -809,14 +949,21 @@ function buildReviewRequestPayload(
     body: config.pushBody,
     data: {
       type: "review_request",
-      // Deliberately no `orderId` field: resolveCustomerPushRoute prioritizes a
-      // bare orderId into the tracking screen, which would hijack this push away
-      // from the review screen. The /orders/{id}/review path resolves on its own.
-      path: `/orders/${orderId}/review`,
-      ctaPath: `/orders/${orderId}/review`,
+      // Keep orderId for scope/debugging. normalizeCustomerPushPayload bypasses
+      // review_request, so this does not hijack the review route to tracking.
+      orderId,
+      path: `/rate-order?orderId=${orderId}`,
+      ctaPath: `/rate-order?orderId=${orderId}`,
       ctaLabel: "Rate order",
     },
   }
+}
+
+function wasReviewNotificationDelivered(result: Awaited<ReturnType<typeof sendPushToCustomer>>) {
+  return (
+    result.sent > 0 ||
+    (result.inAppCreated > 0 && result.sentExpoTokens.length === 0 && result.disabled === 0)
+  )
 }
 
 function getOrderDeliveredAtMs(order: {
@@ -824,7 +971,13 @@ function getOrderDeliveredAtMs(order: {
   updatedAt?: Date
 }): number {
   const timestamps = (order.get("timestamps") ?? {}) as Record<string, unknown>
-  const delivered = timestamps.Delivered ?? order.updatedAt ?? null
+  const reviewRequest = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
+  const delivered =
+    timestamps.Delivered ??
+    timestamps.deliveredAt ??
+    reviewRequest.deliveredAt ??
+    order.updatedAt ??
+    null
   const ms = delivered ? new Date(delivered as string).getTime() : NaN
   return Number.isFinite(ms) ? ms : NaN
 }
@@ -908,9 +1061,19 @@ export async function processDueReviewRequests() {
   const candidates = await OrderModel.find({
     status: "Delivered",
     customerId: { $nin: ["", null] },
-    updatedAt: { $gte: windowStart },
+    $or: [
+      { "timestamps.Delivered": { $gte: windowStart } },
+      { "timestamps.deliveredAt": { $gte: windowStart } },
+      { "reviewRequest.deliveredAt": { $gte: windowStart } },
+      { updatedAt: { $gte: windowStart } },
+    ],
   })
-    .sort({ updatedAt: 1 })
+    .sort({
+      "timestamps.deliveredAt": 1,
+      "timestamps.Delivered": 1,
+      "reviewRequest.deliveredAt": 1,
+      updatedAt: 1,
+    })
     .limit(200)
 
   for (const order of candidates) {
@@ -934,6 +1097,12 @@ export async function processDueReviewRequests() {
       if (lastPushAt && now - lastPushAt < config.reminderGapHours * 3_600_000) {
         continue
       }
+      const lastAttemptAt = reviewState.lastAttemptAt
+        ? new Date(reviewState.lastAttemptAt as string).getTime()
+        : 0
+      if (!lastPushAt && lastAttemptAt && now - lastAttemptAt < 10 * 60_000) {
+        continue
+      }
 
       const existingReview = await ReviewModel.exists({ orderId: order._id })
       if (existingReview) {
@@ -942,17 +1111,24 @@ export async function processDueReviewRequests() {
         continue
       }
 
-      await sendPushToCustomer({
+      const result = await sendPushToCustomer({
         customerId,
         payload: buildReviewRequestPayload(String(order._id), config),
       })
 
-      order.set("reviewRequest", {
+      const nextReviewState: Record<string, unknown> = {
         ...reviewState,
-        pushCount: pushCount + 1,
-        lastPushAt: new Date(),
         lastChannel: "auto",
-      })
+        lastAttemptAt: new Date(),
+        lastAttemptSent: result.sent,
+        lastAttemptInAppCreated: result.inAppCreated,
+      }
+      if (wasReviewNotificationDelivered(result)) {
+        nextReviewState.pushCount = pushCount + 1
+        nextReviewState.lastPushAt = new Date()
+      }
+
+      order.set("reviewRequest", nextReviewState)
       await order.save()
     } catch (error) {
       logger.error(

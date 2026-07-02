@@ -27,6 +27,7 @@ import {
   OrderModel,
 } from "../owner/operational.model";
 import {
+  assertServiceAreaSnapshotMatchesScope,
   buildRestaurantServiceAreaScopeFilter,
   buildServiceAreaSnapshot,
   calculateServiceDistanceKm,
@@ -60,6 +61,8 @@ type RestaurantOrderListParams = {
   preset?: string;
   from?: string;
   to?: string;
+  zoneId?: string;
+  districtId?: string;
   status?: "all" | "live" | "delivered" | "cancelled";
   paymentMethod?: string;
   search?: string;
@@ -1409,7 +1412,7 @@ export async function createAdminRestaurant(params: CreateRestaurantParams) {
 
 export async function getAdminRestaurantDetails(
   restaurantId: string,
-  params?: { preset?: string; from?: string; to?: string },
+  params?: { preset?: string; from?: string; to?: string; zoneId?: string; districtId?: string },
 ) {
   const safeRestaurantId = toObjectIdOrThrow(restaurantId, "Restaurant");
   const restaurant = await RestaurantModel.findById(safeRestaurantId).lean();
@@ -1421,6 +1424,12 @@ export async function getAdminRestaurantDetails(
       "Restaurant not found",
     );
   }
+  assertServiceAreaSnapshotMatchesScope(restaurant.serviceArea, {
+    zoneId: params?.zoneId,
+    districtId: params?.districtId,
+    code: "RESTAURANT_NOT_FOUND",
+    message: "Restaurant not found",
+  });
 
   const financeSettings = await getOperationalFinanceSettings();
   await reconcileRestaurantLedgerStatuses(
@@ -2062,8 +2071,22 @@ export async function listAdminRestaurantOrders(
     OrderModel.countDocuments(query),
     RestaurantModel.findById(safeRestaurantId, {
       preparationTimeMinutes: 1,
+      serviceArea: 1,
     }).lean(),
   ]);
+  if (!restaurant) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "RESTAURANT_NOT_FOUND",
+      "Restaurant not found",
+    );
+  }
+  assertServiceAreaSnapshotMatchesScope(restaurant.serviceArea, {
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+    code: "RESTAURANT_NOT_FOUND",
+    message: "Restaurant not found",
+  });
   const preparationTimeMinutes =
     typeof restaurant?.preparationTimeMinutes === "number"
       ? restaurant.preparationTimeMinutes

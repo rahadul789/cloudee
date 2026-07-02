@@ -1105,6 +1105,7 @@ export default function RiderOrderDetailsScreen() {
         riderLocation={riderCoordinate}
         riderHeading={riderHeading}
         routePolyline={order.routeToNext?.polyline}
+        routeProvider={order.routeToNext?.provider}
         showActiveApproachLeg={shouldShowCurrentApproachLeg}
         showPlannedDeliveryLeg={showPlannedDeliveryLeg}
         restaurantName={order.restaurant?.name ?? copy.common.restaurant}

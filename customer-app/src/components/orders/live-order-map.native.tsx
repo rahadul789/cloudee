@@ -43,17 +43,20 @@ type LiveOrderMapProps = {
 };
 
 const FOODPANDA_PINK = "#FF2B85";
+const ESTIMATED_ROUTE = "rgba(31, 36, 48, 0.45)";
 const RIDER_PIN_YELLOW = "#FFD54A";
 const RIDER_ICON_DARK = "#1F2430";
 const OFF_ROAD_GAP_METERS = 25;
-// Smaller threshold for drawing the dotted "last metres" connector: any noticeable
-// gap between a pin and the road route should read as an off-road hop.
-const OFF_ROAD_CONNECTOR_MIN_METERS = 12;
+// GPS jitter and overview polylines commonly drift by 10-30m. Only show dotted
+// connectors for a genuine pin-to-road handoff, not for normal on-road movement.
+const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
+const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 50;
+const ROUTE_DRAW_SNAP_MAX_METERS = 90;
 const MAP_HEIGHT_SCREEN_RATIO = 0.54;
 const ROUTE_DETOUR_DIRECT_MAX_METERS = 180;
 const ROUTE_DETOUR_ROUTE_MIN_METERS = 450;
 const ROUTE_DETOUR_RATIO = 4;
-const TRACKING_MAP_VISUAL_VERSION = "pin-route-v7";
+const TRACKING_MAP_VISUAL_VERSION = "pin-route-v8";
 // The camera frames the whole route, but never tighter than this span — so when the
 // rider is metres away the map keeps a comfortable ~600m context (street names,
 // surroundings) instead of zooming into an unreadable blob. This is how Foodpanda/Uber
@@ -140,7 +143,11 @@ function projectOntoRoute(
   cumulative: number[],
   origin: TrackingCoordinate,
 ) {
-  let best = { distanceAlong: 0, offRouteMeters: Number.POSITIVE_INFINITY };
+  let best = {
+    distanceAlong: 0,
+    offRouteMeters: Number.POSITIVE_INFINITY,
+    point: points[0] ?? origin,
+  };
   for (let index = 0; index < points.length - 1; index += 1) {
     const start = points[index];
     const end = points[index + 1];
@@ -158,10 +165,31 @@ function projectOntoRoute(
     const offRouteMeters = Math.hypot(o.x - (s.x + dx * t), o.y - (s.y + dy * t));
     if (offRouteMeters < best.offRouteMeters) {
       const segmentLength = cumulative[index + 1] - cumulative[index];
-      best = { distanceAlong: cumulative[index] + segmentLength * t, offRouteMeters };
+      best = {
+        distanceAlong: cumulative[index] + segmentLength * t,
+        offRouteMeters,
+        point: {
+          latitude: start.latitude + (end.latitude - start.latitude) * t,
+          longitude: start.longitude + (end.longitude - start.longitude) * t,
+        },
+      };
     }
   }
   return best;
+}
+
+function buildRemainingRouteFromProjection(
+  points: TrackingCoordinate[],
+  cumulative: number[],
+  projection: ReturnType<typeof projectOntoRoute> | null,
+) {
+  if (points.length < 2 || !projection) return points;
+  if (projection.offRouteMeters > ROUTE_DRAW_SNAP_MAX_METERS) return points;
+
+  const tail = points.filter(
+    (_point, index) => cumulative[index] > projection.distanceAlong + 1,
+  );
+  return [projection.point, ...tail];
 }
 
 // Build the waypoints the marker should glide through so it follows the road between
@@ -404,6 +432,10 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     () => decodePolyline(routePolyline),
     [routePolyline],
   );
+  const realRouteCumulative = useMemo(
+    () => cumulativeRouteDistances(realRoutePoints),
+    [realRoutePoints],
+  );
   const distanceMeters = useMemo(
     () => calculateDistanceMeters(resolvedRiderLocation, customerLocation),
     [customerLocation, resolvedRiderLocation],
@@ -419,7 +451,25 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     routeDistanceMeters >= ROUTE_DETOUR_ROUTE_MIN_METERS &&
     routeDistanceMeters / Math.max(distanceMeters, OFF_ROAD_GAP_METERS) >=
       ROUTE_DETOUR_RATIO;
-  const hasRealRoute = realRoutePoints.length >= 2 && !hasRouteDetour;
+  const hasRealRoute = routeProvider === "google" && realRoutePoints.length >= 2 && !hasRouteDetour;
+  const riderRouteProjection = useMemo(
+    () =>
+      hasRealRoute
+        ? projectOntoRoute(realRoutePoints, realRouteCumulative, resolvedRiderLocation)
+        : null,
+    [hasRealRoute, realRouteCumulative, realRoutePoints, resolvedRiderLocation],
+  );
+  const remainingRealRoute = useMemo(
+    () =>
+      hasRealRoute
+        ? buildRemainingRouteFromProjection(
+            realRoutePoints,
+            realRouteCumulative,
+            riderRouteProjection,
+          )
+        : [],
+    [hasRealRoute, realRouteCumulative, realRoutePoints, riderRouteProjection],
+  );
 
   // Smoothly interpolated rider position for the marker. When a real road route is
   // available it glides along the polyline (route-snapping); otherwise it falls back
@@ -437,7 +487,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     // otherwise fall back to the smooth synthetic curve. When Google returns a
     // long detour for a physically nearby rider, treat it as an off-road handoff.
     if (hasRealRoute) {
-      return realRoutePoints;
+      return remainingRealRoute.length >= 2 ? remainingRealRoute : realRoutePoints;
     }
 
     if (riderLocation) {
@@ -453,6 +503,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     customerLocation,
     hasRealRoute,
     hasRouteDetour,
+    remainingRealRoute,
     realRoutePoints,
     resolvedRiderLocation,
     riderLocation,
@@ -463,18 +514,18 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   // connector so the rider clearly sees how to reach the exact point.
   const offRoadToCustomer = useMemo(() => {
     if (!hasRealRoute) return null;
-    const last = realRoutePoints[realRoutePoints.length - 1];
-    return calculateDistanceMeters(last, customerLocation) > OFF_ROAD_CONNECTOR_MIN_METERS
+    const route = remainingRealRoute.length >= 2 ? remainingRealRoute : realRoutePoints;
+    const last = route[route.length - 1];
+    return calculateDistanceMeters(last, customerLocation) > DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS
       ? [last, customerLocation]
       : null;
-  }, [customerLocation, hasRealRoute, realRoutePoints]);
+  }, [customerLocation, hasRealRoute, realRoutePoints, remainingRealRoute]);
   const offRoadFromRider = useMemo(() => {
-    if (!hasRealRoute) return null;
-    const first = realRoutePoints[0];
-    return calculateDistanceMeters(resolvedRiderLocation, first) > OFF_ROAD_CONNECTOR_MIN_METERS
-      ? [resolvedRiderLocation, first]
+    if (!hasRealRoute || !riderRouteProjection) return null;
+    return riderRouteProjection.offRouteMeters > RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS
+      ? [resolvedRiderLocation, riderRouteProjection.point]
       : null;
-  }, [hasRealRoute, realRoutePoints, resolvedRiderLocation]);
+  }, [hasRealRoute, riderRouteProjection, resolvedRiderLocation]);
 
   const displayDistanceMeters = hasRouteDetour
     ? distanceMeters
@@ -680,11 +731,11 @@ export const LiveOrderMap = memo(function LiveOrderMap({
               outline/border underneath. */}
           <Polyline
             coordinates={remainingRoute}
-            strokeColor={FOODPANDA_PINK}
-            strokeWidth={4}
+            strokeColor={hasRealRoute ? FOODPANDA_PINK : ESTIMATED_ROUTE}
+            strokeWidth={hasRealRoute ? 4 : 3}
             lineCap="round"
             lineJoin="round"
-            lineDashPattern={hasRealRoute ? undefined : [3, 9]}
+            lineDashPattern={hasRealRoute ? undefined : [8, 8]}
           />
           {offRoadFromRider ? (
             <Polyline

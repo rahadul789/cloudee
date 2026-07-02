@@ -117,10 +117,6 @@ function usageTone(percent: number) {
   return "bg-emerald-500"
 }
 
-function getTopBucket(limiter: Limiter): Bucket | undefined {
-  return limiter.buckets[0]
-}
-
 function formatAppCounts(apps: Record<string, number>) {
   const appOrder = ["customer", "rider", "owner", "admin"]
   const ordered = [

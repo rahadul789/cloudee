@@ -78,6 +78,7 @@ export default function TabsLayout() {
         name="browse"
         options={{
           title: "Browse",
+          freezeOnBlur: false,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}
@@ -92,6 +93,7 @@ export default function TabsLayout() {
         name="cart"
         options={{
           title: "Cart",
+          freezeOnBlur: false,
           tabBarBadge: cartItemCount > 0 ? cartItemCount : undefined,
           tabBarBadgeStyle: {
             backgroundColor: palette.secondary,
@@ -115,6 +117,7 @@ export default function TabsLayout() {
         name="orders"
         options={{
           title: "Orders",
+          freezeOnBlur: false,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}

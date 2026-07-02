@@ -173,6 +173,11 @@ const createWalletEntrySchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
+const adminAreaScopeQuerySchema = z.object({
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
+});
+
 const closeDailyFinanceSchema = z.object({
   date: z.string().optional(),
   note: z.string().trim().max(500).optional(),
@@ -240,9 +245,11 @@ export const getAdminMoneyTransactionsController = asyncHandler(
 export const postAdminPlatformWalletController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = createWalletEntrySchema.parse(req.body);
+    const scope = adminAreaScopeQuerySchema.parse(req.query);
     const data = await createAdminPlatformWalletEntry({
       ...payload,
       adminId: req.user?.id,
+      ...scope,
     });
     return sendSuccess(res, { data });
   },
@@ -250,9 +257,11 @@ export const postAdminPlatformWalletController = asyncHandler(
 
 export const postAdminPlatformWalletVoidController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    const scope = adminAreaScopeQuerySchema.parse(req.query);
     const data = await voidAdminPlatformWalletEntry({
       entryId: getStringParam(req.params.entryId),
       adminId: req.user?.id,
+      ...scope,
     });
     return sendSuccess(res, { data });
   },
@@ -279,8 +288,10 @@ export const getAdminCodReconciliationController = asyncHandler(
 
 export const getAdminFinancePayoutDetailsController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    const scope = adminAreaScopeQuerySchema.parse(req.query);
     const data = await getAdminFinancePayoutDetails(
       getStringParam(req.params.restaurantId),
+      scope,
     );
     return sendSuccess(res, { data });
   },
@@ -289,6 +300,7 @@ export const getAdminFinancePayoutDetailsController = asyncHandler(
 export const postAdminFinancePayoutController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = createPayoutSchema.parse(req.body);
+    const scope = adminAreaScopeQuerySchema.parse(req.query);
     const data = await createAdminFinancePayout({
       restaurantId: getStringParam(req.params.restaurantId),
       amount: payload.amount,
@@ -301,6 +313,7 @@ export const postAdminFinancePayoutController = asyncHandler(
       includePending: payload.includePending,
       notifyOwnerSms: payload.notifyOwnerSms,
       adminId: req.user?.id,
+      ...scope,
     });
     return sendSuccess(res, { data });
   },

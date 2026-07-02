@@ -11,7 +11,9 @@ import {
 
 const listCustomerAccountRequestsQuerySchema = z.object({
   status: z.enum(["pending", "cancelled", "reviewed", "completed"]).optional(),
-  type: z.enum(["deactivate", "delete"]).optional()
+  type: z.enum(["deactivate", "delete"]).optional(),
+  zoneId: z.string().optional(),
+  districtId: z.string().optional()
 })
 
 const reviewCustomerAccountRequestSchema = z.object({
@@ -45,12 +47,16 @@ export const getAdminCustomerAccountRequests = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = listCustomerAccountRequestsQuerySchema.parse({
       status: getOptionalStringParam(req.query.status),
-      type: getOptionalStringParam(req.query.type)
+      type: getOptionalStringParam(req.query.type),
+      zoneId: getOptionalStringParam(req.query.zoneId),
+      districtId: getOptionalStringParam(req.query.districtId)
     })
 
     const data = await listCustomerAccountRequests({
       status: query.status,
-      type: query.type
+      type: query.type,
+      zoneId: query.zoneId,
+      districtId: query.districtId
     })
 
     return sendSuccess(res, { data })
@@ -64,7 +70,9 @@ export const postAdminCustomerAccountRequestReview = asyncHandler(
       customerId: getStringParam(req.params.customerId),
       adminId: getAdminId(req),
       decision: payload.decision,
-      reviewNote: payload.reviewNote
+      reviewNote: payload.reviewNote,
+      zoneId: getOptionalStringParam(req.query.zoneId),
+      districtId: getOptionalStringParam(req.query.districtId)
     })
 
     return sendSuccess(res, {

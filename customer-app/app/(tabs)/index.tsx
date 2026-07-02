@@ -32,6 +32,7 @@ import { SectionHeader } from "@/src/components/section-header";
 import {
   useCustomerDiscoveryHomeQuery,
   useCustomerFavoriteRestaurantIdsQuery,
+  useCustomerOrderPresenceQuery,
   useCustomerToggleFavoriteRestaurantMutation,
 } from "@/src/hooks/use-customer-api";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
@@ -167,6 +168,7 @@ function NearbyHeaderSpinner({ visible }: { visible: boolean }) {
         duration: 880,
         easing: Easing.linear,
         useNativeDriver: true,
+        isInteraction: false,
       }),
     );
 
@@ -175,6 +177,7 @@ function NearbyHeaderSpinner({ visible }: { visible: boolean }) {
 
     return () => {
       rotateLoop.stop();
+      rotateAnim.stopAnimation();
     };
   }, [rotateAnim, visible]);
 
@@ -214,6 +217,7 @@ function useHomeShimmer(active: boolean) {
         duration: 1250,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
+        isInteraction: false,
       }),
     );
 
@@ -222,6 +226,7 @@ function useHomeShimmer(active: boolean) {
 
     return () => {
       shimmerLoop.stop();
+      shimmerAnim.stopAnimation();
     };
   }, [active, shimmerAnim]);
 
@@ -425,6 +430,9 @@ export default function HomeScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const lastTrackedSearchRef = useRef("");
   const customer = useCustomerAuthStore((state) => state.customer);
+  const isCustomerAuthenticated = useCustomerAuthStore((state) =>
+    Boolean(state.accessToken),
+  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const isLocationHydrated = useLocationStore((state) => state.isHydrated);
   const locationKey = selectedLocation
@@ -449,6 +457,9 @@ export default function HomeScreen() {
     longitude: selectedLocation?.longitude,
     enabled: isLocationHydrated,
   });
+  const orderPresenceQuery = useCustomerOrderPresenceQuery(
+    isCustomerAuthenticated,
+  );
   const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
   const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();
 
@@ -690,18 +701,8 @@ export default function HomeScreen() {
     Boolean(selectedLocation) &&
     homeQuery.isLoading &&
     nearbyRestaurants.length === 0;
-  const shimmerTranslateX = useHomeShimmer(
-    isHomeFocused &&
-      (shouldShowHomeFeedSkeleton ||
-      shouldShowSearchSkeleton ||
-      shouldShowNearbySkeleton),
-  );
 
   const bannerTone = getBannerToneStyle(homeBanner?.tone ?? null);
-  const shouldShowHowToOrderGuide =
-    Boolean(homeCms) &&
-    !isSearching &&
-    homeCms?.howToOrderGuide?.isActive !== false;
   const isUpdatingLocationResults = Boolean(
     isHomeFocused &&
     pendingLocationUpdateKey &&
@@ -710,6 +711,34 @@ export default function HomeScreen() {
     !isRefreshing &&
     !isSearching &&
     homeQuery.isFetching,
+  );
+  const hasCompletedCustomerOrder =
+    orderPresenceQuery.data?.hasCompletedOrders === true;
+  const isOrderPresenceResolved =
+    !isCustomerAuthenticated ||
+    orderPresenceQuery.isSuccess ||
+    orderPresenceQuery.isError;
+  const shouldShowHowToOrderGuide =
+    Boolean(homeCms) &&
+    !isSearching &&
+    homeCms?.howToOrderGuide?.isActive !== false &&
+    isOrderPresenceResolved &&
+    !hasCompletedCustomerOrder;
+  const shouldHoldNearbyEmptyState =
+    !isSearching &&
+    Boolean(selectedLocation) &&
+    nearbyRestaurantsForSection.length === 0 &&
+    !homeQuery.isError &&
+    (!homeQuery.isSuccess ||
+      homeQuery.isFetching ||
+      isUpdatingLocationResults);
+  const shimmerTranslateX = useHomeShimmer(
+    isHomeFocused &&
+      (shouldShowHomeFeedSkeleton ||
+        shouldShowSearchSkeleton ||
+        shouldShowNearbySkeleton ||
+        isUpdatingLocationResults ||
+        shouldHoldNearbyEmptyState),
   );
 
   useEffect(() => {
@@ -814,10 +843,14 @@ export default function HomeScreen() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([
+      const refreshJobs: Promise<unknown>[] = [
         homeQuery.refetch(),
         favoriteRestaurantIdsQuery.refetch(),
-      ]);
+      ];
+      if (isCustomerAuthenticated) {
+        refreshJobs.push(orderPresenceQuery.refetch());
+      }
+      await Promise.all(refreshJobs);
     } finally {
       setIsRefreshing(false);
     }
@@ -1682,7 +1715,7 @@ export default function HomeScreen() {
                   }
                   onPress={handleMissingLocationPress}
                 />
-              ) : shouldShowNearbySkeleton ? (
+              ) : shouldShowNearbySkeleton || isUpdatingLocationResults ? (
                 <RestaurantListSkeleton
                   translateX={shimmerTranslateX}
                   count={3}
@@ -1763,7 +1796,13 @@ export default function HomeScreen() {
                     />
                   </Pressable>
                 </>
-              ) : isUpdatingLocationResults ? null : (
+              ) : shouldHoldNearbyEmptyState ? (
+                <RestaurantListSkeleton
+                  translateX={shimmerTranslateX}
+                  count={3}
+                  variant="nearby"
+                />
+              ) : (
                 <EmptyStateCard
                   title={
                     isOnline

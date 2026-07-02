@@ -190,6 +190,20 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
   return query
 }
 
+async function assertSupportCaseInScope(
+  supportCaseId: string,
+  params?: { zoneId?: string; districtId?: string },
+) {
+  if (!params?.zoneId?.trim() && !params?.districtId?.trim()) return
+  const scopeQuery = await buildSupportQuery(params)
+  const exists = await SupportCaseModel.exists({
+    _id: supportCaseId,
+    ...scopeQuery,
+  })
+  if (exists) return
+  throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
+}
+
 function mapSupportCase(params: {
   supportCase: Record<string, any>
   restaurant?: Record<string, any>
@@ -356,10 +370,14 @@ export async function listSupportCases(params: ListSupportCasesParams = {}) {
   }
 }
 
-export async function getSupportCaseDetails(supportCaseId: string) {
+export async function getSupportCaseDetails(
+  supportCaseId: string,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
   if (!mongoose.Types.ObjectId.isValid(supportCaseId)) {
     throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
   }
+  await assertSupportCaseInScope(supportCaseId, params)
   const supportCase = await SupportCaseModel.findById(supportCaseId).lean()
   if (!supportCase) {
     throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
@@ -465,7 +483,10 @@ export async function replySupportCase(params: {
   adminId: string
   message: string
   status?: SupportCaseStatus
+  zoneId?: string
+  districtId?: string
 }) {
+  await assertSupportCaseInScope(params.supportCaseId, params)
   const supportCase = await SupportCaseModel.findById(params.supportCaseId)
   if (!supportCase) {
     throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
@@ -503,7 +524,7 @@ export async function replySupportCase(params: {
     description: replyMessage.slice(0, 180),
   })
   await notifyRequester(supportCase, replyMessage)
-  return getSupportCaseDetails(params.supportCaseId)
+  return getSupportCaseDetails(params.supportCaseId, params)
 }
 
 export async function updateSupportCase(params: {
@@ -514,7 +535,10 @@ export async function updateSupportCase(params: {
   assignedAdminId?: string
   resolutionNote?: string
   tags?: string[]
+  zoneId?: string
+  districtId?: string
 }) {
+  await assertSupportCaseInScope(params.supportCaseId, params)
   const supportCase = await SupportCaseModel.findById(params.supportCaseId)
   if (!supportCase) {
     throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
@@ -559,14 +583,17 @@ export async function updateSupportCase(params: {
     description: historyEntries.map((entry) => entry.action).join(", ") || "Support metadata updated",
     metadata: { status: supportCase.status, priority: supportCase.priority, assignedAdminId: supportCase.assignedAdminId },
   })
-  return getSupportCaseDetails(params.supportCaseId)
+  return getSupportCaseDetails(params.supportCaseId, params)
 }
 
 export async function addSupportInternalNote(params: {
   supportCaseId: string
   adminId: string
   note: string
+  zoneId?: string
+  districtId?: string
 }) {
+  await assertSupportCaseInScope(params.supportCaseId, params)
   const supportCase = await SupportCaseModel.findById(params.supportCaseId)
   if (!supportCase) {
     throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found")
@@ -594,5 +621,5 @@ export async function addSupportInternalNote(params: {
     title: "Internal note added",
     description: params.note.trim().slice(0, 180),
   })
-  return getSupportCaseDetails(params.supportCaseId)
+  return getSupportCaseDetails(params.supportCaseId, params)
 }

@@ -462,8 +462,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: palette.surface,
     padding: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
   },
   skeletonIcon: {
     width: 44,

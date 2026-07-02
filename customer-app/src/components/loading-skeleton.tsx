@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useIsFocused } from "@react-navigation/native";
 import {
   Animated,
   Easing,
@@ -15,14 +16,21 @@ const IMAGE_SKELETON_COLOR = "#FFF0F6";
 
 function useSkeletonTranslateX() {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const isFocused = useIsFocused();
 
   useEffect(() => {
+    if (!isFocused) {
+      shimmerAnim.stopAnimation();
+      return;
+    }
+
     const shimmerLoop = Animated.loop(
       Animated.timing(shimmerAnim, {
         toValue: 1,
         duration: 1250,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
+        isInteraction: false,
       }),
     );
 
@@ -31,8 +39,9 @@ function useSkeletonTranslateX() {
 
     return () => {
       shimmerLoop.stop();
+      shimmerAnim.stopAnimation();
     };
-  }, [shimmerAnim]);
+  }, [isFocused, shimmerAnim]);
 
   return shimmerAnim.interpolate({
     inputRange: [0, 1],
@@ -366,11 +375,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 14,
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   genericAvatar: {
     width: 54,
@@ -440,7 +444,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   menuCategoryWideSkeleton: {
-    width: 94,
+    width: 82,
     height: 30,
     borderRadius: 12,
   },
@@ -450,12 +454,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   menuCategorySmallSkeleton: {
-    width: 62,
+    width: 82,
     height: 30,
     borderRadius: 12,
   },
   menuCategoryTinySkeleton: {
-    width: 48,
+    width: 82,
     height: 30,
     borderRadius: 12,
   },
@@ -499,11 +503,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: palette.surface,
     gap: 10,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.22,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   popularCardImageSkeleton: {
     width: "100%",
@@ -558,11 +557,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: palette.surface,
     gap: 10,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
   },
   orderSkeletonTopRow: {
     flexDirection: "row",
@@ -594,8 +588,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 10,
     gap: 9,
-    borderWidth: 1,
-    borderColor: "#F7D7E3",
   },
   orderSkeletonProgressTop: {
     flexDirection: "row",
@@ -626,11 +618,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 24,
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
   },
   restaurantCardFeatured: {},
   restaurantCardOffer: {},
@@ -734,11 +721,6 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     backgroundColor: palette.surface,
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
   },
   detailsInfoTop: {
     flexDirection: "row",
@@ -781,7 +763,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   categoryChipWide: {
-    width: 100,
+    width: 82,
     height: 32,
     borderRadius: 14,
   },
@@ -791,7 +773,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   categoryChipSmall: {
-    width: 64,
+    width: 82,
     height: 32,
     borderRadius: 14,
   },

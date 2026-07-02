@@ -47,9 +47,16 @@ const ordersMonitorQuerySchema = z.object({
 const activityLogsQuerySchema = z.object({
   entityType: z.string().optional(),
   entityId: z.string().optional(),
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
   includeTotal: z.string().optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
+});
+
+const adminAreaScopeQuerySchema = z.object({
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
 });
 
 function getStringParam(value: unknown) {
@@ -67,6 +74,10 @@ function getBooleanParam(value: unknown) {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return undefined;
+}
+
+function getAdminAreaScope(query: unknown) {
+  return adminAreaScopeQuerySchema.parse(query);
 }
 
 const ordersQuerySchema = z.object({
@@ -404,8 +415,10 @@ export const postAdminPaymentsReconcileLedger = asyncHandler(
 
 export const getAdminOrderMonitor = asyncHandler(
   async (req: Request, res: Response) => {
+    const scope = getAdminAreaScope(req.query);
     const data = await getAdminOrderMonitorDetails(
       String(req.params.orderId ?? ""),
+      scope,
     );
 
     return sendSuccess(res, { data });
@@ -414,6 +427,8 @@ export const getAdminOrderMonitor = asyncHandler(
 
 export const postAdminOrderReviewRequest = asyncHandler(
   async (req: Request, res: Response) => {
+    const scope = getAdminAreaScope(req.query);
+    await getAdminOrderMonitorDetails(String(req.params.orderId ?? ""), scope);
     const data = await sendReviewRequestForOrder({
       orderId: String(req.params.orderId ?? ""),
       force: req.body?.force === true,
@@ -449,8 +464,10 @@ export const postAdminRider = asyncHandler(
 
 export const getAdminRiderDetails = asyncHandler(
   async (req: Request, res: Response) => {
+    const scope = getAdminAreaScope(req.query);
     const data = await getAdminRiderDetailsService(
       String(req.params.riderId ?? ""),
+      scope,
     );
 
     return sendSuccess(res, { data });
@@ -469,6 +486,7 @@ export const getAdminRiderPayroll = asyncHandler(
 export const patchAdminRiderPayrollSettings = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateRiderPayrollSettingsSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminRiderPayrollSettings({
       riderId: String(req.params.riderId ?? ""),
       monthlySalary: payload.monthlySalary,
@@ -476,6 +494,7 @@ export const patchAdminRiderPayrollSettings = asyncHandler(
       isPayrollEnabled: payload.isPayrollEnabled,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -488,6 +507,7 @@ export const patchAdminRiderPayrollSettings = asyncHandler(
 export const postAdminRiderPayrollAdjustment = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = riderPayrollAdjustmentSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await addAdminRiderPayrollAdjustment({
       riderId: String(req.params.riderId ?? ""),
       month: payload.month,
@@ -495,6 +515,7 @@ export const postAdminRiderPayrollAdjustment = asyncHandler(
       amount: payload.amount,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -507,6 +528,7 @@ export const postAdminRiderPayrollAdjustment = asyncHandler(
 export const patchAdminRiderPayrollStatus = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = riderPayrollStatusSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminRiderPayrollStatus({
       riderId: String(req.params.riderId ?? ""),
       month: payload.month,
@@ -514,6 +536,7 @@ export const patchAdminRiderPayrollStatus = asyncHandler(
       paymentReference: payload.paymentReference,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -554,8 +577,10 @@ export const getAdminRiderAssignmentCandidates = asyncHandler(
 export const postAdminBulkAssignRiders = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = bulkAssignRidersSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await bulkAssignAdminRidersToOrders({
       orderIds: payload.orderIds,
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -582,9 +607,11 @@ export const getAdminRidersAssignmentOptions = asyncHandler(
 export const patchAdminRiderAvailability = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateRiderAvailabilitySchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminRiderAvailability({
       riderId: String(req.params.riderId ?? ""),
       isAvailableForAssignments: payload.isAvailableForAssignments,
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -597,9 +624,11 @@ export const patchAdminRiderAvailability = asyncHandler(
 export const postAdminRiderActiveTrip = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = riderActiveTripSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await setAdminRiderActiveTrip({
       riderId: String(req.params.riderId ?? ""),
       orderId: payload.orderId,
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -612,10 +641,12 @@ export const postAdminRiderActiveTrip = asyncHandler(
 export const patchAdminRiderStatus = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateRiderStatusSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminRiderStatus({
       riderId: String(req.params.riderId ?? ""),
       expectedStatus: payload.expectedStatus,
       status: payload.status,
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -628,12 +659,14 @@ export const patchAdminRiderStatus = asyncHandler(
 export const patchAdminRiderVerification = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateRiderVerificationSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminRiderVerification({
       riderId: String(req.params.riderId ?? ""),
       expectedStatus: payload.expectedStatus,
       status: payload.status,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -670,6 +703,8 @@ export const getAdminActivityLogs = asyncHandler(
       page: query.page,
       pageSize: query.pageSize,
       includeTotal: getBooleanParam(query.includeTotal),
+      zoneId: query.zoneId,
+      districtId: query.districtId,
     });
     return sendSuccess(res, { data });
   }
@@ -711,9 +746,11 @@ export const postAdminRunAutoDispatch = asyncHandler(
 export const postAdminOrderAssignRider = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = assignRiderSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await assignAdminRiderToOrder({
       orderId: String(req.params.orderId ?? ""),
       riderId: payload.riderId,
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -726,12 +763,14 @@ export const postAdminOrderAssignRider = asyncHandler(
 export const patchAdminOrderStatus = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateOrderStatusSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminOrderStatus({
       orderId: String(req.params.orderId ?? ""),
       expectedStatus: payload.expectedStatus,
       nextStatus: payload.nextStatus,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -744,6 +783,7 @@ export const patchAdminOrderStatus = asyncHandler(
 export const patchAdminOrderRefundStatus = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateOrderRefundStatusSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminOrderRefundStatus({
       orderId: String(req.params.orderId ?? ""),
       expectedPaymentStatus: payload.expectedPaymentStatus,
@@ -752,6 +792,7 @@ export const patchAdminOrderRefundStatus = asyncHandler(
       providerReference: payload.providerReference,
       proofUrl: payload.proofUrl,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {
@@ -764,11 +805,13 @@ export const patchAdminOrderRefundStatus = asyncHandler(
 export const patchAdminOrderCodCollection = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = updateCodCollectionSchema.parse(req.body);
+    const scope = getAdminAreaScope(req.query);
     const data = await updateAdminOrderCodCollection({
       orderId: String(req.params.orderId ?? ""),
       expectedPaymentStatus: payload.expectedPaymentStatus,
       note: payload.note,
       adminId: req.user?.id ?? "",
+      ...scope,
     });
 
     return sendSuccess(res, {

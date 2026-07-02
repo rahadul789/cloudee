@@ -30,6 +30,7 @@ type Props = {
   onToggleFavorite?: () => void;
   onPress?: () => void;
   compact?: boolean;
+  flat?: boolean;
   variant?: "default" | "featured" | "offer" | "nearby";
   badge?: "featured" | "nearby" | "none";
 };
@@ -50,6 +51,7 @@ function RestaurantHeroCardComponent({
   onToggleFavorite,
   onPress,
   compact = false,
+  flat = false,
   variant = "default",
   badge,
 }: Props) {
@@ -110,6 +112,7 @@ function RestaurantHeroCardComponent({
         isFeaturedVariant ? styles.cardFeatured : null,
         isOfferVariant ? styles.cardOffer : null,
         isNearbyVariant ? styles.cardNearby : null,
+        flat ? styles.cardFlat : null,
         !isOpen ? styles.closedCard : null,
       ]}
       onPress={onPress}
@@ -131,6 +134,9 @@ function RestaurantHeroCardComponent({
           fallbackIcon="restaurant-outline"
           fallbackIconSize={28}
           fallbackTint={palette.primary}
+          showSkeleton={!flat}
+          recyclingKey={flat ? null : undefined}
+          transition={flat ? 80 : 180}
           accessibilityLabel={`${name} restaurant photo`}
         />
 
@@ -299,6 +305,7 @@ function arePropsEqual(prev: Props, next: Props) {
     prev.isFavorite === next.isFavorite &&
     prev.favoriteDisabled === next.favoriteDisabled &&
     prev.compact === next.compact &&
+    prev.flat === next.flat &&
     prev.variant === next.variant &&
     prev.badge === next.badge
   );
@@ -342,6 +349,14 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 5,
+  },
+  cardFlat: {
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+    borderWidth: 1,
+    borderColor: "#F1E2EA",
   },
   cardFeatured: {
     backgroundColor: "#FFFDF5",

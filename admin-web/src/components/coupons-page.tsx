@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useSearchParams } from "react-router-dom"
 import {
   Archive,
   ChevronLeft,
@@ -18,7 +19,10 @@ import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
 import { toast } from "sonner"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
-import { getAdminZoneScope, subscribeAdminZoneScope } from "@/lib/admin-zone-scope"
+import {
+  getAdminZoneScope,
+  subscribeAdminZoneScope,
+} from "@/lib/admin-zone-scope"
 import {
   archiveAdminVoucher,
   createAdminVoucher,
@@ -27,6 +31,7 @@ import {
   listAdminRestaurants,
   listAdminVouchers,
   restoreAdminVoucher,
+  sendAdminVoucherPushCampaign,
   updateAdminVoucher,
   type AdminPromotionTargets,
   type AdminCustomerSummary,
@@ -145,6 +150,13 @@ type VoucherFormState = {
   endsAt: string
 }
 
+type PersonalOfferPrefillTarget = {
+  customerId: string
+  customerName?: string
+  customerPhone?: string
+  requestedCode?: string
+}
+
 const pageSizeOptions = [10, 20, 50]
 
 function formatCurrency(value?: number | null) {
@@ -226,38 +238,55 @@ function getLifecycleBadgeClass(status: string) {
 }
 
 function getInitialForm(
-  restaurants: AdminRestaurantSummary[]
+  restaurants: AdminRestaurantSummary[],
+  personalOfferTarget?: PersonalOfferPrefillTarget | null
 ): VoucherFormState {
   const now = new Date()
   const endsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+  const targetName = personalOfferTarget?.customerName?.trim() || "customer"
+  const requestedCode =
+    personalOfferTarget?.requestedCode?.trim().toUpperCase() || ""
+  const targetCodeSuffix =
+    personalOfferTarget?.customerPhone?.replace(/\D/g, "").slice(-4) ||
+    personalOfferTarget?.customerId.slice(-4).toUpperCase() ||
+    ""
+  const hasPersonalOfferTarget = Boolean(personalOfferTarget?.customerId)
   return {
     restaurantId: restaurants[0]?.id ?? "",
-    scopeType: "restaurant",
+    scopeType: hasPersonalOfferTarget ? "all_restaurants" : "restaurant",
     selectedRestaurantIds: [],
-    audienceType: "all_users",
-    selectedCustomerIds: [],
+    audienceType: hasPersonalOfferTarget ? "selected_users" : "all_users",
+    selectedCustomerIds: personalOfferTarget?.customerId
+      ? [personalOfferTarget.customerId]
+      : [],
     customerGroupKey: "",
     displayShowOnHome: false,
     displayShowInOfferStrip: true,
     displayPlacement: "offers_row",
     displayVariant: "chip",
     displayPosition: "0",
-    displayTitle: "",
-    displaySubtitle: "",
+    displayTitle: hasPersonalOfferTarget ? "A special offer for you" : "",
+    displaySubtitle: hasPersonalOfferTarget
+      ? "Thanks for being a loyal Foodbela customer."
+      : "",
     displayImageUrl: "",
     displayCarouselImageUrls: "",
     displayOpenInModal: false,
     displayCtaLabel: "Order now",
-    displayCtaPath: "/(tabs)/browse",
+    displayCtaPath: hasPersonalOfferTarget ? "/offers" : "/(tabs)/browse",
     displayBackgroundColor: "#FFF0F6",
     displayTextColor: "#3F2432",
     displayAccentColor: "#FF5C93",
-    pushEnabled: false,
-    pushTitle: "",
-    pushBody: "",
-    pushPath: "/(tabs)/browse",
-    name: "",
-    code: "",
+    pushEnabled: hasPersonalOfferTarget,
+    pushTitle: hasPersonalOfferTarget ? "My offer is ready" : "",
+    pushBody: hasPersonalOfferTarget
+      ? "A personal voucher has been added."
+      : "",
+    pushPath: hasPersonalOfferTarget ? "/offers" : "/(tabs)/browse",
+    name: hasPersonalOfferTarget ? `My offer - ${targetName}` : "",
+    code: hasPersonalOfferTarget
+      ? requestedCode || (targetCodeSuffix ? `CUSTOM${targetCodeSuffix}` : "")
+      : "",
     surface: "checkout",
     mode: "coupon",
     type: "flat",
@@ -265,16 +294,16 @@ function getInitialForm(
     ownerSharePercent: "50",
     stackingRule: "exclusive",
     priority: "0",
-    discountValue: "",
+    discountValue: hasPersonalOfferTarget ? "50" : "",
     maxDiscountAmount: "",
-    minimumOrderAmount: "0",
+    minimumOrderAmount: hasPersonalOfferTarget ? "300" : "0",
     minItemPrice: "",
     maxTotalUses: "",
     maxUsesPerUser: "1",
     allowRepeatUsage: false,
     maxTotalDiscountBudget: "",
     cuisineTypes: "",
-    status: "Draft",
+    status: hasPersonalOfferTarget ? "Active" : "Draft",
     applicability: "all",
     categoryIds: [],
     itemIds: [],
@@ -553,6 +582,7 @@ function VoucherFormSheet({
   restaurants,
   existingCodes,
   existingVouchers,
+  personalOfferTarget,
   isSubmitting,
   onSubmit,
 }: {
@@ -562,14 +592,17 @@ function VoucherFormSheet({
   restaurants: AdminRestaurantSummary[]
   existingCodes: string[]
   existingVouchers: AdminRestaurantVoucher[]
+  personalOfferTarget?: PersonalOfferPrefillTarget | null
   isSubmitting: boolean
   onSubmit: (payload: AdminVoucherPayload) => void
 }) {
   const [form, setForm] = React.useState<VoucherFormState>(() =>
-    getInitialForm(restaurants)
+    getInitialForm(restaurants, personalOfferTarget)
   )
   const [errors, setErrors] = React.useState<Record<string, string>>({})
-  const [adminZoneScope, setAdminZoneScope] = React.useState(() => getAdminZoneScope())
+  const [adminZoneScope, setAdminZoneScope] = React.useState(() =>
+    getAdminZoneScope()
+  )
   const targetsQuery = useQuery({
     queryKey: ["admin-restaurant-promotion-targets", form.restaurantId],
     queryFn: () => getAdminRestaurantPromotionTargets(form.restaurantId),
@@ -585,7 +618,44 @@ function VoucherFormSheet({
     categories: [],
     items: [],
   }
-  const customers: AdminCustomerSummary[] = customersQuery.data?.items ?? []
+  const customers: AdminCustomerSummary[] = React.useMemo(() => {
+    const items = customersQuery.data?.items ?? []
+    if (
+      !personalOfferTarget?.customerId ||
+      items.some((customer) => customer.id === personalOfferTarget.customerId)
+    ) {
+      return items
+    }
+
+    return [
+      {
+        id: personalOfferTarget.customerId,
+        fullName: personalOfferTarget.customerName || "Selected customer",
+        phone: personalOfferTarget.customerPhone || "",
+        email: "",
+        status: "active",
+        customerTier: "repeat",
+        authProviders: [],
+        savedLocationsCount: 0,
+        serviceArea: null,
+        lastKnownLocation: null,
+        hasPushToken: false,
+        unreadNotifications: 0,
+        totalOrders: 0,
+        liveOrders: 0,
+        deliveredOrders: 10,
+        deliveredSpend: 0,
+        lastOrderAt: null,
+        lastLoginAt: null,
+        createdAt: null,
+        updatedAt: null,
+        requestStatus: null,
+        requestType: null,
+        requestRequestedAt: null,
+      },
+      ...items,
+    ]
+  }, [customersQuery.data?.items, personalOfferTarget])
   const conflictPreview = React.useMemo(() => {
     const start = new Date(form.startsAt).getTime()
     const end = new Date(form.endsAt).getTime()
@@ -632,11 +702,18 @@ function VoucherFormSheet({
 
   React.useEffect(() => {
     if (!open) return
-    setForm(voucher ? getFormFromVoucher(voucher) : getInitialForm(restaurants))
+    setForm(
+      voucher
+        ? getFormFromVoucher(voucher)
+        : getInitialForm(restaurants, personalOfferTarget)
+    )
     setErrors({})
-  }, [open, restaurants, voucher])
+  }, [open, personalOfferTarget, restaurants, voucher])
 
-  React.useEffect(() => subscribeAdminZoneScope(() => setAdminZoneScope(getAdminZoneScope())), [])
+  React.useEffect(
+    () => subscribeAdminZoneScope(() => setAdminZoneScope(getAdminZoneScope())),
+    []
+  )
 
   function update<K extends keyof VoucherFormState>(
     key: K,
@@ -773,9 +850,16 @@ function VoucherFormSheet({
     event.preventDefault()
     if (!validate()) return
     const payload = toPayload(form, !voucher)
-    if (!voucher && adminZoneScope.type !== "all" && form.scopeType === "all_restaurants") {
+    if (
+      !voucher &&
+      !personalOfferTarget &&
+      adminZoneScope.type !== "all" &&
+      form.scopeType === "all_restaurants"
+    ) {
       payload.scopeType = "selected_restaurants"
-      payload.selectedRestaurantIds = restaurants.map((restaurant) => restaurant.id)
+      payload.selectedRestaurantIds = restaurants.map(
+        (restaurant) => restaurant.id
+      )
     }
     onSubmit(payload)
   }
@@ -828,21 +912,27 @@ function VoucherFormSheet({
                       Checkout voucher (coupon / auto, applied at checkout)
                     </SelectItem>
                     <SelectItem value="menu_markdown">
-                      Menu price markdown (platform-funded, strike-through on menu)
+                      Menu price markdown (platform-funded, strike-through on
+                      menu)
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 {isMarkdown ? (
                   <p className="text-xs text-muted-foreground">
-                    Platform-funded markdown shown on the customer menu. The restaurant is paid
-                    the full listed price; the platform absorbs the discount.
+                    Platform-funded markdown shown on the customer menu. The
+                    restaurant is paid the full listed price; the platform
+                    absorbs the discount.
                   </p>
                 ) : null}
               </div>
               <div className="space-y-2 lg:col-span-2">
                 <Label>Campaign scope</Label>
                 <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  Area zone: <span className="font-medium text-foreground">{adminZoneScope.label}</span>.
+                  Area zone:{" "}
+                  <span className="font-medium text-foreground">
+                    {adminZoneScope.label}
+                  </span>
+                  .
                   {adminZoneScope.type === "all"
                     ? " All restaurant targets are available."
                     : " Restaurant and user targets are limited to this selected area."}
@@ -870,7 +960,9 @@ function VoucherFormSheet({
                       Selected restaurants
                     </SelectItem>
                     <SelectItem value="all_restaurants">
-                      {adminZoneScope.type === "all" ? "All restaurants" : "All restaurants in selected area"}
+                      {adminZoneScope.type === "all"
+                        ? "All restaurants"
+                        : "All restaurants in selected area"}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -1041,7 +1133,9 @@ function VoucherFormSheet({
                     <SelectItem value="flat">Flat</SelectItem>
                     <SelectItem value="percentage">Percentage</SelectItem>
                     {!isMarkdown ? (
-                      <SelectItem value="free_delivery">Free delivery</SelectItem>
+                      <SelectItem value="free_delivery">
+                        Free delivery
+                      </SelectItem>
                     ) : null}
                   </SelectContent>
                 </Select>
@@ -1103,7 +1197,8 @@ function VoucherFormSheet({
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Evaluated per variant on the (base + variant) price. Blank = every price.
+                      Evaluated per variant on the (base + variant) price. Blank
+                      = every price.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -1157,27 +1252,27 @@ function VoucherFormSheet({
               ) : null}
 
               {!isMarkdown ? (
-              <div className="space-y-2">
-                <Label>Funding</Label>
-                <Select
-                  value={form.fundedBy}
-                  onValueChange={(value) =>
-                    update("fundedBy", value as VoucherFormState["fundedBy"])
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {voucher?.createdByType === "owner" ? (
-                      <SelectItem value="owner">Owner funded</SelectItem>
-                    ) : null}
-                    <SelectItem value="platform">Platform funded</SelectItem>
-                    <SelectItem value="shared">Shared funded</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FieldError message={errors.fundedBy} />
-              </div>
+                <div className="space-y-2">
+                  <Label>Funding</Label>
+                  <Select
+                    value={form.fundedBy}
+                    onValueChange={(value) =>
+                      update("fundedBy", value as VoucherFormState["fundedBy"])
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {voucher?.createdByType === "owner" ? (
+                        <SelectItem value="owner">Owner funded</SelectItem>
+                      ) : null}
+                      <SelectItem value="platform">Platform funded</SelectItem>
+                      <SelectItem value="shared">Shared funded</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FieldError message={errors.fundedBy} />
+                </div>
               ) : null}
               {form.fundedBy === "shared" ? (
                 <div className="space-y-2">
@@ -1441,7 +1536,8 @@ function VoucherDetailsSheet({
   const categoryNames = voucher.targetCategories?.map((item) => item.name) ?? []
   const itemNames = voucher.targetItems?.map((item) => item.name) ?? []
   const usageRows = voucher.analytics.usageRows ?? []
-  const appliedCount = voucher.analytics.appliedCount ?? voucher.analytics.totalUses
+  const appliedCount =
+    voucher.analytics.appliedCount ?? voucher.analytics.totalUses
   const deliveredCount =
     voucher.analytics.deliveredCount ??
     voucher.analytics.totalOrdersUsingVoucher
@@ -1507,271 +1603,283 @@ function VoucherDetailsSheet({
 
             <TabsContent value="overview" className="space-y-4">
               <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-            <Card>
-              <CardHeader>
-                <CardTitle>Offer rules</CardTitle>
-                <CardDescription>
-                  Same rule model used in restaurant-owner promotions.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <InfoRow label="Scope" value={getScopeLabel(voucher)} />
-                <InfoRow
-                  label="Audience"
-                  value={getAudienceLabel(voucher.audienceType)}
-                />
-                <InfoRow
-                  label="Restaurant"
-                  value={
-                    voucher.restaurant?.name ??
-                    voucher.restaurantId ??
-                    "Platform campaign"
-                  }
-                />
-                <InfoRow label="Code" value={voucher.code || "Auto applied"} />
-                <InfoRow
-                  label="Mode"
-                  value={getVoucherModeLabel(voucher.mode)}
-                />
-                <InfoRow
-                  label="Type"
-                  value={getVoucherTypeLabel(voucher.type)}
-                />
-                <InfoRow
-                  label="Discount"
-                  value={formatVoucherDiscount(voucher)}
-                />
-                <InfoRow
-                  label="Max discount cap"
-                  value={
-                    voucher.maxDiscountAmount
-                      ? formatCurrency(voucher.maxDiscountAmount)
-                      : "No cap"
-                  }
-                />
-                <InfoRow
-                  label="Minimum order"
-                  value={formatCurrency(voucher.minimumOrderAmount)}
-                />
-                <InfoRow
-                  label="Max total uses"
-                  value={voucher.maxTotalUses ?? "Unlimited"}
-                />
-                <InfoRow
-                  label="Per user"
-                  value={
-                    voucher.allowRepeatUsage
-                      ? `${voucher.maxUsesPerUser} times`
-                      : "Once"
-                  }
-                />
-                <InfoRow
-                  label="Funding"
-                  value={getVoucherFundingLabel(voucher.fundedBy)}
-                />
-                <InfoRow
-                  label="Funding split"
-                  value={`${voucher.ownerSharePercent ?? 100}% owner / ${voucher.platformSharePercent ?? 0}% platform`}
-                />
-                <InfoRow label="Stacking" value={voucher.stackingRule} />
-                <InfoRow label="Priority" value={voucher.priority} />
-                <InfoRow label="Status" value={voucher.status} />
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Offer rules</CardTitle>
+                    <CardDescription>
+                      Same rule model used in restaurant-owner promotions.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 text-sm">
+                    <InfoRow label="Scope" value={getScopeLabel(voucher)} />
+                    <InfoRow
+                      label="Audience"
+                      value={getAudienceLabel(voucher.audienceType)}
+                    />
+                    <InfoRow
+                      label="Restaurant"
+                      value={
+                        voucher.restaurant?.name ??
+                        voucher.restaurantId ??
+                        "Platform campaign"
+                      }
+                    />
+                    <InfoRow
+                      label="Code"
+                      value={voucher.code || "Auto applied"}
+                    />
+                    <InfoRow
+                      label="Mode"
+                      value={getVoucherModeLabel(voucher.mode)}
+                    />
+                    <InfoRow
+                      label="Type"
+                      value={getVoucherTypeLabel(voucher.type)}
+                    />
+                    <InfoRow
+                      label="Discount"
+                      value={formatVoucherDiscount(voucher)}
+                    />
+                    <InfoRow
+                      label="Max discount cap"
+                      value={
+                        voucher.maxDiscountAmount
+                          ? formatCurrency(voucher.maxDiscountAmount)
+                          : "No cap"
+                      }
+                    />
+                    <InfoRow
+                      label="Minimum order"
+                      value={formatCurrency(voucher.minimumOrderAmount)}
+                    />
+                    <InfoRow
+                      label="Max total uses"
+                      value={voucher.maxTotalUses ?? "Unlimited"}
+                    />
+                    <InfoRow
+                      label="Per user"
+                      value={
+                        voucher.allowRepeatUsage
+                          ? `${voucher.maxUsesPerUser} times`
+                          : "Once"
+                      }
+                    />
+                    <InfoRow
+                      label="Funding"
+                      value={getVoucherFundingLabel(voucher.fundedBy)}
+                    />
+                    <InfoRow
+                      label="Funding split"
+                      value={`${voucher.ownerSharePercent ?? 100}% owner / ${voucher.platformSharePercent ?? 0}% platform`}
+                    />
+                    <InfoRow label="Stacking" value={voucher.stackingRule} />
+                    <InfoRow label="Priority" value={voucher.priority} />
+                    <InfoRow label="Status" value={voucher.status} />
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Finance & usage</CardTitle>
-                <CardDescription>
-                  Delivered-order revenue and redemption analytics.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <InfoRow
-                  label="Total uses"
-                  value={voucher.analytics.totalUses}
-                />
-                <InfoRow
-                  label="Unique users"
-                  value={voucher.analytics.uniqueUsers}
-                />
-                <InfoRow
-                  label="Repeat usage"
-                  value={voucher.analytics.repeatUsage}
-                />
-                <InfoRow
-                  label="Orders using voucher"
-                  value={voucher.analytics.totalOrdersUsingVoucher}
-                />
-                <InfoRow
-                  label="Revenue generated"
-                  value={formatCurrency(voucher.analytics.revenueGenerated)}
-                />
-                <InfoRow
-                  label="Discount given"
-                  value={formatCurrency(voucher.analytics.totalDiscountGiven)}
-                />
-                <InfoRow
-                  label="Delivery cost covered"
-                  value={formatCurrency(
-                    voucher.analytics.totalDeliveryCostCovered
-                  )}
-                />
-                <InfoRow
-                  label="Remaining usage"
-                  value={voucher.analytics.remainingUsage ?? "Unlimited"}
-                />
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Finance & usage</CardTitle>
+                    <CardDescription>
+                      Delivered-order revenue and redemption analytics.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 text-sm">
+                    <InfoRow
+                      label="Total uses"
+                      value={voucher.analytics.totalUses}
+                    />
+                    <InfoRow
+                      label="Unique users"
+                      value={voucher.analytics.uniqueUsers}
+                    />
+                    <InfoRow
+                      label="Repeat usage"
+                      value={voucher.analytics.repeatUsage}
+                    />
+                    <InfoRow
+                      label="Orders using voucher"
+                      value={voucher.analytics.totalOrdersUsingVoucher}
+                    />
+                    <InfoRow
+                      label="Revenue generated"
+                      value={formatCurrency(voucher.analytics.revenueGenerated)}
+                    />
+                    <InfoRow
+                      label="Discount given"
+                      value={formatCurrency(
+                        voucher.analytics.totalDiscountGiven
+                      )}
+                    />
+                    <InfoRow
+                      label="Delivery cost covered"
+                      value={formatCurrency(
+                        voucher.analytics.totalDeliveryCostCovered
+                      )}
+                    />
+                    <InfoRow
+                      label="Remaining usage"
+                      value={voucher.analytics.remainingUsage ?? "Unlimited"}
+                    />
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Timeline</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 text-sm">
-                <InfoRow label="Starts" value={formatDate(voucher.startsAt)} />
-                <InfoRow label="Ends" value={formatDate(voucher.endsAt)} />
-                <InfoRow
-                  label="Created"
-                  value={formatDate(voucher.createdAt)}
-                />
-                <InfoRow
-                  label="Updated"
-                  value={formatDate(voucher.updatedAt)}
-                />
-                <InfoRow
-                  label="Archived"
-                  value={
-                    voucher.archivedAt ? formatDate(voucher.archivedAt) : "No"
-                  }
-                />
-                <InfoRow
-                  label="Creator id"
-                  value={voucher.createdById || "N/A"}
-                />
-                {voucher.archiveReason ? (
-                  <InfoRow
-                    label="Archive reason"
-                    value={voucher.archiveReason}
-                  />
-                ) : null}
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Timeline</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-3 text-sm">
+                    <InfoRow
+                      label="Starts"
+                      value={formatDate(voucher.startsAt)}
+                    />
+                    <InfoRow label="Ends" value={formatDate(voucher.endsAt)} />
+                    <InfoRow
+                      label="Created"
+                      value={formatDate(voucher.createdAt)}
+                    />
+                    <InfoRow
+                      label="Updated"
+                      value={formatDate(voucher.updatedAt)}
+                    />
+                    <InfoRow
+                      label="Archived"
+                      value={
+                        voucher.archivedAt
+                          ? formatDate(voucher.archivedAt)
+                          : "No"
+                      }
+                    />
+                    <InfoRow
+                      label="Creator id"
+                      value={voucher.createdById || "N/A"}
+                    />
+                    {voucher.archiveReason ? (
+                      <InfoRow
+                        label="Archive reason"
+                        value={voucher.archiveReason}
+                      />
+                    ) : null}
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Applicability</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <InfoRow label="Applies to" value={voucher.applicability} />
-                {voucher.applicability === "all" ? (
-                  <div className="rounded-lg border bg-muted/30 p-3 text-muted-foreground">
-                    Applies to all eligible items in this campaign scope.
-                  </div>
-                ) : null}
-                {voucher.applicability === "categories" ? (
-                  <div className="flex flex-wrap gap-2">
-                    {(categoryNames.length
-                      ? categoryNames
-                      : voucher.categoryIds
-                    ).map((name) => (
-                      <Badge key={name} variant="outline">
-                        {name}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-                {voucher.applicability === "items" ? (
-                  <div className="flex flex-wrap gap-2">
-                    {(itemNames.length ? itemNames : voucher.itemIds).map(
-                      (name) => (
-                        <Badge key={name} variant="outline">
-                          {name}
-                        </Badge>
-                      )
-                    )}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <Card className="xl:col-span-2">
-              <CardHeader>
-                <CardTitle>Last 7 days</CardTitle>
-                <CardDescription>
-                  Daily usage and delivered-order discount impact.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-hidden rounded-lg border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Day</TableHead>
-                        <TableHead>Uses</TableHead>
-                        <TableHead className="text-right">Discount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {voucher.analytics.points.map((point) => (
-                        <TableRow key={point.label}>
-                          <TableCell>{point.label}</TableCell>
-                          <TableCell>{point.uses}</TableCell>
-                          <TableCell className="text-right">
-                            {formatCurrency(point.discount)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="xl:col-span-2">
-              <CardHeader>
-                <CardTitle>Audit trail</CardTitle>
-                <CardDescription>
-                  Recent admin/owner changes for dispute visibility.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {voucher.recentAudits?.length ? (
-                  <div className="overflow-hidden rounded-lg border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Action</TableHead>
-                          <TableHead>Actor</TableHead>
-                          <TableHead>Note</TableHead>
-                          <TableHead className="text-right">When</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {voucher.recentAudits.map((audit) => (
-                          <TableRow key={audit.id}>
-                            <TableCell className="capitalize">
-                              {audit.action}
-                            </TableCell>
-                            <TableCell>
-                              {audit.actorType} {audit.actorId}
-                            </TableCell>
-                            <TableCell>{audit.note || "N/A"}</TableCell>
-                            <TableCell className="text-right">
-                              {formatDate(audit.createdAt)}
-                            </TableCell>
-                          </TableRow>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Applicability</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <InfoRow label="Applies to" value={voucher.applicability} />
+                    {voucher.applicability === "all" ? (
+                      <div className="rounded-lg border bg-muted/30 p-3 text-muted-foreground">
+                        Applies to all eligible items in this campaign scope.
+                      </div>
+                    ) : null}
+                    {voucher.applicability === "categories" ? (
+                      <div className="flex flex-wrap gap-2">
+                        {(categoryNames.length
+                          ? categoryNames
+                          : voucher.categoryIds
+                        ).map((name) => (
+                          <Badge key={name} variant="outline">
+                            {name}
+                          </Badge>
                         ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    No audit entries yet.
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      </div>
+                    ) : null}
+                    {voucher.applicability === "items" ? (
+                      <div className="flex flex-wrap gap-2">
+                        {(itemNames.length ? itemNames : voucher.itemIds).map(
+                          (name) => (
+                            <Badge key={name} variant="outline">
+                              {name}
+                            </Badge>
+                          )
+                        )}
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+
+                <Card className="xl:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Last 7 days</CardTitle>
+                    <CardDescription>
+                      Daily usage and delivered-order discount impact.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-hidden rounded-lg border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Day</TableHead>
+                            <TableHead>Uses</TableHead>
+                            <TableHead className="text-right">
+                              Discount
+                            </TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {voucher.analytics.points.map((point) => (
+                            <TableRow key={point.label}>
+                              <TableCell>{point.label}</TableCell>
+                              <TableCell>{point.uses}</TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency(point.discount)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="xl:col-span-2">
+                  <CardHeader>
+                    <CardTitle>Audit trail</CardTitle>
+                    <CardDescription>
+                      Recent admin/owner changes for dispute visibility.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {voucher.recentAudits?.length ? (
+                      <div className="overflow-hidden rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Action</TableHead>
+                              <TableHead>Actor</TableHead>
+                              <TableHead>Note</TableHead>
+                              <TableHead className="text-right">When</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {voucher.recentAudits.map((audit) => (
+                              <TableRow key={audit.id}>
+                                <TableCell className="capitalize">
+                                  {audit.action}
+                                </TableCell>
+                                <TableCell>
+                                  {audit.actorType} {audit.actorId}
+                                </TableCell>
+                                <TableCell>{audit.note || "N/A"}</TableCell>
+                                <TableCell className="text-right">
+                                  {formatDate(audit.createdAt)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                        No audit entries yet.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
 
@@ -1848,7 +1956,8 @@ function VoucherDetailsSheet({
                 <CardHeader>
                   <CardTitle>Voucher uses</CardTitle>
                   <CardDescription>
-                    Latest applied orders, status, funding split, and released rows.
+                    Latest applied orders, status, funding split, and released
+                    rows.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1861,9 +1970,13 @@ function VoucherDetailsSheet({
                             <TableHead>Customer</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Applied</TableHead>
-                            <TableHead className="text-right">Discount</TableHead>
+                            <TableHead className="text-right">
+                              Discount
+                            </TableHead>
                             <TableHead className="text-right">Owner</TableHead>
-                            <TableHead className="text-right">Platform</TableHead>
+                            <TableHead className="text-right">
+                              Platform
+                            </TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1886,7 +1999,9 @@ function VoucherDetailsSheet({
                                 </div>
                               </TableCell>
                               <TableCell>
-                                <Badge variant="outline">{row.status || "N/A"}</Badge>
+                                <Badge variant="outline">
+                                  {row.status || "N/A"}
+                                </Badge>
                               </TableCell>
                               <TableCell>{formatDate(row.appliedAt)}</TableCell>
                               <TableCell className="text-right">
@@ -1920,11 +2035,14 @@ function VoucherDetailsSheet({
 
 export function CouponsPage() {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
   const [lifecycle, setLifecycle] = React.useState<AdminVoucherLifecycle>("all")
   const [mode, setMode] = React.useState<"all" | AdminVoucherMode>("all")
   const [type, setType] = React.useState<VoucherTypeFilter>("all")
-  const [audienceFilter, setAudienceFilter] = React.useState<"all" | "personalized">("all")
+  const [audienceFilter, setAudienceFilter] = React.useState<
+    "all" | "personalized"
+  >("all")
   const [scopeType, setScopeType] = React.useState<
     "all" | VoucherFormState["scopeType"]
   >("all")
@@ -1939,6 +2057,8 @@ export function CouponsPage() {
     React.useState<AdminRestaurantVoucher | null>(null)
   const [editingVoucher, setEditingVoucher] =
     React.useState<AdminRestaurantVoucher | null>(null)
+  const [personalOfferTarget, setPersonalOfferTarget] =
+    React.useState<PersonalOfferPrefillTarget | null>(null)
   const [formOpen, setFormOpen] = React.useState(false)
   const debouncedSearch = useDebouncedValue(search, 350)
 
@@ -1981,10 +2101,30 @@ export function CouponsPage() {
 
   const createMutation = useMutation({
     mutationFn: createAdminVoucher,
-    onSuccess: () => {
+    onSuccess: async (createdVoucher) => {
       toast.success("Offer created")
+      if (personalOfferTarget && createdVoucher.pushCampaign?.enabled) {
+        try {
+          const pushResult = await sendAdminVoucherPushCampaign(
+            createdVoucher._id
+          )
+          toast.success(
+            pushResult.sentCount > 0
+              ? "Customer push sent"
+              : "Offer saved. In-app notification created."
+          )
+        } catch (error) {
+          toast.warning(
+            error instanceof Error
+              ? error.message
+              : "Offer saved, but push could not be sent."
+          )
+        }
+      }
       setFormOpen(false)
+      setPersonalOfferTarget(null)
       void queryClient.invalidateQueries({ queryKey: ["admin-vouchers"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-customers"] })
     },
     onError: (error) =>
       toast.error(
@@ -2046,7 +2186,9 @@ export function CouponsPage() {
   })
 
   const vouchers = (vouchersQuery.data?.items ?? []).filter((voucher) =>
-    audienceFilter === "personalized" ? voucher.audienceType === "selected_users" : true
+    audienceFilter === "personalized"
+      ? voucher.audienceType === "selected_users"
+      : true
   )
   const restaurants = restaurantsQuery.data?.items ?? []
   const pageCount = vouchersQuery.data?.pageCount ?? 1
@@ -2085,6 +2227,22 @@ export function CouponsPage() {
     if (page > pageCount) setPage(pageCount)
   }, [page, pageCount])
 
+  React.useEffect(() => {
+    const customerId = searchParams.get("customerId")?.trim()
+    if (!customerId || searchParams.get("personalOffer") !== "1") return
+
+    setPersonalOfferTarget({
+      customerId,
+      customerName: searchParams.get("customerName")?.trim() || "",
+      customerPhone: searchParams.get("customerPhone")?.trim() || "",
+      requestedCode: searchParams.get("requestedCode")?.trim() || "",
+    })
+    setAudienceFilter("personalized")
+    setEditingVoucher(null)
+    setFormOpen(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
+
   function resetFilters() {
     setSearch("")
     setLifecycle("all")
@@ -2099,11 +2257,13 @@ export function CouponsPage() {
   }
 
   function openCreate() {
+    setPersonalOfferTarget(null)
     setEditingVoucher(null)
     setFormOpen(true)
   }
 
   function openEdit(voucher: AdminRestaurantVoucher) {
+    setPersonalOfferTarget(null)
     setEditingVoucher(voucher)
     setFormOpen(true)
   }
@@ -2117,7 +2277,7 @@ export function CouponsPage() {
           ? "This is a personalized offer assigned to selected users."
           : ""
     const confirmed = window.confirm(
-      `${warning ? `${warning}\n\n` : ""}Archive this offer? It will stop appearing in active voucher lists and new campaigns. Already sent personal offers will keep their history but show as expired in customer apps.`,
+      `${warning ? `${warning}\n\n` : ""}Archive this offer? It will stop appearing in active voucher lists and new campaigns. Already sent personal offers will keep their history but show as expired in customer apps.`
     )
     if (!confirmed) return
     archiveMutation.mutate({
@@ -2437,7 +2597,9 @@ export function CouponsPage() {
                             ) : (
                               <DropdownMenuItem
                                 disabled={archiveMutation.isPending}
-                                onClick={() => archiveVoucherWithWarning(voucher)}
+                                onClick={() =>
+                                  archiveVoucherWithWarning(voucher)
+                                }
                               >
                                 <Archive className="size-4" />
                                 Archive offer
@@ -2525,11 +2687,15 @@ export function CouponsPage() {
         restaurants={restaurants}
         existingCodes={existingCodes}
         existingVouchers={vouchers}
+        personalOfferTarget={personalOfferTarget}
         isSubmitting={createMutation.isPending || updateMutation.isPending}
         onSubmit={handleSubmit}
         onOpenChange={(open) => {
           setFormOpen(open)
-          if (!open) setEditingVoucher(null)
+          if (!open) {
+            setEditingVoucher(null)
+            setPersonalOfferTarget(null)
+          }
         }}
       />
     </>

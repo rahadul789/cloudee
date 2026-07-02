@@ -72,7 +72,7 @@ export default function SupportScreen() {
       "Hi Foodbela support,\n\nI need help with an order / delivery / payment issue.\n\nOrder details:\nIssue summary:\n",
     );
     void Linking.openURL(
-      `mailto:support@foodbela.app?subject=${subject}&body=${body}`,
+      `mailto:support@foodbela.com?subject=${subject}&body=${body}`,
     );
   };
 
@@ -194,7 +194,9 @@ export default function SupportScreen() {
                     : null,
                 ]}
                 onPress={() =>
-                  router.push(resolveCustomerRoute(topic.route, "/support") as never)
+                  router.push(
+                    resolveCustomerRoute(topic.route, "/support") as never,
+                  )
                 }
               >
                 <View

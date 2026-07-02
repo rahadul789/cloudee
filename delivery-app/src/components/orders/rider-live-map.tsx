@@ -27,6 +27,7 @@ type RiderLiveMapProps = {
   riderLocation?: RiderMapCoordinate | null;
   riderHeading?: number | null;
   routePolyline?: string | null;
+  routeProvider?: "google" | "haversine" | null;
   showActiveApproachLeg?: boolean;
   showPlannedDeliveryLeg?: boolean;
   restaurantName?: string;

@@ -65,7 +65,7 @@ const zones: DemoZone[] = [
     districtSlug: "netrakona",
     zoneName: "Netrakona Sadar",
     zoneSlug: "netrakona-sadar",
-    center: { latitude: 24.8835, longitude: 90.7278 },
+    center: { latitude: 24.875, longitude: 90.7333 },
     radiusKm: 8,
     maxRestaurantDistanceKm: 5,
     baseFeeTaka: 45,
@@ -75,20 +75,30 @@ const zones: DemoZone[] = [
     districtSlug: "netrakona",
     zoneName: "Kendua",
     zoneSlug: "kendua",
-    center: { latitude: 24.6912, longitude: 90.8555 },
+    center: { latitude: 24.65, longitude: 90.8417 },
     radiusKm: 7,
     maxRestaurantDistanceKm: 4.5,
     baseFeeTaka: 50,
   },
   {
-    districtName: "Mymensingh",
-    districtSlug: "mymensingh",
-    zoneName: "Mymensingh Sadar",
-    zoneSlug: "mymensingh-sadar",
-    center: { latitude: 24.7471, longitude: 90.4203 },
+    districtName: "Dinajpur",
+    districtSlug: "dinajpur",
+    zoneName: "Dinajpur Sadar",
+    zoneSlug: "dinajpur-sadar",
+    center: { latitude: 25.6333, longitude: 88.65 },
     radiusKm: 7,
     maxRestaurantDistanceKm: 5,
     baseFeeTaka: 55,
+  },
+  {
+    districtName: "Dhaka",
+    districtSlug: "dhaka",
+    zoneName: "Khilgaon",
+    zoneSlug: "khilgaon",
+    center: { latitude: 23.7508, longitude: 90.4264 },
+    radiusKm: 5,
+    maxRestaurantDistanceKm: 4,
+    baseFeeTaka: 60,
   },
 ]
 
@@ -192,28 +202,54 @@ const restaurants: DemoRestaurant[] = [
     imageUrl: FOOD_IMAGES[7],
   },
   {
-    name: "Mymensingh Biryani House",
+    name: "Dinajpur Biryani House",
     ownerName: "Sadia Noor",
     ownerPhone: "01710000009",
     ownerEmail: "sadia@foodbela.demo",
     phone: "01710001009",
-    zoneSlug: "mymensingh-sadar",
+    zoneSlug: "dinajpur-sadar",
     distanceKm: 2.5,
     bearingDeg: 80,
     cuisines: ["Biryani", "Kacchi", "Bangla"],
     imageUrl: FOOD_IMAGES[3],
+    featured: true,
   },
   {
-    name: "Mymensingh Burger Lab",
+    name: "Dinajpur Burger Lab",
     ownerName: "Jannat Akter",
     ownerPhone: "01710000010",
     ownerEmail: "jannat@foodbela.demo",
     phone: "01710001010",
-    zoneSlug: "mymensingh-sadar",
+    zoneSlug: "dinajpur-sadar",
     distanceKm: 5.8,
     bearingDeg: 140,
     cuisines: ["Burger", "Fast Food", "Fries"],
     imageUrl: FOOD_IMAGES[4],
+  },
+  {
+    name: "Khilgaon Kacchi Point",
+    ownerName: "Nusrat Jahan",
+    ownerPhone: "01710000011",
+    ownerEmail: "nusrat@foodbela.demo",
+    phone: "01710001011",
+    zoneSlug: "khilgaon",
+    distanceKm: 1.8,
+    bearingDeg: 35,
+    cuisines: ["Kacchi", "Biryani", "Bangla"],
+    imageUrl: FOOD_IMAGES[1],
+    featured: true,
+  },
+  {
+    name: "Khilgaon Grill Hub",
+    ownerName: "Fahim Rahman",
+    ownerPhone: "01710000012",
+    ownerEmail: "fahim@foodbela.demo",
+    phone: "01710001012",
+    zoneSlug: "khilgaon",
+    distanceKm: 3.6,
+    bearingDeg: 210,
+    cuisines: ["Grill", "Chicken", "Fast Food"],
+    imageUrl: FOOD_IMAGES[6],
   },
 ]
 
@@ -261,6 +297,52 @@ function point(longitude: number | null, latitude: number | null) {
   }
 }
 
+function districtDisplayOrder(slug: string) {
+  if (slug === "netrakona") return 1
+  if (slug === "dinajpur") return 2
+  if (slug === "dhaka") return 3
+  return 99
+}
+
+function zoneDisplayOrder(slug: string) {
+  if (slug === "netrakona-sadar") return 1
+  if (slug === "kendua") return 2
+  if (slug === "dinajpur-sadar") return 3
+  if (slug === "khilgaon") return 4
+  return 99
+}
+
+async function cleanupRetiredDemoData() {
+  const now = new Date()
+  await Promise.all([
+    ServiceZoneModel.updateMany(
+      { slug: { $in: ["mymensingh-sadar"] }, notes: /demo/i },
+      { $set: { status: "archived", notes: "Archived by area demo seed replacement" } },
+    ),
+    ServiceDistrictModel.updateMany(
+      { slug: { $in: ["mymensingh"] }, notes: /demo/i },
+      { $set: { status: "archived", notes: "Archived by area demo seed replacement" } },
+    ),
+    RestaurantModel.updateMany(
+      {
+        slug: { $in: ["mymensingh-biryani-house", "mymensingh-burger-lab"] },
+        "commercial.commissionHistory.changedByAdminId": "area-demo-seed",
+      },
+      {
+        $set: {
+          "runtime.isOnline": false,
+          "runtime.isVisible": false,
+          "runtime.currentOperationalStatus": "closed",
+        },
+      },
+    ),
+    VoucherModel.updateMany(
+      { code: { $in: ["MYMEN50"] }, createdByType: "admin" },
+      { $set: { status: "Archived", archivedAt: now } },
+    ),
+  ])
+}
+
 async function upsertDistrictsAndZones() {
   const zoneBySlug = new Map<string, mongoose.Document & Record<string, any>>()
 
@@ -272,7 +354,7 @@ async function upsertDistrictsAndZones() {
         slug: seed.districtSlug,
         status: "active",
         country: "Bangladesh",
-        displayOrder: seed.districtSlug === "netrakona" ? 1 : 2,
+        displayOrder: districtDisplayOrder(seed.districtSlug),
         notes: "Foodbela area demo seed",
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
@@ -287,9 +369,10 @@ async function upsertDistrictsAndZones() {
         slug: seed.zoneSlug,
         status: "active",
         center: seed.center,
+        centerPoint: point(seed.center.longitude, seed.center.latitude),
         radiusKm: seed.radiusKm,
         priority: seed.zoneSlug === "netrakona-sadar" ? 20 : 10,
-        displayOrder: seed.zoneSlug === "netrakona-sadar" ? 1 : 2,
+        displayOrder: zoneDisplayOrder(seed.zoneSlug),
         delivery: {
           baseFeeTaka: seed.baseFeeTaka,
           distanceSurchargeEnabled: true,
@@ -373,7 +456,7 @@ async function upsertRestaurant(
       },
       address: {
         address: `${seed.name} Road, ${serviceArea.zoneName}`,
-        city: serviceArea.districtName,
+        city: serviceArea.zoneName,
       },
       location: { latitude, longitude },
       locationPoint: point(longitude, latitude),
@@ -603,8 +686,11 @@ async function upsertCollectionsAndVouchers(
   const kenduaRestaurants = seededRestaurants.filter(
     (entry) => entry.serviceArea.zoneSlug === "kendua",
   )
-  const mymensinghRestaurants = seededRestaurants.filter(
-    (entry) => entry.serviceArea.zoneSlug === "mymensingh-sadar",
+  const dinajpurRestaurants = seededRestaurants.filter(
+    (entry) => entry.serviceArea.zoneSlug === "dinajpur-sadar",
+  )
+  const khilgaonRestaurants = seededRestaurants.filter(
+    (entry) => entry.serviceArea.zoneSlug === "khilgaon",
   )
   await VoucherModel.findOneAndUpdate(
     { restaurantId: null, code: "NETRA15" },
@@ -693,11 +779,11 @@ async function upsertCollectionsAndVouchers(
   )
 
   await VoucherModel.findOneAndUpdate(
-    { restaurantId: null, code: "MYMEN50" },
+    { restaurantId: null, code: "DINA50" },
     {
       restaurantId: null,
       scopeType: "selected_restaurants",
-      selectedRestaurantIds: mymensinghRestaurants.map((entry) => entry.restaurant._id),
+      selectedRestaurantIds: dinajpurRestaurants.map((entry) => entry.restaurant._id),
       audienceType: "all_users",
       createdByType: "admin",
       createdById: adminId,
@@ -708,8 +794,8 @@ async function upsertCollectionsAndVouchers(
       priority: 8,
       mode: "coupon",
       type: "flat",
-      name: "Mymensingh Tk 50 off",
-      code: "MYMEN50",
+      name: "Dinajpur Tk 50 off",
+      code: "DINA50",
       discountValue: 50,
       maxDiscountAmount: 50,
       minimumOrderAmount: 250,
@@ -723,8 +809,51 @@ async function upsertCollectionsAndVouchers(
         placement: "offers_row",
         variant: "chip",
         position: 3,
-        title: "Tk 50 off in Mymensingh",
-        subtitle: "Use MYMEN50",
+        title: "Tk 50 off in Dinajpur",
+        subtitle: "Use DINA50",
+        ctaLabel: "Order now",
+        ctaPath: "/offers",
+      },
+      startsAt: now,
+      endsAt,
+      archivedAt: null,
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  )
+
+  await VoucherModel.findOneAndUpdate(
+    { restaurantId: null, code: "KHILGAON60" },
+    {
+      restaurantId: null,
+      scopeType: "selected_restaurants",
+      selectedRestaurantIds: khilgaonRestaurants.map((entry) => entry.restaurant._id),
+      audienceType: "all_users",
+      createdByType: "admin",
+      createdById: adminId,
+      fundedBy: "platform",
+      ownerSharePercent: 0,
+      platformSharePercent: 100,
+      stackingRule: "exclusive",
+      priority: 7,
+      mode: "coupon",
+      type: "flat",
+      name: "Khilgaon Tk 60 off",
+      code: "KHILGAON60",
+      discountValue: 60,
+      maxDiscountAmount: 60,
+      minimumOrderAmount: 300,
+      maxTotalUses: 500,
+      maxUsesPerUser: 1,
+      allowRepeatUsage: false,
+      status: "Active",
+      display: {
+        showOnHome: true,
+        showInOfferStrip: true,
+        placement: "offers_row",
+        variant: "chip",
+        position: 4,
+        title: "Tk 60 off in Khilgaon",
+        subtitle: "Use KHILGAON60",
         ctaLabel: "Order now",
         ctaPath: "/offers",
       },
@@ -782,6 +911,7 @@ async function upsertCollectionsAndVouchers(
 
 async function seedAreaDemo() {
   await connectDatabase()
+  await cleanupRetiredDemoData()
   const [admin, passwordHash] = await Promise.all([
     bootstrapAdminIfMissing(),
     hashPassword(DEMO_PASSWORD),

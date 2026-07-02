@@ -128,6 +128,8 @@ const CUSTOMER_PASSWORD_MIN_LENGTH = 6;
 const QUEUED_DELIVERY_DROPOFF_BUFFER_MINUTES = 3;
 const QUEUED_DELIVERY_ROUTE_FACTOR = 1.35;
 const QUEUED_DELIVERY_SPEED_KMPH = 16;
+const CUSTOM_OFFER_TARGET_ORDER_COUNT = 10;
+const CUSTOM_OFFER_ADMIN_RESPONSE_HOURS = 72;
 export type CustomerCacheRecord = Record<string, any>;
 type DiscoverableRestaurantsResult = CustomerCacheRecord[];
 type DiscoverableRestaurantsPageResult = {
@@ -3042,15 +3044,20 @@ export async function getCustomerDiscoveryHome(params?: {
           }
         }
       }
-      const hasCustomerOrders = params?.customerId
-        ? Boolean(await OrderModel.exists({ customerId: params.customerId }))
+      const hasDeliveredCustomerOrder = params?.customerId
+        ? Boolean(
+            await OrderModel.exists({
+              customerId: params.customerId,
+              status: "Delivered",
+            }),
+          )
         : false;
       const homeCms = JSON.parse(
         JSON.stringify(homePlatformContent.customerApp.homeCms),
       );
       if (
         homeCms.howToOrderGuide?.audience === "new_users" &&
-        (!params?.customerId || hasCustomerOrders)
+        (!params?.customerId || hasDeliveredCustomerOrder)
       ) {
         homeCms.howToOrderGuide.isActive = false;
       }
@@ -3550,6 +3557,187 @@ function assertCustomerAccountAccessible(customer: {
       "This account is no longer available. Please contact support for assistance.",
     );
   }
+}
+
+type CustomerCustomOfferStatus = "locked" | "eligible" | "requested" | "ready";
+
+function getActiveCustomerPersonalOffer(customer: Record<string, any>) {
+  const notifications = Array.isArray(customer.notifications)
+    ? customer.notifications
+    : [];
+
+  return notifications
+    .filter((notification) => notification?.personalOffer === true)
+    .filter((notification) => {
+      const expiresAt = notification?.voucherExpiresAt
+        ? new Date(notification.voucherExpiresAt).getTime()
+        : null;
+      return !expiresAt || Number.isNaN(expiresAt) || expiresAt > Date.now();
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(left?.createdAt ?? 0).getTime();
+      const rightTime = new Date(right?.createdAt ?? 0).getTime();
+      return rightTime - leftTime;
+    })[0];
+}
+
+function buildCustomerCustomOfferSummary(
+  customer: Record<string, any>,
+  completedOrderCount: number,
+) {
+  const request = customer.customOfferRequest ?? {};
+  const activeOffer = getActiveCustomerPersonalOffer(customer);
+  const remainingOrderCount = Math.max(
+    CUSTOM_OFFER_TARGET_ORDER_COUNT - completedOrderCount,
+    0,
+  );
+  const requestStatus = String(request.status ?? "none");
+  const status: CustomerCustomOfferStatus = activeOffer
+    ? "ready"
+    : requestStatus === "requested"
+      ? "requested"
+      : completedOrderCount >= CUSTOM_OFFER_TARGET_ORDER_COUNT
+        ? "eligible"
+        : "locked";
+
+  return {
+    status,
+    completedOrderCount,
+    targetOrderCount: CUSTOM_OFFER_TARGET_ORDER_COUNT,
+    remainingOrderCount,
+    progressRatio:
+      CUSTOM_OFFER_TARGET_ORDER_COUNT > 0
+        ? Math.min(completedOrderCount / CUSTOM_OFFER_TARGET_ORDER_COUNT, 1)
+        : 0,
+    requestedAt: request.requestedAt ?? null,
+    expectedReadyAt: request.expectedReadyAt ?? null,
+    fulfilledAt: request.fulfilledAt ?? null,
+    voucherId: activeOffer?.voucherId || request.voucherId || "",
+    voucherCode: activeOffer?.voucherCode || request.voucherCode || "",
+    voucherLabel:
+      activeOffer?.voucherLabel ||
+      activeOffer?.title ||
+      request.voucherLabel ||
+      "",
+    voucherExpiresAt: activeOffer?.voucherExpiresAt ?? null,
+  };
+}
+
+export async function getCustomerCustomOfferSummary(customerId: string) {
+  const safeCustomerId = ensureCustomerIdentity(customerId);
+  const customer = await CustomerModel.findById(safeCustomerId)
+    .select("customOfferRequest notifications")
+    .lean();
+
+  if (!customer) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "CUSTOMER_NOT_FOUND",
+      "Customer not found",
+    );
+  }
+
+  const completedOrderCount = await OrderModel.countDocuments({
+    customerId: safeCustomerId,
+    status: "Delivered",
+  });
+
+  return buildCustomerCustomOfferSummary(customer, completedOrderCount);
+}
+
+export async function requestCustomerCustomOffer(params: {
+  customerId: string;
+}) {
+  const safeCustomerId = ensureCustomerIdentity(params.customerId);
+  const customer = await CustomerModel.findById(safeCustomerId);
+
+  if (!customer) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "CUSTOMER_NOT_FOUND",
+      "Customer not found",
+    );
+  }
+
+  assertCustomerAccountAccessible(customer);
+
+  const completedOrderCount = await OrderModel.countDocuments({
+    customerId: safeCustomerId,
+    status: "Delivered",
+  });
+
+  if (completedOrderCount < CUSTOM_OFFER_TARGET_ORDER_COUNT) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "CUSTOM_OFFER_NOT_ELIGIBLE",
+      "Complete more delivered orders to request my offer.",
+    );
+  }
+
+  const customerObject = customer.toObject() as Record<string, any>;
+  const currentRequest = customerObject.customOfferRequest ?? {};
+  const activeOffer = getActiveCustomerPersonalOffer(customerObject);
+  if (!activeOffer && currentRequest.status !== "requested") {
+    const now = new Date();
+    const expectedReadyAt = new Date(
+      now.getTime() + CUSTOM_OFFER_ADMIN_RESPONSE_HOURS * 60 * 60 * 1000,
+    );
+    const history = Array.isArray(currentRequest.history)
+      ? currentRequest.history
+      : [];
+
+    customer.set("customOfferRequest", {
+      ...currentRequest,
+      status: "requested",
+      requestedAt: now,
+      expectedReadyAt,
+      fulfilledAt: null,
+      lastRequestOrderCount: completedOrderCount,
+      history: [
+        ...history.slice(-24),
+        {
+          action: "requested",
+          note: "Customer requested my offer from the profile screen.",
+          actorId: safeCustomerId,
+          actorName: customer.fullName || "Customer",
+          createdAt: now,
+        },
+      ],
+    });
+    await customer.save();
+
+    await createAdminOperationalAlert({
+      alertType: "customer_custom_offer_request",
+      severity: "info",
+      title: "Customer requested my offer",
+      description: `${customer.fullName || customer.phone || "A customer"} completed ${completedOrderCount} delivered orders and requested a personal voucher.`,
+      source: "Customer offers",
+      entityType: "customer",
+      entityId: safeCustomerId,
+      path: `/users?customerId=${safeCustomerId}&tab=offers`,
+      iconKey: "gift",
+      dedupeKey: `customer-custom-offer:${safeCustomerId}`,
+      metadata: {
+        customerId: safeCustomerId,
+        customerName: customer.fullName || "",
+        customerPhone: customer.phone || "",
+        completedOrderCount,
+        targetOrderCount: CUSTOM_OFFER_TARGET_ORDER_COUNT,
+        expectedReadyAt: expectedReadyAt.toISOString(),
+        couponsPath: `/coupons?customerId=${safeCustomerId}&customerName=${encodeURIComponent(
+          customer.fullName || "",
+        )}&customerPhone=${encodeURIComponent(customer.phone || "")}&personalOffer=1`,
+      },
+    });
+  }
+
+  const refreshed = await CustomerModel.findById(safeCustomerId)
+    .select("customOfferRequest notifications")
+    .lean();
+  return buildCustomerCustomOfferSummary(
+    refreshed ?? customer.toObject(),
+    completedOrderCount,
+  );
 }
 
 function normalizeSavedLocations(

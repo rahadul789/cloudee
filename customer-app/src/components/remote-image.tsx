@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { Image, type ImageContentFit } from "expo-image";
 import {
   useEffect,
@@ -23,6 +24,8 @@ import { palette } from "@/src/theme/palette";
 const IMAGE_SKELETON_COLOR = "#FFF0F6";
 const HOME_IMAGE_SKELETON_COLOR = "#FFF0F6";
 const HOME_IMAGE_SKELETON_HIGHLIGHT = "rgba(255,255,255,0.72)";
+const loadedImageUris = new Set<string>();
+const failedImageUris = new Set<string>();
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -37,6 +40,7 @@ type Props = {
   showSkeleton?: boolean;
   skeletonVariant?: "default" | "home-image";
   transition?: number;
+  recyclingKey?: string | null;
   accessibilityLabel?: string;
   children?: ReactNode;
 };
@@ -52,22 +56,44 @@ export function RemoteImage({
   showSkeleton = true,
   skeletonVariant = "default",
   transition = 180,
+  recyclingKey,
   accessibilityLabel,
   children,
 }: Props) {
   const normalizedUri =
     typeof uri === "string" && uri.trim() ? uri.trim() : null;
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [hasFailed, setHasFailed] = useState(!normalizedUri);
+  const [isLoaded, setIsLoaded] = useState(
+    normalizedUri ? loadedImageUris.has(normalizedUri) : false,
+  );
+  const [hasFailed, setHasFailed] = useState(
+    normalizedUri ? failedImageUris.has(normalizedUri) : true,
+  );
 
   useEffect(() => {
-    setIsLoaded(false);
-    setHasFailed(!normalizedUri);
+    if (!normalizedUri) {
+      setIsLoaded(false);
+      setHasFailed(true);
+      return;
+    }
+
+    setIsLoaded(loadedImageUris.has(normalizedUri));
+    setHasFailed(failedImageUris.has(normalizedUri));
   }, [normalizedUri]);
 
   const shouldShowImage = Boolean(normalizedUri && !hasFailed);
   const shouldShowSkeleton = showSkeleton && shouldShowImage && !isLoaded;
   const shouldShowFallback = !shouldShowImage;
+  const effectiveRecyclingKey =
+    recyclingKey === undefined ? normalizedUri : recyclingKey;
+
+  const markLoaded = () => {
+    if (normalizedUri) {
+      loadedImageUris.add(normalizedUri);
+      failedImageUris.delete(normalizedUri);
+    }
+    setIsLoaded(true);
+    setHasFailed(false);
+  };
 
   return (
     <View
@@ -84,12 +110,21 @@ export function RemoteImage({
           style={[StyleSheet.absoluteFill, imageStyle]}
           contentFit={contentFit}
           cachePolicy="memory-disk"
-          recyclingKey={normalizedUri}
+          recyclingKey={effectiveRecyclingKey}
           transition={transition}
-          onLoad={() => {
-            setIsLoaded(true);
-          }}
+          onDisplay={markLoaded}
+          onLoad={markLoaded}
           onError={() => {
+            if (normalizedUri && loadedImageUris.has(normalizedUri)) {
+              setIsLoaded(true);
+              setHasFailed(false);
+              return;
+            }
+
+            if (normalizedUri) {
+              failedImageUris.add(normalizedUri);
+            }
+            setIsLoaded(false);
             setHasFailed(true);
           }}
         />
@@ -125,14 +160,21 @@ export function RemoteImage({
 
 function HomeImageShimmer() {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const isFocused = useIsFocused();
 
   useEffect(() => {
+    if (!isFocused) {
+      shimmerAnim.stopAnimation();
+      return;
+    }
+
     const shimmerLoop = Animated.loop(
       Animated.timing(shimmerAnim, {
         toValue: 1,
         duration: 1250,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: true,
+        isInteraction: false,
       }),
     );
 
@@ -141,8 +183,9 @@ function HomeImageShimmer() {
 
     return () => {
       shimmerLoop.stop();
+      shimmerAnim.stopAnimation();
     };
-  }, [shimmerAnim]);
+  }, [isFocused, shimmerAnim]);
 
   const translateX = shimmerAnim.interpolate({
     inputRange: [0, 1],

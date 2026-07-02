@@ -494,6 +494,7 @@ export async function updateAdminPlatformSettings(params: {
           finance: params.settings.operations.finance,
           adminNotifications: params.settings.operations.adminNotifications,
           referrals: params.settings.operations.referrals,
+          customOffers: params.settings.operations.customOffers,
         }
   const nextContent: PlatformContent = {
     ...currentContent,

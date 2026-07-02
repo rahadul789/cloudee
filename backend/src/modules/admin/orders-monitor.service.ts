@@ -51,12 +51,14 @@ import { enqueueAdminOrderTerminalExceptionAlert } from "./order-exception-alert
 import { recordBusinessEvent } from "./business-event.service";
 import {
   assertRiderAllowedForServiceArea,
+  assertServiceAreaSnapshotMatchesScope,
   buildOrderServiceAreaScopeFilter,
   buildRestaurantServiceAreaScopeFilter,
   buildRiderServiceAreaScopeFilter,
   getServiceAreaDispatchOverrides,
   invalidateServiceAreaCache,
-  isRiderAllowedForServiceArea
+  isRiderAllowedForServiceArea,
+  serviceAreaSnapshotMatchesScope
 } from "../service-area/service-area.service";
 import { ServiceZoneModel } from "../service-area/service-area.model";
 import {
@@ -77,6 +79,10 @@ const ADMIN_LIVE_MAP_ACTIVE_ORDER_WINDOW_HOURS = 12;
 type DispatchAlgorithm = "nearest_eligible_balanced" | "least_loaded_first";
 type DispatchMode = "fleet" | "primary_rider";
 type RiderPayrollStatus = "draft" | "approved" | "paid";
+type AdminAreaScopeParams = {
+  zoneId?: string;
+  districtId?: string;
+};
 type RiderPayrollAdjustmentType =
   | "bonus"
   | "tip"
@@ -135,6 +141,44 @@ const adminLiveMapCache = createInMemoryAsyncCache<any>({
   staleWhileRevalidateMs: 15_000,
   maxEntries: 24,
 });
+
+function normalizeAdminScopeValue(value?: string | null) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized && normalized !== "all" ? normalized : "";
+}
+
+function assertOrderRecordInAdminScope(
+  order: Record<string, any> | null | undefined,
+  scope?: AdminAreaScopeParams,
+) {
+  assertServiceAreaSnapshotMatchesScope(order?.serviceAreaSnapshot, {
+    zoneId: scope?.zoneId,
+    districtId: scope?.districtId,
+    code: "ORDER_NOT_FOUND",
+    message: "Order not found",
+  });
+}
+
+function assertRiderRecordInAdminScope(
+  rider: Record<string, any> | null | undefined,
+  scope?: AdminAreaScopeParams,
+) {
+  const zoneId = normalizeAdminScopeValue(scope?.zoneId);
+  const districtId = normalizeAdminScopeValue(scope?.districtId);
+  if (!zoneId && !districtId) return;
+
+  const assignedZoneIds = Array.isArray(rider?.serviceArea?.assignedZoneIds)
+    ? rider.serviceArea.assignedZoneIds.map((value: unknown) => String(value ?? "").trim())
+    : [];
+  const districtIds = Array.isArray(rider?.serviceArea?.districtIds)
+    ? rider.serviceArea.districtIds.map((value: unknown) => String(value ?? "").trim())
+    : [];
+  const zoneMatches = !zoneId || assignedZoneIds.includes(zoneId);
+  const districtMatches = !districtId || districtIds.includes(districtId);
+  if (zoneMatches && districtMatches) return;
+
+  throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found");
+}
 
 export function invalidateAdminMonitoringCaches() {
   adminOrdersMonitorCache.clear();
@@ -4276,7 +4320,10 @@ export async function listAdminOrdersMonitor(params?: {
   });
 }
 
-export async function getAdminOrderMonitorDetails(orderId: string) {
+export async function getAdminOrderMonitorDetails(
+  orderId: string,
+  scope: AdminAreaScopeParams = {},
+) {
   const order = await OrderModel.findById(orderId).lean();
 
   if (!order) {
@@ -4286,6 +4333,7 @@ export async function getAdminOrderMonitorDetails(orderId: string) {
       "Order not found",
     );
   }
+  assertOrderRecordInAdminScope(order, scope);
 
   const [restaurant, restaurantOwner, content, reviewDoc] = await Promise.all([
     RestaurantModel.findById(order.restaurantId).lean(),
@@ -5265,7 +5313,10 @@ export async function getAdminLiveMap(params?: {
   });
 }
 
-export async function getAdminRiderDetails(riderId: string) {
+export async function getAdminRiderDetails(
+  riderId: string,
+  scope: AdminAreaScopeParams = {},
+) {
   const rider = await RiderModel.findById(riderId).lean();
 
   if (!rider) {
@@ -5275,6 +5326,7 @@ export async function getAdminRiderDetails(riderId: string) {
       "Rider not found",
     );
   }
+  assertRiderRecordInAdminScope(rider, scope);
 
   const payrollMonth = currentPayrollMonth();
   const [statsMap, activeOrders, recentTrips, payrollCycle, availability] = await Promise.all([
@@ -5485,11 +5537,14 @@ export async function updateAdminRiderPayrollSettings(params: {
   isPayrollEnabled?: boolean;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const rider = await RiderModel.findById(params.riderId);
   if (!rider) {
     throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found");
   }
+  assertRiderRecordInAdminScope(rider.toObject(), params);
 
   rider.set("payroll", {
     ...(rider.toObject().payroll ?? {}),
@@ -5512,11 +5567,14 @@ export async function addAdminRiderPayrollAdjustment(params: {
   amount: number;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const rider = await RiderModel.findById(params.riderId).lean();
   if (!rider) {
     throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found");
   }
+  assertRiderRecordInAdminScope(rider, params);
   if (params.amount <= 0) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
@@ -5559,11 +5617,14 @@ export async function updateAdminRiderPayrollStatus(params: {
   paymentReference?: string;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const rider = await RiderModel.findById(params.riderId).lean();
   if (!rider) {
     throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found");
   }
+  assertRiderRecordInAdminScope(rider, params);
 
   const month = normalizePayrollMonth(params.month);
   const now = new Date();
@@ -5644,6 +5705,8 @@ export async function listAdminRiderAssignmentCandidates(
 export async function updateAdminRiderAvailability(params: {
   riderId: string;
   isAvailableForAssignments: boolean;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const rider = await RiderModel.findById(params.riderId);
 
@@ -5654,6 +5717,7 @@ export async function updateAdminRiderAvailability(params: {
       "Rider not found",
     );
   }
+  assertRiderRecordInAdminScope(rider.toObject(), params);
 
   if (params.isAvailableForAssignments && rider.status !== "active") {
     throw new AppError(
@@ -5717,7 +5781,21 @@ export async function updateAdminRiderAvailability(params: {
 export async function setAdminRiderActiveTrip(params: {
   riderId: string;
   orderId: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
+  const [rider, order] = await Promise.all([
+    RiderModel.findById(params.riderId).lean(),
+    OrderModel.findById(params.orderId).lean(),
+  ]);
+  if (!rider) {
+    throw new AppError(StatusCodes.NOT_FOUND, "RIDER_NOT_FOUND", "Rider not found");
+  }
+  if (!order) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found");
+  }
+  assertRiderRecordInAdminScope(rider, params);
+  assertOrderRecordInAdminScope(order, params);
   await activateRiderTrackingOrder({
     riderId: params.riderId,
     orderId: params.orderId,
@@ -5727,13 +5805,15 @@ export async function setAdminRiderActiveTrip(params: {
     riderId: params.riderId,
   });
   invalidateAdminMonitoringCaches();
-  return getAdminRiderDetails(params.riderId);
+  return getAdminRiderDetails(params.riderId, params);
 }
 
 export async function updateAdminRiderStatus(params: {
   riderId: string;
   expectedStatus?: string;
   status: AdminRiderStatus;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const currentRider = await RiderModel.findById(params.riderId).lean();
 
@@ -5744,6 +5824,7 @@ export async function updateAdminRiderStatus(params: {
       "Rider not found",
     );
   }
+  assertRiderRecordInAdminScope(currentRider, params);
 
   if (params.expectedStatus && currentRider.status !== params.expectedStatus) {
     throw new AppError(
@@ -5827,6 +5908,8 @@ export async function updateAdminRiderVerification(params: {
   status: AdminRiderVerificationStatus;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const currentRider = await RiderModel.findById(params.riderId).lean();
 
@@ -5837,6 +5920,7 @@ export async function updateAdminRiderVerification(params: {
       "Rider not found",
     );
   }
+  assertRiderRecordInAdminScope(currentRider, params);
 
   const currentVerificationStatus = getRiderVerification(currentRider).status;
   if (
@@ -5930,6 +6014,8 @@ export async function updateAdminRiderVerification(params: {
 
 export async function bulkAssignAdminRidersToOrders(params: {
   orderIds: string[];
+  zoneId?: string;
+  districtId?: string;
 }) {
   const content = await getPlatformContent();
   const settings = getDispatchSettingsFromContent(content);
@@ -5948,7 +6034,12 @@ export async function bulkAssignAdminRidersToOrders(params: {
   for (const orderId of uniqueOrderIds) {
     const readyOrder = await OrderModel.findById(orderId).lean();
 
-    if (!readyOrder || readyOrder.status !== "ReadyForPickup" || readyOrder.riderId) {
+    if (
+      !readyOrder ||
+      !serviceAreaSnapshotMatchesScope(readyOrder.serviceAreaSnapshot, params) ||
+      readyOrder.status !== "ReadyForPickup" ||
+      readyOrder.riderId
+    ) {
       skipped += 1;
       results.push({
         orderId,
@@ -6077,8 +6168,11 @@ export async function listAdminRidersForAssignment(params?: {
 export async function assignAdminRiderToOrder(params: {
   orderId: string;
   riderId: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const order = await OrderModel.findById(params.orderId);
+  assertOrderRecordInAdminScope(order?.toObject?.() ?? order, params);
   const settings = getDispatchSettingsFromContent(await getPlatformContent());
   return assignOrderToRider({
     order,
@@ -6094,6 +6188,8 @@ export async function updateAdminOrderStatus(params: {
   nextStatus: AdminOrderNextStatus;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const currentOrder = await OrderModel.findById(params.orderId).lean();
 
@@ -6104,6 +6200,7 @@ export async function updateAdminOrderStatus(params: {
       "Order not found",
     );
   }
+  assertOrderRecordInAdminScope(currentOrder, params);
 
   if (params.expectedStatus && currentOrder.status !== params.expectedStatus) {
     throw new AppError(
@@ -6321,6 +6418,8 @@ export async function updateAdminOrderRefundStatus(params: {
   providerReference?: string;
   proofUrl?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const currentOrder = await OrderModel.findById(params.orderId).lean();
 
@@ -6331,6 +6430,7 @@ export async function updateAdminOrderRefundStatus(params: {
       "Order not found",
     );
   }
+  assertOrderRecordInAdminScope(currentOrder, params);
 
   if (!["Cancelled", "Rejected"].includes(currentOrder.status)) {
     throw new AppError(
@@ -6445,6 +6545,8 @@ export async function updateAdminOrderCodCollection(params: {
   expectedPaymentStatus?: string;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const currentOrder = await OrderModel.findById(params.orderId).lean();
 
@@ -6455,6 +6557,7 @@ export async function updateAdminOrderCodCollection(params: {
       "Order not found",
     );
   }
+  assertOrderRecordInAdminScope(currentOrder, params);
 
   if (currentOrder.paymentMethod !== "Cash") {
     throw new AppError(

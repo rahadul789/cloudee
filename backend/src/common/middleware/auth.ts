@@ -29,7 +29,7 @@ export async function attachAuthUser(req: AuthenticatedRequest, _res: Response, 
     const payload = verifyAccessToken(accessToken)
     const isSessionActive = await isAccessSessionActive(payload)
     if (!isSessionActive) {
-      return next(new AppError(StatusCodes.UNAUTHORIZED, "SESSION_REVOKED", "Session is not active"))
+      return next()
     }
 
     req.user = {
@@ -40,7 +40,7 @@ export async function attachAuthUser(req: AuthenticatedRequest, _res: Response, 
 
     return next()
   } catch {
-    return next(new AppError(StatusCodes.UNAUTHORIZED, "INVALID_TOKEN", "Invalid access token"))
+    return next()
   }
 }
 

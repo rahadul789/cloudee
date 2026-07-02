@@ -126,6 +126,13 @@ function getStringParam(value: unknown) {
   return ""
 }
 
+function getAdminAreaScope(req: Request) {
+  return {
+    zoneId: getStringParam(req.query.zoneId) || undefined,
+    districtId: getStringParam(req.query.districtId) || undefined,
+  }
+}
+
 export const getOwnerVouchers = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const query = ownerVoucherListQuerySchema.parse({
     search: getStringParam(req.query.search) || undefined,
@@ -188,6 +195,7 @@ export const postAdminVoucher = asyncHandler(async (req: AuthenticatedRequest, r
   const payload = adminVoucherCreateSchema.parse(req.body)
   const data = await createAdminVoucher({
     adminId: getOwnerId(req),
+    adminScope: getAdminAreaScope(req),
     ...payload
   })
   return sendSuccess(res, { message: "Voucher created successfully", data })
@@ -198,6 +206,7 @@ export const patchAdminVoucher = asyncHandler(async (req: AuthenticatedRequest, 
   const data = await updateAdminVoucher({
     adminId: getOwnerId(req),
     voucherId: getStringParam(req.params.voucherId),
+    adminScope: getAdminAreaScope(req),
     ...payload
   })
   return sendSuccess(res, { message: "Voucher updated successfully", data })
@@ -209,6 +218,7 @@ export const archiveAdminVoucherById = asyncHandler(
     const data = await archiveAdminVoucher({
       adminId: getOwnerId(req),
       voucherId: getStringParam(req.params.voucherId),
+      adminScope: getAdminAreaScope(req),
       reason: payload.reason
     })
     return sendSuccess(res, { message: "Voucher archived successfully", data })
@@ -219,7 +229,8 @@ export const restoreAdminVoucherById = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const data = await restoreAdminVoucher({
       adminId: getOwnerId(req),
-      voucherId: getStringParam(req.params.voucherId)
+      voucherId: getStringParam(req.params.voucherId),
+      adminScope: getAdminAreaScope(req)
     })
     return sendSuccess(res, { message: "Voucher restored successfully", data })
   }
@@ -229,7 +240,8 @@ export const sendAdminVoucherPushCampaignById = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const data = await sendAdminVoucherPushCampaign({
       adminId: getOwnerId(req),
-      voucherId: getStringParam(req.params.voucherId)
+      voucherId: getStringParam(req.params.voucherId),
+      adminScope: getAdminAreaScope(req)
     })
     return sendSuccess(res, { message: "Push campaign sent successfully", data })
   }

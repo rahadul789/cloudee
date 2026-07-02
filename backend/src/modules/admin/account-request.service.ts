@@ -3,15 +3,19 @@ import { StatusCodes } from "http-status-codes"
 import { AppError } from "../../common/utils/app-error"
 import { CustomerModel } from "../customer/customer.model"
 import { sendPushToCustomer } from "../customer/push.service"
+import { buildCustomerServiceAreaScopeFilter } from "../service-area/service-area.service"
 import { AdminAuditLogModel, AdminModel } from "./admin.model"
 
 export async function listCustomerAccountRequests(
   params?: {
     status?: "pending" | "cancelled" | "reviewed" | "completed"
     type?: "deactivate" | "delete"
+    zoneId?: string
+    districtId?: string
   }
 ) {
   const query: Record<string, unknown> = {
+    ...buildCustomerServiceAreaScopeFilter(params),
     "accountRequest.type": { $ne: null }
   }
 
@@ -33,10 +37,19 @@ export async function reviewCustomerAccountRequest(params: {
   adminId: string
   decision: "approve" | "reject"
   reviewNote?: string
+  zoneId?: string
+  districtId?: string
 }) {
   const customer = await CustomerModel.findById(params.customerId)
 
   if (!customer) {
+    throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found")
+  }
+  const scopeFilter = buildCustomerServiceAreaScopeFilter(params)
+  if (
+    Object.keys(scopeFilter).length > 0 &&
+    !(await CustomerModel.exists({ _id: customer._id, ...scopeFilter }))
+  ) {
     throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found")
   }
 

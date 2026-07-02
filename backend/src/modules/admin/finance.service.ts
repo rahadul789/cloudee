@@ -25,6 +25,7 @@ import { NotificationModel, OrderModel } from "../owner/operational.model";
 import { sendLocalizedPushToOwner } from "../owner/push.service";
 import { getOperationalFinanceSettings } from "../public/content.service";
 import {
+  assertServiceAreaSnapshotMatchesScope,
   buildOrderServiceAreaScopeFilter,
   buildRestaurantServiceAreaScopeFilter,
   buildRiderServiceAreaScopeFilter,
@@ -158,6 +159,8 @@ type CreateWalletEntryParams = {
   proofUrl?: string;
   note?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 };
 
 type CloseDailyFinanceParams = {
@@ -178,6 +181,8 @@ type CreateAdminPayoutParams = {
   includePending?: boolean;
   notifyOwnerSms?: boolean;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 };
 
 const walletLedgerEntryTypes = ["earning", "refund", "adjustment"] as const;
@@ -2236,6 +2241,14 @@ export async function listAdminPlatformWalletEntries(params: WalletEntryListPara
 }
 
 export async function createAdminPlatformWalletEntry(params: CreateWalletEntryParams) {
+  if (params.zoneId?.trim() || params.districtId?.trim()) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "PLATFORM_WALLET_SCOPE_NOT_SUPPORTED",
+      "Manual wallet entries are platform-wide. Switch to All areas before creating one.",
+    );
+  }
+
   const amount = Math.round(numberValue(params.amount));
   if (amount <= 0) {
     throw new AppError(
@@ -2291,7 +2304,17 @@ export async function createAdminPlatformWalletEntry(params: CreateWalletEntryPa
 export async function voidAdminPlatformWalletEntry(params: {
   entryId: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
+  if (params.zoneId?.trim() || params.districtId?.trim()) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "PLATFORM_WALLET_SCOPE_NOT_SUPPORTED",
+      "Manual wallet entries are platform-wide. Switch to All areas before voiding one.",
+    );
+  }
+
   const entryId = toObjectId(params.entryId);
   if (!entryId) {
     throw new AppError(
@@ -3158,7 +3181,10 @@ export async function reviewAdminPayoutMethodApproval(params: {
   return mapPayoutMethod(method.toObject());
 }
 
-export async function getAdminFinancePayoutDetails(restaurantId: string) {
+export async function getAdminFinancePayoutDetails(
+  restaurantId: string,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
   const safeRestaurantId = toObjectId(restaurantId);
   if (!safeRestaurantId) {
     throw new AppError(
@@ -3180,6 +3206,7 @@ export async function getAdminFinancePayoutDetails(restaurantId: string) {
       contact: 1,
       runtime: 1,
       logo: 1,
+      serviceArea: 1,
     })
     .lean();
 
@@ -3190,6 +3217,12 @@ export async function getAdminFinancePayoutDetails(restaurantId: string) {
       "Restaurant not found",
     );
   }
+  assertServiceAreaSnapshotMatchesScope(restaurant.serviceArea, {
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+    code: "RESTAURANT_NOT_FOUND",
+    message: "Restaurant not found",
+  });
 
   const [
     owner,
@@ -3244,8 +3277,8 @@ export async function getAdminFinancePayoutDetails(restaurantId: string) {
     : [];
 
   const finance = mergeFinanceSummary(
-    ledgerSummary.get(restaurantId) ?? emptyFinanceSummary(),
-    payoutSummary.get(restaurantId),
+    ledgerSummary.get(safeRestaurantId.toString()) ?? emptyFinanceSummary(),
+    payoutSummary.get(safeRestaurantId.toString()),
   );
   const baseRow = mapRestaurantFinanceRow({
     restaurant,
@@ -3361,7 +3394,7 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
   }
 
   const [restaurant, payoutMethod, financeSettings] = await Promise.all([
-    RestaurantModel.findById(restaurantId).select({ name: 1, ownerId: 1 }).lean(),
+    RestaurantModel.findById(restaurantId).select({ name: 1, ownerId: 1, serviceArea: 1 }).lean(),
     PayoutMethodModel.findOne({ restaurantId }).lean(),
     getOperationalFinanceSettings(),
   ]);
@@ -3373,6 +3406,12 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
       "Restaurant not found",
     );
   }
+  assertServiceAreaSnapshotMatchesScope(restaurant.serviceArea, {
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+    code: "RESTAURANT_NOT_FOUND",
+    message: "Restaurant not found",
+  });
 
   if (!payoutMethod || !stringValue(payoutMethod.accountNumber).trim()) {
     throw new AppError(

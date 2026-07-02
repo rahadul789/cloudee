@@ -9,7 +9,7 @@ export function resolvePostAuthRedirect(redirectTo?: string | null) {
       target === "/profile" ||
       target === "/(tabs)/profile"
     ) {
-      return "/(tabs)";
+      return "/(tabs)/profile";
     }
 
     if (target === "orders" || target === "/orders") {

@@ -454,7 +454,16 @@ export async function listAdminOperationalAlerts(scope: AdminOperationalAlertSco
   });
 }
 
-export async function markAdminOperationalAlertRead(alertId: string) {
+export async function markAdminOperationalAlertRead(
+  alertId: string,
+  scope: AdminOperationalAlertScope = {},
+) {
+  if (scope.zoneId || scope.districtId) {
+    const scopedAlerts = await listAdminOperationalAlerts(scope);
+    if (!scopedAlerts.some((alert: { id?: string }) => alert.id === alertId)) {
+      return { updated: false };
+    }
+  }
   const result = await AdminOperationalAlertModel.updateOne(
     { _id: alertId },
     { $set: { isRead: true, readAt: new Date() } },

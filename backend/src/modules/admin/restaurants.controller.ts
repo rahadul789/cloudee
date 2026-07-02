@@ -77,6 +77,8 @@ const detailsQuerySchema = z.object({
   preset: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
 });
 
 const listRestaurantOrdersQuerySchema = detailsQuerySchema.extend({
@@ -152,6 +154,12 @@ function getAdminId(req: AuthenticatedRequest) {
   return req.user?.id ?? "";
 }
 
+async function assertRestaurantInAdminArea(req: AuthenticatedRequest) {
+  const scope = detailsQuerySchema.pick({ zoneId: true, districtId: true }).parse(req.query);
+  if (!scope.zoneId && !scope.districtId) return;
+  await getAdminRestaurantDetails(getStringParam(req.params.restaurantId), scope);
+}
+
 export const getAdminRestaurants = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = listRestaurantsQuerySchema.parse(req.query);
@@ -204,6 +212,7 @@ export const getAdminRestaurantOrders = asyncHandler(
 
 export const getAdminRestaurantPromotionTargets = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertRestaurantInAdminArea(req);
     const data = await listAdminRestaurantPromotionTargets(
       getStringParam(req.params.restaurantId),
     );
@@ -214,6 +223,7 @@ export const getAdminRestaurantPromotionTargets = asyncHandler(
 
 export const deleteAdminRestaurantReviewController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertRestaurantInAdminArea(req);
     const data = await deleteAdminRestaurantReview({
       restaurantId: getStringParam(req.params.restaurantId),
       reviewId: getStringParam(req.params.reviewId),
@@ -229,6 +239,7 @@ export const deleteAdminRestaurantReviewController = asyncHandler(
 
 export const restoreAdminRestaurantReviewController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertRestaurantInAdminArea(req);
     const data = await restoreAdminRestaurantReview({
       restaurantId: getStringParam(req.params.restaurantId),
       reviewId: getStringParam(req.params.reviewId),
@@ -245,6 +256,7 @@ export const restoreAdminRestaurantReviewController = asyncHandler(
 export const patchAdminRestaurantVisibility = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = visibilitySchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantVisibility({
       restaurantId: getStringParam(req.params.restaurantId),
       isVisible: payload.isVisible,
@@ -262,6 +274,7 @@ export const patchAdminRestaurantVisibility = asyncHandler(
 export const patchAdminRestaurantEnforcement = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = enforcementSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantEnforcement({
       restaurantId: getStringParam(req.params.restaurantId),
       adminId: getAdminId(req),
@@ -278,6 +291,7 @@ export const patchAdminRestaurantEnforcement = asyncHandler(
 export const patchAdminRestaurantMerchandising = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = merchandisingSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantMerchandising({
       restaurantId: getStringParam(req.params.restaurantId),
       isFeatured: payload.isFeatured,
@@ -297,6 +311,7 @@ export const patchAdminRestaurantMerchandising = asyncHandler(
 export const patchAdminRestaurantCommission = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = commissionSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantCommission({
       restaurantId: getStringParam(req.params.restaurantId),
       commissionRate: payload.commissionRate,
@@ -313,6 +328,7 @@ export const patchAdminRestaurantCommission = asyncHandler(
 export const patchAdminRestaurantDeliveryPricing = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = deliveryPricingSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantDeliveryPricing({
       restaurantId: getStringParam(req.params.restaurantId),
       adminId: getAdminId(req),
@@ -330,6 +346,7 @@ export const patchAdminRestaurantDeliveryPricing = asyncHandler(
 
 export const postAdminRestaurantFinanceReconcile = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertRestaurantInAdminArea(req);
     const data = await reconcileAdminRestaurantFinance({
       restaurantId: getStringParam(req.params.restaurantId),
       adminId: getAdminId(req),
@@ -345,6 +362,7 @@ export const postAdminRestaurantFinanceReconcile = asyncHandler(
 export const patchAdminRestaurantPayoutStatus = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = payoutStatusSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
     const data = await updateAdminRestaurantPayoutStatus({
       restaurantId: getStringParam(req.params.restaurantId),
       payoutId: getStringParam(req.params.payoutId),
@@ -369,6 +387,7 @@ export const patchAdminRestaurantPayoutStatus = asyncHandler(
 
 export const deleteAdminRestaurantController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
+    await assertRestaurantInAdminArea(req);
     const data = await deleteAdminRestaurant(
       getStringParam(req.params.restaurantId),
     );

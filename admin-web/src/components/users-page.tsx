@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Ban,
   ChevronDown,
@@ -137,6 +138,7 @@ type CustomerSort =
   | "highestSpend"
   | "repeatFirst"
 type CustomerTierFilter = "all" | AdminCustomerTier
+type CustomerCustomOfferFilter = "all" | "eligible" | "requested" | "ready" | "locked"
 type CustomerStatus = AdminCustomerSummary["status"]
 type CustomerStatusTargetCustomer = Pick<
   AdminCustomerSummary,
@@ -238,6 +240,36 @@ function formatCustomerArea(
   return zoneName || districtName || "No area"
 }
 
+function CustomOfferBadge({
+  offer,
+}: {
+  offer?: AdminCustomerSummary["customOffer"]
+}) {
+  if (!offer) return null
+  if (offer.status === "eligible") {
+    return (
+      <Badge className="h-5 bg-pink-500 px-1.5 text-[10px] text-white">
+        Offer worthy
+      </Badge>
+    )
+  }
+  if (offer.status === "requested") {
+    return (
+      <Badge variant="outline" className="h-5 border-pink-200 bg-pink-50 px-1.5 text-[10px] text-pink-700">
+        Offer requested
+      </Badge>
+    )
+  }
+  if (offer.status === "ready") {
+    return (
+      <Badge variant="outline" className="h-5 border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700">
+        Offer ready
+      </Badge>
+    )
+  }
+  return null
+}
+
 function formatChartDate(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -245,8 +277,10 @@ function formatChartDate(value: string) {
 }
 
 function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const offers = details.personalOffers ?? []
+  const customOfferRequest = details.customOfferRequest
   const deleteMutation = useMutation({
     mutationFn: deleteAdminCustomerPersonalOffer,
     onSuccess: async () => {
@@ -274,6 +308,77 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {customOfferRequest ? (
+          <div className="rounded-lg border border-pink-200 bg-pink-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">My offer request</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Customer completed {customOfferRequest.lastRequestOrderCount}/
+                  {customOfferRequest.targetOrderCount} delivered orders and requested a personal voucher.
+                </p>
+              </div>
+              <Badge
+                variant="outline"
+                className={
+                  customOfferRequest.status === "requested"
+                    ? "border-pink-200 bg-white text-pink-700"
+                    : "border-muted bg-background text-muted-foreground"
+                }
+              >
+                {customOfferRequest.status}
+              </Badge>
+            </div>
+            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
+              <InfoRow label="Requested" value={formatDate(customOfferRequest.requestedAt)} />
+              <InfoRow label="Target response" value={formatDate(customOfferRequest.expectedReadyAt)} />
+              <InfoRow
+                label="Preferred code"
+                value={customOfferRequest.requestedCode || "No preference"}
+              />
+              <InfoRow
+                label="Current voucher"
+                value={customOfferRequest.voucherCode || customOfferRequest.voucherLabel || "Not assigned"}
+              />
+            </div>
+            <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
+              <InfoRow
+                label="Qualified cycles"
+                value={`${customOfferRequest.analytics?.qualifiedCount ?? 0}`}
+              />
+              <InfoRow
+                label="Requests"
+                value={`${customOfferRequest.analytics?.requestedCount ?? 0}`}
+              />
+              <InfoRow
+                label="Fulfilled"
+                value={`${customOfferRequest.analytics?.fulfilledCount ?? 0}`}
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Create a selected-user coupon, then send it as a personal offer.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    customerId: details.id,
+                    customerName: details.fullName,
+                    customerPhone: details.phone,
+                    requestedCode: customOfferRequest.requestedCode || "",
+                    personalOffer: "1",
+                  })
+                  navigate(`/coupons?${params.toString()}`)
+                }}
+              >
+                <Plus className="size-4" />
+                Create customer voucher
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {offers.map((offer, index) => (
           <div key={`${offer.campaignId || offer.title}-${index}`} className="rounded-lg border p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -737,11 +842,13 @@ function CustomerStatusDialog({
 function CustomerDetailsSheet({
   customerId,
   open,
+  initialTab,
   onOpenChange,
   onStatus,
 }: {
   customerId: string
   open: boolean
+  initialTab?: string
   onOpenChange: (open: boolean) => void
   onStatus: (
     customer: CustomerStatusTargetCustomer,
@@ -882,7 +989,7 @@ function CustomerDetailsSheet({
                 />
               </div>
 
-              <Tabs defaultValue="overview" className="gap-4">
+              <Tabs defaultValue={initialTab ?? "overview"} className="gap-4">
                 <TabsList className="flex h-auto w-full flex-wrap justify-start">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="orders">Orders</TabsTrigger>
@@ -1626,11 +1733,14 @@ function CustomerOrdersTab({ customer }: { customer: AdminCustomerDetails }) {
 
 export function UsersPage() {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
   const [status, setStatus] = React.useState<CustomerStatusFilter>("all")
   const [customerGroupKey, setCustomerGroupKey] = React.useState("none")
   const [sortBy, setSortBy] = React.useState<CustomerSort>("newest")
   const [tier, setTier] = React.useState<CustomerTierFilter>("all")
+  const [customOfferFilter, setCustomOfferFilter] =
+    React.useState<CustomerCustomOfferFilter>("all")
   const [behaviorPreset, setBehaviorPreset] =
     React.useState<CustomerBehaviorPreset>("last30Days")
   const [behaviorFrom, setBehaviorFrom] = React.useState("")
@@ -1640,6 +1750,8 @@ export function UsersPage() {
   )
   const [page, setPage] = React.useState(1)
   const [selectedCustomerId, setSelectedCustomerId] = React.useState("")
+  const [customerDetailsInitialTab, setCustomerDetailsInitialTab] =
+    React.useState("overview")
   const [statusTarget, setStatusTarget] =
     React.useState<CustomerStatusTarget | null>(null)
   const [columnVisibility, setColumnVisibility] = React.useState(
@@ -1658,6 +1770,22 @@ export function UsersPage() {
   const debouncedSearch = useDebouncedValue(search, 350)
   const debouncedGroupMemberSearch = useDebouncedValue(groupMemberSearch, 300)
   const adminScopeKey = `${adminZoneScope.type}:${adminZoneScope.id}`
+  React.useEffect(() => {
+    const customerId = searchParams.get("customerId")?.trim()
+    if (!customerId) return
+
+    const requestedTab = searchParams.get("tab")?.trim()
+    setCustomerDetailsInitialTab(
+      requestedTab &&
+        ["overview", "orders", "reviews", "account", "offers", "devices", "audit"].includes(
+          requestedTab,
+        )
+        ? requestedTab
+        : "overview",
+    )
+    setSelectedCustomerId(customerId)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
   React.useEffect(
     () =>
       subscribeAdminZoneScope(() => {
@@ -1676,6 +1804,7 @@ export function UsersPage() {
       debouncedSearch,
       status,
       tier,
+      customOfferFilter,
       customerGroupKey,
       sortBy,
       behaviorPreset,
@@ -1688,6 +1817,7 @@ export function UsersPage() {
         search: debouncedSearch,
         status,
         tier,
+        customOffer: customOfferFilter,
         customerGroupKey: customerGroupKey === "none" ? undefined : customerGroupKey,
         sortBy,
         preset: behaviorPreset,
@@ -1814,6 +1944,7 @@ export function UsersPage() {
     search.trim() !== "" ||
     status !== "all" ||
     tier !== "all" ||
+    customOfferFilter !== "all" ||
     customerGroupKey !== "none" ||
     sortBy !== "newest"
   const groupMembers = groupMembersQuery.data?.items ?? []
@@ -1827,6 +1958,7 @@ export function UsersPage() {
     debouncedSearch,
     status,
     tier,
+    customOfferFilter,
     customerGroupKey,
     sortBy,
     behaviorPreset,
@@ -1870,6 +2002,7 @@ export function UsersPage() {
         search: debouncedSearch,
         status,
         tier,
+        customOffer: customOfferFilter,
         customerGroupKey:
           customerGroupKey === "none" ? undefined : customerGroupKey,
         preset: behaviorPreset,
@@ -2073,7 +2206,7 @@ export function UsersPage() {
                 Search customers and review account health from one place.
               </CardDescription>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[minmax(260px,1fr)_150px_150px_170px_190px_auto_auto_auto]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[minmax(240px,1fr)_140px_140px_160px_170px_190px_auto_auto_auto]">
               <div className="relative sm:col-span-2 lg:col-span-2 2xl:col-span-1">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -2127,6 +2260,23 @@ export function UsersPage() {
                   <SelectItem value="mostOrders">Most orders</SelectItem>
                   <SelectItem value="highestSpend">Highest spend</SelectItem>
                   <SelectItem value="repeatFirst">Repeat first</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={customOfferFilter}
+                onValueChange={(value) =>
+                  setCustomOfferFilter(value as CustomerCustomOfferFilter)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All offers</SelectItem>
+                  <SelectItem value="eligible">Offer worthy</SelectItem>
+                  <SelectItem value="requested">Requested</SelectItem>
+                  <SelectItem value="ready">Ready</SelectItem>
+                  <SelectItem value="locked">Not eligible</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={customerGroupKey} onValueChange={setCustomerGroupKey}>
@@ -2188,6 +2338,7 @@ export function UsersPage() {
                   setSearch("")
                   setStatus("all")
                   setTier("all")
+                  setCustomOfferFilter("all")
                   setCustomerGroupKey("none")
                   setSortBy("newest")
                   setPage(1)
@@ -2296,6 +2447,7 @@ export function UsersPage() {
                                 tier={customer.customerTier}
                                 className="h-5 px-1.5 text-[10px]"
                               />
+                              <CustomOfferBadge offer={customer.customOffer} />
                             </span>
                             <span className="block truncate text-xs text-muted-foreground">
                               {customer.phone || customer.email || "No contact"}
@@ -2797,8 +2949,12 @@ export function UsersPage() {
       <CustomerDetailsSheet
         customerId={selectedCustomerId}
         open={Boolean(selectedCustomerId)}
+        initialTab={customerDetailsInitialTab}
         onOpenChange={(nextOpen) => {
-          if (!nextOpen) setSelectedCustomerId("")
+          if (!nextOpen) {
+            setSelectedCustomerId("")
+            setCustomerDetailsInitialTab("overview")
+          }
         }}
         onStatus={(customer, nextStatus) =>
           setStatusTarget({ customer, status: nextStatus })

@@ -1,7 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  ActivityIndicator,
+  Image,
+  InteractionManager,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
@@ -10,6 +27,7 @@ import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
 import {
   useCustomerFavoriteRestaurantIdsQuery,
+  useCustomerCustomOfferSummaryQuery,
   useCustomerHowToOrderGuideQuery,
   useCustomerLogoutMutation,
   useCustomerNotificationsInfiniteQuery,
@@ -19,18 +37,30 @@ import {
   useCustomerReferralSummaryQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
+import {
+  formatOfferExpiry,
+  getOfferAmountLabel,
+  getOfferCodeLabel,
+} from "@/src/lib/customer-offer-copy";
 import { dedupeById } from "@/src/lib/dedupe";
 import { formatDeliveryAddress } from "@/src/lib/location-address";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
-import {
-  usePaymentPreferencesStore,
-} from "@/src/store/payment-preferences-store";
+import { usePaymentPreferencesStore } from "@/src/store/payment-preferences-store";
 import { palette } from "@/src/theme/palette";
 
 const bkashLogo = require("../../assets/images/bkash.png");
+
+type ProfileListItem =
+  | "guest"
+  | "hero"
+  | "offer"
+  | "overview"
+  | "preferences"
+  | "history"
+  | "account";
 
 function getCustomerDisplayName(fullName?: string | null) {
   const trimmed = fullName?.trim() ?? "";
@@ -46,22 +76,70 @@ function isPersonalOfferExpired(offer?: { voucherExpiresAt?: string | null }) {
   return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now();
 }
 
+function isPersonalOfferUsed(offer?: { voucherUsageStatus?: string | null }) {
+  return offer?.voucherUsageStatus === "used";
+}
+
+function useDeferredProfileWork(enabled: boolean) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      setReady(false);
+      return;
+    }
+
+    const fallbackTimer = setTimeout(() => setReady(true), 900);
+    const task = InteractionManager.runAfterInteractions(() => {
+      clearTimeout(fallbackTimer);
+      setReady(true);
+    });
+
+    return () => {
+      clearTimeout(fallbackTimer);
+      task.cancel();
+    };
+  }, [enabled]);
+
+  return ready;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
+  const navigate = useCallback(
+    (target: Parameters<typeof router.push>[0]) => {
+      InteractionManager.runAfterInteractions(() => {
+        router.push(target);
+      });
+    },
+    [router],
+  );
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const customer = useCustomerAuthStore((state) => state.customer);
-  useCustomerProfileQuery();
+  const deferredProfileWorkReady = useDeferredProfileWork(Boolean(customer));
+  useCustomerProfileQuery(Boolean(customer));
   const logoutMutation = useCustomerLogoutMutation();
-  const notificationsQuery = useCustomerNotificationsQuery();
+  const notificationsQuery = useCustomerNotificationsQuery(
+    deferredProfileWorkReady,
+  );
   const personalOffersQuery = useCustomerNotificationsInfiniteQuery(
-    Boolean(customer),
+    deferredProfileWorkReady,
     3,
     "personal_offers",
   );
-  const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
+  const customOfferSummaryQuery = useCustomerCustomOfferSummaryQuery(
+    deferredProfileWorkReady,
+  );
+  const favoriteRestaurantIdsQuery = useCustomerFavoriteRestaurantIdsQuery(
+    deferredProfileWorkReady,
+  );
   const paymentSettingsQuery = useCustomerPaymentSettingsQuery();
-  const howToOrderGuideQuery = useCustomerHowToOrderGuideQuery(Boolean(customer));
-  const referralSummaryQuery = useCustomerReferralSummaryQuery(Boolean(customer));
+  const howToOrderGuideQuery = useCustomerHowToOrderGuideQuery(
+    deferredProfileWorkReady,
+  );
+  const referralSummaryQuery = useCustomerReferralSummaryQuery(
+    deferredProfileWorkReady,
+  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const preferredPaymentMethod = usePaymentPreferencesStore(
     (state) => state.preferredPaymentMethod,
@@ -75,11 +153,86 @@ export default function ProfileScreen() {
       ),
     [personalOffersQuery.data?.pages],
   );
-  const highlightedOffer = personalOffers[0];
-  const highlightedOfferExpired = isPersonalOfferExpired(highlightedOffer);
+  const activePersonalOffers = useMemo(
+    () =>
+      personalOffers
+        .filter(
+          (offer) =>
+            !isPersonalOfferExpired(offer) && !isPersonalOfferUsed(offer),
+        )
+        .sort(
+          (left, right) =>
+            new Date(right.createdAt ?? 0).getTime() -
+            new Date(left.createdAt ?? 0).getTime(),
+        ),
+    [personalOffers],
+  );
+  const activeHighlightedOffer = activePersonalOffers[0];
+  const activeOfferCount = activePersonalOffers.length;
+  const customOfferSummary = customOfferSummaryQuery.data;
+  const customOfferProgressPercent = Math.round(
+    Math.max(0, Math.min(customOfferSummary?.progressRatio ?? 0, 1)) * 100,
+  );
+  const shouldShowCustomOfferSection =
+    customOfferSummary?.enabled !== false &&
+    customOfferSummary?.profileSectionEnabled !== false;
+  const canRequestCustomOffer =
+    customOfferSummary?.enabled !== false &&
+    customOfferSummary?.status === "eligible";
+  const customOfferTitle = useMemo(() => {
+    if (customOfferSummary?.status === "requested") {
+      return "Request sent";
+    }
+    if (customOfferSummary?.status === "eligible") {
+      return "Offer unlocked";
+    }
+    if (activeHighlightedOffer) {
+      return getOfferCodeLabel(activeHighlightedOffer);
+    }
+    if (customOfferSummary?.status === "ready") {
+      return getOfferCodeLabel(customOfferSummary);
+    }
+    return "My offer";
+  }, [
+    customOfferSummary,
+    activeHighlightedOffer,
+  ]);
+  const customOfferMeta = useMemo(() => {
+    if (customOfferSummary?.status === "requested") {
+      return "In review";
+    }
+    if (customOfferSummary?.status === "eligible") {
+      return activeOfferCount > 0
+        ? "Request your next voucher"
+        : "Ready to request";
+    }
+    if (activeHighlightedOffer) {
+      return `${getOfferAmountLabel(activeHighlightedOffer)} - ${formatOfferExpiry(
+        activeHighlightedOffer.voucherExpiresAt,
+      )}`;
+    }
+    if (customOfferSummary?.status === "ready") {
+      return `${getOfferAmountLabel(customOfferSummary)} - ${formatOfferExpiry(
+        customOfferSummary.voucherExpiresAt,
+      )}`;
+    }
+    if (!deferredProfileWorkReady || customOfferSummaryQuery.isLoading) {
+      return "Checking orders";
+    }
+    const remaining = customOfferSummary?.remainingOrderCount ?? 10;
+    return `${remaining} ${remaining === 1 ? "order" : "orders"} left`;
+  }, [
+    customOfferSummary,
+    customOfferSummaryQuery.isLoading,
+    deferredProfileWorkReady,
+    activeHighlightedOffer,
+    activeOfferCount,
+  ]);
   const favoriteCount = favoriteRestaurantIdsQuery.data?.length ?? 0;
   const referralSummary = referralSummaryQuery.data;
-  const isReferralSummaryLoading = Boolean(customer) && referralSummaryQuery.isLoading;
+  const isReferralSummaryLoading =
+    Boolean(customer) &&
+    (!deferredProfileWorkReady || referralSummaryQuery.isLoading);
   const shouldShowReferral = referralSummary?.enabled === true;
   const referralRewardLabel = referralSummary
     ? `Tk ${Math.round(referralSummary.rewardAmount)}`
@@ -114,54 +267,114 @@ export default function ProfileScreen() {
     bkashSubtitle: "Continue to the official hosted payment page.",
     bkashRefundEtaMinutes: 60,
   };
-  const howToOrderYoutubeUrl =
-    isTrustedYoutubeUrl(howToOrderGuideQuery.data?.youtubeUrl)
-      ? howToOrderGuideQuery.data?.youtubeUrl.trim()
-      : "";
+  const howToOrderYoutubeUrl = isTrustedYoutubeUrl(
+    howToOrderGuideQuery.data?.youtubeUrl,
+  )
+    ? howToOrderGuideQuery.data?.youtubeUrl.trim()
+    : "";
   const openHowToOrder = useCallback(() => {
     if (!howToOrderYoutubeUrl) {
-      router.push("/order-help");
+      navigate("/order-help");
       return;
     }
 
     void Linking.openURL(howToOrderYoutubeUrl).catch(() => {
-      router.push("/order-help");
+      navigate("/order-help");
     });
-  }, [howToOrderYoutubeUrl, router]);
+  }, [howToOrderYoutubeUrl, navigate]);
+  const openSignIn = useCallback(() => {
+    navigate({
+      pathname: "/sign-in",
+      params: { redirectTo: "/(tabs)/profile" },
+    });
+  }, [navigate]);
+  const openNotifications = useCallback(
+    () => navigate("/notifications"),
+    [navigate],
+  );
+  const openOffers = useCallback(() => navigate("/offers"), [navigate]);
+  const openProfileEdit = useCallback(
+    () => navigate("/profile-edit"),
+    [navigate],
+  );
+  const openLocationPicker = useCallback(
+    () => navigate("/location-picker"),
+    [navigate],
+  );
+  const openFavoriteRestaurants = useCallback(
+    () => navigate("/favorite-restaurants"),
+    [navigate],
+  );
+  const openReferrals = useCallback(() => navigate("/referrals"), [navigate]);
+  const openSupport = useCallback(() => navigate("/support"), [navigate]);
+  const openPaymentPreferences = useCallback(
+    () => navigate("/payment-preferences"),
+    [navigate],
+  );
+  const openProfilePassword = useCallback(
+    () => navigate("/profile-password"),
+    [navigate],
+  );
+  const openPrivacyPolicy = useCallback(
+    () => navigate("/privacy-policy"),
+    [navigate],
+  );
+  const showLogoutConfirm = useCallback(() => {
+    setLogoutConfirmVisible(true);
+  }, []);
+  const profileListItems = useMemo<ProfileListItem[]>(() => {
+    if (!customer) {
+      return ["guest"];
+    }
 
-  return (
-    <Screen>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          !customer ? styles.guestContainer : null,
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        {!customer ? (
+    const items: ProfileListItem[] = shouldShowCustomOfferSection
+      ? ["hero", "offer", "overview"]
+      : ["hero", "overview"];
+    if (deferredProfileWorkReady) {
+      items.push("preferences");
+      if ((customer.previousPhones?.length ?? 0) > 0) {
+        items.push("history");
+      }
+      items.push("account");
+    }
+
+    return items;
+  }, [customer, deferredProfileWorkReady, shouldShowCustomOfferSection]);
+  const keyExtractor = useCallback((item: ProfileListItem) => item, []);
+  const renderProfileItem = useCallback(
+    ({ item }: { item: ProfileListItem }) => {
+      if (item === "guest") {
+        return (
           <View style={styles.emptyWrap}>
             <EmptyStateCard
               title="You are not signed in"
               description="Sign in with your phone to unlock checkout, favorites, and order history."
               actionLabel="Sign in"
-              onPress={() =>
-                router.push({
-                  pathname: "/sign-in",
-                  params: { redirectTo: "/(tabs)/profile" },
-                })
-              }
+              onPress={openSignIn}
             />
           </View>
-        ) : (
-          <>
-            <View style={styles.hero}>
-              <View style={styles.heroGlowPrimary} />
-              <View style={styles.heroGlowSecondary} />
+        );
+      }
 
+      if (!customer) {
+        return null;
+      }
+
+      switch (item) {
+        case "hero":
+          return (
+            <View style={styles.hero}>
               <View style={styles.heroTopRow}>
                 <Text style={styles.kicker}>Profile</Text>
-                <Pressable style={styles.heroGhostButton} onPress={() => router.push("/notifications")}>
-                  <Ionicons name="notifications-outline" size={16} color={palette.foreground} />
+                <Pressable
+                  style={styles.heroGhostButton}
+                  onPress={openNotifications}
+                >
+                  <Ionicons
+                    name="notifications-outline"
+                    size={16}
+                    color={palette.foreground}
+                  />
                   <Text style={styles.heroGhostButtonText}>Alerts</Text>
                   {unreadCount > 0 ? (
                     <View style={styles.heroGhostBadge}>
@@ -175,7 +388,7 @@ export default function ProfileScreen() {
 
               <View style={styles.identityCard}>
                 <View style={styles.avatar}>
-                  {customer?.profileImage?.url ? (
+                  {customer.profileImage?.url ? (
                     <RemoteImage
                       uri={customer.profileImage.url}
                       style={styles.avatarImage}
@@ -195,7 +408,7 @@ export default function ProfileScreen() {
                     </Text>
                     <Pressable
                       style={styles.nameEditButton}
-                      onPress={() => router.push("/profile-edit")}
+                      onPress={openProfileEdit}
                       hitSlop={8}
                     >
                       <Ionicons
@@ -206,46 +419,85 @@ export default function ProfileScreen() {
                     </Pressable>
                   </View>
                   <Text style={styles.subtitle}>
-                    Keep your account, notifications, rewards, and support details in one place.
+                    Keep your account, notifications, rewards, and support
+                    details in one place.
                   </Text>
 
                   <View style={styles.heroPillRow}>
                     <InfoPill
                       icon="location-outline"
                       text={heroLocationText}
-                      onPress={() => router.push("/location-picker")}
+                      onPress={openLocationPicker}
                     />
                   </View>
                 </View>
               </View>
             </View>
+          );
+        case "offer":
+          return (
+            <Pressable style={styles.offerPeekCard} onPress={openOffers}>
+              {activeOfferCount > 0 ? (
+                <View style={styles.offerCountBadge}>
+                  <Text style={styles.offerCountBadgeText}>
+                    {activeOfferCount}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.offerPeekHeader}>
+                <View style={styles.offerPeekIcon}>
+                  <Ionicons
+                    name="ticket-outline"
+                    size={21}
+                    color={palette.secondary}
+                  />
+                </View>
+                <View style={styles.offerPeekCopy}>
+                  <Text style={styles.offerPeekLabel}>My offer</Text>
+                  <Text style={styles.offerPeekTitle} numberOfLines={1}>
+                    {customOfferTitle}
+                  </Text>
+                  <Text style={styles.offerPeekMeta} numberOfLines={1}>
+                    {customOfferMeta}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#D7DBE5" />
+              </View>
 
-            <Pressable
-              style={styles.offerPeekCard}
-              onPress={() => router.push("/offers")}
-            >
-              <View style={styles.offerPeekIcon}>
-                <Ionicons name="ticket-outline" size={21} color={palette.secondary} />
-              </View>
-              <View style={styles.offerPeekCopy}>
-                <Text style={styles.offerPeekLabel}>My offers</Text>
-                <Text style={styles.offerPeekTitle} numberOfLines={1}>
-                  {highlightedOffer
-                    ? `${highlightedOfferExpired ? "Expired: " : ""}${highlightedOffer.voucherLabel || highlightedOffer.title}`
-                    : personalOffersQuery.isLoading
-                      ? "Checking personal vouchers"
-                      : "No personal voucher yet"}
+              <View style={styles.offerProgressHeader}>
+                <Text style={styles.offerProgressLabel}>
+                  {customOfferSummary?.status === "ready" ||
+                  activeHighlightedOffer
+                    ? "Ready"
+                    : customOfferSummary?.status === "requested"
+                      ? "Request sent"
+                      : canRequestCustomOffer
+                        ? "Ready to request"
+                        : `${customOfferSummary?.remainingOrderCount ?? 10} ${
+                            (customOfferSummary?.remainingOrderCount ?? 10) ===
+                            1
+                              ? "order"
+                              : "orders"
+                          } left to unlock`}
                 </Text>
-                <Text style={styles.offerPeekMeta} numberOfLines={1}>
-                  {highlightedOffer
-                    ? highlightedOffer.voucherCode ||
-                      (highlightedOffer.voucherId ? "Auto applied" : highlightedOffer.description)
-                    : "Order more to unlock personal offers."}
+                <Text style={styles.offerProgressCount}>
+                  {customOfferSummary?.completedOrderCount ?? 0}/
+                  {customOfferSummary?.targetOrderCount ?? 10}
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
+              <View style={styles.offerProgressTrack}>
+                <View
+                  style={[
+                    styles.offerProgressFill,
+                    { width: `${customOfferProgressPercent}%` },
+                  ]}
+                />
+              </View>
+              <Text style={styles.offerDetailHint}>View</Text>
             </Pressable>
-
+          );
+        case "overview":
+          return (
             <View style={styles.section}>
               <SectionHeader
                 title="Overview"
@@ -272,7 +524,7 @@ export default function ProfileScreen() {
                   value={`${favoriteCount}`}
                   caption="Saved restaurants"
                   tint="#FFF1C9"
-                  onPress={() => router.push("/favorite-restaurants")}
+                  onPress={openFavoriteRestaurants}
                 />
                 {isReferralSummaryLoading ? (
                   <ReferralOverviewCardSkeleton />
@@ -284,7 +536,7 @@ export default function ProfileScreen() {
                     caption="Per reward"
                     tint="#FFF0F6"
                     highlight
-                    onPress={() => router.push("/referrals")}
+                    onPress={openReferrals}
                   />
                 ) : null}
                 <OverviewCard
@@ -293,11 +545,13 @@ export default function ProfileScreen() {
                   value="Open"
                   caption="Support and guides"
                   tint="#E8FFF1"
-                  onPress={() => router.push("/support")}
+                  onPress={openSupport}
                 />
               </View>
             </View>
-
+          );
+        case "preferences":
+          return (
             <View style={styles.section}>
               <SectionHeader
                 title="Preferences"
@@ -306,8 +560,14 @@ export default function ProfileScreen() {
 
               <View style={styles.cardStack}>
                 <ProfileNavCard
-                  icon={preferredPaymentMethod === "Bkash" ? "phone-portrait-outline" : "cash-outline"}
-                  imageSource={preferredPaymentMethod === "Bkash" ? bkashLogo : undefined}
+                  icon={
+                    preferredPaymentMethod === "Bkash"
+                      ? "phone-portrait-outline"
+                      : "cash-outline"
+                  }
+                  imageSource={
+                    preferredPaymentMethod === "Bkash" ? bkashLogo : undefined
+                  }
                   tint="#FFF0F6"
                   title="Default payment method"
                   caption={
@@ -315,25 +575,27 @@ export default function ProfileScreen() {
                       ? paymentSettings.bkashLabel
                       : "Cash on delivery"
                   }
-                  onPress={() => router.push("/payment-preferences")}
+                  onPress={openPaymentPreferences}
                 />
                 <ProfileNavCard
                   icon="person-outline"
                   tint="#FFE7F1"
                   title="Personal info"
-                  onPress={() => router.push("/profile-edit")}
+                  onPress={openProfileEdit}
                 />
                 <ProfileNavCard
                   icon="location-outline"
                   tint="#FFF0E8"
                   title="Delivery point"
-                  onPress={() => router.push("/location-picker")}
+                  onPress={openLocationPicker}
                 />
                 <ProfileNavCard
                   icon="lock-closed-outline"
                   tint="#EEF8F2"
-                  title={customer.hasPassword ? "Change password" : "Add password"}
-                  onPress={() => router.push("/profile-password")}
+                  title={
+                    customer.hasPassword ? "Change password" : "Add password"
+                  }
+                  onPress={openProfilePassword}
                 />
                 {isReferralSummaryLoading ? (
                   <ReferralNavCardSkeleton />
@@ -344,7 +606,7 @@ export default function ProfileScreen() {
                     title="Refer & earn"
                     caption={`${referralRewardLabel} reward available`}
                     highlight
-                    onPress={() => router.push("/referrals")}
+                    onPress={openReferrals}
                   />
                 ) : null}
                 <ProfileNavCard
@@ -360,53 +622,59 @@ export default function ProfileScreen() {
                   icon="notifications-outline"
                   tint="#EEF5FF"
                   title="Notifications center"
-                  onPress={() => router.push("/notifications")}
+                  onPress={openNotifications}
                 />
                 <ProfileNavCard
                   icon="help-circle-outline"
                   tint="#FFF0E8"
                   title="Help center"
-                  onPress={() => router.push("/support")}
+                  onPress={openSupport}
                 />
                 <ProfileNavCard
                   icon="shield-checkmark-outline"
                   tint="#EEF8F2"
                   title="Privacy policy"
-                  onPress={() => router.push("/privacy-policy")}
+                  onPress={openPrivacyPolicy}
                 />
               </View>
             </View>
-
-            {(customer.previousPhones?.length ?? 0) > 0 ? (
-              <View style={styles.section}>
-                <SectionHeader
-                  title="Account history"
-                  subtitle="Past verified numbers tied to this account."
-                />
-                <View style={styles.cardStack}>
-                  <View style={styles.historyCard}>
-                    {customer.previousPhones?.map((entry, index) => (
-                      <View
-                        key={`${entry.phone}-${index}`}
-                        style={[
-                          styles.historyRow,
-                          index < (customer.previousPhones?.length ?? 0) - 1 ? styles.historyRowBorder : null,
-                        ]}
-                      >
-                        <View style={styles.historyDot} />
-                        <View style={styles.historyCopy}>
-                          <Text style={styles.historyTitle}>{entry.phone}</Text>
-                          <Text style={styles.historyMeta}>
-                            {entry.changedAt ? formatDateTimeAmPm(entry.changedAt) : "Change date unavailable"}
-                          </Text>
-                        </View>
+          );
+        case "history":
+          return (
+            <View style={styles.section}>
+              <SectionHeader
+                title="Account history"
+                subtitle="Past verified numbers tied to this account."
+              />
+              <View style={styles.cardStack}>
+                <View style={styles.historyCard}>
+                  {customer.previousPhones?.map((entry, index) => (
+                    <View
+                      key={`${entry.phone}-${index}`}
+                      style={[
+                        styles.historyRow,
+                        index < (customer.previousPhones?.length ?? 0) - 1
+                          ? styles.historyRowBorder
+                          : null,
+                      ]}
+                    >
+                      <View style={styles.historyDot} />
+                      <View style={styles.historyCopy}>
+                        <Text style={styles.historyTitle}>{entry.phone}</Text>
+                        <Text style={styles.historyMeta}>
+                          {entry.changedAt
+                            ? formatDateTimeAmPm(entry.changedAt)
+                            : "Change date unavailable"}
+                        </Text>
                       </View>
-                    ))}
-                  </View>
+                    </View>
+                  ))}
                 </View>
               </View>
-            ) : null}
-
+            </View>
+          );
+        case "account":
+          return (
             <View style={styles.section}>
               <SectionHeader
                 title="Account"
@@ -419,24 +687,90 @@ export default function ProfileScreen() {
                     logoutMutation.isPending ? styles.disabledCard : null,
                   ]}
                   disabled={logoutMutation.isPending}
-                  onPress={() => setLogoutConfirmVisible(true)}
+                  onPress={showLogoutConfirm}
                 >
                   <View style={styles.logoutIconWrap}>
                     {logoutMutation.isPending ? (
                       <ActivityIndicator size="small" color={palette.primary} />
                     ) : (
-                      <Ionicons name="log-out-outline" size={18} color={palette.primary} />
+                      <Ionicons
+                        name="log-out-outline"
+                        size={18}
+                        color={palette.primary}
+                      />
                     )}
                   </View>
                   <View style={styles.logoutCopy}>
                     <Text style={styles.logoutTitle}>Sign out</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={palette.mutedForeground}
+                  />
                 </Pressable>
               </View>
             </View>
-          </>
-        )}
+          );
+        default:
+          return null;
+      }
+    },
+    [
+      activeOfferCount,
+      canRequestCustomOffer,
+      customer,
+      customOfferMeta,
+      customOfferProgressPercent,
+      customOfferSummary?.completedOrderCount,
+      customOfferSummary?.remainingOrderCount,
+      customOfferSummary?.status,
+      customOfferSummary?.targetOrderCount,
+      customOfferTitle,
+      displayName,
+      favoriteCount,
+      activeHighlightedOffer,
+      heroLocationText,
+      initials,
+      isOnline,
+      isReferralSummaryLoading,
+      logoutMutation.isPending,
+      openFavoriteRestaurants,
+      openHowToOrder,
+      openLocationPicker,
+      openNotifications,
+      openOffers,
+      openPaymentPreferences,
+      openPrivacyPolicy,
+      openProfileEdit,
+      openProfilePassword,
+      openReferrals,
+      openSignIn,
+      openSupport,
+      paymentSettings.bkashLabel,
+      preferredPaymentMethod,
+      referralRewardLabel,
+      shouldShowReferral,
+      showLogoutConfirm,
+      unreadCount,
+    ],
+  );
+
+  return (
+    <Screen>
+      <ScrollView
+        contentContainerStyle={[
+          styles.container,
+          !customer ? styles.guestContainer : null,
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {profileListItems.map((item, index) => (
+          <View key={keyExtractor(item)}>
+            {index > 0 ? <ProfileListSeparator /> : null}
+            {renderProfileItem({ item })}
+          </View>
+        ))}
       </ScrollView>
 
       <Modal
@@ -452,7 +786,11 @@ export default function ProfileScreen() {
           />
           <View style={styles.confirmCard}>
             <View style={styles.confirmIconWrap}>
-              <Ionicons name="log-out-outline" size={26} color={palette.primary} />
+              <Ionicons
+                name="log-out-outline"
+                size={26}
+                color={palette.primary}
+              />
             </View>
             <Text style={styles.confirmTitle}>Sign out?</Text>
             <Text style={styles.confirmText}>
@@ -484,12 +822,15 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-
     </Screen>
   );
 }
 
-function SectionHeader({
+const ProfileListSeparator = memo(function ProfileListSeparator() {
+  return <View style={styles.profileListSeparator} />;
+});
+
+const SectionHeader = memo(function SectionHeader({
   title,
   subtitle,
 }: {
@@ -502,9 +843,9 @@ function SectionHeader({
       <Text style={styles.sectionSubtitle}>{subtitle}</Text>
     </View>
   );
-}
+});
 
-function InfoPill({
+const InfoPill = memo(function InfoPill({
   icon,
   text,
   onPress,
@@ -520,7 +861,11 @@ function InfoPill({
         {text}
       </Text>
       {onPress ? (
-        <Ionicons name="chevron-forward" size={13} color={palette.mutedForeground} />
+        <Ionicons
+          name="chevron-forward"
+          size={13}
+          color={palette.mutedForeground}
+        />
       ) : null}
     </>
   );
@@ -533,14 +878,10 @@ function InfoPill({
     );
   }
 
-  return (
-    <View style={styles.infoPill}>
-      {content}
-    </View>
-  );
-}
+  return <View style={styles.infoPill}>{content}</View>;
+});
 
-function OverviewCard({
+const OverviewCard = memo(function OverviewCard({
   icon,
   label,
   value,
@@ -582,11 +923,7 @@ function OverviewCard({
   }
 
   return (
-    <Pressable
-      style={cardStyle}
-      onPress={onPress}
-      accessibilityRole="button"
-    >
+    <Pressable style={cardStyle} onPress={onPress} accessibilityRole="button">
       <View style={styles.overviewActionCue}>
         <Ionicons name="chevron-forward" size={14} color={palette.foreground} />
       </View>
@@ -600,20 +937,22 @@ function OverviewCard({
       <Text style={styles.overviewCaption}>{caption}</Text>
     </Pressable>
   );
-}
+});
 
-function ReferralOverviewCardSkeleton() {
-  return (
-    <View style={[styles.overviewCard, styles.referralSkeletonCard]}>
-      <ShimmerBlock style={styles.referralSkeletonIcon} />
-      <ShimmerBlock style={styles.referralSkeletonValue} />
-      <ShimmerBlock style={styles.referralSkeletonLabel} />
-      <ShimmerBlock style={styles.referralSkeletonCaption} />
-    </View>
-  );
-}
+const ReferralOverviewCardSkeleton = memo(
+  function ReferralOverviewCardSkeleton() {
+    return (
+      <View style={[styles.overviewCard, styles.referralSkeletonCard]}>
+        <ShimmerBlock style={styles.referralSkeletonIcon} />
+        <ShimmerBlock style={styles.referralSkeletonValue} />
+        <ShimmerBlock style={styles.referralSkeletonLabel} />
+        <ShimmerBlock style={styles.referralSkeletonCaption} />
+      </View>
+    );
+  },
+);
 
-function ProfileNavCard({
+const ProfileNavCard = memo(function ProfileNavCard({
   icon,
   imageSource,
   tint,
@@ -639,12 +978,7 @@ function ProfileNavCard({
       style={({ pressed }) => [
         styles.navCard,
         highlight ? styles.navCardHighlighted : null,
-        pressed
-          ? {
-              transform: [{ scale: 0.985 }, { translateY: 1 }],
-              shadowOpacity: 0.06,
-            }
-          : null,
+        pressed ? styles.navCardPressed : null,
       ]}
       onPress={onPress}
     >
@@ -653,7 +987,7 @@ function ProfileNavCard({
           <Image
             source={imageSource}
             resizeMode="contain"
-            style={{ width: 26, height: 26 }}
+            style={styles.navLogoImage}
           />
         ) : (
           <Ionicons name={icon} size={18} color={iconColor} />
@@ -666,11 +1000,11 @@ function ProfileNavCard({
       <Ionicons name={trailingIcon} size={18} color={palette.mutedForeground} />
     </Pressable>
   );
-}
+});
 
-function ReferralNavCardSkeleton() {
+const ReferralNavCardSkeleton = memo(function ReferralNavCardSkeleton() {
   return (
-    <View style={[styles.navCard, styles.navCardHighlighted]}>
+    <View style={[styles.navCard, styles.referralNavSkeletonCard]}>
       <ShimmerBlock style={styles.referralNavSkeletonIcon} />
       <View style={styles.navCopy}>
         <ShimmerBlock style={styles.referralNavSkeletonTitle} />
@@ -679,14 +1013,14 @@ function ReferralNavCardSkeleton() {
       <ShimmerBlock style={styles.referralNavSkeletonChevron} />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     paddingBottom: 40,
-    gap: 28,
   },
+  profileListSeparator: { height: 28 },
   guestContainer: {
     justifyContent: "center",
   },
@@ -775,10 +1109,12 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     backgroundColor: "rgba(255,255,255,0.86)",
     shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   avatar: {
     width: 72,
@@ -810,8 +1146,8 @@ const styles = StyleSheet.create({
   },
   name: {
     flex: 1,
-    fontSize: 31,
-    lineHeight: 37,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: "800",
     color: palette.foreground,
   },
@@ -854,51 +1190,217 @@ const styles = StyleSheet.create({
     maxWidth: 210,
   },
   offerPeekCard: {
+    position: "relative",
     marginHorizontal: 20,
     marginTop: -6,
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255, 122, 89, 0.16)",
-    backgroundColor: palette.surface,
-    padding: 14,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "#171923",
+    padding: 12,
+    gap: 9,
+  },
+  offerCountBadge: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    zIndex: 2,
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: "#171923",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 7,
+    backgroundColor: palette.secondary,
+  },
+  offerCountBadgeText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  offerPeekHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
   },
   offerPeekIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    backgroundColor: "#FFF0F6",
+    width: 40,
+    height: 40,
+    borderRadius: 15,
+    backgroundColor: "rgba(255, 92, 147, 0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
   offerPeekCopy: {
     flex: 1,
     gap: 2,
+    minWidth: 0,
   },
   offerPeekLabel: {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "800",
-    color: palette.secondary,
+    color: "#FF8FBC",
   },
   offerPeekTitle: {
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "800",
-    color: palette.foreground,
+    color: "#FFFFFF",
   },
   offerPeekMeta: {
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",
+    color: "#C9CEDA",
+  },
+  offerCodeChip: {
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    marginTop: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255, 143, 188, 0.35)",
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  offerCodeChipLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "800",
+    color: "#FFB6D1",
+    textTransform: "uppercase",
+  },
+  offerCodeChipValue: {
+    maxWidth: 132,
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: 0,
+  },
+  offerProgressHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  offerProgressLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: "#C9CEDA",
+    textTransform: "uppercase",
+  },
+  offerProgressCount: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  offerProgressTrack: {
+    height: 7,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
+  },
+  offerProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: palette.secondary,
+  },
+  offerDetailHint: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  offerDetailsProgressCard: {
+    width: "100%",
+    gap: 8,
+    borderRadius: 18,
+    backgroundColor: "#FFF7FA",
+    padding: 14,
+  },
+  offerCodeFieldWrap: {
+    width: "100%",
+    gap: 7,
+    alignItems: "stretch",
+  },
+  offerCodeReadOnly: {
+    width: "100%",
+    gap: 6,
+    borderRadius: 16,
+    backgroundColor: "#F7F8FA",
+    padding: 12,
+  },
+  offerCodeLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  offerCodeInput: {
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  offerCodeValue: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.secondary,
+  },
+  offerActionRow: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  offerActionText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
     color: palette.mutedForeground,
+  },
+  offerActionButton: {
+    minWidth: 78,
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.secondary,
+  },
+  offerActionButtonMuted: {
+    backgroundColor: "#C9CDD5",
+  },
+  offerActionButtonText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
   section: { gap: 14 },
   sectionHeader: {
@@ -933,11 +1435,13 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 28,
     gap: 6,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
     shadowColor: palette.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   overviewCardWide: {
     width: "100%",
@@ -946,10 +1450,11 @@ const styles = StyleSheet.create({
   overviewCardHighlighted: {
     borderWidth: 1,
     borderColor: "rgba(228, 17, 111, 0.34)",
-    shadowOpacity: 0.14,
+    shadowOpacity: 0,
   },
   referralSkeletonCard: {
     backgroundColor: "#F0F7FF",
+    borderWidth: 0,
   },
   referralSkeletonIcon: {
     width: 40,
@@ -1008,62 +1513,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: palette.mutedForeground,
   },
-  latestOrderCard: {
-    marginTop: 2,
-    marginHorizontal: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 16,
-    borderRadius: 28,
-    backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
-  latestOrderIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  latestOrderCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  latestOrderLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: palette.secondary,
-  },
-  latestOrderTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  latestOrderMeta: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  latestOrderAmountWrap: {
-    alignItems: "flex-end",
-    gap: 4,
-  },
-  latestOrderAmount: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
   cardStack: {
     paddingHorizontal: 20,
     gap: 12,
@@ -1077,15 +1526,25 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     backgroundColor: palette.surface,
     shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+  navCardPressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
   },
   navCardHighlighted: {
     borderWidth: 1,
     borderColor: "rgba(216, 27, 96, 0.22)",
     backgroundColor: "#FFF7FB",
+  },
+  referralNavSkeletonCard: {
+    borderWidth: 0,
+    backgroundColor: palette.surface,
   },
   referralNavSkeletonIcon: {
     width: 42,
@@ -1115,6 +1574,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  navLogoImage: {
+    width: 26,
+    height: 26,
+  },
   navCopy: {
     flex: 1,
     gap: 0,
@@ -1137,10 +1600,12 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     padding: 16,
     shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   historyRow: {
     flexDirection: "row",
@@ -1180,10 +1645,12 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     backgroundColor: palette.surface,
     shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   disabledCard: {
     opacity: 0.65,

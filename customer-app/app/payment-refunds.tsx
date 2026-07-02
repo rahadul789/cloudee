@@ -1,6 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "@/src/components/screen";
@@ -60,7 +67,11 @@ export default function PaymentRefundsScreen() {
       >
         <View style={styles.topBar}>
           <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
+            <Ionicons
+              name="chevron-back"
+              size={20}
+              color={palette.foreground}
+            />
           </Pressable>
         </View>
 
@@ -68,20 +79,31 @@ export default function PaymentRefundsScreen() {
           <View style={styles.heroGlowPrimary} />
           <View style={styles.heroGlowSecondary} />
           <Text style={styles.kicker}>Payment Help</Text>
-          <Text style={styles.title}>Payment and refund help, without the stress</Text>
+          <Text style={styles.title}>
+            Payment and refund help, without the stress
+          </Text>
           <Text style={styles.subtitle}>
-            Failed payments, pending bKash, COD limits, and refund timing all stay easier to understand here.
+            Failed payments, pending bKash, COD limits, and refund timing all
+            stay easier to understand here.
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Common payment issues</Text>
-          <Text style={styles.sectionSubtitle}>These are the questions users ask most often.</Text>
+          <Text style={styles.sectionSubtitle}>
+            These are the questions users ask most often.
+          </Text>
           <View style={styles.stack}>
             {paymentIssueCards.map((item) => (
               <View key={item.id} style={styles.card}>
-                <View style={[styles.cardIconWrap, { backgroundColor: item.tint }]}>
-                  <Ionicons name={item.icon} size={18} color={palette.foreground} />
+                <View
+                  style={[styles.cardIconWrap, { backgroundColor: item.tint }]}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={18}
+                    color={palette.foreground}
+                  />
                 </View>
                 <View style={styles.cardCopy}>
                   <Text style={styles.cardTitle}>{item.title}</Text>
@@ -94,7 +116,9 @@ export default function PaymentRefundsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Refund basics</Text>
-          <Text style={styles.sectionSubtitle}>What usually happens when money has to come back.</Text>
+          <Text style={styles.sectionSubtitle}>
+            What usually happens when money has to come back.
+          </Text>
           <View style={styles.tipCard}>
             {refundChecklist.map((item) => (
               <View key={item} style={styles.tipRow}>
@@ -107,10 +131,19 @@ export default function PaymentRefundsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Need written support?</Text>
-          <Text style={styles.sectionSubtitle}>Use chat for speed or email when you want a clear trail.</Text>
+          <Text style={styles.sectionSubtitle}>
+            Use chat for speed or email when you want a clear trail.
+          </Text>
           <View style={styles.ctaRow}>
-            <Pressable style={styles.secondaryAction} onPress={() => router.push("/support-chat")}>
-              <Ionicons name="chatbubble-ellipses-outline" size={18} color={palette.foreground} />
+            <Pressable
+              style={styles.secondaryAction}
+              onPress={() => router.push("/support-chat")}
+            >
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={18}
+                color={palette.foreground}
+              />
               <Text style={styles.secondaryActionText}>Open live chat</Text>
             </Pressable>
             <Pressable
@@ -120,10 +153,16 @@ export default function PaymentRefundsScreen() {
                 const body = encodeURIComponent(
                   "Hi support team,\n\nI need help with a payment or refund issue.\n\nOrder ID:\nPayment method:\nTransaction ID (if any):\nIssue summary:\n",
                 );
-                void Linking.openURL(`mailto:support@foodbela.app?subject=${subject}&body=${body}`);
+                void Linking.openURL(
+                  `mailto:support@foodbela.com?subject=${subject}&body=${body}`,
+                );
               }}
             >
-              <Ionicons name="mail-outline" size={18} color={palette.foreground} />
+              <Ionicons
+                name="mail-outline"
+                size={18}
+                color={palette.foreground}
+              />
               <Text style={styles.secondaryActionText}>Email support</Text>
             </Pressable>
           </View>
@@ -173,12 +212,33 @@ const styles = StyleSheet.create({
     borderRadius: 61,
     backgroundColor: "#FFF0C8",
   },
-  kicker: { fontSize: 11, lineHeight: 15, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase", color: palette.secondary },
-  title: { fontSize: 28, lineHeight: 34, fontWeight: "800", color: palette.foreground },
+  kicker: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: palette.secondary,
+  },
+  title: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
   subtitle: { fontSize: 14, lineHeight: 22, color: palette.mutedForeground },
   section: { gap: 8 },
-  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "800", color: palette.foreground },
-  sectionSubtitle: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
+  sectionTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: palette.mutedForeground,
+  },
   stack: { gap: 10 },
   card: {
     padding: 14,
@@ -189,9 +249,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  cardIconWrap: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cardCopy: { flex: 1, gap: 4 },
-  cardTitle: { fontSize: 14, lineHeight: 19, fontWeight: "800", color: palette.foreground },
+  cardTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
   cardText: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
   tipCard: {
     borderRadius: 24,
@@ -202,7 +273,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tipRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  tipDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.secondary, marginTop: 6 },
+  tipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: palette.secondary,
+    marginTop: 6,
+  },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
   ctaRow: { flexDirection: "row", gap: 10 },
   secondaryAction: {
@@ -218,5 +295,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 10,
   },
-  secondaryActionText: { fontSize: 13, lineHeight: 18, fontWeight: "700", color: palette.foreground },
+  secondaryActionText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
 });

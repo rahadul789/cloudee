@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
   useWindowDimensions,
   type StyleProp,
   type ViewStyle,
@@ -71,7 +70,6 @@ export function AppBottomSheet({
   contentContainerStyle,
   sheetStyle,
 }: AppBottomSheetProps) {
-  const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const dimensions = useWindowDimensions();
   const screenHeight = dimensions.height || Dimensions.get("window").height;
@@ -107,12 +105,10 @@ export function AppBottomSheet({
   const topGap = Math.max(insets.top + 28, 56);
   const sheetHeight = Math.min(screenHeight * activeSnapPoint, screenHeight - topGap);
   const keyboardLift = keyboardHeight ? Math.min(keyboardHeight, screenHeight * 0.32) : 0;
-  const isDark = colorScheme === "dark";
-
-  const surfaceColor = isDark ? "#191C24" : palette.background;
-  const textColor = isDark ? "#F6F7FB" : palette.foreground;
-  const mutedTextColor = isDark ? "#ADB3C4" : palette.mutedForeground;
-  const borderColor = isDark ? "rgba(255,255,255,0.1)" : palette.border;
+  const surfaceColor = palette.background;
+  const textColor = palette.foreground;
+  const mutedTextColor = palette.mutedForeground;
+  const borderColor = palette.border;
 
   const animateOpen = () => {
     translateY.setValue(screenHeight);
@@ -296,11 +292,11 @@ export function AppBottomSheet({
           ]}
         >
           <View style={styles.dragArea} {...panResponder.panHandlers}>
-            <View style={[styles.handle, { backgroundColor: isDark ? "#3A4050" : "#D8CDD3" }]} />
+            <View style={styles.handle} />
             {(title || subtitle || leadingIcon) ? (
               <View style={styles.header}>
                 {leadingIcon ? (
-                  <View style={[styles.leadingIcon, { backgroundColor: isDark ? "#252A36" : "#FFEAF2" }]}>
+                  <View style={styles.leadingIcon}>
                     <Ionicons name={leadingIcon} size={18} color={palette.secondary} />
                   </View>
                 ) : null}
@@ -374,6 +370,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginTop: 12,
     marginBottom: 13,
+    backgroundColor: "#D8CDD3",
   },
   header: {
     flexDirection: "row",
@@ -386,6 +383,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFEAF2",
   },
   headerCopy: {
     flex: 1,

@@ -6,6 +6,7 @@ import NetInfo from "@react-native-community/netinfo";
 
 import { connectRiderSocket, disconnectRiderSocket, getRiderSocket } from "@/src/lib/socket-client";
 import { useDeliveryCopy } from "@/src/lib/copy";
+import { getFreshRiderAccessToken } from "@/src/lib/api";
 import { patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { setDeliveryNetworkOnline, useNetworkStore } from "@/src/store/network-store";
@@ -124,16 +125,22 @@ export function RiderSocketBridge() {
       void queryClient.refetchQueries({ queryKey: ["rider", "orders", "active"], type: "active" });
       void queryClient.invalidateQueries({ queryKey: ["rider", "live-map"] });
     };
-    const connectIfActive = () => {
+    const connectIfActive = async () => {
       if (appStateRef.current !== "active") {
         disconnectRiderSocket();
         return;
       }
 
-      connectRiderSocket(riderId, accessToken);
+      const freshAccessToken = await getFreshRiderAccessToken();
+      if (!freshAccessToken) {
+        disconnectRiderSocket();
+        return;
+      }
+
+      connectRiderSocket(riderId, freshAccessToken);
     };
 
-    connectIfActive();
+    void connectIfActive();
     const handleSocketConnected = () => {
       setDeliveryNetworkOnline(true);
       refetchRiderRealtimeState();
@@ -213,7 +220,7 @@ export function RiderSocketBridge() {
       appStateRef.current = nextState;
 
       if (nextState === "active") {
-        connectIfActive();
+        void connectIfActive();
         refetchRiderRealtimeState();
         return;
       }

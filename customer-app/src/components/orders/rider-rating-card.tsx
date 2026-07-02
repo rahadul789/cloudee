@@ -62,13 +62,13 @@ export function RiderRatingCard({
         style={styles.header}
         onPress={toggle}
         accessibilityRole="button"
-        accessibilityLabel="Rate your rider"
+        accessibilityLabel="Rate your ride optional"
       >
         <View style={styles.iconBubble}>
           <Ionicons name="bicycle" size={20} color={palette.sky} />
         </View>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>Rate your rider</Text>
+          <Text style={styles.title}>Rate your ride (optional)</Text>
           <Text style={styles.subtitle} numberOfLines={1}>
             {value > 0
               ? `${getRatingLabel(value)} · ${value}/5`

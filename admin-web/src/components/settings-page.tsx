@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
 import {
   BarChart3,
   Ban,
@@ -32,6 +33,7 @@ import {
   deleteAdminOtpBlock,
   listAdminActivityLogs,
   upsertAdminOtpBlock,
+  type AdminActivityLog,
 } from "@/lib/admin-api"
 import {
   getAdminRoutingUsageAnalytics,
@@ -122,11 +124,26 @@ const defaultRoutingSettings: PlatformContent["operations"]["routing"] = {
   nearDestinationMeters: 220,
 }
 
-const defaultFailedDeliverySettings: PlatformContent["operations"]["failedDelivery"] = {
-  customerFaultRefundPercent: 80,
-  restaurantCompensationPercent: 100,
-  riderFailedTripPay: 30,
-}
+const defaultFailedDeliverySettings: PlatformContent["operations"]["failedDelivery"] =
+  {
+    customerFaultRefundPercent: 80,
+    restaurantCompensationPercent: 100,
+    riderFailedTripPay: 30,
+  }
+
+const defaultCustomOfferSettings: PlatformContent["operations"]["customOffers"] =
+  {
+    enabled: true,
+    profileSectionEnabled: true,
+    thresholdDeliveredOrders: 10,
+    countStartsAt: "",
+    adminResponseHours: 72,
+    requestedCodeMaxLength: 12,
+    qualificationPushEnabled: true,
+    qualificationPushTitle: "My offer is unlocked",
+    qualificationPushBody:
+      "You completed {{threshold}} orders. Request your personal voucher now.",
+  }
 
 const defaultReviewRequestSettings: NonNullable<
   PlatformContent["operations"]["reviewRequests"]
@@ -139,8 +156,8 @@ const defaultReviewRequestSettings: NonNullable<
   windowHours: 72,
   quietHoursStart: 22,
   quietHoursEnd: 9,
-  pushTitle: "How was your order? ⭐",
-  pushBody: "Tap to rate — your feedback helps others order with confidence.",
+  pushTitle: "How was your food?",
+  pushBody: "Tap to rate your order and help others choose with confidence.",
 }
 
 const MAP_STYLE_SCREEN_ASSIGNMENTS = [
@@ -185,18 +202,50 @@ const defaultMapStyleSettings: PlatformContent["operations"]["mapStyles"] = {
         "Bright delivery map with clear roads, soft land colors, and hidden POI clutter.",
       isActive: true,
       styleJson: [
-        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+        {
+          featureType: "poi",
+          elementType: "labels",
+          stylers: [{ visibility: "off" }],
+        },
         { featureType: "poi.business", stylers: [{ visibility: "off" }] },
         { featureType: "poi.school", stylers: [{ visibility: "off" }] },
         { featureType: "poi.medical", stylers: [{ visibility: "off" }] },
         { featureType: "transit", stylers: [{ visibility: "off" }] },
-        { featureType: "administrative", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.35 }] },
-        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F9FBF7" }] },
-        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#DCE4EC" }] },
-        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F7A8C9" }] },
-        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
-        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        {
+          featureType: "administrative",
+          elementType: "labels.text.fill",
+          stylers: [{ color: "#334155" }],
+        },
+        {
+          featureType: "road",
+          elementType: "geometry",
+          stylers: [{ color: "#FFFFFF" }, { weight: 1.35 }],
+        },
+        {
+          featureType: "road.local",
+          elementType: "geometry",
+          stylers: [{ color: "#F9FBF7" }],
+        },
+        {
+          featureType: "road.arterial",
+          elementType: "geometry",
+          stylers: [{ color: "#DCE4EC" }],
+        },
+        {
+          featureType: "road.highway",
+          elementType: "geometry",
+          stylers: [{ color: "#F7A8C9" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.text.fill",
+          stylers: [{ color: "#334155" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.text.stroke",
+          stylers: [{ color: "#FFFFFF" }],
+        },
         { featureType: "water", stylers: [{ color: "#99D8EF" }] },
         { featureType: "landscape", stylers: [{ color: "#EAF4E4" }] },
         { featureType: "landscape.man_made", stylers: [{ color: "#F3EEE6" }] },
@@ -214,13 +263,33 @@ const defaultMapStyleSettings: PlatformContent["operations"]["mapStyles"] = {
         { elementType: "labels.text.stroke", stylers: [{ color: "#111827" }] },
         { featureType: "poi", stylers: [{ visibility: "off" }] },
         { featureType: "transit", stylers: [{ visibility: "off" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ color: "#374151" }] },
-        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
-        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#DB2777" }] },
-        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#F3F4F6" }] },
+        {
+          featureType: "road",
+          elementType: "geometry",
+          stylers: [{ color: "#374151" }],
+        },
+        {
+          featureType: "road.arterial",
+          elementType: "geometry",
+          stylers: [{ color: "#4B5563" }],
+        },
+        {
+          featureType: "road.highway",
+          elementType: "geometry",
+          stylers: [{ color: "#DB2777" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.text.fill",
+          stylers: [{ color: "#F3F4F6" }],
+        },
         { featureType: "water", stylers: [{ color: "#0F3A4A" }] },
         { featureType: "landscape", stylers: [{ color: "#172033" }] },
-        { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#4B5563" }] },
+        {
+          featureType: "administrative",
+          elementType: "geometry",
+          stylers: [{ color: "#4B5563" }],
+        },
       ],
     },
     {
@@ -233,11 +302,30 @@ const defaultMapStyleSettings: PlatformContent["operations"]["mapStyles"] = {
         { featureType: "poi", stylers: [{ visibility: "off" }] },
         { featureType: "transit", stylers: [{ visibility: "off" }] },
         { elementType: "labels.text.fill", stylers: [{ color: "#111827" }] },
-        { elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }, { weight: 4 }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }, { weight: 1.8 }] },
-        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F8FAFC" }] },
-        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#CBD5E1" }] },
-        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF2B85" }] },
+        {
+          elementType: "labels.text.stroke",
+          stylers: [{ color: "#FFFFFF" }, { weight: 4 }],
+        },
+        {
+          featureType: "road",
+          elementType: "geometry",
+          stylers: [{ color: "#FFFFFF" }, { weight: 1.8 }],
+        },
+        {
+          featureType: "road.local",
+          elementType: "geometry",
+          stylers: [{ color: "#F8FAFC" }],
+        },
+        {
+          featureType: "road.arterial",
+          elementType: "geometry",
+          stylers: [{ color: "#CBD5E1" }],
+        },
+        {
+          featureType: "road.highway",
+          elementType: "geometry",
+          stylers: [{ color: "#FF2B85" }],
+        },
         { featureType: "water", stylers: [{ color: "#7DD3FC" }] },
         { featureType: "landscape", stylers: [{ color: "#ECFDF5" }] },
         { featureType: "landscape.man_made", stylers: [{ color: "#F8FAFC" }] },
@@ -252,14 +340,46 @@ const defaultMapStyleSettings: PlatformContent["operations"]["mapStyles"] = {
       styleJson: [
         { featureType: "poi", stylers: [{ visibility: "off" }] },
         { featureType: "transit", stylers: [{ visibility: "off" }] },
-        { featureType: "administrative", elementType: "labels", stylers: [{ visibility: "off" }] },
-        { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-        { featureType: "road", elementType: "geometry", stylers: [{ color: "#FFFFFF" }] },
-        { featureType: "road.local", elementType: "geometry", stylers: [{ color: "#F3F4F6" }] },
-        { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#E5E7EB" }] },
-        { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#F9A8D4" }] },
-        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#475569" }] },
-        { featureType: "road", elementType: "labels.text.stroke", stylers: [{ color: "#FFFFFF" }] },
+        {
+          featureType: "administrative",
+          elementType: "labels",
+          stylers: [{ visibility: "off" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.icon",
+          stylers: [{ visibility: "off" }],
+        },
+        {
+          featureType: "road",
+          elementType: "geometry",
+          stylers: [{ color: "#FFFFFF" }],
+        },
+        {
+          featureType: "road.local",
+          elementType: "geometry",
+          stylers: [{ color: "#F3F4F6" }],
+        },
+        {
+          featureType: "road.arterial",
+          elementType: "geometry",
+          stylers: [{ color: "#E5E7EB" }],
+        },
+        {
+          featureType: "road.highway",
+          elementType: "geometry",
+          stylers: [{ color: "#F9A8D4" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.text.fill",
+          stylers: [{ color: "#475569" }],
+        },
+        {
+          featureType: "road",
+          elementType: "labels.text.stroke",
+          stylers: [{ color: "#FFFFFF" }],
+        },
         { featureType: "water", stylers: [{ color: "#BAE6FD" }] },
         { featureType: "landscape", stylers: [{ color: "#F7F7F2" }] },
       ],
@@ -402,6 +522,20 @@ function ensureReviewRequestSettings(content: PlatformContent) {
   return content.operations.reviewRequests
 }
 
+function ensureCustomOfferSettings(content: PlatformContent) {
+  content.operations.customOffers = {
+    ...defaultCustomOfferSettings,
+    ...(content.operations.customOffers ?? {}),
+  }
+  if (
+    content.operations.customOffers.enabled &&
+    !content.operations.customOffers.countStartsAt
+  ) {
+    content.operations.customOffers.countStartsAt = new Date().toISOString()
+  }
+  return content.operations.customOffers
+}
+
 function ensureMapStyleSettings(content: PlatformContent) {
   const current = content.operations.mapStyles ?? defaultMapStyleSettings
   const rawDefaultStyle = defaultMapStyleSettings.styles.find(
@@ -416,7 +550,9 @@ function ensureMapStyleSettings(content: PlatformContent) {
                 ...style,
                 description: style.description ?? "",
                 isActive: style.isActive !== false,
-                styleJson: Array.isArray(style.styleJson) ? style.styleJson : [],
+                styleJson: Array.isArray(style.styleJson)
+                  ? style.styleJson
+                  : [],
               }
         )
       : defaultMapStyleSettings.styles.map((style) => ({ ...style }))
@@ -430,7 +566,7 @@ function ensureMapStyleSettings(content: PlatformContent) {
   const validStyleIds = new Set(styles.map((style) => style.id))
   const fallbackStyleId = validStyleIds.has(current.assignments?.default)
     ? current.assignments.default
-    : styles[0]?.id ?? BUILT_IN_MAP_STYLE_ID
+    : (styles[0]?.id ?? BUILT_IN_MAP_STYLE_ID)
 
   content.operations.mapStyles = {
     styles,
@@ -565,6 +701,24 @@ function formatDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0")
   const day = String(date.getDate()).padStart(2, "0")
   return `${year}-${month}-${day}`
+}
+
+function formatDateTimeLocalInput(value?: string | null) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function isoFromDateTimeLocalInput(value: string) {
+  if (!value.trim()) return ""
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString()
 }
 
 function currentMonthStartDateInput() {
@@ -1028,6 +1182,77 @@ const operationalThresholdHelp = [
   },
 ] as const
 
+type RecentActivityFilter = "all" | "settings" | "orders" | "finance"
+
+const recentActivityFilters: Array<{
+  value: RecentActivityFilter
+  label: string
+}> = [
+  { value: "all", label: "All" },
+  { value: "settings", label: "Settings" },
+  { value: "orders", label: "Orders" },
+  { value: "finance", label: "Finance" },
+]
+
+function activityEntityMatchesFilter(
+  entry: AdminActivityLog,
+  filter: RecentActivityFilter
+) {
+  if (filter === "all") return true
+  const haystack = `${entry.entityType} ${entry.action} ${entry.title}`.toLowerCase()
+  if (filter === "settings") {
+    return /setting|platform|content|cms|config/.test(haystack)
+  }
+  if (filter === "orders") {
+    return /order|delivery|dispatch|rider/.test(haystack)
+  }
+  return /finance|payment|payout|refund|coupon|voucher|offer|bkash/.test(haystack)
+}
+
+function resolveActivityLogPath(entry: AdminActivityLog) {
+  const entityType = entry.entityType.toLowerCase()
+  const entityId = entry.entityId?.trim()
+  if (entityType.includes("order") && entityId) {
+    return `/orders?orderId=${encodeURIComponent(entityId)}`
+  }
+  if (
+    entityType.includes("customer") ||
+    entityType.includes("user") ||
+    entityType.includes("custom_offer")
+  ) {
+    return entityId
+      ? `/users?customerId=${encodeURIComponent(entityId)}&tab=offers`
+      : "/users"
+  }
+  if (
+    entityType.includes("coupon") ||
+    entityType.includes("voucher") ||
+    entityType.includes("offer")
+  ) {
+    return "/coupons"
+  }
+  if (entityType.includes("rider")) return "/riders"
+  if (entityType.includes("restaurant") || entityType.includes("owner")) {
+    return "/restaurants"
+  }
+  if (
+    entityType.includes("payment") ||
+    entityType.includes("payout") ||
+    entityType.includes("refund") ||
+    entityType.includes("finance")
+  ) {
+    return "/payments"
+  }
+  if (
+    entityType.includes("setting") ||
+    entityType.includes("platform") ||
+    entityType.includes("content")
+  ) {
+    return "/settings"
+  }
+  return "/action-center"
+}
+
 function SettingRow({
   title,
   description,
@@ -1050,6 +1275,7 @@ function SettingRow({
 
 export function SettingsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [adminZoneScope, setAdminZoneScope] = React.useState(() =>
     getAdminZoneScope()
   )
@@ -1084,13 +1310,19 @@ export function SettingsPage() {
   const [routingUsageTo, setRoutingUsageTo] = React.useState(() =>
     todayDateInput()
   )
+  const [recentActivityFilter, setRecentActivityFilter] =
+    React.useState<RecentActivityFilter>("all")
   const dispatchQuery = useQuery({
     queryKey: ["admin-dispatch-settings", adminScopeKey],
     queryFn: getAdminDispatchSettings,
     enabled: activeTab === "operations",
   })
   const ridersQuery = useQuery({
-    queryKey: ["admin-riders-assignment-options", "settings-primary", adminScopeKey],
+    queryKey: [
+      "admin-riders-assignment-options",
+      "settings-primary",
+      adminScopeKey,
+    ],
     queryFn: listAdminRidersAssignmentOptions,
     enabled: activeTab === "operations",
   })
@@ -1159,6 +1391,7 @@ export function SettingsPage() {
     ensureFinanceSettings(cloned)
     ensureAdminNotificationSettings(cloned)
     ensureRoutingSettings(cloned)
+    ensureCustomOfferSettings(cloned)
     syncMapStyleEditor(cloned)
     ensureRateLimitSettings(cloned)
     setDraft(cloned)
@@ -1177,6 +1410,7 @@ export function SettingsPage() {
       ensureFinanceSettings(cloned)
       ensureAdminNotificationSettings(cloned)
       ensureRoutingSettings(cloned)
+      ensureCustomOfferSettings(cloned)
       syncMapStyleEditor(cloned, selectedMapStyleId)
       ensureRateLimitSettings(cloned)
       setDraft(cloned)
@@ -1257,6 +1491,7 @@ export function SettingsPage() {
     ensureFinanceSettings(cloned)
     ensureAdminNotificationSettings(cloned)
     ensureRoutingSettings(cloned)
+    ensureCustomOfferSettings(cloned)
     syncMapStyleEditor(cloned, selectedMapStyleId)
     ensureRateLimitSettings(cloned)
     setDraft(cloned)
@@ -1296,7 +1531,8 @@ export function SettingsPage() {
     if (!draft) return
     const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
     const selectedStyle =
-      mapStyles.styles.find((style) => style.id === styleId) ?? mapStyles.styles[0]
+      mapStyles.styles.find((style) => style.id === styleId) ??
+      mapStyles.styles[0]
     setSelectedMapStyleId(selectedStyle?.id ?? BUILT_IN_MAP_STYLE_ID)
     setMapStyleJsonText(formatMapStyleJson(selectedStyle?.styleJson))
   }
@@ -1361,11 +1597,13 @@ export function SettingsPage() {
       nextMapStyles.styles = nextMapStyles.styles.filter(
         (style) => style.id !== removedStyle.id
       )
-      Object.entries(nextMapStyles.assignments).forEach(([screenKey, styleId]) => {
-        if (styleId === removedStyle.id) {
-          nextMapStyles.assignments[screenKey] = fallbackStyle.id
+      Object.entries(nextMapStyles.assignments).forEach(
+        ([screenKey, styleId]) => {
+          if (styleId === removedStyle.id) {
+            nextMapStyles.assignments[screenKey] = fallbackStyle.id
+          }
         }
-      })
+      )
       nextMapStyles.assignments.default =
         nextMapStyles.assignments.default === removedStyle.id
           ? fallbackStyle.id
@@ -1377,7 +1615,9 @@ export function SettingsPage() {
 
   const applyMapStyleJson = () => {
     if (selectedMapStyleId === BUILT_IN_MAP_STYLE_ID) {
-      toast.error("Google default map uses the native map and does not accept JSON.")
+      toast.error(
+        "Google default map uses the native map and does not accept JSON."
+      )
       return
     }
 
@@ -1393,7 +1633,9 @@ export function SettingsPage() {
 
     if (
       !Array.isArray(parsed) ||
-      parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))
+      parsed.some(
+        (item) => !item || typeof item !== "object" || Array.isArray(item)
+      )
     ) {
       toast.error("Map style JSON must be an array of style objects.")
       return
@@ -1476,6 +1718,8 @@ export function SettingsPage() {
   const adminNotifications =
     draft.operations.adminNotifications ?? defaultAdminNotificationSettings
   const referrals = draft.operations.referrals
+  const customOffers =
+    draft.operations.customOffers ?? defaultCustomOfferSettings
   const ownerApp = {
     ...defaultOwnerAppSettings,
     ...(draft.operations.ownerApp ?? {}),
@@ -1510,14 +1754,25 @@ export function SettingsPage() {
   const otpSecurity = otpSecurityQuery.data
   const settingsScope = platformContentQuery.data?.scope
   const routingUsage = routingUsageQuery.data
-  const routingMonthLimit = routingUsage?.month.limit ?? routing.googleMonthlyLimit
+  const routingMonthLimit =
+    routingUsage?.month.limit ?? routing.googleMonthlyLimit
   const routingMonthUsed = routingUsage?.month.used ?? 0
   const routingRemaining =
-    routingUsage?.month.remaining ?? Math.max(0, routingMonthLimit - routingMonthUsed)
+    routingUsage?.month.remaining ??
+    Math.max(0, routingMonthLimit - routingMonthUsed)
   const routingUsagePercent =
     routingMonthLimit > 0
       ? Math.min(100, Math.round((routingMonthUsed / routingMonthLimit) * 100))
       : 0
+  const recentSettingsHistory =
+    recentActivityFilter === "all" || recentActivityFilter === "settings"
+      ? (platformContentQuery.data?.history ?? []).slice(0, 4)
+      : []
+  const recentAdminActivities = (activityLogsQuery.data?.items ?? []).filter(
+    (entry) => activityEntityMatchesFilter(entry, recentActivityFilter)
+  )
+  const hasRecentActivity =
+    recentSettingsHistory.length > 0 || recentAdminActivities.length > 0
   const isScopedSettings = settingsScope?.settingsMode !== "global"
   const scopeBadgeLabel =
     settingsScope?.settingsMode === "single_zone"
@@ -1641,7 +1896,9 @@ export function SettingsPage() {
             <p className="text-sm text-muted-foreground">Dispatch mode</p>
             <p className="mt-2 text-2xl font-semibold">
               {settingsScope?.settingsMode === "global" ? "Fallback " : ""}
-              {dispatch.dispatchMode === "primary_rider" ? "Primary rider" : "Fleet"}
+              {dispatch.dispatchMode === "primary_rider"
+                ? "Primary rider"
+                : "Fleet"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {dispatch.autoAssignmentEnabled
@@ -1704,7 +1961,7 @@ export function SettingsPage() {
         </TabsList>
 
         <TabsContent value="operations" className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
             <div className="space-y-4">
               <Card>
                 <CardHeader>
@@ -1753,10 +2010,10 @@ export function SettingsPage() {
                           content.operations.serviceArea.radiusKm = clampNumber(
                             numberFromInput(
                               event.target.value,
-                              serviceArea.radiusKm,
+                              serviceArea.radiusKm
                             ),
                             0.5,
-                            50,
+                            50
                           )
                         })
                       }
@@ -1856,9 +2113,10 @@ export function SettingsPage() {
                     Failed delivery compensation
                   </CardTitle>
                   <CardDescription>
-                    When a rider reports a failed delivery (picked up but undeliverable),
-                    these control the customer refund, restaurant compensation, and rider
-                    pay. The cancel and refund are handled automatically.
+                    When a rider reports a failed delivery (picked up but
+                    undeliverable), these control the customer refund,
+                    restaurant compensation, and rider pay. The cancel and
+                    refund are handled automatically.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -1875,15 +2133,17 @@ export function SettingsPage() {
                         value={failedDelivery.customerFaultRefundPercent}
                         onChange={(event) =>
                           updateDraft((content) => {
-                            const draftSettings = ensureFailedDeliverySettings(content)
-                            draftSettings.customerFaultRefundPercent = clampNumber(
-                              numberFromInput(
-                                event.target.value,
-                                failedDelivery.customerFaultRefundPercent,
-                              ),
-                              0,
-                              100,
-                            )
+                            const draftSettings =
+                              ensureFailedDeliverySettings(content)
+                            draftSettings.customerFaultRefundPercent =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  failedDelivery.customerFaultRefundPercent
+                                ),
+                                0,
+                                100
+                              )
                           })
                         }
                       />
@@ -1904,20 +2164,23 @@ export function SettingsPage() {
                         value={failedDelivery.restaurantCompensationPercent}
                         onChange={(event) =>
                           updateDraft((content) => {
-                            const draftSettings = ensureFailedDeliverySettings(content)
-                            draftSettings.restaurantCompensationPercent = clampNumber(
-                              numberFromInput(
-                                event.target.value,
-                                failedDelivery.restaurantCompensationPercent,
-                              ),
-                              0,
-                              200,
-                            )
+                            const draftSettings =
+                              ensureFailedDeliverySettings(content)
+                            draftSettings.restaurantCompensationPercent =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  failedDelivery.restaurantCompensationPercent
+                                ),
+                                0,
+                                200
+                              )
                           })
                         }
                       />
                       <span className="text-[11px] text-muted-foreground">
-                        % of food subtotal paid to the restaurant on customer no-show.
+                        % of food subtotal paid to the restaurant on customer
+                        no-show.
                       </span>
                     </label>
 
@@ -1933,20 +2196,22 @@ export function SettingsPage() {
                         value={failedDelivery.riderFailedTripPay}
                         onChange={(event) =>
                           updateDraft((content) => {
-                            const draftSettings = ensureFailedDeliverySettings(content)
+                            const draftSettings =
+                              ensureFailedDeliverySettings(content)
                             draftSettings.riderFailedTripPay = clampNumber(
                               numberFromInput(
                                 event.target.value,
-                                failedDelivery.riderFailedTripPay,
+                                failedDelivery.riderFailedTripPay
                               ),
                               0,
-                              100000,
+                              100000
                             )
                           })
                         }
                       />
                       <span className="text-[11px] text-muted-foreground">
-                        Credited to the rider&apos;s payroll for a not-at-fault trip.
+                        Credited to the rider&apos;s payroll for a not-at-fault
+                        trip.
                       </span>
                     </label>
                   </div>
@@ -1990,7 +2255,7 @@ export function SettingsPage() {
                       onCheckedChange={(checked) =>
                         updateDraft((content) => {
                           ensureReviewRequestSettings(
-                            content,
+                            content
                           ).riderReviewEnabled = checked
                         })
                       }
@@ -2014,10 +2279,10 @@ export function SettingsPage() {
                               clampNumber(
                                 numberFromInput(
                                   event.target.value,
-                                  reviewRequests.delayMinutes,
+                                  reviewRequests.delayMinutes
                                 ),
                                 0,
-                                1440,
+                                1440
                               )
                           })
                         }
@@ -2039,10 +2304,10 @@ export function SettingsPage() {
                               clampNumber(
                                 numberFromInput(
                                   event.target.value,
-                                  reviewRequests.maxReminders,
+                                  reviewRequests.maxReminders
                                 ),
                                 1,
-                                5,
+                                5
                               )
                           })
                         }
@@ -2061,14 +2326,14 @@ export function SettingsPage() {
                         onChange={(event) =>
                           updateDraft((content) => {
                             ensureReviewRequestSettings(
-                              content,
+                              content
                             ).reminderGapHours = clampNumber(
                               numberFromInput(
                                 event.target.value,
-                                reviewRequests.reminderGapHours,
+                                reviewRequests.reminderGapHours
                               ),
                               1,
-                              168,
+                              168
                             )
                           })
                         }
@@ -2090,10 +2355,10 @@ export function SettingsPage() {
                               clampNumber(
                                 numberFromInput(
                                   event.target.value,
-                                  reviewRequests.windowHours,
+                                  reviewRequests.windowHours
                                 ),
                                 1,
-                                336,
+                                336
                               )
                           })
                         }
@@ -2112,14 +2377,14 @@ export function SettingsPage() {
                         onChange={(event) =>
                           updateDraft((content) => {
                             ensureReviewRequestSettings(
-                              content,
+                              content
                             ).quietHoursStart = clampNumber(
                               numberFromInput(
                                 event.target.value,
-                                reviewRequests.quietHoursStart,
+                                reviewRequests.quietHoursStart
                               ),
                               0,
-                              23,
+                              23
                             )
                           })
                         }
@@ -2141,10 +2406,10 @@ export function SettingsPage() {
                               clampNumber(
                                 numberFromInput(
                                   event.target.value,
-                                  reviewRequests.quietHoursEnd,
+                                  reviewRequests.quietHoursEnd
                                 ),
                                 0,
-                                23,
+                                23
                               )
                           })
                         }
@@ -2184,9 +2449,9 @@ export function SettingsPage() {
                   </label>
                   <p className="rounded-lg bg-muted/40 p-3 text-[11px] text-muted-foreground">
                     Quiet hours use the Asia/Dhaka clock and wrap past midnight
-                    (e.g. 22 → 9). Reminders stop automatically once the customer
-                    submits a review. Admins can also send a one-off request from
-                    an order in Orders monitoring.
+                    (e.g. 22 → 9). Reminders stop automatically once the
+                    customer submits a review. Admins can also send a one-off
+                    request from an order in Orders monitoring.
                   </p>
                 </CardContent>
               </Card>
@@ -2217,7 +2482,8 @@ export function SettingsPage() {
                         <div>
                           <p className="text-sm font-medium">Style library</p>
                           <p className="text-xs text-muted-foreground">
-                            Google default uses the raw native map; Foodbela clean is a separate preset.
+                            Google default uses the raw native map; Foodbela
+                            clean is a separate preset.
                           </p>
                         </div>
                         <Button
@@ -2409,7 +2675,9 @@ export function SettingsPage() {
                               {mapStyles.styles.map((style) => (
                                 <SelectItem key={style.id} value={style.id}>
                                   {style.name || style.id}
-                                  {style.isActive === false ? " (inactive)" : ""}
+                                  {style.isActive === false
+                                    ? " (inactive)"
+                                    : ""}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -2652,14 +2920,15 @@ export function SettingsPage() {
                         onChange={(event) =>
                           updateDraft((content) => {
                             const routingDraft = ensureRoutingSettings(content)
-                            routingDraft.offRouteConsecutiveUpdates = clampNumber(
-                              numberFromInput(
-                                event.target.value,
-                                routing.offRouteConsecutiveUpdates
-                              ),
-                              1,
-                              10
-                            )
+                            routingDraft.offRouteConsecutiveUpdates =
+                              clampNumber(
+                                numberFromInput(
+                                  event.target.value,
+                                  routing.offRouteConsecutiveUpdates
+                                ),
+                                1,
+                                10
+                              )
                           })
                         }
                       />
@@ -2749,9 +3018,7 @@ export function SettingsPage() {
                       </p>
                     </div>
                     <div className="rounded-lg border bg-background p-3">
-                      <p className="text-xs text-muted-foreground">
-                        Remaining
-                      </p>
+                      <p className="text-xs text-muted-foreground">Remaining</p>
                       <p className="mt-1 text-2xl font-semibold">
                         {routingRemaining.toLocaleString()}
                       </p>
@@ -2760,9 +3027,7 @@ export function SettingsPage() {
                       </p>
                     </div>
                     <div className="rounded-lg border bg-background p-3">
-                      <p className="text-xs text-muted-foreground">
-                        Resets at
-                      </p>
+                      <p className="text-xs text-muted-foreground">Resets at</p>
                       <p className="mt-1 text-sm font-semibold">
                         {routingUsage?.month.resetAt
                           ? formatDateTime(routingUsage.month.resetAt)
@@ -2828,17 +3093,13 @@ export function SettingsPage() {
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">
-                          Success
-                        </p>
+                        <p className="text-xs text-muted-foreground">Success</p>
                         <p className="font-semibold">
                           {routingUsage?.range.success.toLocaleString() ?? "0"}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">
-                          Blocked
-                        </p>
+                        <p className="text-xs text-muted-foreground">Blocked</p>
                         <p className="font-semibold">
                           {routingUsage?.range.blocked.toLocaleString() ?? "0"}
                         </p>
@@ -2883,19 +3144,21 @@ export function SettingsPage() {
                     <div className="rounded-lg border bg-background p-3">
                       <p className="text-sm font-medium">By source</p>
                       <div className="mt-2 space-y-2">
-                        {(routingUsage?.bySource ?? []).slice(0, 5).map((row) => (
-                          <div
-                            key={row.source}
-                            className="flex items-center justify-between gap-3 text-sm"
-                          >
-                            <span className="text-muted-foreground">
-                              {row.source.replaceAll("_", " ")}
-                            </span>
-                            <span className="font-medium">
-                              {row.used} used
-                            </span>
-                          </div>
-                        ))}
+                        {(routingUsage?.bySource ?? [])
+                          .slice(0, 5)
+                          .map((row) => (
+                            <div
+                              key={row.source}
+                              className="flex items-center justify-between gap-3 text-sm"
+                            >
+                              <span className="text-muted-foreground">
+                                {row.source.replaceAll("_", " ")}
+                              </span>
+                              <span className="font-medium">
+                                {row.used} used
+                              </span>
+                            </div>
+                          ))}
                         {!routingUsage?.bySource.length ? (
                           <p className="text-sm text-muted-foreground">
                             No source activity yet.
@@ -2908,213 +3171,247 @@ export function SettingsPage() {
               </Card>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Truck className="size-4" />
-                  {dispatchPolicyTitle}
-                </CardTitle>
-                <CardDescription>
-                  {dispatchPolicyDescription}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <SettingRow
-                  title="Auto assignment"
-                  description="Automatically assign ready orders to eligible riders."
-                >
-                  <Switch
-                    checked={dispatch.autoAssignmentEnabled}
-                    onCheckedChange={(checked) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.autoAssignmentEnabled =
-                          checked
-                      })
-                    }
-                  />
-                </SettingRow>
-                <SettingRow
-                  title="Auto reassign timed-out orders"
-                  description="Retry dispatch when rider acknowledgement times out."
-                >
-                  <Switch
-                    checked={dispatch.autoReassignTimedOutOrders}
-                    onCheckedChange={(checked) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.autoReassignTimedOutOrders =
-                          checked
-                      })
-                    }
-                  />
-                </SettingRow>
-                <SettingRow
-                  title="Auto-cancel unaccepted orders"
-                  description="If a restaurant does not accept a new order in time, notify admin first, then cancel automatically."
-                >
-                  <Switch
-                    checked={Boolean(
-                      dispatch.autoCancelUnacceptedOrdersEnabled
-                    )}
-                    onCheckedChange={(checked) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.autoCancelUnacceptedOrdersEnabled =
-                          checked
-                      })
-                    }
-                  />
-                </SettingRow>
-                <SettingRow
-                  title="Dispatch mode"
-                  description="Use full fleet or send first to one primary rider."
-                >
-                  <Select
-                    value={dispatch.dispatchMode}
-                    onValueChange={(value) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.dispatchMode =
-                          value as PlatformContent["operations"]["dispatch"]["dispatchMode"]
-                      })
-                    }
+            <div className="space-y-4 xl:sticky xl:top-20 xl:self-start">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Truck className="size-4" />
+                    {dispatchPolicyTitle}
+                  </CardTitle>
+                  <CardDescription>{dispatchPolicyDescription}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Auto assignment"
+                    description="Automatically assign ready orders to eligible riders."
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fleet">Fleet</SelectItem>
-                      <SelectItem value="primary_rider">
-                        Primary rider first
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingRow>
-                <SettingRow
-                  title="Primary rider"
-                  description="Used when primary rider mode is enabled."
-                >
-                  <Select
-                    value={dispatch.primaryRiderId || "none"}
-                    onValueChange={(value) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.primaryRiderId =
-                          value === "none" ? "" : value
-                      })
-                    }
+                    <Switch
+                      checked={dispatch.autoAssignmentEnabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.autoAssignmentEnabled =
+                            checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Auto reassign timed-out orders"
+                    description="Retry dispatch when rider acknowledgement times out."
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose rider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No primary rider</SelectItem>
-                      {(ridersQuery.data ?? []).map((rider) => (
-                        <SelectItem key={rider.id} value={rider.id}>
-                          {rider.fullName} - {rider.activeOrders} active
+                    <Switch
+                      checked={dispatch.autoReassignTimedOutOrders}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.autoReassignTimedOutOrders =
+                            checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Auto-cancel unaccepted orders"
+                    description="If a restaurant does not accept a new order in time, notify admin first, then cancel automatically."
+                  >
+                    <Switch
+                      checked={Boolean(
+                        dispatch.autoCancelUnacceptedOrdersEnabled
+                      )}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.autoCancelUnacceptedOrdersEnabled =
+                            checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Dispatch mode"
+                    description="Use full fleet or send first to one primary rider."
+                  >
+                    <Select
+                      value={dispatch.dispatchMode}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.dispatchMode =
+                            value as PlatformContent["operations"]["dispatch"]["dispatchMode"]
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fleet">Fleet</SelectItem>
+                        <SelectItem value="primary_rider">
+                          Primary rider first
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </SettingRow>
-                <SettingRow
-                  title="Fallback to fleet"
-                  description="If the primary rider is unavailable or at capacity, try fleet dispatch."
-                >
-                  <Switch
-                    checked={dispatch.primaryRiderFallbackEnabled}
-                    onCheckedChange={(checked) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.primaryRiderFallbackEnabled =
-                          checked
-                      })
-                    }
-                  />
-                </SettingRow>
-                <SettingRow
-                  title="Assignment algorithm"
-                  description="Nearest balanced considers distance and load; least loaded prioritizes capacity."
-                >
-                  <Select
-                    value={dispatch.algorithm}
-                    onValueChange={(value) =>
-                      updateDraft((content) => {
-                        content.operations.dispatch.algorithm =
-                          value as PlatformContent["operations"]["dispatch"]["algorithm"]
-                      })
-                    }
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow
+                    title="Primary rider"
+                    description="Used when primary rider mode is enabled."
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="nearest_eligible_balanced">
-                        Nearest balanced
-                      </SelectItem>
-                      <SelectItem value="least_loaded_first">
-                        Least loaded first
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </SettingRow>
-              </CardContent>
-            </Card>
-          </div>
+                    <Select
+                      value={dispatch.primaryRiderId || "none"}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.primaryRiderId =
+                            value === "none" ? "" : value
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose rider" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No primary rider</SelectItem>
+                        {(ridersQuery.data ?? []).map((rider) => (
+                          <SelectItem key={rider.id} value={rider.id}>
+                            {rider.fullName} - {rider.activeOrders} active
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow
+                    title="Fallback to fleet"
+                    description="If the primary rider is unavailable or at capacity, try fleet dispatch."
+                  >
+                    <Switch
+                      checked={dispatch.primaryRiderFallbackEnabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.primaryRiderFallbackEnabled =
+                            checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Assignment algorithm"
+                    description="Nearest balanced considers distance and load; least loaded prioritizes capacity."
+                  >
+                    <Select
+                      value={dispatch.algorithm}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          content.operations.dispatch.algorithm =
+                            value as PlatformContent["operations"]["dispatch"]["algorithm"]
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nearest_eligible_balanced">
+                          Nearest balanced
+                        </SelectItem>
+                        <SelectItem value="least_loaded_first">
+                          Least loaded first
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="size-4" />
-                Recent admin activity
-              </CardTitle>
-              <CardDescription>
-                The latest platform setting and order-control actions across
-                admin tools.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {platformContentQuery.data?.history.slice(0, 4).map((entry) => (
-                <div
-                  key={`content-${entry.updatedAt}`}
-                  className="rounded-lg border bg-background p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-medium">Platform settings updated</div>
-                    <Badge variant="outline">Settings</Badge>
+              <Card>
+                <CardHeader className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <ShieldCheck className="size-4" />
+                        Recent admin activity
+                      </CardTitle>
+                      <CardDescription>
+                        Latest settings and order-control actions.
+                      </CardDescription>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate("/action-center")}
+                    >
+                      View all
+                    </Button>
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {entry.updatedByAdminName || "Support Team"} changed{" "}
-                    {entry.changedSections.join(", ")}.
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {formatDateTime(entry.updatedAt)}
-                  </p>
-                </div>
-              ))}
-              {(activityLogsQuery.data?.items ?? []).map((entry) => (
-                <div
-                  key={entry.id}
-                  className="rounded-lg border bg-background p-3"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="font-medium">{entry.title}</div>
-                    <Badge variant="outline" className="capitalize">
-                      {entry.entityType.replaceAll("_", " ")}
-                    </Badge>
+                  <div className="flex flex-wrap gap-2">
+                    {recentActivityFilters.map((filter) => (
+                      <Button
+                        key={filter.value}
+                        type="button"
+                        size="sm"
+                        variant={
+                          recentActivityFilter === filter.value
+                            ? "secondary"
+                            : "outline"
+                        }
+                        className="h-8 rounded-full px-3 text-xs"
+                        onClick={() => setRecentActivityFilter(filter.value)}
+                      >
+                        {filter.label}
+                      </Button>
+                    ))}
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {entry.adminName || "Support Team"}: {entry.description}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {formatDateTime(entry.createdAt)}
-                  </p>
-                </div>
-              ))}
-              {!platformContentQuery.data?.history.length &&
-              !activityLogsQuery.data?.items.length ? (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  Admin activity will appear here after the first order control
-                  or settings change.
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent className="max-h-[calc(100vh-12rem)] space-y-3 overflow-y-auto pr-1">
+                  {recentSettingsHistory.map((entry) => (
+                    <button
+                      key={`content-${entry.updatedAt}`}
+                      type="button"
+                      className="w-full rounded-lg border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      onClick={() => navigate("/settings")}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-medium">
+                          Platform settings updated
+                        </div>
+                        <Badge variant="outline">Settings</Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {entry.updatedByAdminName || "Support Team"} changed{" "}
+                        {entry.changedSections.join(", ")}.
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {formatDateTime(entry.updatedAt)}
+                      </p>
+                    </button>
+                  ))}
+                  {recentAdminActivities.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className="w-full rounded-lg border bg-background p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      onClick={() => navigate(resolveActivityLogPath(entry))}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-medium">{entry.title}</div>
+                        <Badge variant="outline" className="capitalize">
+                          {entry.entityType.replaceAll("_", " ")}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {entry.adminName || "Support Team"}: {entry.description}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {formatDateTime(entry.createdAt)}
+                      </p>
+                    </button>
+                  ))}
+                  {!hasRecentActivity ? (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      Admin activity will appear here after the first order
+                      control or settings change.
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
 
           <Card>
             <CardHeader>
@@ -3742,6 +4039,190 @@ export function SettingsPage() {
                     }
                     rows={4}
                     placeholder="Use my Foodbela referral code {{code}}. {{link}}"
+                  />
+                </SettingRow>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Gift className="size-4" />
+                  My offer reward
+                </CardTitle>
+                <CardDescription>
+                  Platform-funded personal vouchers for loyal customers.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <SettingRow
+                  title="My offer"
+                  description="When enabled, customers can unlock a personal voucher after enough delivered orders."
+                >
+                  <Switch
+                    checked={customOffers.enabled}
+                    onCheckedChange={(checked) =>
+                      updateDraft((content) => {
+                        const settings = ensureCustomOfferSettings(content)
+                        settings.enabled = checked
+                        if (checked && !settings.countStartsAt) {
+                          settings.countStartsAt = new Date().toISOString()
+                        }
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Reward count starts from"
+                  description="Delivered orders before this time will not count toward My offer eligibility."
+                >
+                  <Input
+                    type="datetime-local"
+                    value={formatDateTimeLocalInput(customOffers.countStartsAt)}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(content).countStartsAt =
+                          isoFromDateTimeLocalInput(event.target.value)
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Delivered order threshold"
+                  description="How many delivered orders a customer needs in each reward cycle."
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={customOffers.thresholdDeliveredOrders}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).thresholdDeliveredOrders = clampNumber(
+                          numberFromInput(
+                            event.target.value,
+                            customOffers.thresholdDeliveredOrders
+                          ),
+                          1,
+                          500
+                        )
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Admin response window"
+                  description="The customer-facing promise after they request my offer."
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={336}
+                    step={1}
+                    value={customOffers.adminResponseHours}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(content).adminResponseHours =
+                          clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              customOffers.adminResponseHours
+                            ),
+                            1,
+                            336
+                          )
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="My profile card"
+                  description="Global master visibility. Area-wise visibility and active-from time are managed from CMS."
+                >
+                  <Switch
+                    checked={customOffers.profileSectionEnabled !== false}
+                    onCheckedChange={(checked) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).profileSectionEnabled = checked
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Preferred code length"
+                  description="Maximum characters customers can type for their requested offer code."
+                >
+                  <Input
+                    type="number"
+                    min={4}
+                    max={24}
+                    step={1}
+                    value={customOffers.requestedCodeMaxLength ?? 12}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).requestedCodeMaxLength = clampNumber(
+                          numberFromInput(
+                            event.target.value,
+                            customOffers.requestedCodeMaxLength ?? 12
+                          ),
+                          4,
+                          24
+                        )
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Unlock push"
+                  description="Notify the customer once they reach the threshold."
+                >
+                  <Switch
+                    checked={customOffers.qualificationPushEnabled}
+                    onCheckedChange={(checked) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).qualificationPushEnabled = checked
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Push title"
+                  description="Available placeholders: {{threshold}}, {{completed}}."
+                >
+                  <Input
+                    value={customOffers.qualificationPushTitle}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).qualificationPushTitle = event.target.value
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Push body"
+                  description="Keep this short; it is shown as a mobile push notification."
+                >
+                  <Textarea
+                    rows={3}
+                    value={customOffers.qualificationPushBody}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        ensureCustomOfferSettings(
+                          content
+                        ).qualificationPushBody = event.target.value
+                      })
+                    }
                   />
                 </SettingRow>
               </CardContent>

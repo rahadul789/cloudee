@@ -2576,6 +2576,16 @@ export type AdminCustomerSummary = {
   deliveredOrders: number
   deliveredSpend: number
   lastOrderAt: string | null
+  customOffer?: {
+    status: "locked" | "eligible" | "requested" | "ready" | string
+    cycleDeliveredOrders: number
+    targetOrders: number
+    remainingOrders: number
+    requestedCode: string
+    requestedAt: string | null
+    qualifiedAt: string | null
+    fulfilledAt: string | null
+  }
 }
 
 export type AdminCustomerServiceArea = {
@@ -2694,6 +2704,37 @@ export type AdminCustomerDetails = {
     reviewNote: string
     reviewedByAdminName: string
     reviewedAt: string | null
+    history: Array<{
+      action: string
+      note: string
+      actorName: string
+      createdAt: string | null
+    }>
+  }
+  customOfferRequest: null | {
+    status: "none" | "requested" | "fulfilled" | "cancelled" | string
+    requestedAt: string | null
+    expectedReadyAt: string | null
+    fulfilledAt: string | null
+    cycleStartedAt?: string | null
+    cycleNumber?: number
+    qualifiedAt?: string | null
+    qualificationNotifiedAt?: string | null
+    lastRequestOrderCount: number
+    targetOrderCount: number
+    requestedCode: string
+    voucherId: string
+    voucherCode: string
+    voucherLabel: string
+    adminNote: string
+    analytics?: {
+      qualifiedCount?: number
+      requestedCount?: number
+      fulfilledCount?: number
+      lastQualifiedAt?: string | null
+      lastRequestedAt?: string | null
+      lastFulfilledAt?: string | null
+    }
     history: Array<{
       action: string
       note: string
@@ -3436,6 +3477,10 @@ export type PlatformContent = {
         textColor: string
         accentColor: string
       }
+      myOfferSection?: {
+        enabled: boolean
+        activeFrom?: string
+      }
       homeCategories?: {
         isActive: boolean
         title: string
@@ -3717,6 +3762,17 @@ export type PlatformContent = {
       monthlyRewardCapPerCustomer: number
       shareLinkTemplate: string
       shareMessageTemplate: string
+    }
+    customOffers: {
+      enabled: boolean
+      profileSectionEnabled?: boolean
+      thresholdDeliveredOrders: number
+      countStartsAt?: string
+      adminResponseHours: number
+      requestedCodeMaxLength: number
+      qualificationPushEnabled: boolean
+      qualificationPushTitle: string
+      qualificationPushBody: string
     }
     dispatch: {
       autoAssignmentEnabled: boolean
@@ -4845,6 +4901,7 @@ export async function listAdminCustomers(params?: {
     | "reviewed"
     | "completed"
     | "none"
+  customOffer?: "all" | "eligible" | "requested" | "ready" | "locked"
   customerGroupKey?: string
   preset?: string
   from?: string
@@ -4862,6 +4919,9 @@ export async function listAdminCustomers(params?: {
     searchParams.set("status", params.status)
   if (params?.requestStatus && params.requestStatus !== "all") {
     searchParams.set("requestStatus", params.requestStatus)
+  }
+  if (params?.customOffer && params.customOffer !== "all") {
+    searchParams.set("customOffer", params.customOffer)
   }
   if (params?.customerGroupKey) {
     searchParams.set("customerGroupKey", params.customerGroupKey)
@@ -4905,6 +4965,7 @@ export async function createAdminCustomerGroup(payload: {
       | "reviewed"
       | "completed"
       | "none"
+    customOffer?: "all" | "eligible" | "requested" | "ready" | "locked"
     customerGroupKey?: string
     preset?: string
     from?: string

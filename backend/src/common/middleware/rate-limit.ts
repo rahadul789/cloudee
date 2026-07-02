@@ -167,7 +167,7 @@ function formatRateLimitKey(key: string) {
   if (key.includes(":")) {
     const [scope, ...rest] = key.split(":");
     const value = rest.join(":");
-    if (["admin", "owner", "rider", "customer"].includes(scope) && value.length > 8) {
+    if (["admin", "owner", "rider", "customer", "refresh"].includes(scope) && value.length > 8) {
       return `${scope}:${value.slice(0, 4)}...${value.slice(-4)}`;
     }
     return key;
@@ -234,6 +234,24 @@ function withUser(req: Request) {
   return ipKeyGenerator(req.ip ?? "");
 }
 
+function withRefreshTokenFingerprint(req: Request) {
+  const body = req.body as Record<string, unknown> | undefined;
+  const refreshToken =
+    typeof body?.refreshToken === "string" ? body.refreshToken.trim() : "";
+
+  if (!refreshToken) {
+    return ipKeyGenerator(req.ip ?? "");
+  }
+
+  const fingerprint = createHmac("sha256", env.JWT_ACCESS_SECRET)
+    .update("refresh-token")
+    .update("\0")
+    .update(refreshToken)
+    .digest("hex");
+
+  return `refresh:${fingerprint}`;
+}
+
 async function getConfiguredLimit(key: RateLimitSettingKey, fallback: number) {
   try {
     const settings = await getAuthRateLimitSettings();
@@ -263,6 +281,7 @@ function buildLimiter(options: {
   settingKey?: RateLimitSettingKey;
   keyStrategy?: RateLimitKeyStrategy;
   fieldNames?: string[];
+  keyGenerator?: (req: Request) => string;
   methods?: string[];
   skip?: (req: Request) => boolean;
   message: string;
@@ -273,7 +292,9 @@ function buildLimiter(options: {
   }
 
   const keyGenerator = (req: Request) =>
-    options.fieldNames?.length
+    options.keyGenerator
+      ? options.keyGenerator(req)
+      : options.fieldNames?.length
       ? withIdentity(req, options.fieldNames)
       : options.keyStrategy === "user"
         ? withUser(req)
@@ -460,6 +481,7 @@ export function createRefreshLimiter(scope?: string): RequestHandler {
     windowMs: 15 * 60 * 1000,
     limit: 30,
     settingKey: "refreshPerWindow",
+    keyGenerator: withRefreshTokenFingerprint,
     message: "Too many session refresh attempts. Please try again in a few minutes.",
     event: "auth.refresh.rate_limited",
   });
@@ -521,6 +543,25 @@ export function createOrderPlaceLimiter(): RequestHandler {
   });
 }
 
+export function createCustomerOrderReadLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "customer.order_read",
+    label: "Customer order reads",
+    windowMs: 15 * 60 * 1000,
+    limit: 360,
+    keyGenerator: (req) => {
+      const userKey = withUser(req);
+      const orderId =
+        typeof req.params.orderId === "string" && req.params.orderId.trim()
+          ? req.params.orderId.trim()
+          : "unknown";
+      return `${userKey}:order:${orderId}`;
+    },
+    message: "Too many order tracking requests. Please slow down and try again shortly.",
+    event: "customer.order_read.rate_limited",
+  });
+}
+
 export function createRiderLocationLimiter(): RequestHandler {
   return buildLimiter({
     id: "rider.location",
@@ -575,6 +616,8 @@ export function createGlobalLimiter(): RequestHandler {
         /^\/api\/v1\/rider\/orders\/[^/]+\/location$/.test(req.path)) ||
       (req.method === "PATCH" &&
         req.path === `${env.API_PREFIX}/rider/profile/location`) ||
+      (req.method === "GET" &&
+        /^\/api\/v1\/customer\/orders\/[^/]+$/.test(req.path)) ||
       (req.method === "POST" &&
         req.path === `${env.API_PREFIX}/customer/analytics/events`) ||
       (req.method === "POST" &&

@@ -73,3 +73,18 @@ export function getAdminZoneScopeQueryParams() {
   if (scope.type === "district" && scope.id) return { districtId: scope.id }
   return {}
 }
+
+export function getAdminZoneScopeKey(scope: AdminZoneScope = getAdminZoneScope()) {
+  return `${scope.type}:${scope.id || "all"}`
+}
+
+export function appendAdminZoneScopeToSearchParams(searchParams: URLSearchParams) {
+  const scope = getAdminZoneScopeQueryParams()
+  if ("zoneId" in scope && scope.zoneId && !searchParams.has("zoneId")) {
+    searchParams.set("zoneId", scope.zoneId)
+  }
+  if ("districtId" in scope && scope.districtId && !searchParams.has("districtId")) {
+    searchParams.set("districtId", scope.districtId)
+  }
+  return searchParams
+}

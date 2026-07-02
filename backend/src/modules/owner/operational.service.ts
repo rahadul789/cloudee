@@ -13,6 +13,7 @@ import {
 } from "../admin/orders-monitor.service"
 import { OwnerModel, RestaurantModel, RiderModel } from "../auth/auth.model"
 import { sendPushToCustomer } from "../customer/push.service"
+import { handleCustomerCustomOfferDeliveredOrder } from "../customer/custom-offer.service"
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service"
 import { grantReferralRewardForDeliveredOrder } from "../customer/referral.service"
 import { getPlatformContent } from "../public/content.service"
@@ -1848,6 +1849,10 @@ export async function transitionOrderBySystem(params: {
 
   if (params.nextStatus === "Delivered") {
     setPayload.terminalReason = "delivered"
+    setPayload.reviewRequest = {
+      ...((order.get("reviewRequest") ?? {}) as Record<string, unknown>),
+      deliveredAt: now
+    }
   }
 
   if (params.nextStatus === "PickedUp") {
@@ -1921,6 +1926,10 @@ export async function transitionOrderBySystem(params: {
 
   if (params.nextStatus === "Delivered") {
     await grantReferralRewardForDeliveredOrder({ orderId: updatedOrder.id }).catch(() => undefined)
+    await handleCustomerCustomOfferDeliveredOrder({
+      customerId: updatedOrder.customerId,
+      orderId: updatedOrder.id
+    }).catch(() => undefined)
   }
 
   const restaurantOwner = await OwnerModel.findOne({ activeRestaurantId: updatedOrder.restaurantId })
@@ -2138,12 +2147,16 @@ export async function updateOrderRiderLocation(params: {
       await sendPushToCustomer({
         customerId: order.customerId,
         payload: {
-          title: "Deliveryman nearby",
-          body: "Your deliveryman is almost there. Please be ready to receive your order.",
+          title: "Rider is nearby",
+          body: "Your rider is almost there. Please be ready to receive your order.",
           data: {
             type: "rider_near",
+            notificationType: "rider_near",
             orderId: order.id,
-            path: `/orders/${order.id}/tracking`
+            path: `/orders/${order.id}/tracking`,
+            remainingDistanceKm: Number(remainingDistanceKm.toFixed(3)),
+            directDistanceKm: Number(trackingEstimate.directDistanceKm.toFixed(3)),
+            source: "live_tracking"
           }
         }
       })

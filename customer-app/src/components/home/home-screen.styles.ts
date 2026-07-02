@@ -673,8 +673,6 @@ export const styles = StyleSheet.create({
     height: 112,
     borderRadius: 24,
     backgroundColor: "rgba(255,255,255,0.56)",
-    borderWidth: 1,
-    borderColor: "rgba(255,224,236,0.9)",
   },
   skeletonChipRow: {
     flexDirection: "row",
@@ -703,11 +701,6 @@ export const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 28,
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.82,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
   },
   restaurantSkeletonCardFeatured: {
   },

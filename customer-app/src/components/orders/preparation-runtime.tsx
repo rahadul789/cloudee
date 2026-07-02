@@ -8,7 +8,7 @@ import {
 
 type PreparationOrder = {
   status: string;
-  createdAt: string;
+  createdAt?: string;
   preparationTiming?: {
     phase?: string;
     baseMinutes?: number;
@@ -37,8 +37,6 @@ export type PreparationEstimate = {
 };
 
 const PREPARATION_LIVE_STATUSES = new Set(["Accepted", "Preparing"]);
-const PREPARATION_EARLY_FACTOR = 0.92;
-const PREPARATION_LATE_FACTOR = 1.08;
 const PREPARATION_TICK_MS = 15000;
 const PREPARATION_PRECISE_TICK_MS = 1000;
 const PREP_START_PRECISE_WINDOW_SECONDS = 3 * 60;
@@ -49,7 +47,12 @@ const PREP_START_PRECISE_WINDOW_SECONDS = 3 * 60;
 // adds a buffer that scales with how much time is left.
 function buildPreparationRangeMinutes(remainingMinutes: number) {
   const low = Math.max(1, remainingMinutes);
-  const pad = Math.max(5, Math.round(low * 0.3));
+  const pad =
+    low <= 5
+      ? 2
+      : low <= 20
+        ? 5
+        : Math.min(10, Math.max(5, Math.round(low * 0.25)));
   return { low, high: low + pad };
 }
 
@@ -58,7 +61,8 @@ function getPreparationAnchor(order: PreparationOrder) {
     order.timestamps?.acceptedAt ??
     order.timestamps?.preparingAt ??
     order.timestamps?.placedAt ??
-    order.createdAt
+    order.createdAt ??
+    null
   );
 }
 
@@ -158,31 +162,29 @@ function getPreparationEstimate(
     return null;
   }
 
-  const anchor = new Date(getPreparationAnchor(order)).getTime();
+  const anchorValue = getPreparationAnchor(order);
+  if (!anchorValue) {
+    return null;
+  }
+
+  const anchor = new Date(anchorValue).getTime();
   if (Number.isNaN(anchor)) {
     return null;
   }
 
-  const earliestMinutes = Math.max(
-    3,
-    Math.round(preparationTimeMinutes * PREPARATION_EARLY_FACTOR),
-  );
-  const latestMinutes = Math.max(
-    earliestMinutes + 2,
-    Math.round(preparationTimeMinutes * PREPARATION_LATE_FACTOR),
-  );
+  const targetReadyAt =
+    anchor + Math.max(1, Math.round(preparationTimeMinutes)) * 60_000;
+  const remainingMinutes = Math.ceil((targetReadyAt - now) / 60_000);
+  const prepRange = buildPreparationRangeMinutes(remainingMinutes);
+  const latestReadyAt =
+    targetReadyAt + (prepRange.high - prepRange.low) * 60_000;
 
-  const earliestReadyAt = anchor + earliestMinutes * 60_000;
-  const latestReadyAt = anchor + latestMinutes * 60_000;
-  const minRemaining = Math.ceil((earliestReadyAt - now) / 60_000);
-  const maxRemaining = Math.ceil((latestReadyAt - now) / 60_000);
-
-  if (maxRemaining > 1) {
+  if (remainingMinutes > 1) {
     return {
       state: "countdown",
       rangeLabel: `${formatDurationRangeMinutes(
-        Math.max(1, minRemaining),
-        Math.max(Math.max(1, minRemaining), maxRemaining),
+        prepRange.low,
+        prepRange.high,
       )} left`,
       supportingText: "",
       targetTimeLabel: formatTimeAmPm(new Date(latestReadyAt)),
@@ -221,7 +223,15 @@ function getPreparationEstimate(
   };
 }
 
-function getPreparationTickMs(order: PreparationOrder, now: number) {
+function getPreparationTickMs(
+  order: PreparationOrder,
+  now: number,
+  preciseUpdates: boolean,
+) {
+  if (!preciseUpdates) {
+    return PREPARATION_TICK_MS;
+  }
+
   if (order.status !== "Accepted") {
     return PREPARATION_TICK_MS;
   }
@@ -246,15 +256,20 @@ function getPreparationTickMs(order: PreparationOrder, now: number) {
 export const PreparationRuntime = memo(function PreparationRuntime({
   order,
   preparationTimeMinutes,
+  preciseUpdates = true,
   children,
 }: {
   order: PreparationOrder;
   preparationTimeMinutes?: number | null;
+  preciseUpdates?: boolean;
   children: (estimate: PreparationEstimate | null) => ReactNode;
 }) {
   const shouldTrack = PREPARATION_LIVE_STATUSES.has(order.status);
   const [now, setNow] = useState(() => Date.now());
-  const tickMs = useMemo(() => getPreparationTickMs(order, now), [now, order]);
+  const tickMs = useMemo(
+    () => getPreparationTickMs(order, now, preciseUpdates),
+    [now, order, preciseUpdates],
+  );
 
   useEffect(() => {
     if (!shouldTrack) {

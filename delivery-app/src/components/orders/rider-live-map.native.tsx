@@ -24,8 +24,11 @@ import { palette } from "@/src/theme/palette";
 const ROUTE_PINK = "#FF2B85";
 const ROUTE_CASING = "rgba(255,255,255,0.95)";
 const PLANNED_LEG = "#FF9CC2";
-const OFF_ROAD_GAP_METERS = 12;
-const RIDER_MAP_VISUAL_VERSION = "circle-route-v4";
+const ESTIMATED_ROUTE = "rgba(31,36,48,0.5)";
+const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
+const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 50;
+const ROUTE_DRAW_SNAP_MAX_METERS = 90;
+const RIDER_MAP_VISUAL_VERSION = "circle-route-v5";
 
 export type RiderMapCoordinate = {
   latitude: number;
@@ -51,6 +54,7 @@ type RiderLiveMapProps = {
   riderHeading?: number | null;
   /** Encoded Google route polyline for the rider's active leg. */
   routePolyline?: string | null;
+  routeProvider?: "google" | "haversine" | null;
   /** Draw the rider -> active destination leg (false in preview-only mode). */
   showActiveApproachLeg?: boolean;
   /** Draw the restaurant -> customer planned leg (before pickup, for context). */
@@ -141,6 +145,78 @@ function buildDirectRoute(
   return [start, end];
 }
 
+function toLocalMeters(point: RiderMapCoordinate, refLat: number) {
+  const latMeters = 110_540;
+  const lngMeters = 111_320 * Math.cos((refLat * Math.PI) / 180);
+  return { x: point.longitude * lngMeters, y: point.latitude * latMeters };
+}
+
+function cumulativeRouteDistances(points: RiderMapCoordinate[]) {
+  const cumulative = new Array<number>(points.length).fill(0);
+  for (let index = 1; index < points.length; index += 1) {
+    cumulative[index] =
+      cumulative[index - 1] + distanceMeters(points[index - 1], points[index]);
+  }
+  return cumulative;
+}
+
+function projectOntoRoute(
+  points: RiderMapCoordinate[],
+  cumulative: number[],
+  origin: RiderMapCoordinate,
+) {
+  let best = {
+    distanceAlong: 0,
+    offRouteMeters: Number.POSITIVE_INFINITY,
+    point: points[0] ?? origin,
+  };
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    const refLat = (start.latitude + end.latitude + origin.latitude) / 3;
+    const s = toLocalMeters(start, refLat);
+    const e = toLocalMeters(end, refLat);
+    const o = toLocalMeters(origin, refLat);
+    const dx = e.x - s.x;
+    const dy = e.y - s.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const t =
+      lengthSquared > 0
+        ? Math.min(1, Math.max(0, ((o.x - s.x) * dx + (o.y - s.y) * dy) / lengthSquared))
+        : 0;
+    const offRouteMeters = Math.hypot(o.x - (s.x + dx * t), o.y - (s.y + dy * t));
+
+    if (offRouteMeters < best.offRouteMeters) {
+      const segmentLength = cumulative[index + 1] - cumulative[index];
+      best = {
+        distanceAlong: cumulative[index] + segmentLength * t,
+        offRouteMeters,
+        point: {
+          latitude: start.latitude + (end.latitude - start.latitude) * t,
+          longitude: start.longitude + (end.longitude - start.longitude) * t,
+        },
+      };
+    }
+  }
+
+  return best;
+}
+
+function buildRemainingRouteFromProjection(
+  points: RiderMapCoordinate[],
+  cumulative: number[],
+  projection: ReturnType<typeof projectOntoRoute> | null,
+) {
+  if (points.length < 2 || !projection) return points;
+  if (projection.offRouteMeters > ROUTE_DRAW_SNAP_MAX_METERS) return points;
+
+  const tail = points.filter(
+    (_point, index) => cumulative[index] > projection.distanceAlong + 1,
+  );
+  return [projection.point, ...tail];
+}
+
 function regionForPoint(point: RiderMapCoordinate, delta = 0.01): Region {
   return {
     latitude: point.latitude,
@@ -196,6 +272,7 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   riderLocation,
   riderHeading,
   routePolyline,
+  routeProvider,
   showActiveApproachLeg = true,
   showPlannedDeliveryLeg = false,
   restaurantName,
@@ -231,11 +308,35 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   const activeDestination = phase === "to_customer" ? customerLocation : restaurantLocation;
 
   const realRoutePoints = useMemo(() => decodePolyline(routePolyline), [routePolyline]);
-  const hasRealRoute = realRoutePoints.length >= 2;
+  const realRouteCumulative = useMemo(
+    () => cumulativeRouteDistances(realRoutePoints),
+    [realRoutePoints],
+  );
+  const hasRealRoute = routeProvider === "google" && realRoutePoints.length >= 2;
+  const riderRouteProjection = useMemo(
+    () =>
+      hasRealRoute && effectiveRiderLocation
+        ? projectOntoRoute(realRoutePoints, realRouteCumulative, effectiveRiderLocation)
+        : null,
+    [effectiveRiderLocation, hasRealRoute, realRouteCumulative, realRoutePoints],
+  );
+  const remainingRealRoute = useMemo(
+    () =>
+      hasRealRoute
+        ? buildRemainingRouteFromProjection(
+            realRoutePoints,
+            realRouteCumulative,
+            riderRouteProjection,
+          )
+        : [],
+    [hasRealRoute, realRouteCumulative, realRoutePoints, riderRouteProjection],
+  );
 
   const activeRoute = useMemo(() => {
     if (!showActiveApproachLeg) return [] as RiderMapCoordinate[];
-    if (hasRealRoute) return realRoutePoints;
+    if (hasRealRoute) {
+      return remainingRealRoute.length >= 2 ? remainingRealRoute : realRoutePoints;
+    }
     if (effectiveRiderLocation && activeDestination) {
       return buildDirectRoute(effectiveRiderLocation, activeDestination);
     }
@@ -244,6 +345,7 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
     activeDestination,
     effectiveRiderLocation,
     hasRealRoute,
+    remainingRealRoute,
     realRoutePoints,
     showActiveApproachLeg,
   ]);
@@ -251,19 +353,19 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   // Bridge the gap when the road route ends short of the rider / destination pin.
   const offRoadToDestination = useMemo(() => {
     if (!hasRealRoute || !showActiveApproachLeg || !activeDestination) return null;
-    const last = realRoutePoints[realRoutePoints.length - 1];
-    return distanceMeters(last, activeDestination) > OFF_ROAD_GAP_METERS
+    const route = remainingRealRoute.length >= 2 ? remainingRealRoute : realRoutePoints;
+    const last = route[route.length - 1];
+    return distanceMeters(last, activeDestination) > DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS
       ? [last, activeDestination]
       : null;
-  }, [activeDestination, hasRealRoute, realRoutePoints, showActiveApproachLeg]);
+  }, [activeDestination, hasRealRoute, realRoutePoints, remainingRealRoute, showActiveApproachLeg]);
 
   const offRoadFromRider = useMemo(() => {
-    if (!hasRealRoute || !showActiveApproachLeg || !effectiveRiderLocation) return null;
-    const first = realRoutePoints[0];
-    return distanceMeters(effectiveRiderLocation, first) > OFF_ROAD_GAP_METERS
-      ? [effectiveRiderLocation, first]
+    if (!hasRealRoute || !showActiveApproachLeg || !effectiveRiderLocation || !riderRouteProjection) return null;
+    return riderRouteProjection.offRouteMeters > RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS
+      ? [effectiveRiderLocation, riderRouteProjection.point]
       : null;
-  }, [effectiveRiderLocation, hasRealRoute, realRoutePoints, showActiveApproachLeg]);
+  }, [effectiveRiderLocation, hasRealRoute, riderRouteProjection, showActiveApproachLeg]);
 
   const plannedDeliveryRoute = useMemo(() => {
     if (!showPlannedDeliveryLeg || !restaurantLocation || !customerLocation) {
@@ -277,12 +379,12 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
     if (showActiveApproachLeg) {
       if (effectiveRiderLocation) points.push(effectiveRiderLocation);
       if (activeDestination) points.push(activeDestination);
-      if (hasRealRoute) {
-        const sampleEvery = Math.max(1, Math.ceil(realRoutePoints.length / 6));
-        realRoutePoints.forEach((point, index) => {
+      if (activeRoute.length > 2) {
+        const sampleEvery = Math.max(1, Math.ceil(activeRoute.length / 6));
+        activeRoute.forEach((point, index) => {
           if (
             index === 0 ||
-            index === realRoutePoints.length - 1 ||
+            index === activeRoute.length - 1 ||
             index % sampleEvery === 0
           ) {
             points.push(point);
@@ -300,10 +402,9 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
     return points;
   }, [
     activeDestination,
+    activeRoute,
     customerLocation,
     effectiveRiderLocation,
-    hasRealRoute,
-    realRoutePoints,
     restaurantLocation,
     showActiveApproachLeg,
   ]);
@@ -550,18 +651,20 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
 
         {activeRoute.length > 1 ? (
           <>
+            {hasRealRoute ? (
+              <Polyline
+                coordinates={activeRoute}
+                strokeColor={ROUTE_CASING}
+                strokeWidth={7}
+                lineCap="round"
+                lineJoin="round"
+                zIndex={2}
+              />
+            ) : null}
             <Polyline
               coordinates={activeRoute}
-              strokeColor={ROUTE_CASING}
-              strokeWidth={7}
-              lineCap="round"
-              lineJoin="round"
-              zIndex={2}
-            />
-            <Polyline
-              coordinates={activeRoute}
-              strokeColor={ROUTE_PINK}
-              strokeWidth={4}
+              strokeColor={hasRealRoute ? ROUTE_PINK : ESTIMATED_ROUTE}
+              strokeWidth={hasRealRoute ? 4 : 3}
               lineCap="round"
               lineJoin="round"
               {...(hasRealRoute ? {} : { lineDashPattern: [8, 8] })}

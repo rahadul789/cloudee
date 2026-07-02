@@ -39,6 +39,20 @@ export const defaultAuthRateLimitSettings = {
   otpVerifyLockMinutes: 15,
 }
 
+const DEFAULT_REVIEW_REQUEST_PUSH_TITLE = "How was your food?"
+const DEFAULT_REVIEW_REQUEST_PUSH_BODY =
+  "Tap to rate your order and help others choose with confidence."
+
+function sanitizeReviewRequestText(value: string, fallback: string) {
+  const text = value.trim().replace(/\s+/g, " ")
+  if (!text) return fallback
+  if (/[�]|[âÃÂ]/.test(text)) return fallback
+  if (/\byour\s+your\b/i.test(text) || /\border\s+user\b/i.test(text)) {
+    return fallback
+  }
+  return text
+}
+
 const helpArticleSectionSchema = z.object({
   title: z.string().trim().min(1),
   paragraphs: z.array(z.string().trim().min(1)).optional(),
@@ -264,6 +278,16 @@ const platformContentSchema = z.object({
         textColor: z.string().trim(),
         accentColor: z.string().trim(),
       }),
+      myOfferSection: z
+        .object({
+          enabled: z.boolean().optional().default(true),
+          activeFrom: z.string().trim().optional().default(""),
+        })
+        .optional()
+        .default({
+          enabled: true,
+          activeFrom: "",
+        }),
       homeCategories: z.object({
         isActive: z.boolean().optional().default(true),
         title: z.string().trim().optional().default("What are you craving?"),
@@ -607,13 +631,19 @@ const platformContentSchema = z.object({
         pushTitle: z
           .string()
           .trim()
+          .transform((value) =>
+            sanitizeReviewRequestText(value, DEFAULT_REVIEW_REQUEST_PUSH_TITLE),
+          )
           .optional()
-          .default("How was your order? ⭐"),
+          .default(DEFAULT_REVIEW_REQUEST_PUSH_TITLE),
         pushBody: z
           .string()
           .trim()
+          .transform((value) =>
+            sanitizeReviewRequestText(value, DEFAULT_REVIEW_REQUEST_PUSH_BODY),
+          )
           .optional()
-          .default("Tap to rate — your feedback helps others order with confidence."),
+          .default(DEFAULT_REVIEW_REQUEST_PUSH_BODY),
       })
       .optional()
       .default({
@@ -625,8 +655,8 @@ const platformContentSchema = z.object({
         windowHours: 72,
         quietHoursStart: 22,
         quietHoursEnd: 9,
-        pushTitle: "How was your order? ⭐",
-        pushBody: "Tap to rate — your feedback helps others order with confidence.",
+        pushTitle: DEFAULT_REVIEW_REQUEST_PUSH_TITLE,
+        pushBody: DEFAULT_REVIEW_REQUEST_PUSH_BODY,
       }),
     routing: z
       .object({
@@ -777,6 +807,42 @@ const platformContentSchema = z.object({
         shareMessageTemplate:
           "Use my Foodbela referral code {{code}} at checkout before your first delivered order. After your first delivered order, I get a Tk {{rewardAmount}} reward voucher. {{link}}",
       }),
+    customOffers: z
+      .object({
+        enabled: z.boolean().optional().default(true),
+        profileSectionEnabled: z.boolean().optional().default(true),
+        thresholdDeliveredOrders: z.number().int().min(1).max(500).optional().default(10),
+        countStartsAt: z.string().trim().optional().default(""),
+        adminResponseHours: z.number().int().min(1).max(24 * 14).optional().default(72),
+        requestedCodeMaxLength: z.number().int().min(4).max(24).optional().default(12),
+        qualificationPushEnabled: z.boolean().optional().default(true),
+        qualificationPushTitle: z
+          .string()
+          .trim()
+          .min(1)
+          .max(80)
+          .optional()
+          .default("My offer is unlocked"),
+        qualificationPushBody: z
+          .string()
+          .trim()
+          .min(1)
+          .max(180)
+          .optional()
+          .default("You completed {{threshold}} orders. Request your personal voucher now."),
+      })
+      .optional()
+      .default({
+        enabled: true,
+        profileSectionEnabled: true,
+        thresholdDeliveredOrders: 10,
+        countStartsAt: "",
+        adminResponseHours: 72,
+        requestedCodeMaxLength: 12,
+        qualificationPushEnabled: true,
+        qualificationPushTitle: "My offer is unlocked",
+        qualificationPushBody: "You completed {{threshold}} orders. Request your personal voucher now.",
+      }),
     dispatch: z.object({
       autoAssignmentEnabled: z.boolean(),
       autoReassignTimedOutOrders: z.boolean(),
@@ -919,7 +985,7 @@ const platformContentSchema = z.object({
 })
 
 type PlatformContent = z.infer<typeof platformContentSchema>
-type PlatformContentScope = { zoneId?: string; districtId?: string }
+export type PlatformContentScope = { zoneId?: string; districtId?: string }
 const defaultPlatformContent = platformContentSchema.parse(platformContent)
 export type OperationalFinanceSettings = PlatformContent["operations"]["finance"]
 export type AuthRateLimitSettings = PlatformContent["auth"]["rateLimits"]
@@ -1117,6 +1183,7 @@ function buildHomeCmsAreaOverride(homeCms: PlatformContent["customerApp"]["homeC
   const normalizedHomeCms = normalizeHomeCmsForRuntime(homeCms)
   return {
     offerStrip: normalizedHomeCms.offerStrip,
+    myOfferSection: normalizedHomeCms.myOfferSection,
     homeCategories: normalizedHomeCms.homeCategories,
     restaurantSections: normalizedHomeCms.restaurantSections,
     timeBasedSection: normalizedHomeCms.timeBasedSection,

@@ -28,10 +28,29 @@ export async function listAdminActivityLogs(params?: {
   page?: number;
   pageSize?: number;
   includeTotal?: boolean;
+  zoneId?: string;
+  districtId?: string;
 }) {
-  const query: Record<string, unknown> = {};
+  const query: Record<string, any> = {};
   if (params?.entityType) query.entityType = params.entityType;
   if (params?.entityId) query.entityId = params.entityId;
+  if (params?.zoneId?.trim()) {
+    const zoneId = params.zoneId.trim();
+    query.$or = [
+      { "metadata.zoneId": zoneId },
+      { "metadata.serviceArea.zoneId": zoneId },
+      { "metadata.serviceAreaSnapshot.zoneId": zoneId },
+      { "metadata.scope.zoneId": zoneId },
+    ];
+  } else if (params?.districtId?.trim()) {
+    const districtId = params.districtId.trim();
+    query.$or = [
+      { "metadata.districtId": districtId },
+      { "metadata.serviceArea.districtId": districtId },
+      { "metadata.serviceAreaSnapshot.districtId": districtId },
+      { "metadata.scope.districtId": districtId },
+    ];
+  }
 
   const page = Math.max(1, params?.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params?.pageSize ?? 20));

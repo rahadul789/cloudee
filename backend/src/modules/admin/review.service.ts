@@ -18,6 +18,7 @@ import {
   buildRestaurantServiceAreaScopeFilter,
   isServiceAreaModeEnabled,
   resolveServiceZoneForCoordinates,
+  serviceAreaSnapshotMatchesScope,
 } from "../service-area/service-area.service";
 
 type AdminReviewModerationStatus = "visible" | "hidden" | "flagged";
@@ -34,6 +35,11 @@ type ListAdminReviewsParams = {
   sortBy?: "newest" | "oldest" | "highest" | "lowest";
   page?: number;
   pageSize?: number;
+};
+
+type AdminAreaScopeParams = {
+  zoneId?: string;
+  districtId?: string;
 };
 
 function objectIdString(value: unknown) {
@@ -157,6 +163,24 @@ async function buildReviewQuery(params: ListAdminReviewsParams) {
     ];
   }
   return query;
+}
+
+async function assertReviewInAdminScope(
+  review: { restaurantId?: unknown } | null | undefined,
+  params?: { zoneId?: string; districtId?: string },
+) {
+  if (!params?.zoneId?.trim() && !params?.districtId?.trim()) return;
+  const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
+  const exists = await RestaurantModel.exists({
+    _id: review?.restaurantId,
+    ...restaurantScopeFilter,
+  });
+  if (exists) return;
+  throw new AppError(
+    StatusCodes.NOT_FOUND,
+    "REVIEW_NOT_FOUND",
+    "Review not found",
+  );
 }
 
 function mapReview(params: {
@@ -302,9 +326,53 @@ async function getReviewCaseOrThrow(reviewCaseId: string) {
   return reviewCase;
 }
 
-export async function listReviewCases(status?: string) {
+async function assertReviewCaseInAdminScope(
+  reviewCase: Record<string, any>,
+  params: AdminAreaScopeParams = {},
+) {
+  if (!params.zoneId?.trim() && !params.districtId?.trim()) return;
+  const draftId = objectIdString(reviewCase.draftId);
+  const draft = draftId ? await OnboardingDraftModel.findById(draftId).lean() : null;
+  const serviceArea = await resolveServiceZoneForCoordinates({
+    latitude: draft?.location?.latitude,
+    longitude: draft?.location?.longitude,
+  });
+  if (!serviceAreaSnapshotMatchesScope(serviceArea?.snapshot, params)) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "REVIEW_CASE_NOT_FOUND",
+      "Review case not found in this area",
+    );
+  }
+}
+
+async function filterReviewCasesByAdminScope(
+  reviewCases: Array<Record<string, any>>,
+  params: AdminAreaScopeParams = {},
+) {
+  if (!params.zoneId?.trim() && !params.districtId?.trim()) return reviewCases;
+  const filtered = [];
+  for (const reviewCase of reviewCases) {
+    const draftId = objectIdString(reviewCase.draftId);
+    const draft = draftId ? await OnboardingDraftModel.findById(draftId).lean() : null;
+    const serviceArea = await resolveServiceZoneForCoordinates({
+      latitude: draft?.location?.latitude,
+      longitude: draft?.location?.longitude,
+    });
+    if (serviceAreaSnapshotMatchesScope(serviceArea?.snapshot, params)) {
+      filtered.push(reviewCase);
+    }
+  }
+  return filtered;
+}
+
+export async function listReviewCases(
+  status?: string,
+  params: AdminAreaScopeParams = {},
+) {
   const query = status ? { status } : {};
-  return ReviewCaseModel.find(query).sort({ createdAt: -1 });
+  const reviewCases = await ReviewCaseModel.find(query).sort({ createdAt: -1 }).lean();
+  return filterReviewCasesByAdminScope(reviewCases, params);
 }
 
 export async function listAdminReviews(params: ListAdminReviewsParams) {
@@ -457,7 +525,10 @@ export async function listAdminReviews(params: ListAdminReviewsParams) {
   };
 }
 
-export async function getAdminReviewDetails(reviewId: string) {
+export async function getAdminReviewDetails(
+  reviewId: string,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
   if (!mongoose.Types.ObjectId.isValid(reviewId)) {
     throw new AppError(
       StatusCodes.NOT_FOUND,
@@ -473,6 +544,7 @@ export async function getAdminReviewDetails(reviewId: string) {
       "Review not found",
     );
   }
+  await assertReviewInAdminScope(review, params);
 
   const [mappedReview] = await hydrateReviewRows([review]);
   const [auditLogs, order] = await Promise.all([
@@ -550,6 +622,8 @@ export async function updateAdminReviewModeration(params: {
   status: AdminReviewModerationStatus;
   reason?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   if (!mongoose.Types.ObjectId.isValid(params.reviewId)) {
     throw new AppError(
@@ -566,6 +640,7 @@ export async function updateAdminReviewModeration(params: {
       "Review not found",
     );
   }
+  await assertReviewInAdminScope(review, params);
 
   const now = new Date();
   const previousStatus = stringValue(review.moderationStatus, "visible");
@@ -632,6 +707,8 @@ export async function bulkUpdateAdminReviews(params: {
   status: AdminReviewModerationStatus;
   reason?: string;
   adminId?: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const ids = [...new Set(params.reviewIds)].filter((id) =>
     mongoose.Types.ObjectId.isValid(id),
@@ -651,6 +728,8 @@ export async function bulkUpdateAdminReviews(params: {
         status: params.status,
         reason: params.reason,
         adminId: params.adminId,
+        zoneId: params.zoneId,
+        districtId: params.districtId,
       }),
     );
   }
@@ -660,8 +739,10 @@ export async function bulkUpdateAdminReviews(params: {
 export async function moveReviewCaseToUnderReview(
   reviewCaseId: string,
   adminId: string,
+  params: AdminAreaScopeParams = {},
 ) {
   const reviewCase = await getReviewCaseOrThrow(reviewCaseId);
+  await assertReviewCaseInAdminScope(reviewCase.toObject(), params);
   const owner = await OwnerModel.findById(reviewCase.ownerId);
 
   if (!owner) {
@@ -686,6 +767,8 @@ export async function moveReviewCaseToUnderReview(
 export async function rejectReviewCase(params: {
   reviewCaseId: string;
   adminId: string;
+  zoneId?: string;
+  districtId?: string;
   reviewNote: string;
   reviewIssues: Array<{
     section: string;
@@ -695,6 +778,7 @@ export async function rejectReviewCase(params: {
   }>;
 }) {
   const reviewCase = await getReviewCaseOrThrow(params.reviewCaseId);
+  await assertReviewCaseInAdminScope(reviewCase.toObject(), params);
   const owner = await OwnerModel.findById(reviewCase.ownerId);
 
   if (!owner) {
@@ -725,8 +809,13 @@ export async function rejectReviewCase(params: {
   return reviewCase;
 }
 
-export async function approveReviewCase(reviewCaseId: string, adminId: string) {
+export async function approveReviewCase(
+  reviewCaseId: string,
+  adminId: string,
+  params: AdminAreaScopeParams = {},
+) {
   const reviewCase = await getReviewCaseOrThrow(reviewCaseId);
+  await assertReviewCaseInAdminScope(reviewCase.toObject(), params);
   const owner = await OwnerModel.findById(reviewCase.ownerId);
   const draft = await OnboardingDraftModel.findById(reviewCase.draftId);
 

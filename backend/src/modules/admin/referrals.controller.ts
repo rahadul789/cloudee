@@ -31,6 +31,8 @@ const referralQuerySchema = z.object({
   sortBy: z.enum(["newest", "oldest", "rewardedAt", "risk"]).optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
 });
 
 function getStringParam(value: unknown) {
@@ -55,6 +57,8 @@ export const getAdminReferrals = asyncHandler(
       sortBy: getOptionalStringParam(req.query.sortBy),
       page: getOptionalStringParam(req.query.page),
       pageSize: getOptionalStringParam(req.query.pageSize),
+      zoneId: getOptionalStringParam(req.query.zoneId),
+      districtId: getOptionalStringParam(req.query.districtId),
     });
     const data = await listAdminReferrals(query);
 
@@ -65,7 +69,10 @@ export const getAdminReferrals = asyncHandler(
 export const getAdminReferral = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const referralId = getStringParam(req.params.referralId);
-    const data = await getAdminReferralDetails(referralId);
+    const data = await getAdminReferralDetails(referralId, {
+      zoneId: getOptionalStringParam(req.query.zoneId),
+      districtId: getOptionalStringParam(req.query.districtId),
+    });
 
     if (!data) {
       throw new AppError(

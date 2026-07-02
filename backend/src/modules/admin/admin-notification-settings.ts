@@ -54,6 +54,9 @@ export function classifyAdminAlertType(
   if (alertType === "otp_abuse" || alertType === "referral_fraud") {
     return "security";
   }
+  if (alertType.startsWith("customer_custom_offer")) {
+    return "campaigns";
+  }
   if (
     alertType === "prep_start_late" ||
     alertType === "food_prepare_late"

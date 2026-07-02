@@ -133,6 +133,63 @@ const customerAccountRequestSchema = new Schema(
   { _id: false }
 )
 
+const customerCustomOfferRequestSchema = new Schema(
+  {
+    status: {
+      type: String,
+      enum: ["none", "requested", "fulfilled", "cancelled"],
+      default: "none"
+    },
+    cycleStartedAt: { type: Date, default: null },
+    cycleNumber: { type: Number, default: 1 },
+    qualifiedAt: { type: Date, default: null },
+    qualificationNotifiedAt: { type: Date, default: null },
+    requestedAt: { type: Date, default: null },
+    expectedReadyAt: { type: Date, default: null },
+    fulfilledAt: { type: Date, default: null },
+    lastRequestOrderCount: { type: Number, default: 0 },
+    requestedCode: { type: String, default: "", trim: true, uppercase: true },
+    voucherId: { type: String, default: "", trim: true },
+    voucherCode: { type: String, default: "", trim: true },
+    voucherLabel: { type: String, default: "", trim: true },
+    adminNote: { type: String, default: "", trim: true },
+    analytics: {
+      type: new Schema(
+        {
+          qualifiedCount: { type: Number, default: 0 },
+          requestedCount: { type: Number, default: 0 },
+          fulfilledCount: { type: Number, default: 0 },
+          lastQualifiedAt: { type: Date, default: null },
+          lastRequestedAt: { type: Date, default: null },
+          lastFulfilledAt: { type: Date, default: null }
+        },
+        { _id: false }
+      ),
+      default: () => ({})
+    },
+    history: {
+      type: [
+        new Schema(
+          {
+            action: {
+              type: String,
+              enum: ["qualified", "requested", "fulfilled", "cancelled", "note"],
+              required: true
+            },
+            note: { type: String, default: "", trim: true },
+            actorId: { type: String, default: "", trim: true },
+            actorName: { type: String, default: "", trim: true },
+            createdAt: { type: Date, default: Date.now }
+          },
+          { _id: false }
+        )
+      ],
+      default: []
+    }
+  },
+  { _id: false }
+)
+
 const customerSchema = new Schema(
   {
     fullName: { type: String, default: "" },
@@ -184,6 +241,10 @@ const customerSchema = new Schema(
     },
     accountRequest: {
       type: customerAccountRequestSchema,
+      default: () => ({})
+    },
+    customOfferRequest: {
+      type: customerCustomOfferRequestSchema,
       default: () => ({})
     },
     favoriteRestaurantIds: { type: [Schema.Types.ObjectId], ref: "Restaurant", default: [] },

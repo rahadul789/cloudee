@@ -33,7 +33,7 @@ const envSchema = z.object({
   ADMIN_PANEL_ORIGIN: z.string().default("http://localhost:5174"),
   JWT_ACCESS_SECRET: z.string().min(1, "JWT_ACCESS_SECRET is required"),
   JWT_REFRESH_SECRET: z.string().min(1, "JWT_REFRESH_SECRET is required"),
-  JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("45m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("3650d"),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().default("admin@foodbela.com"),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(6).default("Admin@123456"),

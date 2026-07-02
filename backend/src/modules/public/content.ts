@@ -33,6 +33,10 @@ export const platformContent = {
         textColor: "#3F2432",
         accentColor: "#FF5C93",
       },
+      myOfferSection: {
+        enabled: true,
+        activeFrom: "",
+      },
       homeCategories: {
         isActive: true,
         title: "What are you craving?",
@@ -470,7 +474,7 @@ export const platformContent = {
       surchargeAmountTaka: 5,
     },
     reviewRequests: {
-      // Auto post-delivery review push. Fully dynamic — no app update needed.
+      // Auto post-delivery review push. Fully dynamic; no app update needed.
       autoEnabled: true,
       // When on, the customer app shows a separate (collapsible) rider review
       // section alongside the food review.
@@ -484,11 +488,11 @@ export const platformContent = {
       reminderGapHours: 24,
       // Stop requesting once the order is older than this (hours since delivery).
       windowHours: 72,
-      // Asia/Dhaka quiet hours — no review push sent inside this range.
+      // Asia/Dhaka quiet hours; no review push sent inside this range.
       quietHoursStart: 22,
       quietHoursEnd: 9,
-      pushTitle: "How was your order? ⭐",
-      pushBody: "Tap to rate — your feedback helps others order with confidence.",
+      pushTitle: "How was your food?",
+      pushBody: "Tap to rate your order and help others choose with confidence.",
     },
     routing: {
       // "google" = real road distance/time/ETA + route polyline via Google
@@ -683,6 +687,17 @@ export const platformContent = {
       shareLinkTemplate: "foodbela://checkout?ref={{code}}",
       shareMessageTemplate:
         "Use my Foodbela referral code {{code}} at checkout before your first delivered order. After your first delivered order, I get a Tk {{rewardAmount}} reward voucher. {{link}}",
+    },
+    customOffers: {
+      enabled: true,
+      profileSectionEnabled: true,
+      thresholdDeliveredOrders: 10,
+      countStartsAt: "",
+      adminResponseHours: 72,
+      requestedCodeMaxLength: 12,
+      qualificationPushEnabled: true,
+      qualificationPushTitle: "My offer is unlocked",
+      qualificationPushBody: "You completed {{threshold}} orders. Request your personal voucher now.",
     },
     dispatch: {
       autoAssignmentEnabled: true,

@@ -8,6 +8,7 @@ const staticCustomerRoutes = new Set([
   "/favorite-restaurants",
   "/location-picker",
   "/notifications",
+  "/offer-details",
   "/offers",
   "/order-help",
   "/payment-refunds",
@@ -15,6 +16,7 @@ const staticCustomerRoutes = new Set([
   "/promo-details",
   "/profile-edit",
   "/profile-password",
+  "/rate-order",
   "/referrals",
   "/sign-in",
   "/support",
@@ -111,6 +113,10 @@ export function resolveCustomerPushRoute(data?: Record<string, unknown> | null) 
     getRouteSegment(getQueryParam(rawPath, "order"));
   const orderPathMatch = rawPath.match(/^\/orders\/([A-Za-z0-9_-]+)(?:\/tracking)?(?:[?#].*)?$/);
   const orderId = explicitOrderId || pathOrderId || getRouteSegment(orderPathMatch?.[1]);
+
+  if (type === "review_request") {
+    return orderId ? `/rate-order?orderId=${orderId}` : "/(tabs)/orders";
+  }
 
   if (orderId) {
     return `/orders/${orderId}/tracking`;

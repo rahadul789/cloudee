@@ -162,7 +162,7 @@ function KitchenStartCountdown({ estimate }: { estimate: PreparationEstimate }) 
   const motion = useRef(new Animated.Value(0)).current;
   const countdownText =
     typeof estimate.remainingSeconds === "number"
-      ? `Starts in ${formatCountdownClock(estimate.remainingSeconds)}`
+      ? `Preparing starts in ${formatCountdownClock(estimate.remainingSeconds)}`
       : estimate.rangeLabel;
 
   useEffect(() => {
@@ -215,10 +215,7 @@ function KitchenStartCountdown({ estimate }: { estimate: PreparationEstimate }) 
         />
       </View>
       <Text style={styles.kitchenStartTitle}>
-        {countdownText || "Kitchen starts soon"}
-      </Text>
-      <Text style={styles.kitchenStartTimer}>
-        Ready around {estimate.targetTimeLabel}
+        {countdownText || "Preparing starts soon"}
       </Text>
       <Text style={styles.kitchenStartMeta}>
         {estimate.supportingText || "The kitchen is getting ready now."}
@@ -555,7 +552,7 @@ export default function OrderTrackingScreen() {
     );
   }
 
-  if (orderQuery.isError || !order) {
+  if (!order) {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.emptyWrap}>
@@ -970,7 +967,7 @@ export default function OrderTrackingScreen() {
                   <>
                     <Text style={styles.preparingRange}>
                       {estimate
-                        ? `Ready around ${estimate.targetTimeLabel}`
+                        ? estimate.rangeLabel
                         : remainingMinutes !== null
                           ? `${formatDurationMinutes(
                               Math.max(remainingMinutes, 1),
@@ -978,8 +975,10 @@ export default function OrderTrackingScreen() {
                           : "Preparing now"}
                     </Text>
                     <Text style={styles.preparingRangeMeta}>
-                      {estimate?.supportingText ??
-                        "Live rider updates start after pickup."}
+                      {estimate?.supportingText ||
+                        (estimate
+                          ? "Based on the restaurant's live prep timer."
+                          : "Live rider updates start after pickup.")}
                     </Text>
                     {estimate?.state === "delayed" &&
                     estimate.lateByMinutes >= 10 ? (

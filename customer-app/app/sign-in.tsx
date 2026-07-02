@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -58,6 +59,7 @@ function sanitizePhone(phone: string) {
 }
 
 const CUSTOMER_AUTH_OTP_CODE_LENGTH = 4;
+const foodbelaLogo = require("../assets/images/icon.png");
 
 function shouldReplaceAuthStack(redirectTo?: string | null) {
   const target = redirectTo?.trim().toLowerCase() ?? "";
@@ -137,7 +139,7 @@ export default function SignInScreen() {
     scheduleAnimationFrame(() => {
       scheduleTimeout(() => {
         scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 176 : 138,
+          y: Platform.OS === "android" ? 96 : 118,
           animated: true,
         });
       }, 80);
@@ -148,7 +150,7 @@ export default function SignInScreen() {
     scheduleAnimationFrame(() => {
       scheduleTimeout(() => {
         scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 176 : 138,
+          y: Platform.OS === "android" ? 104 : 124,
           animated: true,
         });
       }, 80);
@@ -159,7 +161,7 @@ export default function SignInScreen() {
     scheduleAnimationFrame(() => {
       scheduleTimeout(() => {
         scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 132 : 104,
+          y: Platform.OS === "android" ? 88 : 104,
           animated: true,
         });
       }, 80);
@@ -170,7 +172,7 @@ export default function SignInScreen() {
     scheduleAnimationFrame(() => {
       scheduleTimeout(() => {
         scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 190 : 150,
+          y: Platform.OS === "android" ? 124 : 146,
           animated: true,
         });
       }, 80);
@@ -632,8 +634,8 @@ export default function SignInScreen() {
     <Screen>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={insets.top + 12}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -644,7 +646,7 @@ export default function SignInScreen() {
             styles.container,
             {
               paddingBottom: isKeyboardVisible
-                ? Math.max(insets.bottom, 16) + 150
+                ? Math.max(insets.bottom, 16) + 92
                 : Math.max(insets.bottom, 16),
             },
           ]}
@@ -673,10 +675,11 @@ export default function SignInScreen() {
                   <Ionicons name="sparkles" size={16} color={palette.amber} />
                 </View>
                 <View style={styles.heroIcon}>
-                  <Ionicons
-                    name="fast-food-outline"
-                    size={23}
-                    color="#FFFFFF"
+                  <Image
+                    source={foodbelaLogo}
+                    style={styles.heroLogo}
+                    resizeMode="contain"
+                    accessibilityIgnoresInvertColors
                   />
                 </View>
                 <View style={styles.heroMiniBadge}>
@@ -1253,10 +1256,10 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     paddingHorizontal: 22,
-    paddingTop: 12,
+    paddingTop: 8,
     paddingBottom: 28,
     justifyContent: "flex-start",
-    gap: 24,
+    gap: 20,
   },
   header: {
     flexDirection: "row",
@@ -1280,12 +1283,12 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: "center",
-    gap: 14,
-    paddingTop: 4,
+    gap: 11,
+    paddingTop: 2,
   },
   heroVisual: {
-    width: 124,
-    height: 104,
+    width: 116,
+    height: 96,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1301,8 +1304,8 @@ const styles = StyleSheet.create({
   },
   heroVisualCard: {
     width: 82,
-    height: 86,
-    borderRadius: 26,
+    height: 84,
+    borderRadius: 24,
     backgroundColor: palette.foreground,
     padding: 10,
     justifyContent: "space-between",
@@ -1328,9 +1331,17 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 17,
-    backgroundColor: palette.secondary,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.72)",
+  },
+  heroLogo: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
   },
   heroMiniBadge: {
     position: "absolute",
@@ -1374,10 +1385,10 @@ const styles = StyleSheet.create({
   },
   title: {
     maxWidth: 260,
-    fontSize: 34,
+    fontSize: 31,
     fontWeight: "800",
     color: palette.foreground,
-    lineHeight: 39,
+    lineHeight: 36,
     textAlign: "center",
   },
   authPanel: {

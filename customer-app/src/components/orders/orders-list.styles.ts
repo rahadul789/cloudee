@@ -4,10 +4,11 @@ import { palette } from "@/src/theme/palette";
 
 export const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: palette.background },
-  content: { paddingBottom: 42, gap: 22 },
+  content: { paddingBottom: 42 },
   header: {
     paddingHorizontal: 20,
     paddingTop: 8,
+    paddingBottom: 12,
     gap: 8,
   },
   kicker: {
@@ -32,6 +33,11 @@ export const styles = StyleSheet.create({
     maxWidth: "92%",
   },
   section: { gap: 10 },
+  virtualizedSectionHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    gap: 3,
+  },
   sectionHeader: {
     paddingHorizontal: 20,
     gap: 3,
@@ -49,6 +55,12 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   cardList: { paddingHorizontal: 20, gap: 10 },
+  virtualizedCardRow: {
+    paddingHorizontal: 20,
+  },
+  virtualizedSeparator: {
+    height: 10,
+  },
   orderCard: {
     position: "relative",
     padding: 14,
@@ -56,10 +68,12 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     gap: 10,
     shadowColor: palette.shadow,
-    shadowOpacity: 0.72,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   // Press feedback so it is obvious the whole card is tappable and opens the order.
   orderCardPressed: {
@@ -70,16 +84,25 @@ export const styles = StyleSheet.create({
     backgroundColor: "#FFF9F5",
     borderWidth: 1,
     borderColor: "#FFD7C3",
-    shadowColor: "rgba(255, 122, 89, 0.2)",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.9,
-    shadowRadius: 16,
-    elevation: 5,
+    shadowColor: palette.shadow,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   orderCardCompact: {
     paddingVertical: 12,
     gap: 8,
     borderRadius: 18,
+  },
+  orderCardHistory: {
+    borderWidth: 1,
+    borderColor: "#F1E2EA",
+    borderRadius: 16,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   orderTopRow: {
     flexDirection: "row",
@@ -179,6 +202,40 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: palette.secondary,
   },
+  activeEtaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: "#FFF5EF",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  activeEtaIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  activeEtaCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  activeEtaLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  activeEtaMeta: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
   activeDestinationRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -257,6 +314,10 @@ export const styles = StyleSheet.create({
   reorderButtonDisabled: {
     opacity: 0.7,
   },
+  reorderButtonPressed: {
+    transform: [{ scale: 0.98 }, { translateY: 1 }],
+    opacity: 0.96,
+  },
   reorderButtonText: {
     fontSize: 13,
     lineHeight: 18,
@@ -294,6 +355,9 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
+  historyFooterRow: {
+    paddingTop: 10,
+  },
   historyFooterText: {
     fontSize: 12,
     lineHeight: 16,
@@ -323,10 +387,12 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(31, 36, 48, 0.06)",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   loadingIndicatorWrap: {
     width: 62,

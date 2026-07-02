@@ -22,6 +22,7 @@ import {
   useCustomerRestaurantDetailsQuery,
 } from "@/src/hooks/use-customer-api";
 import { useIsOnline } from "@/src/hooks/use-network-status";
+import { useRetainedTabContent } from "@/src/hooks/use-retained-tab-content";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
@@ -147,6 +148,7 @@ function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
 export default function CartScreen() {
   const router = useRouter();
   const isCartFocused = useIsFocused();
+  const shouldRenderCartContent = useRetainedTabContent(isCartFocused, 0);
   // Read cart contents directly (not gated on focus) so the screen keeps showing the
   // real items during a navigation transition. Previously these were swapped to empty
   // values the moment focus was lost, which made the cart flash its empty state while
@@ -521,6 +523,14 @@ export default function CartScreen() {
     },
     [addItem, openRestaurantForItem, restaurant],
   );
+
+  if (!shouldRenderCartContent) {
+    return (
+      <Screen>
+        <View style={styles.offscreenPlaceholder} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen>

@@ -87,7 +87,7 @@ async function registerForPushNotificationsAsync() {
       name: "default",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#0EA5E9",
+      lightColor: "#FF6392",
     });
   }
 
@@ -219,7 +219,20 @@ export function CustomerPushBridge({ children }: PropsWithChildren) {
     };
 
     const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
-      void notification;
+      const data = notification.request.content.data;
+      queryClient.invalidateQueries({ queryKey: ["customer", "notifications"] });
+      if (
+        data?.type === "custom_offer_qualified" ||
+        data?.personalOffer === true ||
+        Boolean(data?.voucherId || data?.voucherCode)
+      ) {
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "offers", "custom-summary"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "notifications", "infinite"],
+        });
+      }
     });
 
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(

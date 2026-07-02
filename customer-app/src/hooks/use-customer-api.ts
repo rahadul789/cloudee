@@ -273,6 +273,63 @@ export function useCustomerApplyReferralCodeMutation() {
   });
 }
 
+export type CustomerCustomOfferSummary = {
+  status: "locked" | "eligible" | "requested" | "ready";
+  enabled?: boolean;
+  profileSectionEnabled?: boolean;
+  completedOrderCount: number;
+  targetOrderCount: number;
+  requestedCodeMaxLength: number;
+  remainingOrderCount: number;
+  progressRatio: number;
+  requestedAt?: string | null;
+  expectedReadyAt?: string | null;
+  fulfilledAt?: string | null;
+  requestedCode?: string;
+  voucherId?: string;
+  voucherCode?: string;
+  voucherLabel?: string;
+  voucherExpiresAt?: string | null;
+};
+
+export function useCustomerCustomOfferSummaryQuery(enabled = true) {
+  const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
+
+  return useQuery({
+    queryKey: ["customer", "offers", "custom-summary"],
+    enabled: enabled && isAuthenticated,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const response = await apiProtectedGet<CustomerCustomOfferSummary>(
+        "/customer/offers/custom-summary"
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useCustomerCustomOfferRequestMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (body: { requestedCode?: string } = {}) => {
+      const response = await apiProtectedPost<CustomerCustomOfferSummary>(
+        "/customer/offers/custom-request",
+        body
+      );
+      return response.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["customer", "offers", "custom-summary"],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["customer", "notifications", "infinite"],
+      });
+    },
+  });
+}
+
 export type CustomerNotification = {
   id: string;
   type: string;
@@ -290,6 +347,10 @@ export type CustomerNotification = {
   voucherLabel?: string;
   voucherExpiresAt?: string | null;
   voucherMinOrder?: number | null;
+  voucherUsageStatus?: "available" | "used" | "expired" | "info";
+  voucherAppliedAt?: string | null;
+  voucherOrderId?: string;
+  isOfferDisabled?: boolean;
   personalOffer?: boolean;
   isRead: boolean;
   readAt: string | null;
@@ -620,6 +681,21 @@ export function useCustomerNotificationCampaignQuery(campaignId?: string, enable
     queryFn: async () => {
       const response = await apiProtectedGet<CustomerNotification | null>(
         `/customer/notifications/campaigns/${encodeURIComponent(campaignId ?? "")}`
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useCustomerNotificationQuery(notificationId?: string, enabled = true) {
+  const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
+
+  return useQuery({
+    queryKey: ["customer", "notifications", "item", notificationId],
+    enabled: enabled && isAuthenticated && Boolean(notificationId),
+    queryFn: async () => {
+      const response = await apiProtectedGet<CustomerNotification | null>(
+        `/customer/notifications/${encodeURIComponent(notificationId ?? "")}`
       );
       return response.data;
     },
@@ -1333,6 +1409,26 @@ export function useCustomerHistoryOrdersInfiniteQuery(
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length < pageSize ? undefined : allPages.length + 1,
+  });
+}
+
+export function useCustomerHistoryOrdersPreviewQuery(
+  enabled = true,
+  pageSize = 6,
+) {
+  const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
+
+  return useQuery({
+    queryKey: ["customer", "orders", "history", "preview", pageSize],
+    enabled: enabled && isAuthenticated,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    queryFn: async () => {
+      const response = await apiProtectedGet<CustomerOrderResponse[]>(
+        `/customer/orders?page=1&pageSize=${pageSize}&statusGroup=history`
+      );
+      return response.data;
+    },
   });
 }
 

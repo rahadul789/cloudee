@@ -77,6 +77,11 @@ type CampaignRecipientReport = {
   summary: { total: number; received: number; opened: number; notReached: number };
 };
 
+type AdminAreaScopeParams = {
+  zoneId?: string;
+  districtId?: string;
+};
+
 type SendParams = {
   zoneId?: string;
   districtId?: string;
@@ -1162,6 +1167,20 @@ async function buildScheduleScopeQuery(params: { zoneId?: string; districtId?: s
   return {};
 }
 
+async function scheduleMatchesAreaScope(
+  schedule: { zoneId?: unknown; districtId?: unknown },
+  params: AdminAreaScopeParams = {},
+) {
+  if (!hasAreaScope(params)) return true;
+  const scopeIds = await resolveNotificationScopeIds(params);
+  if (!scopeIds) return true;
+  const scheduleZoneId = objectIdString(schedule.zoneId);
+  const scheduleDistrictId = objectIdString(schedule.districtId);
+  if (scheduleZoneId && scopeIds.zoneIds.has(scheduleZoneId)) return true;
+  if (scheduleDistrictId && scopeIds.districtIds.has(scheduleDistrictId)) return true;
+  return false;
+}
+
 async function getScheduledItems(params: ListParams) {
   const rows = await AdminNotificationScheduleModel.find(await buildScheduleScopeQuery(params))
     .sort({ scheduledAt: -1 })
@@ -1830,6 +1849,8 @@ async function buildOwnerCampaignRecipients(
 
 export async function getAdminNotificationCampaignRecipients(params: {
   campaignId: string;
+  zoneId?: string;
+  districtId?: string;
   status?: RecipientReportStatus;
   page?: number;
   pageSize?: number;
@@ -1852,6 +1873,18 @@ export async function getAdminNotificationCampaignRecipients(params: {
       pageCount: 1,
       summary: { total: 0, received: 0, opened: 0, notReached: 0 },
       unavailableReason: "Recipient report is available for admin-created instant and scheduled notifications.",
+    };
+  }
+  if (!(await scheduleMatchesAreaScope(schedule, params))) {
+    return {
+      campaignId,
+      items: [],
+      total: 0,
+      page,
+      pageSize,
+      pageCount: 1,
+      summary: { total: 0, received: 0, opened: 0, notReached: 0 },
+      unavailableReason: "Recipient report is not available in this area.",
     };
   }
 
@@ -1916,12 +1949,21 @@ async function calculateNotificationCampaignConversions(params: {
   };
 }
 
-export async function refreshAdminNotificationCampaignConversions(campaignId: string) {
+export async function refreshAdminNotificationCampaignConversions(
+  campaignId: string,
+  params: AdminAreaScopeParams = {},
+) {
   const schedule = await AdminNotificationScheduleModel.findById(campaignId);
   if (!schedule) {
     return {
       refreshed: false,
       unavailableReason: "Conversion tracking is available for admin-created customer campaigns.",
+    };
+  }
+  if (!(await scheduleMatchesAreaScope(schedule, params))) {
+    return {
+      refreshed: false,
+      unavailableReason: "Conversion tracking is not available in this area.",
     };
   }
   if (schedule.recipientType !== "customers") {
@@ -1959,7 +2001,10 @@ export async function refreshAdminNotificationCampaignConversions(campaignId: st
   };
 }
 
-export async function checkAdminNotificationCampaignReceipts(campaignId: string) {
+export async function checkAdminNotificationCampaignReceipts(
+  campaignId: string,
+  params: AdminAreaScopeParams = {},
+) {
   const schedule = await AdminNotificationScheduleModel.findById(campaignId);
   if (!schedule) {
     return {
@@ -1968,6 +2013,15 @@ export async function checkAdminNotificationCampaignReceipts(campaignId: string)
       failed: 0,
       deviceNotRegistered: 0,
       unavailableReason: "Receipt checking is available for admin-created customer campaigns.",
+    };
+  }
+  if (!(await scheduleMatchesAreaScope(schedule, params))) {
+    return {
+      checked: 0,
+      deliveredToProvider: 0,
+      failed: 0,
+      deviceNotRegistered: 0,
+      unavailableReason: "Receipt checking is not available in this area.",
     };
   }
 
@@ -2581,18 +2635,24 @@ export async function processDueAdminNotificationSchedules() {
 export async function markAdminNotificationRead(params: {
   source: "customer" | "owner" | "rider" | "ops";
   id: string;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const readAt = new Date();
 
   if (params.source === "ops") {
-    const result = await markAdminOperationalAlertRead(params.id);
+    const result = await markAdminOperationalAlertRead(params.id, {
+      zoneId: params.zoneId,
+      districtId: params.districtId,
+    });
     if (result.updated) invalidateAdminNotificationsCache();
     return result;
   }
 
   if (params.source === "customer") {
+    const scopeMatch = await buildNotificationScopeMatch(params);
     const result = await CustomerModel.updateOne(
-      { "notifications._id": params.id },
+      addAndQuery({ "notifications._id": params.id }, scopeMatch),
       {
         $set: {
           "notifications.$.isRead": true,
@@ -2605,8 +2665,9 @@ export async function markAdminNotificationRead(params: {
   }
 
   if (params.source === "rider") {
+    const scopeMatch = await buildNotificationScopeMatch(params);
     const result = await RiderModel.updateOne(
-      { "notifications._id": params.id },
+      addAndQuery({ "notifications._id": params.id }, scopeMatch),
       {
         $set: {
           "notifications.$.isRead": true,
@@ -2618,7 +2679,14 @@ export async function markAdminNotificationRead(params: {
     return { updated: result.modifiedCount > 0 };
   }
 
-  const notification = await NotificationModel.findById(params.id);
+  const scopeIds = await resolveNotificationScopeIds(params);
+  const scopedRestaurantIds = await getScopedRestaurantIds(params);
+  const ownerNotificationScope = buildOwnerNotificationScopeQuery(
+    scopeIds,
+    scopedRestaurantIds,
+  );
+  const ownerQuery = addAndQuery({ _id: params.id }, ownerNotificationScope);
+  const notification = await NotificationModel.findOne(ownerQuery);
   if (!notification) return { updated: false };
   notification.isRead = true;
   notification.readAt = readAt;
@@ -2775,9 +2843,15 @@ export async function markAllAdminNotificationsRead(
   };
 }
 
-export async function cancelAdminNotificationSchedule(scheduleId: string) {
+export async function cancelAdminNotificationSchedule(
+  scheduleId: string,
+  params: AdminAreaScopeParams = {},
+) {
   const schedule = await AdminNotificationScheduleModel.findById(scheduleId);
   if (!schedule) return { updated: false, status: "not_found" };
+  if (!(await scheduleMatchesAreaScope(schedule, params))) {
+    return { updated: false, status: "not_found" };
+  }
   if (schedule.status !== "scheduled") {
     return { updated: false, status: schedule.status };
   }
@@ -2788,7 +2862,19 @@ export async function cancelAdminNotificationSchedule(scheduleId: string) {
   return { updated: true, status: schedule.status };
 }
 
-export async function retryAdminNotificationSchedule(scheduleId: string) {
+export async function retryAdminNotificationSchedule(
+  scheduleId: string,
+  params: AdminAreaScopeParams = {},
+) {
+  const existingSchedule = await AdminNotificationScheduleModel.findById(scheduleId)
+    .select({ zoneId: 1, districtId: 1, status: 1 })
+    .lean();
+  if (!existingSchedule) {
+    return { updated: false, status: "not_found" };
+  }
+  if (!(await scheduleMatchesAreaScope(existingSchedule, params))) {
+    return { updated: false, status: "not_found" };
+  }
   const schedule = await AdminNotificationScheduleModel.findOneAndUpdate(
     {
       _id: scheduleId,

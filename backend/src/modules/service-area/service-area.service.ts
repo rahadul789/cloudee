@@ -672,8 +672,11 @@ export function buildOrderServiceAreaScopeFilter(params?: {
   if (!isServiceAreaModeEnabled()) return {}
   const zoneId = normalizeScopeId(params?.zoneId)
   const districtId = normalizeScopeId(params?.districtId)
-  if (zoneId) return { "serviceAreaSnapshot.zoneId": zoneId }
-  if (districtId) return { "serviceAreaSnapshot.districtId": districtId }
+  const filters: Record<string, unknown>[] = []
+  if (zoneId) filters.push({ "serviceAreaSnapshot.zoneId": zoneId })
+  if (districtId) filters.push({ "serviceAreaSnapshot.districtId": districtId })
+  if (filters.length > 1) return { $and: filters }
+  if (filters.length === 1) return filters[0]
   return {}
 }
 
@@ -684,8 +687,11 @@ export function buildRestaurantServiceAreaScopeFilter(params?: {
   if (!isServiceAreaModeEnabled()) return {}
   const zoneId = normalizeScopeId(params?.zoneId)
   const districtId = normalizeScopeId(params?.districtId)
-  if (zoneId) return { "serviceArea.zoneId": zoneId }
-  if (districtId) return { "serviceArea.districtId": districtId }
+  const filters: Record<string, unknown>[] = []
+  if (zoneId) filters.push({ "serviceArea.zoneId": zoneId })
+  if (districtId) filters.push({ "serviceArea.districtId": districtId })
+  if (filters.length > 1) return { $and: filters }
+  if (filters.length === 1) return filters[0]
   return {}
 }
 
@@ -696,22 +702,25 @@ export function buildCustomerServiceAreaScopeFilter(params?: {
   if (!isServiceAreaModeEnabled()) return {}
   const zoneId = normalizeScopeId(params?.zoneId)
   const districtId = normalizeScopeId(params?.districtId)
+  const filters: Record<string, unknown>[] = []
   if (zoneId) {
-    return {
+    filters.push({
       $or: [
         { "serviceArea.zoneId": zoneId },
         { "savedLocations.serviceArea.zoneId": zoneId },
       ],
-    }
+    })
   }
   if (districtId) {
-    return {
+    filters.push({
       $or: [
         { "serviceArea.districtId": districtId },
         { "savedLocations.serviceArea.districtId": districtId },
       ],
-    }
+    })
   }
+  if (filters.length > 1) return { $and: filters }
+  if (filters.length === 1) return filters[0]
   return {}
 }
 
@@ -722,11 +731,42 @@ export function buildRiderServiceAreaScopeFilter(params?: {
   if (!isServiceAreaModeEnabled()) return {}
   const zoneId = normalizeScopeId(params?.zoneId)
   const districtId = normalizeScopeId(params?.districtId)
-  if (zoneId) {
-    return { "serviceArea.assignedZoneIds": zoneId }
-  }
-  if (districtId) return { "serviceArea.districtIds": districtId }
+  const filters: Record<string, unknown>[] = []
+  if (zoneId) filters.push({ "serviceArea.assignedZoneIds": zoneId })
+  if (districtId) filters.push({ "serviceArea.districtIds": districtId })
+  if (filters.length > 1) return { $and: filters }
+  if (filters.length === 1) return filters[0]
   return {}
+}
+
+export function serviceAreaSnapshotMatchesScope(
+  serviceArea: Record<string, any> | null | undefined,
+  params?: { zoneId?: string | null; districtId?: string | null },
+) {
+  if (!isServiceAreaModeEnabled()) return true
+  const zoneId = normalizeScopeId(params?.zoneId)
+  const districtId = normalizeScopeId(params?.districtId)
+  if (!zoneId && !districtId) return true
+  if (zoneId && String(serviceArea?.zoneId ?? "").trim() !== zoneId) return false
+  if (districtId && String(serviceArea?.districtId ?? "").trim() !== districtId) return false
+  return true
+}
+
+export function assertServiceAreaSnapshotMatchesScope(
+  serviceArea: Record<string, any> | null | undefined,
+  params?: {
+    zoneId?: string | null
+    districtId?: string | null
+    code?: string
+    message?: string
+  },
+) {
+  if (serviceAreaSnapshotMatchesScope(serviceArea, params)) return
+  throw new AppError(
+    StatusCodes.NOT_FOUND,
+    params?.code ?? "RESOURCE_NOT_FOUND",
+    params?.message ?? "Resource not found"
+  )
 }
 
 export async function getServiceAreaDispatchOverrides(
