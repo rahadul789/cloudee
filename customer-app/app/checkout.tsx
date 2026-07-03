@@ -1373,6 +1373,12 @@ export default function CheckoutScreen() {
                 label="Delivery fee"
                 value={formatCurrency(pricing?.deliveryFee ?? 0)}
               />
+              {(pricing?.rainSurcharge ?? 0) > 0 ? (
+                <CheckoutSummaryRow
+                  label="Rain surcharge"
+                  value={formatCurrency(pricing?.rainSurcharge ?? 0)}
+                />
+              ) : null}
               <CheckoutSummaryRow
                 label="Discount"
                 value={`- ${formatCurrency(pricing?.discountAmount ?? 0)}`}

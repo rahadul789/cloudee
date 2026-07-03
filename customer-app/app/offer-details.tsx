@@ -118,10 +118,18 @@ export default function OfferDetailsScreen() {
     voucherUsageStatus?: string;
     voucherAppliedAt?: string;
     personalOffer?: string;
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    contentType?: string;
+    createdAt?: string;
   }>();
   const notificationId = getParamString(params.notificationId);
   const offerQuery = useCustomerNotificationQuery(notificationId, Boolean(notificationId));
-  const offer = offerQuery.data;
+  const fetchedOffer =
+    offerQuery.data && (!notificationId || offerQuery.data.id === notificationId)
+      ? offerQuery.data
+      : null;
   const routeVoucherId = getParamString(params.voucherId);
   const routeVoucherCode = getParamString(params.voucherCode);
   const routeVoucherLabel = getParamString(params.voucherLabel);
@@ -131,9 +139,40 @@ export default function OfferDetailsScreen() {
     getParamString(params.voucherUsageStatus),
   );
   const routeVoucherAppliedAt = getParamString(params.voucherAppliedAt);
+  const routeTitle = getParamString(params.title);
+  const routeDescription = getParamString(params.description);
+  const routeImageUrl = getParamString(params.imageUrl);
+  const routeContentType = getParamString(params.contentType);
+  const routeCreatedAt = getParamString(params.createdAt);
   const hasRouteVoucher =
     Boolean(routeVoucherId || routeVoucherCode || routeVoucherLabel) ||
     params.personalOffer === "1";
+  const routeOffer: CustomerNotification | null =
+    notificationId || hasRouteVoucher || routeTitle || routeDescription || routeImageUrl
+      ? {
+          id: notificationId,
+          type: hasRouteVoucher ? "voucher" : "promotion",
+          title: routeTitle || routeVoucherLabel || "Personal voucher",
+          description: routeDescription,
+          path: "",
+          contentType: routeContentType || "text",
+          imageUrl: routeImageUrl,
+          voucherId: routeVoucherId,
+          voucherCode: routeVoucherCode,
+          voucherLabel: routeVoucherLabel,
+          voucherExpiresAt: routeVoucherExpiresAt || null,
+          voucherMinOrder: routeVoucherMinOrder,
+          voucherUsageStatus:
+            routeVoucherUsageStatus ??
+            (routeVoucherId || routeVoucherCode ? "available" : "info"),
+          voucherAppliedAt: routeVoucherAppliedAt || null,
+          personalOffer: params.personalOffer === "1" || hasRouteVoucher,
+          isRead: true,
+          readAt: null,
+          createdAt: routeCreatedAt || new Date().toISOString(),
+        }
+      : null;
+  const offer = fetchedOffer ?? routeOffer;
   const displayOffer =
     offer && hasRouteVoucher
       ? {
@@ -151,6 +190,7 @@ export default function OfferDetailsScreen() {
           voucherUsageStatus:
             routeVoucherUsageStatus ?? offer.voucherUsageStatus,
           voucherAppliedAt: routeVoucherAppliedAt || offer.voucherAppliedAt,
+          imageUrl: routeImageUrl || offer.imageUrl,
           personalOffer: true,
         }
       : offer;
@@ -171,9 +211,9 @@ export default function OfferDetailsScreen() {
         </View>
       </View>
 
-      {offerQuery.isLoading ? (
+      {offerQuery.isLoading && !displayOffer ? (
         <DetailsSkeleton />
-      ) : offerQuery.isError || !displayOffer ? (
+      ) : (offerQuery.isError && !displayOffer) || !displayOffer ? (
         <View style={styles.feedbackWrap}>
           <EmptyStateCard
             title="Offer unavailable"
@@ -187,11 +227,14 @@ export default function OfferDetailsScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
+          {/* Show the promotional image whenever one was attached; fall back to
+              the offer graphic only when there is no image. */}
           {displayOffer.imageUrl ? (
             <RemoteImage
               uri={displayOffer.imageUrl}
               style={[styles.heroImage, disabled ? styles.heroImageDisabled : null]}
               fallbackIcon="gift-outline"
+              recyclingKey={`${displayOffer.id}:${displayOffer.imageUrl}`}
               accessibilityLabel={`${displayOffer.title} image`}
             />
           ) : (

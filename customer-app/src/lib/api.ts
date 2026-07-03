@@ -219,6 +219,7 @@ async function refreshCustomerSession() {
           orderUpdates?: boolean;
           restaurantStatus?: boolean;
           reviewReplies?: boolean;
+          promotions?: boolean;
         };
         previousPhones?: {
           phone: string;

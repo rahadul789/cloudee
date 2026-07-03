@@ -99,13 +99,41 @@ export function CategoryRail({
   activeCategoryId: string;
   onPressCategory: (categoryId: string) => void;
 }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const chipLayoutsRef = useRef<Record<string, { x: number; width: number }>>({});
+  const railWidthRef = useRef(0);
+
+  // Keep the chip for the section currently on screen visible: as the menu is
+  // scrolled and the active category changes, slide the rail so that chip is
+  // centred instead of drifting off the edge.
+  useEffect(() => {
+    const layout = chipLayoutsRef.current[activeCategoryId];
+    if (!layout || !scrollRef.current) return;
+    const target = layout.x - railWidthRef.current / 2 + layout.width / 2;
+    scrollRef.current.scrollTo({ x: Math.max(0, target), animated: true });
+  }, [activeCategoryId]);
+
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
+    <ScrollView
+      ref={scrollRef}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.categoryRow}
+      onLayout={(event) => {
+        railWidthRef.current = event.nativeEvent.layout.width;
+      }}
+    >
       {categories.map((tab) => {
         const isActive = tab.id === activeCategoryId;
         return (
           <Pressable
             key={tab.id}
+            onLayout={(event) => {
+              chipLayoutsRef.current[tab.id] = {
+                x: event.nativeEvent.layout.x,
+                width: event.nativeEvent.layout.width,
+              };
+            }}
             onPress={() => onPressCategory(tab.id)}
             style={[styles.categoryChip, isActive ? styles.categoryChipActive : null]}
           >

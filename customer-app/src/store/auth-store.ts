@@ -14,6 +14,7 @@ type CustomerProfile = {
     orderUpdates?: boolean;
     restaurantStatus?: boolean;
     reviewReplies?: boolean;
+    promotions?: boolean;
   };
   previousPhones?: {
     phone: string;

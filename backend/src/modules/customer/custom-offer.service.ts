@@ -5,7 +5,7 @@ import { AppError } from "../../common/utils/app-error";
 import { createAdminOperationalAlert } from "../admin/admin-alert.service";
 import { OrderModel } from "../owner/operational.model";
 import { getPlatformContent, type PlatformContentScope } from "../public/content.service";
-import { CustomerModel, VoucherRedemptionModel } from "./customer.model";
+import { CustomerModel, VoucherModel, VoucherRedemptionModel } from "./customer.model";
 import { sendPushToCustomer } from "./push.service";
 
 const DEFAULT_CUSTOM_OFFER_TARGET_ORDER_COUNT = 10;
@@ -98,6 +98,32 @@ function getActiveCustomerPersonalOfferNotifications(customer: Record<string, an
     })[0];
 }
 
+// A customer's personal offers are surfaced from their notifications. Some
+// selected-user vouchers reach a customer whose notification predates the
+// personalOffer flag, so we also resolve which of the referenced vouchers are
+// genuinely assigned to this customer. Shared by the customer summary and the
+// admin customer detail view so both apply identical rules.
+export async function getSelectedUserPersonalOfferVoucherIds(
+  customerId: string,
+  notifications: Array<Record<string, any>>,
+) {
+  const voucherIds = notifications
+    .map((notification) => stringValue(notification?.voucherId))
+    .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId));
+
+  if (!voucherIds.length) return new Set<string>();
+
+  const vouchers = await VoucherModel.find({
+    _id: { $in: voucherIds },
+    audienceType: "selected_users",
+    selectedCustomerIds: new mongoose.Types.ObjectId(customerId),
+  })
+    .select("_id")
+    .lean();
+
+  return new Set(vouchers.map((voucher) => String(voucher._id)));
+}
+
 function getCustomerServiceAreaScope(customer: Record<string, any>) {
   const serviceArea =
     customer.serviceArea && typeof customer.serviceArea === "object"
@@ -123,9 +149,8 @@ function getCustomerPlatformContentScope(customer: Record<string, any>): Platfor
 
 async function getActiveCustomerPersonalOffer(customer: Record<string, any>, customerId: string) {
   const notifications = getActiveCustomerPersonalOfferNotifications(customer);
-  const personalOffers = Array.isArray(customer.notifications)
+  const activeNotifications = Array.isArray(customer.notifications)
     ? customer.notifications
-        .filter((notification) => notification?.personalOffer === true)
         .filter((notification) => {
           const expiresAt = notification?.voucherExpiresAt
             ? new Date(notification.voucherExpiresAt).getTime()
@@ -138,6 +163,15 @@ async function getActiveCustomerPersonalOffer(customer: Record<string, any>, cus
           return rightTime - leftTime;
         })
     : [];
+  const selectedUserVoucherIds = await getSelectedUserPersonalOfferVoucherIds(
+    customerId,
+    activeNotifications,
+  );
+  const personalOffers = activeNotifications.filter(
+    (notification) =>
+      notification?.personalOffer === true ||
+      selectedUserVoucherIds.has(stringValue(notification?.voucherId)),
+  );
   const voucherIds = personalOffers
     .map((notification) => stringValue(notification?.voucherId))
     .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId));

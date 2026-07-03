@@ -59,6 +59,16 @@ type DemoRestaurant = {
   featured?: boolean
 }
 
+type MenuCategorySeed = {
+  name: string
+  description: string
+  items: Array<{
+    name: string
+    price: number
+    description: string
+  }>
+}
+
 const zones: DemoZone[] = [
   {
     districtName: "Netrakona",
@@ -102,68 +112,100 @@ const zones: DemoZone[] = [
   },
 ]
 
+const NETRAKONA_SADAR_RESTAURANT_NAMES = [
+  "Haor Bangla Kitchen",
+  "Pink Grill Corner",
+  "Sadar Porota Bari",
+  "Netrakona Kacchi House",
+  "Station Road Biriyani",
+  "Mokterpara Fast Food",
+  "Netrakona Grill Hub",
+  "Rajur Bazar Rice Bowl",
+  "Thana Road Cafe",
+  "Datter Bazar Bhoj",
+  "Shibbari Snacks",
+  "College Road Kitchen",
+  "Muktarpara Pizza House",
+  "Seven Star Chicken",
+  "Meghna Fish Meals",
+  "Bhati Bangla Dine",
+  "Town Hall Burger",
+  "Green Chili Restaurant",
+  "Nawabi Kacchi",
+  "Sadar Thai & Chinese",
+  "Rupali Hotel & Restaurant",
+  "Netra Food Court",
+  "Boro Bazar Fuchka House",
+  "Chef Bari Express",
+  "Purobi Sweets & Snacks",
+  "Pitha Porota Palace",
+  "Kebab Junction Sadar",
+  "Family Feast Netrakona",
+  "Chicken Republic Sadar",
+  "Pasta & Pizza Corner",
+  "River View Restaurant",
+  "Aroma Chinese Sadar",
+  "The Lunch Box",
+  "Golden Spoon Cafe",
+  "Kushiara Kitchen",
+]
+
+const NETRAKONA_OWNER_NAMES = [
+  "Arif Hasan",
+  "Rafiq Ahmed",
+  "Nayeem Islam",
+  "Mahin Chowdhury",
+  "Sabbir Rahman",
+  "Mehedi Karim",
+  "Tanvir Hasan",
+  "Imran Hossain",
+  "Sadia Noor",
+  "Jannat Akter",
+  "Nusrat Jahan",
+  "Fahim Rahman",
+  "Tania Sultana",
+  "Rumana Akter",
+  "Shakil Ahmed",
+  "Nasir Uddin",
+  "Rahat Islam",
+  "Maliha Noor",
+]
+
+const NETRAKONA_CUISINE_SETS = [
+  ["Bangla", "Rice", "Fish"],
+  ["Grill", "Shawarma", "Fast Food"],
+  ["Porota", "Breakfast", "Snacks"],
+  ["Kacchi", "Biryani", "Bangla"],
+  ["Burger", "Fried Chicken", "Fast Food"],
+  ["Chinese", "Thai Soup", "Noodles"],
+  ["Sweets", "Dessert", "Snacks"],
+  ["Cafe", "Tea", "Sandwich"],
+  ["BBQ", "Kebab", "Chicken"],
+  ["Family Meals", "Rice", "Curry"],
+]
+
+function makeNetrakonaSadarRestaurants(): DemoRestaurant[] {
+  return NETRAKONA_SADAR_RESTAURANT_NAMES.map((name, index) => {
+    const paddedIndex = String(index + 1).padStart(6, "0")
+
+    return {
+      name,
+      ownerName: NETRAKONA_OWNER_NAMES[index % NETRAKONA_OWNER_NAMES.length],
+      ownerPhone: `01720${paddedIndex}`,
+      ownerEmail: `netra.owner${String(index + 1).padStart(2, "0")}@foodbela.demo`,
+      phone: `01721${paddedIndex}`,
+      zoneSlug: "netrakona-sadar",
+      distanceKm: Number((1.2 + (index % 18) * 0.17 + Math.floor(index / 18) * 0.12).toFixed(2)),
+      bearingDeg: (25 + index * 47) % 360,
+      cuisines: NETRAKONA_CUISINE_SETS[index % NETRAKONA_CUISINE_SETS.length],
+      imageUrl: FOOD_IMAGES[index % FOOD_IMAGES.length],
+      featured: index < 8,
+    }
+  })
+}
+
 const restaurants: DemoRestaurant[] = [
-  {
-    name: "Haor Bangla Kitchen",
-    ownerName: "Arif Hasan",
-    ownerPhone: "01710000001",
-    ownerEmail: "arif@foodbela.demo",
-    phone: "01710001001",
-    zoneSlug: "netrakona-sadar",
-    distanceKm: 2,
-    bearingDeg: 25,
-    cuisines: ["Bangla", "Rice", "Fish"],
-    imageUrl: FOOD_IMAGES[0],
-    featured: true,
-  },
-  {
-    name: "Pink Grill Corner",
-    ownerName: "Rafiq Ahmed",
-    ownerPhone: "01710000002",
-    ownerEmail: "rafiq@foodbela.demo",
-    phone: "01710001002",
-    zoneSlug: "netrakona-sadar",
-    distanceKm: 3,
-    bearingDeg: 110,
-    cuisines: ["Grill", "Shawarma", "Fast Food"],
-    imageUrl: FOOD_IMAGES[1],
-  },
-  {
-    name: "Sadar Porota Bari",
-    ownerName: "Nayeem Islam",
-    ownerPhone: "01710000003",
-    ownerEmail: "nayeem@foodbela.demo",
-    phone: "01710001003",
-    zoneSlug: "netrakona-sadar",
-    distanceKm: 4,
-    bearingDeg: 205,
-    cuisines: ["Porota", "Breakfast", "Snacks"],
-    imageUrl: FOOD_IMAGES[2],
-  },
-  {
-    name: "Netrakona Kacchi House",
-    ownerName: "Mahin Chowdhury",
-    ownerPhone: "01710000004",
-    ownerEmail: "mahin@foodbela.demo",
-    phone: "01710001004",
-    zoneSlug: "netrakona-sadar",
-    distanceKm: 5,
-    bearingDeg: 285,
-    cuisines: ["Kacchi", "Biryani", "Bangla"],
-    imageUrl: FOOD_IMAGES[3],
-  },
-  {
-    name: "Six Km Test Diner",
-    ownerName: "Sabbir Rahman",
-    ownerPhone: "01710000005",
-    ownerEmail: "sabbir@foodbela.demo",
-    phone: "01710001005",
-    zoneSlug: "netrakona-sadar",
-    distanceKm: 6.2,
-    bearingDeg: 330,
-    cuisines: ["Burger", "Fried Chicken", "Fast Food"],
-    imageUrl: FOOD_IMAGES[4],
-  },
+  ...makeNetrakonaSadarRestaurants(),
   {
     name: "Kendua Ruti Ghar",
     ownerName: "Mehedi Karim",
@@ -497,45 +539,270 @@ async function upsertRestaurant(
   return { owner, restaurant, serviceArea }
 }
 
+const DEMO_MENU_CATEGORIES: MenuCategorySeed[] = [
+  {
+    name: "Rice Meals",
+    description: "Fresh rice plates with local curry and bhorta sides.",
+    items: [
+      {
+        name: "Rui Fish Rice Plate",
+        price: 240,
+        description: "Steamed rice with rui fish curry, bhorta, and salad.",
+      },
+      {
+        name: "Chicken Curry Rice Plate",
+        price: 220,
+        description: "Home style chicken curry served with rice and salad.",
+      },
+      {
+        name: "Beef Bhuna Rice Bowl",
+        price: 280,
+        description: "Slow cooked beef bhuna with steamed rice.",
+      },
+      {
+        name: "Egg Bhorta Rice Meal",
+        price: 160,
+        description: "Rice with egg bhorta, dal, and seasonal vegetable.",
+      },
+      {
+        name: "Mixed Vegetable Khichuri",
+        price: 190,
+        description: "Comforting khichuri cooked with mixed vegetables.",
+      },
+    ],
+  },
+  {
+    name: "Biryani & Kacchi",
+    description: "Aromatic biryani, kacchi, and festive rice specials.",
+    items: [
+      {
+        name: "Chicken Biryani",
+        price: 230,
+        description: "Fragrant rice with tender chicken and potato.",
+      },
+      {
+        name: "Beef Tehari",
+        price: 260,
+        description: "Classic beef tehari cooked with warm spices.",
+      },
+      {
+        name: "Mutton Kacchi",
+        price: 360,
+        description: "Rich mutton kacchi with potato and salad.",
+      },
+      {
+        name: "Morog Polao",
+        price: 280,
+        description: "Traditional morog polao with roast gravy.",
+      },
+      {
+        name: "Family Biryani Box",
+        price: 620,
+        description: "Shareable biryani box for two to three people.",
+      },
+    ],
+  },
+  {
+    name: "Grill & BBQ",
+    description: "Grilled chicken, kebab, and smoky BBQ favorites.",
+    items: [
+      {
+        name: "BBQ Chicken Quarter",
+        price: 180,
+        description: "Smoky BBQ chicken quarter with sauce.",
+      },
+      {
+        name: "Grilled Chicken Half",
+        price: 320,
+        description: "Half grilled chicken with house marinade.",
+      },
+      {
+        name: "Chicken Chap",
+        price: 210,
+        description: "Spiced chicken chap served with salad.",
+      },
+      {
+        name: "Beef Seekh Kebab",
+        price: 240,
+        description: "Juicy beef seekh kebab with mint sauce.",
+      },
+      {
+        name: "Garlic Naan with Grill",
+        price: 170,
+        description: "Soft garlic naan paired with grilled chicken pieces.",
+      },
+    ],
+  },
+  {
+    name: "Fast Food",
+    description: "Quick burgers, shawarma, fries, and snacks.",
+    items: [
+      {
+        name: "Chicken Shawarma",
+        price: 160,
+        description: "Chicken shawarma wrapped with fresh salad and sauce.",
+      },
+      {
+        name: "Crispy Chicken Burger",
+        price: 190,
+        description: "Crispy chicken patty with cheese and mayo.",
+      },
+      {
+        name: "Beef Cheese Burger",
+        price: 240,
+        description: "Beef patty with cheese, onion, and house sauce.",
+      },
+      {
+        name: "Loaded French Fries",
+        price: 150,
+        description: "Fries topped with chicken, cheese, and sauce.",
+      },
+      {
+        name: "Chicken Sandwich",
+        price: 170,
+        description: "Grilled chicken sandwich with creamy sauce.",
+      },
+    ],
+  },
+  {
+    name: "Chinese & Noodles",
+    description: "Fried rice, noodles, soup, and Chinese-style sides.",
+    items: [
+      {
+        name: "Chicken Chow Mein",
+        price: 220,
+        description: "Stir-fried noodles with chicken and vegetables.",
+      },
+      {
+        name: "Thai Soup",
+        price: 160,
+        description: "Hot and tangy Thai soup with chicken.",
+      },
+      {
+        name: "Fried Rice with Chicken",
+        price: 250,
+        description: "Egg fried rice served with chicken sides.",
+      },
+      {
+        name: "Chili Chicken",
+        price: 280,
+        description: "Saucy chili chicken with peppers and onion.",
+      },
+      {
+        name: "Wonton",
+        price: 140,
+        description: "Crispy wonton served with sweet chili dip.",
+      },
+    ],
+  },
+  {
+    name: "Drinks & Desserts",
+    description: "Cooling drinks and sweet endings.",
+    items: [
+      {
+        name: "Borhani",
+        price: 80,
+        description: "Traditional spiced yogurt drink.",
+      },
+      {
+        name: "Lemon Mint",
+        price: 90,
+        description: "Fresh lemon mint cooler.",
+      },
+      {
+        name: "Firni Cup",
+        price: 70,
+        description: "Creamy firni served chilled.",
+      },
+      {
+        name: "Sweet Yogurt",
+        price: 90,
+        description: "Classic sweet yogurt cup.",
+      },
+      {
+        name: "Chocolate Milkshake",
+        price: 150,
+        description: "Thick chocolate milkshake.",
+      },
+    ],
+  },
+]
+
+function buildMenuSeeds(restaurantName: string) {
+  return DEMO_MENU_CATEGORIES.flatMap((category, categoryIndex) =>
+    category.items.map((item, itemIndex) => ({
+      categoryName: category.name,
+      name: item.name,
+      description: `${item.description} Prepared fresh by ${restaurantName}.`,
+      price: item.price + ((restaurantName.length + categoryIndex + itemIndex) % 4) * 10,
+    })),
+  )
+}
+
 async function upsertMenu(restaurant: mongoose.Document & Record<string, any>) {
+  const restaurantName = String(restaurant.name || "Restaurant")
+  const restaurantSlug = slugify(restaurantName)
   const restaurantImageUrl = String(
     restaurant.coverImage?.url || restaurant.logo?.url || FOOD_IMAGES[0],
   )
-  const categorySeeds = [
-    { name: "Rice Meals", item: "Rui Fish Rice Plate", price: 240 },
-    { name: "Snacks", item: "Chicken Shawarma", price: 160 },
-  ]
+  const menuSeeds = buildMenuSeeds(restaurantName)
+  const categorySlugs = DEMO_MENU_CATEGORIES.map((category) => slugify(category.name))
+  const itemSlugs = menuSeeds.map((seed) => slugify(seed.name))
 
-  const items: Array<mongoose.Document & Record<string, any>> = []
-  for (let index = 0; index < categorySeeds.length; index += 1) {
-    const seed = categorySeeds[index]
+  await CategoryModel.updateMany(
+    { restaurantId: restaurant._id, slug: { $nin: categorySlugs } },
+    { $set: { status: "archived" } },
+  )
+  await MenuItemModel.updateMany(
+    { restaurantId: restaurant._id, slug: { $nin: itemSlugs } },
+    { $set: { status: "archived", availability: "unavailable" } },
+  )
+
+  const categoryByName = new Map<string, mongoose.Document & Record<string, any>>()
+  for (let index = 0; index < DEMO_MENU_CATEGORIES.length; index += 1) {
+    const seed = DEMO_MENU_CATEGORIES[index]
     const category = await CategoryModel.findOneAndUpdate(
       { restaurantId: restaurant._id, slug: slugify(seed.name) },
       {
         restaurantId: restaurant._id,
         name: seed.name,
         slug: slugify(seed.name),
-        description: "",
+        description: seed.description,
         status: "active",
         displayOrder: index + 1,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     )
+    categoryByName.set(seed.name, category)
+  }
+
+  const items: Array<mongoose.Document & Record<string, any>> = []
+  for (let index = 0; index < menuSeeds.length; index += 1) {
+    const seed = menuSeeds[index]
+    const category = categoryByName.get(seed.categoryName)
+    if (!category) {
+      throw new Error(`Missing menu category ${seed.categoryName} for ${restaurantName}`)
+    }
 
     const item = await MenuItemModel.findOneAndUpdate(
-      { restaurantId: restaurant._id, slug: slugify(seed.item) },
+      { restaurantId: restaurant._id, slug: slugify(seed.name) },
       {
         restaurantId: restaurant._id,
         categoryId: category._id,
-        name: seed.item,
-        slug: slugify(seed.item),
-        description: "Area demo menu item",
-        images: [{ url: restaurantImageUrl, publicId: `demo/items/${slugify(seed.item)}` }],
+        name: seed.name,
+        slug: slugify(seed.name),
+        description: seed.description,
+        images: [
+          {
+            url: restaurantImageUrl,
+            publicId: `demo/items/${restaurantSlug}/${slugify(seed.name)}`,
+          },
+        ],
         status: "active",
         availability: "available",
         kind: "simple",
         basePrice: seed.price,
-        isPopular: index === 0,
+        isPopular: index < 6,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
     )

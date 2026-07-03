@@ -420,6 +420,11 @@ export default function OffersScreen() {
               voucherUsageStatus: item.voucherUsageStatus ?? "",
               voucherAppliedAt: item.voucherAppliedAt ?? "",
               personalOffer: item.personalOffer ? "1" : "",
+              title: item.title,
+              description: item.description,
+              imageUrl: item.imageUrl ?? "",
+              contentType: item.contentType ?? "",
+              createdAt: item.createdAt,
             },
           } as never)
         }

@@ -2787,7 +2787,8 @@ export type AdminCustomerDetails = {
     voucherExpiresAt?: string | null
     voucherMinOrder?: number | null
     personalOffer?: boolean
-    offerStatus?: "active" | "expired" | "inactive" | string
+    offerStatus?: "active" | "expired" | "inactive" | "used" | string
+    voucherUsed?: boolean
     isRead: boolean
     createdAt: string | null
   }>
@@ -2808,7 +2809,8 @@ export type AdminCustomerDetails = {
     voucherExpiresAt?: string | null
     voucherMinOrder?: number | null
     personalOffer?: boolean
-    offerStatus?: "active" | "expired" | "inactive" | string
+    offerStatus?: "active" | "expired" | "inactive" | "used" | string
+    voucherUsed?: boolean
     isRead: boolean
     createdAt: string | null
   }>

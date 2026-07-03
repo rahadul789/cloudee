@@ -31,7 +31,6 @@ import {
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useBrowseHistoryStore } from "@/src/store/browse-history-store";
 import { useIsOnline } from "@/src/hooks/use-network-status";
-import { useRetainedTabContent } from "@/src/hooks/use-retained-tab-content";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
@@ -136,8 +135,10 @@ export default function BrowseScreen() {
   const [draftMaximumLowestPrice, setDraftMaximumLowestPrice] =
     useState<BrowseLowestPrice>(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // `freezeOnBlur` (tab layout) suspends this screen while it is blurred, so we
+  // no longer swap in a placeholder on blur — the frozen full tree returns
+  // instantly on focus, matching Home. Focus still gates the network queries below.
   const isBrowseFocused = useIsFocused();
-  const shouldRenderBrowseContent = useRetainedTabContent(isBrowseFocused, 0);
   const searchQueryRef = useRef(searchQuery);
   const isAuthenticated = useCustomerAuthStore((state) =>
     Boolean(state.accessToken)
@@ -434,14 +435,6 @@ export default function BrowseScreen() {
     offerLabelByRestaurantId,
     openRestaurant,
   ]);
-
-  if (!shouldRenderBrowseContent) {
-    return (
-      <Screen>
-        <View style={styles.offscreenPlaceholder} />
-      </Screen>
-    );
-  }
 
   return (
     <Screen>

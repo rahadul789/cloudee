@@ -2270,12 +2270,21 @@ export function CouponsPage() {
 
   function archiveVoucherWithWarning(voucher: AdminRestaurantVoucher) {
     const lifecycleStatus = getVoucherLifecycleStatus(voucher)
-    const warning =
-      lifecycleStatus === "Active"
-        ? "This offer is active and may currently be visible or redeemable in customer apps."
-        : voucher.audienceType === "selected_users"
-          ? "This is a personalized offer assigned to selected users."
-          : ""
+    // Surface every relevant caution — an active AND personalized offer must show
+    // BOTH notes (the old logic dropped the personalized warning whenever the
+    // offer was also active, which is the common case for assigned vouchers).
+    const notes: string[] = []
+    if (lifecycleStatus === "Active") {
+      notes.push(
+        "This offer is active and may currently be visible or redeemable in customer apps."
+      )
+    }
+    if (voucher.audienceType === "selected_users") {
+      notes.push(
+        "⚠️ This is a personalized offer assigned to specific customers. Archiving it removes it from those customers' offers — they will no longer be able to use it."
+      )
+    }
+    const warning = notes.join("\n\n")
     const confirmed = window.confirm(
       `${warning ? `${warning}\n\n` : ""}Archive this offer? It will stop appearing in active voucher lists and new campaigns. Already sent personal offers will keep their history but show as expired in customer apps.`
     )

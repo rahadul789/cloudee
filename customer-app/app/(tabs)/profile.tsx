@@ -16,6 +16,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   View,
 } from "react-native";
@@ -34,6 +35,7 @@ import {
   useCustomerNotificationsQuery,
   useCustomerPaymentSettingsQuery,
   useCustomerProfileQuery,
+  useCustomerProfileUpdateMutation,
   useCustomerReferralSummaryQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
@@ -119,6 +121,18 @@ export default function ProfileScreen() {
   const deferredProfileWorkReady = useDeferredProfileWork(Boolean(customer));
   useCustomerProfileQuery(Boolean(customer));
   const logoutMutation = useCustomerLogoutMutation();
+  const profileUpdateMutation = useCustomerProfileUpdateMutation();
+  const pendingPromotions = profileUpdateMutation.isPending
+    ? profileUpdateMutation.variables?.notificationSettings?.promotions
+    : undefined;
+  const promotionsEnabled =
+    pendingPromotions ?? customer?.notificationSettings?.promotions !== false;
+  const togglePromotions = useCallback(
+    (next: boolean) => {
+      profileUpdateMutation.mutate({ notificationSettings: { promotions: next } });
+    },
+    [profileUpdateMutation],
+  );
   const notificationsQuery = useCustomerNotificationsQuery(
     deferredProfileWorkReady,
   );
@@ -364,6 +378,8 @@ export default function ProfileScreen() {
         case "hero":
           return (
             <View style={styles.hero}>
+              <View pointerEvents="none" style={styles.heroGlowPrimary} />
+              <View pointerEvents="none" style={styles.heroGlowSecondary} />
               <View style={styles.heroTopRow}>
                 <Text style={styles.kicker}>Profile</Text>
                 <Pressable
@@ -624,6 +640,31 @@ export default function ProfileScreen() {
                   title="Notifications center"
                   onPress={openNotifications}
                 />
+                <View style={styles.navCard}>
+                  <View
+                    style={[styles.navIconWrap, { backgroundColor: "#FFF3E0" }]}
+                  >
+                    <Ionicons
+                      name="megaphone-outline"
+                      size={18}
+                      color={palette.foreground}
+                    />
+                  </View>
+                  <View style={styles.navCopy}>
+                    <Text style={styles.navTitle}>
+                      Promotional notifications
+                    </Text>
+                    <Text style={styles.navCaption}>
+                      Offers, vouchers and campaign updates
+                    </Text>
+                  </View>
+                  <Switch
+                    value={promotionsEnabled}
+                    onValueChange={togglePromotions}
+                    trackColor={{ true: palette.secondary, false: "#E4D7DE" }}
+                    thumbColor="#ffffff"
+                  />
+                </View>
                 <ProfileNavCard
                   icon="help-circle-outline"
                   tint="#FFF0E8"
@@ -749,6 +790,8 @@ export default function ProfileScreen() {
       openSupport,
       paymentSettings.bkashLabel,
       preferredPaymentMethod,
+      promotionsEnabled,
+      togglePromotions,
       referralRewardLabel,
       shouldShowReferral,
       showLogoutConfirm,

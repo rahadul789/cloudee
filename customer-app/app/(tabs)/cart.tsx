@@ -22,7 +22,6 @@ import {
   useCustomerRestaurantDetailsQuery,
 } from "@/src/hooks/use-customer-api";
 import { useIsOnline } from "@/src/hooks/use-network-status";
-import { useRetainedTabContent } from "@/src/hooks/use-retained-tab-content";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
@@ -148,7 +147,6 @@ function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
 export default function CartScreen() {
   const router = useRouter();
   const isCartFocused = useIsFocused();
-  const shouldRenderCartContent = useRetainedTabContent(isCartFocused, 0);
   // Read cart contents directly (not gated on focus) so the screen keeps showing the
   // real items during a navigation transition. Previously these were swapped to empty
   // values the moment focus was lost, which made the cart flash its empty state while
@@ -335,6 +333,7 @@ export default function CartScreen() {
     }
 
     const deliveryFee = pricing?.deliveryFee ?? 0;
+    const rainSurcharge = pricing?.rainSurcharge ?? 0;
     const discountAmount = estimateAutoDiscount(
       autoAppliedOffer,
       localSubtotal,
@@ -344,8 +343,12 @@ export default function CartScreen() {
     return {
       subtotal: localSubtotal,
       deliveryFee,
+      rainSurcharge,
       discountAmount,
-      total: Math.max(0, localSubtotal + deliveryFee - discountAmount),
+      total: Math.max(
+        0,
+        localSubtotal + deliveryFee + rainSurcharge - discountAmount,
+      ),
     };
   }, [autoAppliedOffer, localSubtotal, pricing, shouldUseQuotedPricing]);
   const displayDiscountLabel =
@@ -523,14 +526,6 @@ export default function CartScreen() {
     },
     [addItem, openRestaurantForItem, restaurant],
   );
-
-  if (!shouldRenderCartContent) {
-    return (
-      <Screen>
-        <View style={styles.offscreenPlaceholder} />
-      </Screen>
-    );
-  }
 
   return (
     <Screen>
@@ -1130,6 +1125,14 @@ export default function CartScreen() {
                     {formatCurrency(displayPricing.deliveryFee)}
                   </Text>
                 </View>
+                {(displayPricing.rainSurcharge ?? 0) > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Rain surcharge</Text>
+                    <Text style={styles.summaryValue}>
+                      {formatCurrency(displayPricing.rainSurcharge ?? 0)}
+                    </Text>
+                  </View>
+                ) : null}
                 {displayPricing.discountAmount > 0 ? (
                   <View style={styles.summaryRow}>
                     <Text

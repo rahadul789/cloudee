@@ -7,11 +7,13 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 40,
   },
-  offscreenPlaceholder: {
-    flex: 1,
-  },
   restaurantSeparator: {
     height: 14,
+  },
+  listLoader: {
+    paddingTop: 80,
+    alignItems: "center",
+    justifyContent: "center",
   },
   footerLoader: {
     minHeight: 64,

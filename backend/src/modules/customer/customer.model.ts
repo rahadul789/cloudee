@@ -91,7 +91,8 @@ const customerNotificationSettingsSchema = new Schema(
   {
     orderUpdates: { type: Boolean, default: true },
     restaurantStatus: { type: Boolean, default: true },
-    reviewReplies: { type: Boolean, default: true }
+    reviewReplies: { type: Boolean, default: true },
+    promotions: { type: Boolean, default: true }
   },
   { _id: false }
 )

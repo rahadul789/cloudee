@@ -334,7 +334,8 @@ const customerProfileUpdateSchema = z.object({
     .object({
       orderUpdates: z.boolean().optional(),
       restaurantStatus: z.boolean().optional(),
-      reviewReplies: z.boolean().optional()
+      reviewReplies: z.boolean().optional(),
+      promotions: z.boolean().optional()
     })
     .optional()
 })

@@ -6,9 +6,6 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  offscreenPlaceholder: {
-    flex: 1,
-  },
   buttonPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.97 }],

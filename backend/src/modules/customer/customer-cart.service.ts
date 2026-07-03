@@ -479,6 +479,22 @@ export async function quoteCustomerCart(params: {
         surchargeAmountTaka: deliveryPricingConfig.surchargeAmountTaka,
         distanceKm: deliveryDistanceKm,
       });
+      // Bad-weather surcharge: a flat per-order fee the admin can switch on for a
+      // service area/zone. Kept separate from the delivery fee so it shows as its
+      // own line and is not waived by a free-delivery voucher.
+      const rainSurcharge =
+        (serviceAreaSnapshot as Record<string, any> | null)?.delivery
+          ?.rainSurchargeEnabled === true
+          ? roundCurrencyAmount(
+              Math.max(
+                0,
+                Number(
+                  (serviceAreaSnapshot as Record<string, any>).delivery
+                    .rainSurchargeTaka,
+                ) || 0,
+              ),
+            )
+          : 0;
       // Markdown is applied first; coupons then evaluate against the reduced subtotal so the
       // two never double-count and minimum-order checks reflect what the customer pays.
       const vouchers: CustomerCacheRecord[] = await resolveActiveVoucher({
@@ -505,7 +521,7 @@ export async function quoteCustomerCart(params: {
       }, 0);
 
       const total = Math.max(
-        customerSubtotal + deliveryFee - discountAmount,
+        customerSubtotal + deliveryFee + rainSurcharge - discountAmount,
         0,
       );
       const ownerDiscountCost = vouchers.reduce((totalOwnerCost, voucher) => {
@@ -541,6 +557,7 @@ export async function quoteCustomerCart(params: {
           subtotal,
           menuMarkdownAmount,
           deliveryFee,
+          rainSurcharge,
           discountAmount,
           ownerDiscountCost,
           platformDiscountCost,

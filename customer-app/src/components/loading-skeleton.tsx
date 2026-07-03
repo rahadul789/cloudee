@@ -1,6 +1,6 @@
-import { useEffect, useRef } from "react";
-import { useIsFocused } from "@react-navigation/native";
+import { useEffect } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   ScrollView,
@@ -14,43 +14,62 @@ import { palette } from "@/src/theme/palette";
 
 const IMAGE_SKELETON_COLOR = "#FFF0F6";
 
-function useSkeletonTranslateX() {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  const isFocused = useIsFocused();
+// ── Single shared shimmer driver ────────────────────────────────────────────
+// Every skeleton shares ONE Animated.Value driven by ONE native loop, instead of
+// each ShimmerBlock owning its own loop + useIsFocused subscription. A single
+// list skeleton mounts ~24 blocks, so per-block loops meant ~24 running
+// animations + 24 focus subscribers re-rendering on every navigation — that was
+// the tab-switch jank. Ref-counting keeps the one loop running only while at
+// least one skeleton is mounted and fully stops it otherwise, so it is free when
+// nothing is loading. useNativeDriver keeps it off the JS thread entirely.
+const sharedShimmerValue = new Animated.Value(0);
+const sharedShimmerTranslateX = sharedShimmerValue.interpolate({
+  inputRange: [0, 1],
+  outputRange: [-220, 220],
+});
+let shimmerSubscriberCount = 0;
+let shimmerAnimation: Animated.CompositeAnimation | null = null;
 
+function acquireSharedShimmer() {
+  shimmerSubscriberCount += 1;
+  if (shimmerSubscriberCount > 1) return;
+
+  sharedShimmerValue.setValue(0);
+  shimmerAnimation = Animated.loop(
+    Animated.timing(sharedShimmerValue, {
+      toValue: 1,
+      duration: 1250,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: true,
+      isInteraction: false,
+    }),
+  );
+  shimmerAnimation.start();
+}
+
+function releaseSharedShimmer() {
+  shimmerSubscriberCount = Math.max(0, shimmerSubscriberCount - 1);
+  if (shimmerSubscriberCount > 0) return;
+
+  shimmerAnimation?.stop();
+  shimmerAnimation = null;
+  sharedShimmerValue.stopAnimation();
+}
+
+// Subscribe a component to the shared shimmer loop; returns the animated
+// translateX every highlight shares. Exported for RemoteImage's image shimmer so
+// the whole app has exactly one shimmer animation.
+export function useSharedShimmerTranslateX() {
   useEffect(() => {
-    if (!isFocused) {
-      shimmerAnim.stopAnimation();
-      return;
-    }
+    acquireSharedShimmer();
+    return releaseSharedShimmer;
+  }, []);
 
-    const shimmerLoop = Animated.loop(
-      Animated.timing(shimmerAnim, {
-        toValue: 1,
-        duration: 1250,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-        isInteraction: false,
-      }),
-    );
-
-    shimmerAnim.setValue(0);
-    shimmerLoop.start();
-
-    return () => {
-      shimmerLoop.stop();
-      shimmerAnim.stopAnimation();
-    };
-  }, [isFocused, shimmerAnim]);
-
-  return shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-220, 220],
-  });
+  return sharedShimmerTranslateX;
 }
 
 export function ShimmerBlock({ style }: { style?: StyleProp<ViewStyle> }) {
-  const translateX = useSkeletonTranslateX();
+  useSharedShimmerTranslateX();
 
   return (
     <View style={[styles.shimmerBlock, style]}>
@@ -58,9 +77,34 @@ export function ShimmerBlock({ style }: { style?: StyleProp<ViewStyle> }) {
         pointerEvents="none"
         style={[
           styles.shimmerHighlight,
-          { transform: [{ translateX }, { rotate: "10deg" }] },
+          {
+            transform: [
+              { translateX: sharedShimmerTranslateX },
+              { rotate: "10deg" },
+            ],
+          },
         ]}
       />
+    </View>
+  );
+}
+
+// Plain spinner for spots that intentionally don't want a shaped skeleton.
+export function ScreenLoader({
+  style,
+  size = "large",
+}: {
+  style?: StyleProp<ViewStyle>;
+  size?: "small" | "large";
+}) {
+  return (
+    <View
+      style={[
+        { paddingVertical: 64, alignItems: "center", justifyContent: "center" },
+        style,
+      ]}
+    >
+      <ActivityIndicator size={size} color={palette.secondary} />
     </View>
   );
 }

@@ -276,6 +276,22 @@ function formatChartDate(value: string) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
+// Static remaining-time label computed once at render (no interval/timer) so the
+// offers list stays cheap even with many rows.
+function formatOfferTimeLeft(expiresAt?: string | null) {
+  if (!expiresAt) return "No expiry"
+  const end = new Date(expiresAt).getTime()
+  if (Number.isNaN(end)) return "No expiry"
+  const diff = end - Date.now()
+  if (diff <= 0) return "Expired"
+  const days = Math.floor(diff / 86_400_000)
+  if (days >= 1) return `${days} day${days > 1 ? "s" : ""} left`
+  const hours = Math.floor(diff / 3_600_000)
+  if (hours >= 1) return `${hours} hour${hours > 1 ? "s" : ""} left`
+  const minutes = Math.max(1, Math.floor(diff / 60_000))
+  return `${minutes} min left`
+}
+
 function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -294,6 +310,7 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
   })
 
   function statusLabel(status?: string) {
+    if (status === "used") return "Used"
     if (status === "expired") return "Expired"
     if (status === "inactive") return "Inactive"
     return "Active"
@@ -308,7 +325,7 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {customOfferRequest ? (
+        {customOfferRequest && customOfferRequest.status === "requested" ? (
           <div className="rounded-lg border border-pink-200 bg-pink-50/60 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -391,11 +408,13 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
               <Badge
                 variant="outline"
                 className={
-                  offer.offerStatus === "active"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : offer.offerStatus === "expired"
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                    : ""
+                  offer.offerStatus === "used"
+                    ? "border-slate-200 bg-slate-100 text-slate-600"
+                    : offer.offerStatus === "active"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : offer.offerStatus === "expired"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : ""
                 }
               >
                 {statusLabel(offer.offerStatus)}
@@ -407,8 +426,20 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
                 value={offer.voucherCode?.trim() || (offer.voucherId ? "Auto applied" : "N/A")}
               />
               <InfoRow
-                label="Expires"
-                value={formatDate(offer.voucherExpiresAt)}
+                label={
+                  offer.offerStatus === "used"
+                    ? "Usage"
+                    : offer.offerStatus === "expired"
+                      ? "Expired"
+                      : "Time left"
+                }
+                value={
+                  offer.offerStatus === "used"
+                    ? "Used"
+                    : offer.offerStatus === "expired"
+                      ? formatDate(offer.voucherExpiresAt)
+                      : formatOfferTimeLeft(offer.voucherExpiresAt)
+                }
               />
               <InfoRow
                 label="Minimum order"

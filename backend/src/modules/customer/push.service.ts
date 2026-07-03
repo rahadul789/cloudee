@@ -9,7 +9,7 @@ import { AdminNotificationScheduleModel } from "../admin/notification-schedule.m
 import { OrderModel } from "../owner/operational.model"
 import { ReviewModel } from "../owner/experience.model"
 import { getPlatformContent } from "../public/content.service"
-import { CustomerModel, VoucherRedemptionModel } from "./customer.model"
+import { CustomerModel, VoucherModel, VoucherRedemptionModel } from "./customer.model"
 
 // content.service also imports sendPushToCustomer from this module. The cycle is
 // safe because both sides only call the imported symbols inside functions (never
@@ -58,10 +58,11 @@ type CustomerNotificationRecord = {
 type ExpoPushMessage = {
   to: string
   sound: "default"
+  priority?: "default" | "normal" | "high"
+  channelId?: string
   title: string
   body: string
   mutableContent?: boolean
-  image?: string
   richContent?: {
     image?: string
   }
@@ -107,8 +108,10 @@ function isNotificationEnabled(
     orderUpdates?: boolean
     restaurantStatus?: boolean
     reviewReplies?: boolean
+    promotions?: boolean
   } | null | undefined,
-  type: string
+  type: string,
+  isPersonalOffer = false
 ) {
   switch (type) {
     case "order_status":
@@ -117,6 +120,14 @@ function isNotificationEnabled(
       return settings?.restaurantStatus ?? true
     case "review_reply":
       return settings?.reviewReplies ?? true
+    case "promotion":
+    case "voucher":
+    case "campaign":
+      // Personal/targeted offers (order-target rewards, admin-assigned vouchers)
+      // are not marketing broadcasts — always deliver them so they still reach the
+      // customer's "My offers", regardless of the promotions opt-out. Only generic
+      // broadcast promos honour the toggle.
+      return isPersonalOffer ? true : settings?.promotions ?? true
     default:
       return true
   }
@@ -350,16 +361,32 @@ async function enrichNotificationVoucherUsage(
 
   if (!voucherIds.length) return items
 
-  const redemptions = await VoucherRedemptionModel.find({
-    voucherId: { $in: voucherIds },
-    releasedAt: null,
-    "voucherSnapshot.customerId": customerId,
-  })
-    .select("voucherId orderId appliedAt")
-    .sort({ appliedAt: -1, createdAt: -1 })
-    .lean()
+  const [redemptions, vouchers] = await Promise.all([
+    VoucherRedemptionModel.find({
+      voucherId: { $in: voucherIds },
+      releasedAt: null,
+      "voucherSnapshot.customerId": customerId,
+    })
+      .select("voucherId orderId appliedAt")
+      .sort({ appliedAt: -1, createdAt: -1 })
+      .lean(),
+    VoucherModel.find({ _id: { $in: voucherIds } })
+      .select("audienceType selectedCustomerIds")
+      .lean(),
+  ])
   const redemptionByVoucherId = new Map(
     redemptions.map((redemption) => [String(redemption.voucherId), redemption]),
+  )
+  const customerIdString = String(customerId)
+  const selectedUserVoucherIds = new Set(
+    vouchers
+      .filter((voucher) => voucher.audienceType === "selected_users")
+      .filter((voucher) =>
+        (voucher.selectedCustomerIds ?? []).some(
+          (selectedCustomerId) => String(selectedCustomerId) === customerIdString,
+        ),
+      )
+      .map((voucher) => String(voucher._id)),
   )
 
   return items.map((item) => {
@@ -367,10 +394,12 @@ async function enrichNotificationVoucherUsage(
       ? new Date(item.voucherExpiresAt).getTime() <= Date.now()
       : false
     const redemption = redemptionByVoucherId.get(item.voucherId)
+    const personalOffer = item.personalOffer || selectedUserVoucherIds.has(item.voucherId)
 
     if (isExpired) {
       return {
         ...item,
+        personalOffer,
         voucherUsageStatus: "expired" as const,
         isOfferDisabled: true,
       }
@@ -379,6 +408,7 @@ async function enrichNotificationVoucherUsage(
     if (redemption) {
       return {
         ...item,
+        personalOffer,
         voucherUsageStatus: "used" as const,
         voucherAppliedAt: redemption.appliedAt
           ? new Date(redemption.appliedAt).toISOString()
@@ -390,6 +420,7 @@ async function enrichNotificationVoucherUsage(
 
     return {
       ...item,
+      personalOffer,
       voucherUsageStatus:
         item.voucherId || item.voucherCode ? ("available" as const) : item.voucherUsageStatus,
       isOfferDisabled: false,
@@ -440,7 +471,8 @@ export async function createCustomerNotification(params: {
   })
   const customer = await CustomerModel.findById(params.customerId).select("notificationSettings")
 
-  if (!isNotificationEnabled(customer?.notificationSettings, type)) {
+  const notificationEnabled = isNotificationEnabled(customer?.notificationSettings, type)
+  if (!notificationEnabled && !personalOffer) {
     logger.info({ customerId: params.customerId, type }, "Notification skipped by customer preference")
     return null
   }
@@ -479,7 +511,9 @@ export async function createCustomerNotification(params: {
             }
           ],
           $position: 0,
-          $slice: 100
+          // Keep only the most recent notifications per customer — older ones are
+          // rarely useful and this keeps the stored array (and every read) small.
+          $slice: 30
         }
       }
     }
@@ -528,8 +562,11 @@ export async function listCustomerNotifications(customerId: string, params?: {
       return rightTime - leftTime
     })
   const category = params?.category ?? "all"
-  const mappedNotifications = notifications
-    .map((notification) => mapCustomerNotification(notification.toObject()))
+  const enrichedNotifications = await enrichNotificationVoucherUsage(
+    customerId,
+    notifications.map((notification) => mapCustomerNotification(notification.toObject())),
+  )
+  const mappedNotifications = enrichedNotifications
     .filter((notification) => {
       if (category === "offers") {
         return ["promotion", "voucher", "campaign"].includes(notification.type)
@@ -545,10 +582,7 @@ export async function listCustomerNotifications(customerId: string, params?: {
   const limit = Math.min(Math.max(params?.limit ?? 20, 1), 50)
   const page = Math.max(params?.page ?? 1, 1)
   const start = (page - 1) * limit
-  const items = await enrichNotificationVoucherUsage(
-    customerId,
-    mappedNotifications.slice(start, start + limit),
-  )
+  const items = mappedNotifications.slice(start, start + limit)
   const total = mappedNotifications.length
 
   return {
@@ -733,7 +767,18 @@ export async function sendPushToCustomer(params: {
     return { sent: 0, disabled: 0, inAppCreated: 0, skipped: true, sentExpoTokens: [], ticketIds: [] }
   }
 
-  const customer = await CustomerModel.findById(params.customerId).select("pushTokens")
+  const customer = await CustomerModel.findById(params.customerId).select("pushTokens notificationSettings")
+
+  if (
+    !isNotificationEnabled(
+      customer?.notificationSettings,
+      String(payload.data?.type ?? "system"),
+      payload.data?.personalOffer === true,
+    )
+  ) {
+    logger.info({ customerId: params.customerId }, "Push skipped by customer preference after in-app notification")
+    return { sent: 0, disabled: 0, inAppCreated: 1, skipped: true, sentExpoTokens: [], ticketIds: [] }
+  }
 
   if (!customer?.pushTokens?.length) {
     logger.info({ customerId: params.customerId }, "Push skipped: no customer push tokens")
@@ -761,12 +806,20 @@ export async function sendPushToCustomer(params: {
   const messages: ExpoPushMessage[] = uniqueActiveTokens.map((token) => ({
     to: token.expoPushToken,
     sound: "default",
+    // High priority + an explicit Android channel so promotional/marketing pushes
+    // are actually delivered and shown as a banner. Without these Android/FCM
+    // frequently delays or silently drops non-order pushes.
+    priority: "high",
+    channelId: "default",
     title: payload.title,
     body: payload.body,
+    // Expo only supports images through `richContent.image` (Android big-picture)
+    // plus `mutableContent` for the iOS service extension. The old top-level
+    // `image` field is NOT a valid Expo push field and made Expo reject the whole
+    // message — which is why image (offer/promo) pushes never arrived.
     ...(payload.imageUrl
       ? {
           mutableContent: true,
-          image: payload.imageUrl,
           richContent: { image: payload.imageUrl },
         }
       : {}),
@@ -827,7 +880,20 @@ export async function sendPushToCustomer(params: {
 
     if (entry.details?.error === "DeviceNotRegistered") {
       invalidIndexes.push(index)
+      return
     }
+
+    // Any other error (bad payload field, message too big, etc.) is silently
+    // fatal for that push — surface it so delivery problems are diagnosable.
+    logger.warn(
+      {
+        customerId: params.customerId,
+        status: entry.status,
+        error: entry.details?.error,
+        type: payload.data?.type,
+      },
+      "Expo push ticket rejected",
+    )
   })
 
   if (invalidIndexes.length) {

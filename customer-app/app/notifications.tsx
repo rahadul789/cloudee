@@ -11,6 +11,7 @@ import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
 import {
+  type CustomerNotification,
   useCustomerNotificationsInfiniteQuery,
   useCustomerMarkAllNotificationsReadMutation,
   useCustomerMarkNotificationReadMutation,
@@ -161,15 +162,59 @@ export default function NotificationsScreen() {
   );
   const openedFromPush = params.fromPush === "1";
 
-  const openNotification = async (notification: {
-    id: string;
-    path: string;
-    type: string;
-    campaignId?: string;
-    isRead: boolean;
-  }) => {
+  const openNotification = async (notification: CustomerNotification) => {
     if (!notification.isRead) {
       await markReadMutation.mutateAsync(notification.id).catch(() => undefined);
+    }
+
+    // A personal offer / voucher opens its own voucher details screen (the same
+    // one the Offers screen uses), not the generic promo page.
+    const isVoucherOffer = Boolean(
+      notification.voucherId ||
+        notification.voucherCode ||
+        notification.personalOffer,
+    );
+    if (isVoucherOffer) {
+      router.push({
+        pathname: "/offer-details",
+        params: {
+          notificationId: notification.id,
+          voucherId: notification.voucherId ?? "",
+          voucherCode: notification.voucherCode ?? "",
+          voucherLabel: notification.voucherLabel ?? "",
+          voucherExpiresAt: notification.voucherExpiresAt ?? "",
+          voucherMinOrder:
+            typeof notification.voucherMinOrder === "number"
+              ? String(notification.voucherMinOrder)
+              : "",
+          voucherUsageStatus: notification.voucherUsageStatus ?? "",
+          voucherAppliedAt: notification.voucherAppliedAt ?? "",
+          personalOffer: notification.personalOffer ? "1" : "",
+          title: notification.title,
+          description: notification.description,
+          imageUrl: notification.imageUrl ?? "",
+          contentType: notification.contentType ?? "",
+          createdAt: notification.createdAt,
+        },
+      } as never);
+      return;
+    }
+
+    if (isOfferNotification(notification.type)) {
+      router.push({
+        pathname: "/promo-details",
+        params: {
+          notificationId: notification.id,
+          campaignId: notification.campaignId ?? "",
+          title: notification.title,
+          body: notification.description,
+          imageUrl: notification.imageUrl ?? "",
+          ctaLabel: notification.ctaLabel ?? "",
+          ctaPath: notification.ctaPath ?? "",
+          createdAt: notification.createdAt,
+        },
+      } as never);
+      return;
     }
 
     const safePath = resolveCustomerPushRoute({

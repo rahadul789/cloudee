@@ -7,7 +7,10 @@ import {
   CustomerRefreshTokenSessionModel,
   VoucherRedemptionModel,
 } from "../customer/customer.model";
-import { getCustomerCustomOfferSettings } from "../customer/custom-offer.service";
+import {
+  getCustomerCustomOfferSettings,
+  getSelectedUserPersonalOfferVoucherIds,
+} from "../customer/custom-offer.service";
 import { sendPushToCustomer } from "../customer/push.service";
 import { RestaurantModel } from "../auth/auth.model";
 import { ReviewModel } from "../owner/experience.model";
@@ -122,17 +125,30 @@ function objectIdValues(values: unknown[]) {
     .filter((value): value is mongoose.Types.ObjectId => Boolean(value));
 }
 
-function getCustomerOfferStatus(notification: Record<string, any>) {
+function getCustomerOfferStatus(
+  notification: Record<string, any>,
+  personalOffer?: boolean,
+  used?: boolean,
+) {
+  // A redeemed voucher takes precedence over expiry/availability so the admin can
+  // see the customer already applied it, mirroring the customer-app "Used" state.
+  if (used === true) {
+    return "used";
+  }
   const expiresAt = notification.voucherExpiresAt
     ? new Date(notification.voucherExpiresAt)
     : null;
   if (expiresAt && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
     return "expired";
   }
-  return notification.personalOffer === true ? "active" : "inactive";
+  return personalOffer === true || notification.personalOffer === true ? "active" : "inactive";
 }
 
-function mapCustomerNotificationSnapshot(notification: Record<string, any>) {
+function mapCustomerNotificationSnapshotBase(
+  notification: Record<string, any>,
+  personalOffer: boolean,
+  used?: boolean,
+) {
   return {
     id: objectIdString(notification._id),
     type: stringValue(notification.type),
@@ -150,11 +166,26 @@ function mapCustomerNotificationSnapshot(notification: Record<string, any>) {
     voucherExpiresAt: serializeDate(notification.voucherExpiresAt),
     voucherMinOrder:
       typeof notification.voucherMinOrder === "number" ? notification.voucherMinOrder : null,
-    personalOffer: notification.personalOffer === true,
-    offerStatus: getCustomerOfferStatus(notification),
+    personalOffer,
+    offerStatus: getCustomerOfferStatus(notification, personalOffer, used),
+    voucherUsed: used === true,
     isRead: notification.isRead === true,
     createdAt: serializeDate(notification.createdAt),
   };
+}
+
+function mapCustomerNotificationSnapshot(notification: Record<string, any>) {
+  return mapCustomerNotificationSnapshotBase(notification, notification.personalOffer === true);
+}
+
+function isPersonalOfferNotification(
+  notification: Record<string, any>,
+  selectedUserVoucherIds: Set<string>,
+) {
+  return (
+    notification.personalOffer === true ||
+    selectedUserVoucherIds.has(stringValue(notification.voucherId))
+  );
 }
 
 function toObjectIdOrThrow(value: string, label: string) {
@@ -1450,15 +1481,47 @@ export async function getAdminCustomerDetails(
   };
   const customerSavedLocations = asRecordArray(customer.savedLocations);
   const customerNotifications = asRecordArray(customer.notifications);
-  const personalOfferNotifications = customerNotifications
-    .filter((notification) => notification.personalOffer === true)
+  const selectedUserPersonalOfferVoucherIds = await getSelectedUserPersonalOfferVoucherIds(
+    customerIdString,
+    customerNotifications,
+  );
+  const personalOfferSource = customerNotifications
+    .filter((notification) =>
+      isPersonalOfferNotification(notification, selectedUserPersonalOfferVoucherIds),
+    )
     .sort((left, right) => {
       const leftTime = new Date(left.createdAt ?? 0).getTime();
       const rightTime = new Date(right.createdAt ?? 0).getTime();
       return rightTime - leftTime;
     })
-    .slice(0, 30)
-    .map(mapCustomerNotificationSnapshot);
+    .slice(0, 30);
+  // Mark offers the customer actually redeemed (active, non-released redemption)
+  // so the admin sees "Used" instead of "Available" — same signal the customer app shows.
+  const personalOfferVoucherIds = personalOfferSource
+    .map((notification) => stringValue(notification.voucherId))
+    .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId))
+    .map((voucherId) => new mongoose.Types.ObjectId(voucherId));
+  const usedPersonalOfferVoucherIds = new Set<string>();
+  if (personalOfferVoucherIds.length) {
+    const personalRedemptions = await VoucherRedemptionModel.find(
+      {
+        voucherId: { $in: personalOfferVoucherIds },
+        releasedAt: null,
+        "voucherSnapshot.customerId": customerIdString,
+      },
+      { voucherId: 1 },
+    ).lean();
+    for (const redemption of personalRedemptions) {
+      usedPersonalOfferVoucherIds.add(stringValue(redemption.voucherId));
+    }
+  }
+  const personalOfferNotifications = personalOfferSource.map((notification) =>
+    mapCustomerNotificationSnapshotBase(
+      notification,
+      true,
+      usedPersonalOfferVoucherIds.has(stringValue(notification.voucherId)),
+    ),
+  );
   const customerPushTokens = asRecordArray(customer.pushTokens);
   const customerPreviousPhones = asRecordArray(customer.previousPhones);
   const accountRequestHistory = asRecordArray(customer.accountRequest?.history);
@@ -1796,8 +1859,11 @@ export async function deleteAdminCustomerPersonalOffer(params: {
   const offer = notifications.find(
     (notification) => objectIdString(notification._id) === safeNotificationId.toString(),
   );
+  const selectedUserPersonalOfferVoucherIds = offer
+    ? await getSelectedUserPersonalOfferVoucherIds(safeCustomerId.toString(), [offer])
+    : new Set<string>();
 
-  if (!offer || offer.personalOffer !== true) {
+  if (!offer || !isPersonalOfferNotification(offer, selectedUserPersonalOfferVoucherIds)) {
     throw new AppError(
       StatusCodes.NOT_FOUND,
       "CUSTOMER_OFFER_NOT_FOUND",

@@ -130,8 +130,11 @@ export default function SignInScreen() {
   const [resetConfirmFocused, setResetConfirmFocused] = useState(false);
   const resetOtpFieldRef = useRef<CustomerOtpFieldHandle | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const passwordInputRef = useRef<TextInput | null>(null);
   const resetPasswordInputRef = useRef<TextInput | null>(null);
   const resetConfirmInputRef = useRef<TextInput | null>(null);
+  const lastAutoSubmittedResetOtpRef = useRef("");
+  const verifyResetOtpActionRef = useRef<() => void>(() => undefined);
   const scheduleTimeout = useSafeTimeout();
   const scheduleAnimationFrame = useSafeAnimationFrame();
 
@@ -146,38 +149,39 @@ export default function SignInScreen() {
     });
   }, [scheduleAnimationFrame, scheduleTimeout]);
 
-  const scrollToPasswordField = useCallback(() => {
-    scheduleAnimationFrame(() => {
-      scheduleTimeout(() => {
-        scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 104 : 124,
-          animated: true,
-        });
-      }, 80);
-    });
-  }, [scheduleAnimationFrame, scheduleTimeout]);
+  // With `behavior="height"` the KeyboardAvoidingView already lifts the form above
+  // the keyboard; we just nudge it to a modest fixed offset so the focused field
+  // is comfortably visible — exactly like the OTP screen. (scrollToEnd over-scrolled
+  // and threw the field way too high; measureLayout crashed on the new arch.)
+  const scrollAuthTo = useCallback(
+    (y: number) => {
+      scheduleAnimationFrame(() => {
+        scheduleTimeout(() => {
+          scrollViewRef.current?.scrollTo({ y, animated: true });
+        }, 80);
+      });
+    },
+    [scheduleAnimationFrame, scheduleTimeout],
+  );
 
-  const scrollToResetOtpField = useCallback(() => {
-    scheduleAnimationFrame(() => {
-      scheduleTimeout(() => {
-        scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 88 : 104,
-          animated: true,
-        });
-      }, 80);
-    });
-  }, [scheduleAnimationFrame, scheduleTimeout]);
-
-  const scrollToResetPasswordField = useCallback(() => {
-    scheduleAnimationFrame(() => {
-      scheduleTimeout(() => {
-        scrollViewRef.current?.scrollTo({
-          y: Platform.OS === "android" ? 124 : 146,
-          animated: true,
-        });
-      }, 80);
-    });
-  }, [scheduleAnimationFrame, scheduleTimeout]);
+  const scrollToPasswordField = useCallback(
+    () => scrollAuthTo(Platform.OS === "android" ? 170 : 142),
+    [scrollAuthTo],
+  );
+  const scrollToResetOtpField = useCallback(
+    () => scrollAuthTo(Platform.OS === "android" ? 150 : 126),
+    [scrollAuthTo],
+  );
+  const scrollToResetPasswordField = useCallback(
+    () => scrollAuthTo(Platform.OS === "android" ? 188 : 160),
+    [scrollAuthTo],
+  );
+  // The confirm field sits one row lower, so it needs a bit more lift than the
+  // new-password field (otherwise focusing it drops the view instead of raising it).
+  const scrollToResetConfirmField = useCallback(
+    () => scrollAuthTo(Platform.OS === "android" ? 250 : 220),
+    [scrollAuthTo],
+  );
 
   const primaryActionBusy =
     (step === "phone" && startPhoneMutation.isPending) ||
@@ -223,7 +227,11 @@ export default function SignInScreen() {
         scrollToResetOtpField();
       }
       if (step === "resetPassword") {
-        scrollToResetPasswordField();
+        if (resetConfirmFocused) {
+          scrollToResetConfirmField();
+        } else {
+          scrollToResetPasswordField();
+        }
       }
     });
     const hideSubscription = Keyboard.addListener("keyboardDidHide", () => {
@@ -235,8 +243,10 @@ export default function SignInScreen() {
       hideSubscription.remove();
     };
   }, [
+    resetConfirmFocused,
     scrollToPasswordField,
     scrollToPhoneField,
+    scrollToResetConfirmField,
     scrollToResetOtpField,
     scrollToResetPasswordField,
     step,
@@ -255,6 +265,33 @@ export default function SignInScreen() {
 
     return () => clearInterval(timer);
   }, [passwordResetResendCountdown, step]);
+
+  // Auto-verify the reset OTP the moment all digits are entered — same as the
+  // registration OTP screen, so the user never has to press a button.
+  verifyResetOtpActionRef.current = () => {
+    void handleVerifyResetOtp();
+  };
+  useEffect(() => {
+    if (step !== "resetOtp" || resetOtpCode.length < CUSTOMER_AUTH_OTP_CODE_LENGTH) {
+      lastAutoSubmittedResetOtpRef.current = "";
+      return;
+    }
+    if (resetOtpIsLocked || passwordResetOtpVerifyMutation.isPending) {
+      return;
+    }
+    if (lastAutoSubmittedResetOtpRef.current === resetOtpCode) {
+      return;
+    }
+    lastAutoSubmittedResetOtpRef.current = resetOtpCode;
+    Keyboard.dismiss();
+    scheduleTimeout(() => verifyResetOtpActionRef.current(), 120);
+  }, [
+    step,
+    resetOtpCode,
+    resetOtpIsLocked,
+    passwordResetOtpVerifyMutation.isPending,
+    scheduleTimeout,
+  ]);
 
   useEffect(() => {
     if (step !== "resetOtp" || resetOtpLockCountdown <= 0) {
@@ -634,8 +671,8 @@ export default function SignInScreen() {
     <Screen>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={insets.top + 12}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -852,6 +889,7 @@ export default function SignInScreen() {
                   ]}
                 >
                   <TextInput
+                    ref={passwordInputRef}
                     value={password}
                     onChangeText={(value) => {
                       setPassword(value);
@@ -1149,7 +1187,7 @@ export default function SignInScreen() {
                       }}
                       onFocus={() => {
                         setResetConfirmFocused(true);
-                        scrollToResetPasswordField();
+                        scrollToResetConfirmField();
                       }}
                       onBlur={() => setResetConfirmFocused(false)}
                       style={styles.input}

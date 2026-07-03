@@ -157,6 +157,7 @@ type CustomerProfile = {
     orderUpdates?: boolean;
     restaurantStatus?: boolean;
     reviewReplies?: boolean;
+    promotions?: boolean;
   };
   previousPhones?: {
     phone: string;
@@ -824,6 +825,7 @@ export type CartQuoteResponse = {
     subtotal: number;
     menuMarkdownAmount?: number;
     deliveryFee: number;
+    rainSurcharge?: number;
     discountAmount: number;
     total: number;
   };
@@ -1311,6 +1313,7 @@ export function useCustomerProfileUpdateMutation() {
         orderUpdates?: boolean;
         restaurantStatus?: boolean;
         reviewReplies?: boolean;
+        promotions?: boolean;
       };
     }) => {
       const response = await apiPatch<{

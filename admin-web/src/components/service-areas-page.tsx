@@ -71,6 +71,7 @@ type ZoneFormState = {
   longitude: string
   radiusKm: string
   baseFeeTaka: string
+  distanceSurchargeEnabled: boolean
   surchargeStartsAfterKm: string
   surchargeStepMeters: string
   surchargeAmountTaka: string
@@ -97,6 +98,7 @@ const defaultZoneForm: ZoneFormState = {
   longitude: "90.7249078",
   radiusKm: "5.5",
   baseFeeTaka: "45",
+  distanceSurchargeEnabled: true,
   surchargeStartsAfterKm: "2",
   surchargeStepMeters: "1000",
   surchargeAmountTaka: "10",
@@ -133,6 +135,7 @@ function zoneToForm(zone: AdminServiceZone): ZoneFormState {
     longitude: String(zone.center?.longitude ?? ""),
     radiusKm: String(zone.radiusKm ?? ""),
     baseFeeTaka: String(zone.delivery?.baseFeeTaka ?? ""),
+    distanceSurchargeEnabled: zone.delivery?.distanceSurchargeEnabled !== false,
     surchargeStartsAfterKm: String(zone.delivery?.surchargeStartsAfterKm ?? ""),
     surchargeStepMeters: String(zone.delivery?.surchargeStepMeters ?? ""),
     surchargeAmountTaka: String(zone.delivery?.surchargeAmountTaka ?? ""),
@@ -179,7 +182,7 @@ function buildZonePayload(form: ZoneFormState) {
     priority: Math.round(toNumber(form.priority, 0)),
     delivery: {
       baseFeeTaka: toNumber(form.baseFeeTaka, 0),
-      distanceSurchargeEnabled: true,
+      distanceSurchargeEnabled: form.distanceSurchargeEnabled,
       surchargeStartsAfterKm: toNumber(form.surchargeStartsAfterKm, 0),
       surchargeStepMeters: Math.max(
         1,
@@ -313,7 +316,11 @@ function ZoneCard({
         <ServiceMetric
           icon={MapPin}
           label="Distance step"
-          value={`${zone.delivery?.surchargeAmountTaka ?? 0} tk / ${zone.delivery?.surchargeStepMeters ?? 1000}m`}
+          value={
+            zone.delivery?.distanceSurchargeEnabled === false
+              ? "OFF"
+              : `${zone.delivery?.surchargeAmountTaka ?? 0} tk / ${zone.delivery?.surchargeStepMeters ?? 1000}m`
+          }
         />
         <ServiceMetric
           icon={CloudRain}
@@ -728,18 +735,38 @@ export function ServiceAreasPage() {
                     }
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>Surcharge after km</Label>
-                  <Input
-                    value={zoneForm.surchargeStartsAfterKm}
-                    onChange={(event) =>
+                <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
+                  <div>
+                    <Label>Distance step surcharge active</Label>
+                    <p className="text-xs text-muted-foreground">
+                      When off, only the base fee is charged for this zone (no
+                      per-step-meter distance surcharge).
+                    </p>
+                  </div>
+                  <Switch
+                    checked={zoneForm.distanceSurchargeEnabled}
+                    onCheckedChange={(checked) =>
                       setZoneForm((current) => ({
                         ...current,
-                        surchargeStartsAfterKm: event.target.value,
+                        distanceSurchargeEnabled: checked,
                       }))
                     }
                   />
                 </div>
+                {zoneForm.distanceSurchargeEnabled ? (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Surcharge after km</Label>
+                      <Input
+                        value={zoneForm.surchargeStartsAfterKm}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            surchargeStartsAfterKm: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
                 <div className="space-y-2">
                   <Label>Step meters</Label>
                   <Input
@@ -764,6 +791,8 @@ export function ServiceAreasPage() {
                     }
                   />
                 </div>
+                  </>
+                ) : null}
                 <div className="space-y-2">
                   <Label>Max restaurant distance km</Label>
                   <Input

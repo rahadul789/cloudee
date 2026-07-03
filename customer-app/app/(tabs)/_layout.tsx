@@ -15,16 +15,22 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        // Matches restaurant-owner-app exactly: the fade transition keeps tab
-        // screens mounted/warm (so their React Query observers stay active and
-        // the in-memory cache is never garbage-collected) → instant, blank-free
-        // switching. Verified against the owner app which uses this same config.
+        // No tab is frozen on blur. Two reasons:
+        //  1) Freezing a FlashList and unfreezing it on return scrambles its
+        //     recycling pool → janky scrolls after a tab switch.
+        //  2) A frozen screen can't run effects, so its images could never
+        //     release their memory. RemoteImage frees a blurred screen's decoded
+        //     bitmaps after a short delay (see remote-image.tsx) — that only
+        //     works while the screen stays live, and it's what keeps RAM bounded
+        //     to the visible tab (the real cause of the Home→Browse jank).
+        // Background cost is already minimal: the skeleton shimmer that used to
+        // run in blurred tabs was removed (see loading-skeleton.tsx).
         animation: "fade",
         transitionSpec: {
           animation: "timing",
           config: { duration: 90 },
         },
-        freezeOnBlur: true,
+        freezeOnBlur: false,
         sceneStyle: {
           backgroundColor: palette.background,
         },
@@ -78,7 +84,6 @@ export default function TabsLayout() {
         name="browse"
         options={{
           title: "Browse",
-          freezeOnBlur: false,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}
@@ -93,7 +98,6 @@ export default function TabsLayout() {
         name="cart"
         options={{
           title: "Cart",
-          freezeOnBlur: false,
           tabBarBadge: cartItemCount > 0 ? cartItemCount : undefined,
           tabBarBadgeStyle: {
             backgroundColor: palette.secondary,
@@ -117,7 +121,6 @@ export default function TabsLayout() {
         name="orders"
         options={{
           title: "Orders",
-          freezeOnBlur: false,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}

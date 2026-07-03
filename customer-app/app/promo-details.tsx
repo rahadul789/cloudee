@@ -7,7 +7,10 @@ import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { PromoDetailsSkeleton } from "@/src/components/loading-skeleton";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
-import { useCustomerNotificationCampaignQuery } from "@/src/hooks/use-customer-api";
+import {
+  useCustomerNotificationCampaignQuery,
+  useCustomerNotificationQuery,
+} from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
 import { resolveCustomerRoute } from "@/src/lib/customer-routes";
 import { palette } from "@/src/theme/palette";
@@ -20,32 +23,54 @@ export default function PromoDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
+    notificationId?: string;
     campaignId?: string;
     title?: string;
     body?: string;
     imageUrl?: string;
     ctaLabel?: string;
     ctaPath?: string;
+    createdAt?: string;
   }>();
+  const notificationId = paramValue(params.notificationId);
   const campaignId = paramValue(params.campaignId);
   const fallbackTitle = paramValue(params.title);
   const fallbackBody = paramValue(params.body);
   const fallbackImageUrl = paramValue(params.imageUrl);
   const fallbackCtaLabel = paramValue(params.ctaLabel);
   const fallbackCtaPath = paramValue(params.ctaPath);
-  const campaignQuery = useCustomerNotificationCampaignQuery(campaignId, Boolean(campaignId));
-  const notification = campaignQuery.data;
+  const fallbackCreatedAt = paramValue(params.createdAt);
+  const notificationQuery = useCustomerNotificationQuery(
+    notificationId,
+    Boolean(notificationId),
+  );
+  const campaignQuery = useCustomerNotificationCampaignQuery(
+    campaignId,
+    Boolean(!notificationId && campaignId),
+  );
+  const notification = notificationId ? notificationQuery.data : campaignQuery.data;
+  const isLoading = notificationId ? notificationQuery.isLoading : campaignQuery.isLoading;
+  const isError = notificationId ? notificationQuery.isError : campaignQuery.isError;
+  const hasFallback = Boolean(fallbackTitle || fallbackBody || fallbackImageUrl);
 
-  const title = notification?.title || fallbackTitle || "Foodbela offer";
+  // The route params carry the EXACT notification the user tapped, so they are the
+  // source of truth for what to display. The fetched `notification` is only a
+  // fallback / enrichment — never let it override the tapped notification (that
+  // was what made every promo open the latest one's details).
+  const title = fallbackTitle || notification?.title || "Foodbela offer";
   const body =
-    notification?.description ||
     fallbackBody ||
+    notification?.description ||
     "This offer is available in Foodbela. Open nearby restaurants and enjoy fresh deals.";
-  const imageUrl = notification?.imageUrl || fallbackImageUrl;
-  const ctaLabel = notification?.ctaLabel || fallbackCtaLabel;
-  const ctaPath = notification?.ctaPath || fallbackCtaPath;
+  const imageUrl = fallbackImageUrl || notification?.imageUrl || "";
+  const ctaLabel = fallbackCtaLabel || notification?.ctaLabel || "";
+  const ctaPath = fallbackCtaPath || notification?.ctaPath || "";
   const safeCtaPath = resolveCustomerRoute(ctaPath, null);
-  const createdAt = notification?.createdAt ? formatDateTimeAmPm(notification.createdAt) : "";
+  const createdAt = fallbackCreatedAt
+    ? formatDateTimeAmPm(fallbackCreatedAt)
+    : notification?.createdAt
+      ? formatDateTimeAmPm(notification.createdAt)
+      : "";
   const voucherCode =
     notification?.voucherCode?.trim() ||
     (notification?.voucherId ? "Auto applied" : "");
@@ -86,11 +111,11 @@ export default function PromoDetailsScreen() {
           </View>
         </View>
 
-        {campaignQuery.isLoading ? (
+        {isLoading && !hasFallback ? (
           <View style={styles.feedbackWrap}>
             <PromoDetailsSkeleton />
           </View>
-        ) : campaignQuery.isError && !fallbackTitle ? (
+        ) : isError && !hasFallback ? (
           <View style={styles.feedbackWrap}>
             <EmptyStateCard
               title="Offer could not load"
@@ -114,6 +139,7 @@ export default function PromoDetailsScreen() {
                   style={styles.heroImage}
                   fallbackIcon="gift-outline"
                   fallbackIconSize={34}
+                  recyclingKey={`${notification?.id || notificationId || campaignId}:${imageUrl}`}
                   accessibilityLabel={`${title} offer image`}
                 />
               ) : (

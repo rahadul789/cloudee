@@ -134,8 +134,6 @@ function RestaurantHeroCardComponent({
           fallbackIcon="restaurant-outline"
           fallbackIconSize={28}
           fallbackTint={palette.primary}
-          showSkeleton={!flat}
-          recyclingKey={flat ? null : undefined}
           transition={flat ? 80 : 180}
           accessibilityLabel={`${name} restaurant photo`}
         />
@@ -515,7 +513,6 @@ const styles = StyleSheet.create({
     bottom: 8,
     maxWidth: "44%",
     zIndex: 4,
-    elevation: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -550,7 +547,6 @@ const styles = StyleSheet.create({
     bottom: 8,
     maxWidth: "62%",
     zIndex: 4,
-    elevation: 4,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,

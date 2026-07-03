@@ -9,8 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Animated,
-  Easing,
   StyleSheet,
   View,
   type ImageStyle,
@@ -23,9 +21,10 @@ import { palette } from "@/src/theme/palette";
 
 const IMAGE_SKELETON_COLOR = "#FFF0F6";
 const HOME_IMAGE_SKELETON_COLOR = "#FFF0F6";
-const HOME_IMAGE_SKELETON_HIGHLIGHT = "rgba(255,255,255,0.72)";
-const loadedImageUris = new Set<string>();
-const failedImageUris = new Set<string>();
+// How long a screen must stay blurred before we release its image bitmaps. Long
+// enough that the tab/stack transition has finished (so we never unmount images
+// mid-animation) but short enough to free memory before you scroll the next screen.
+const IMAGE_MEMORY_RELEASE_DELAY = 700;
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -45,6 +44,11 @@ type Props = {
   children?: ReactNode;
 };
 
+// Deliberately simple, straight from the expo-image docs: render <Image> with a
+// stable per-URL `recyclingKey` (the documented FlashList pattern) and cache on
+// memory+disk. The only React state is "did this exact URL load / error", both
+// derived from the current URL so a recycled list cell resets automatically —
+// no manual reset effects, no retry/backoff, no remounting, no module caches.
 export function RemoteImage({
   uri,
   style,
@@ -62,38 +66,47 @@ export function RemoteImage({
 }: Props) {
   const normalizedUri =
     typeof uri === "string" && uri.trim() ? uri.trim() : null;
-  const [isLoaded, setIsLoaded] = useState(
-    normalizedUri ? loadedImageUris.has(normalizedUri) : false,
-  );
-  const [hasFailed, setHasFailed] = useState(
-    normalizedUri ? failedImageUris.has(normalizedUri) : true,
-  );
+  const [loadedUri, setLoadedUri] = useState<string | null>(null);
+  const [erroredUri, setErroredUri] = useState<string | null>(null);
+
+  // Free image memory for screens you are not looking at. A frozen (blurred)
+  // screen keeps its <Image> views mounted, so their decoded bitmaps stay in RAM
+  // — dozens of them on Home — which starves the screen you actually scrolled to
+  // (the confirmed Home→Browse jank). When the screen has been blurred long
+  // enough for its transition to finish, we drop the bitmap; on return it reloads
+  // instantly from the disk cache. Net effect: RAM only holds the visible screen.
+  const isScreenFocused = useIsFocused();
+  const [isReleased, setIsReleased] = useState(false);
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!normalizedUri) {
-      setIsLoaded(false);
-      setHasFailed(true);
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = null;
+    }
+
+    if (isScreenFocused) {
+      setIsReleased(false);
       return;
     }
 
-    setIsLoaded(loadedImageUris.has(normalizedUri));
-    setHasFailed(failedImageUris.has(normalizedUri));
-  }, [normalizedUri]);
+    releaseTimerRef.current = setTimeout(
+      () => setIsReleased(true),
+      IMAGE_MEMORY_RELEASE_DELAY,
+    );
 
-  const shouldShowImage = Boolean(normalizedUri && !hasFailed);
+    return () => {
+      if (releaseTimerRef.current) {
+        clearTimeout(releaseTimerRef.current);
+        releaseTimerRef.current = null;
+      }
+    };
+  }, [isScreenFocused]);
+
+  const hasFailed = normalizedUri == null || erroredUri === normalizedUri;
+  const shouldShowImage = normalizedUri != null && !hasFailed && !isReleased;
+  const isLoaded = normalizedUri != null && loadedUri === normalizedUri;
   const shouldShowSkeleton = showSkeleton && shouldShowImage && !isLoaded;
-  const shouldShowFallback = !shouldShowImage;
-  const effectiveRecyclingKey =
-    recyclingKey === undefined ? normalizedUri : recyclingKey;
-
-  const markLoaded = () => {
-    if (normalizedUri) {
-      loadedImageUris.add(normalizedUri);
-      failedImageUris.delete(normalizedUri);
-    }
-    setIsLoaded(true);
-    setHasFailed(false);
-  };
 
   return (
     <View
@@ -103,42 +116,23 @@ export function RemoteImage({
         skeletonVariant === "home-image" ? styles.homeImageContainer : null,
       ]}
     >
-      {normalizedUri && !hasFailed ? (
+      {shouldShowImage ? (
         <Image
           accessibilityLabel={accessibilityLabel}
           source={{ uri: normalizedUri }}
           style={[StyleSheet.absoluteFill, imageStyle]}
           contentFit={contentFit}
           cachePolicy="memory-disk"
-          recyclingKey={effectiveRecyclingKey}
+          recyclingKey={recyclingKey === undefined ? normalizedUri : recyclingKey}
           transition={transition}
-          onDisplay={markLoaded}
-          onLoad={markLoaded}
+          onLoad={() => setLoadedUri(normalizedUri)}
           onError={() => {
-            if (normalizedUri && loadedImageUris.has(normalizedUri)) {
-              setIsLoaded(true);
-              setHasFailed(false);
-              return;
-            }
-
-            if (normalizedUri) {
-              failedImageUris.add(normalizedUri);
-            }
-            setIsLoaded(false);
-            setHasFailed(true);
+            // Only fall back if this URL never displayed; ignore a stray error
+            // after a successful load (a recycled cell mid-swap).
+            if (loadedUri !== normalizedUri) setErroredUri(normalizedUri);
           }}
         />
-      ) : null}
-
-      {shouldShowSkeleton ? (
-        skeletonVariant === "home-image" ? (
-          <HomeImageShimmer />
-        ) : (
-          <ShimmerBlock style={styles.fill} />
-        )
-      ) : null}
-
-      {shouldShowFallback ? (
+      ) : (
         <View
           style={[
             styles.fallback,
@@ -151,56 +145,11 @@ export function RemoteImage({
             color={fallbackTint}
           />
         </View>
-      ) : null}
+      )}
+
+      {shouldShowSkeleton ? <ShimmerBlock style={styles.fill} /> : null}
 
       {children}
-    </View>
-  );
-}
-
-function HomeImageShimmer() {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  const isFocused = useIsFocused();
-
-  useEffect(() => {
-    if (!isFocused) {
-      shimmerAnim.stopAnimation();
-      return;
-    }
-
-    const shimmerLoop = Animated.loop(
-      Animated.timing(shimmerAnim, {
-        toValue: 1,
-        duration: 1250,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-        isInteraction: false,
-      }),
-    );
-
-    shimmerAnim.setValue(0);
-    shimmerLoop.start();
-
-    return () => {
-      shimmerLoop.stop();
-      shimmerAnim.stopAnimation();
-    };
-  }, [isFocused, shimmerAnim]);
-
-  const translateX = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-220, 220],
-  });
-
-  return (
-    <View style={styles.homeImageShimmer}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.homeImageHighlight,
-          { transform: [{ translateX }, { rotate: "10deg" }] },
-        ]}
-      />
     </View>
   );
 }
@@ -215,18 +164,6 @@ const styles = StyleSheet.create({
   },
   fill: {
     ...StyleSheet.absoluteFillObject,
-  },
-  homeImageShimmer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: "hidden",
-    backgroundColor: HOME_IMAGE_SKELETON_COLOR,
-  },
-  homeImageHighlight: {
-    position: "absolute",
-    top: -16,
-    bottom: -16,
-    width: 82,
-    backgroundColor: HOME_IMAGE_SKELETON_HIGHLIGHT,
   },
   fallback: {
     ...StyleSheet.absoluteFillObject,

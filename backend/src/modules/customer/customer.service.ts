@@ -395,6 +395,7 @@ function buildCustomerAuthPayload(params: {
     orderUpdates?: boolean;
     restaurantStatus?: boolean;
     reviewReplies?: boolean;
+    promotions?: boolean;
   };
   refreshToken: string;
   tokenId: string;
@@ -424,6 +425,7 @@ function buildCustomerAuthPayload(params: {
         orderUpdates: params.notificationSettings?.orderUpdates ?? true,
         restaurantStatus: params.notificationSettings?.restaurantStatus ?? true,
         reviewReplies: params.notificationSettings?.reviewReplies ?? true,
+        promotions: params.notificationSettings?.promotions ?? true,
       },
     },
   };
@@ -1483,6 +1485,7 @@ export async function verifyCustomerPhoneChange(params: {
         restaurantStatus:
           customer.notificationSettings?.restaurantStatus ?? true,
         reviewReplies: customer.notificationSettings?.reviewReplies ?? true,
+        promotions: customer.notificationSettings?.promotions ?? true,
       },
     },
   };
@@ -1497,6 +1500,7 @@ export async function updateCustomerProfile(params: {
     orderUpdates?: boolean;
     restaurantStatus?: boolean;
     reviewReplies?: boolean;
+    promotions?: boolean;
   };
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
@@ -1554,6 +1558,7 @@ export async function updateCustomerProfile(params: {
         restaurantStatus:
           customer.notificationSettings?.restaurantStatus ?? true,
         reviewReplies: customer.notificationSettings?.reviewReplies ?? true,
+        promotions: customer.notificationSettings?.promotions ?? true,
       },
     },
   };
@@ -1616,6 +1621,7 @@ export async function updateCustomerPassword(params: {
         restaurantStatus:
           customer.notificationSettings?.restaurantStatus ?? true,
         reviewReplies: customer.notificationSettings?.reviewReplies ?? true,
+        promotions: customer.notificationSettings?.promotions ?? true,
       },
     },
   };
@@ -1645,6 +1651,7 @@ export async function getCustomerProfile(customerId: string) {
         restaurantStatus:
           customer.notificationSettings?.restaurantStatus ?? true,
         reviewReplies: customer.notificationSettings?.reviewReplies ?? true,
+        promotions: customer.notificationSettings?.promotions ?? true,
       },
     },
   };
@@ -2254,6 +2261,10 @@ async function getActiveOfferRestaurantIdSet() {
     status: "Active",
     startsAt: { $lte: now },
     endsAt: { $gte: now },
+    // Exclude personal (selected_users) vouchers: a restaurant that only has a
+    // voucher assigned to one customer must not be flagged as "has offers" for
+    // everyone else.
+    audienceType: { $ne: "selected_users" },
   })
     .select("restaurantId selectedRestaurantIds scopeType")
     .lean();
@@ -2709,6 +2720,25 @@ function rankNewRestaurants(
   })
 }
 
+// A voucher targeted at specific customers (audienceType "selected_users") is a
+// personal offer. It must only ever surface for a customer inside its
+// selectedCustomerIds — never for other customers, and never for guests. This
+// keeps personal vouchers out of the shared offer strips / restaurant offer
+// labels that everyone can see. (Discovery home is cached per customerId, so it
+// is safe to filter here.)
+function isPersonalVoucherHiddenFromCustomer(
+  offer: Record<string, any>,
+  customerId?: string,
+) {
+  if (offer?.audienceType !== "selected_users") return false;
+  const normalizedCustomerId = customerId ? String(customerId) : "";
+  if (!normalizedCustomerId) return true;
+  const selectedIds = (offer.selectedCustomerIds ?? []).map(
+    (id: unknown) => (typeof id === "string" ? id : id?.toString?.() ?? ""),
+  );
+  return !selectedIds.includes(normalizedCustomerId);
+}
+
 export async function getCustomerDiscoveryHome(params?: {
   latitude?: number;
   longitude?: number;
@@ -2726,7 +2756,7 @@ export async function getCustomerDiscoveryHome(params?: {
         platformContent,
         featuredCollection,
         flaggedFeaturedRows,
-        activeOffers,
+        rawActiveOffers,
         orderedRestaurantIds,
       ] = await Promise.all([
         getPlatformContent(),
@@ -2757,6 +2787,17 @@ export async function getCustomerDiscoveryHome(params?: {
           .lean(),
         getCustomerOrderedRestaurantIds(params?.customerId),
       ]);
+
+      // Drop personal (selected_users) vouchers that don't belong to this customer
+      // up front, so every downstream use — the "restaurants with offers" section,
+      // offer labels, and the returned activeOffers — is scoped to this customer.
+      const activeOffers = rawActiveOffers.filter(
+        (offer) =>
+          !isPersonalVoucherHiddenFromCustomer(
+            offer as Record<string, any>,
+            params?.customerId,
+          ),
+      );
 
       const selectedHomeServiceArea =
         typeof params?.latitude === "number" && typeof params?.longitude === "number"
@@ -3240,6 +3281,10 @@ export async function getCustomerRestaurantDetails(
             archivedAt: null,
             // Offer strip shows checkout vouchers only; markdowns render on item cards.
             surface: { $ne: "menu_markdown" },
+            // Personal (selected_users) vouchers must never appear in this shared,
+            // per-restaurant offer strip that every customer sees. They surface only
+            // in the assigned customer's own offers/notifications.
+            audienceType: { $ne: "selected_users" },
             $or: [
               { restaurantId: restaurant._id },
               { scopeType: "all_restaurants" },
