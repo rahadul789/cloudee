@@ -685,7 +685,12 @@ export default function LocationPickerScreen() {
                 minZoomLevel={MIN_LOCATION_PICKER_ZOOM}
                 maxZoomLevel={MAX_LOCATION_PICKER_ZOOM}
                 showsCompass={false}
-                showsBuildings
+                // pitch is disabled (always top-down), so 3D buildings never render
+                // anyway — turning them and indoor floor plans off is a pure GPU win
+                // with no visible change for a pin-drop map. POI labels are kept since
+                // they help the user recognise their spot.
+                showsBuildings={false}
+                showsIndoors={false}
                 customMapStyle={resolvedMapStyle}
                 toolbarEnabled={false}
                 showsUserLocation

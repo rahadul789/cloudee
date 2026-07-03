@@ -107,6 +107,13 @@ export function RemoteImage({
   const shouldShowImage = normalizedUri != null && !hasFailed && !isReleased;
   const isLoaded = normalizedUri != null && loadedUri === normalizedUri;
   const shouldShowSkeleton = showSkeleton && shouldShowImage && !isLoaded;
+  // Identity key for the <Image> element. Using it as a React `key` (not just
+  // expo-image's recyclingKey) means each distinct URL mounts a FRESH element that
+  // paints reliably, while re-renders that keep the same URL keep the same element
+  // so an in-flight load isn't interrupted. This is what fixes browse cards that
+  // stayed blank until you opened a restaurant and came back (a forced remount).
+  const imageKey =
+    (recyclingKey === undefined ? normalizedUri : recyclingKey) ?? "no-image";
 
   return (
     <View
@@ -118,6 +125,7 @@ export function RemoteImage({
     >
       {shouldShowImage ? (
         <Image
+          key={imageKey}
           accessibilityLabel={accessibilityLabel}
           source={{ uri: normalizedUri }}
           style={[StyleSheet.absoluteFill, imageStyle]}

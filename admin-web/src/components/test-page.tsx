@@ -65,6 +65,7 @@ const defaultDraft: AdminAlertDeliverySettings = {
   memoryRssMb: 900,
   cpuPercent: 85,
   fivexxThreshold: 5,
+  rateLimitThreshold: 20,
   sslExpiryDays: 14,
 }
 
@@ -460,6 +461,26 @@ export function TestPage() {
                     fivexxThreshold: numberInput(
                       Number(event.target.value),
                       current.fivexxThreshold
+                    ),
+                  }))
+                }
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-2">
+              <Label>Rate limit threshold (429s / 5 min)</Label>
+              <Input
+                type="number"
+                min={1}
+                value={draft.rateLimitThreshold}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    rateLimitThreshold: numberInput(
+                      Number(event.target.value),
+                      current.rateLimitThreshold
                     ),
                   }))
                 }

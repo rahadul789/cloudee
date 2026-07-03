@@ -131,6 +131,7 @@ const envSchema = z.object({
   ALERT_MEMORY_RSS_MB: z.coerce.number().int().positive().default(900),
   ALERT_CPU_PERCENT: z.coerce.number().int().positive().default(85),
   ALERT_5XX_THRESHOLD: z.coerce.number().int().min(1).default(5),
+  ALERT_RATE_LIMIT_THRESHOLD: z.coerce.number().int().min(1).default(20),
   ALERT_SMS_LOW_BALANCE: z.coerce.number().min(0).default(100),
   ALERT_REFUND_PENDING_MINUTES: z.coerce.number().int().positive().default(120),
   ALERT_SUPPORT_SLA_OVERDUE_MINUTES: z.coerce.number().int().min(0).default(15),

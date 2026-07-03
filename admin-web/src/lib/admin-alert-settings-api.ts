@@ -10,6 +10,7 @@ export type AdminAlertDeliverySettings = {
   memoryRssMb: number
   cpuPercent: number
   fivexxThreshold: number
+  rateLimitThreshold: number
   sslExpiryDays: number
 }
 

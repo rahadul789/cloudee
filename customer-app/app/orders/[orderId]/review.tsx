@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RemoteImage } from "@/src/components/remote-image";
 import { RiderRatingCard } from "@/src/components/orders/rider-rating-card";
@@ -36,8 +40,36 @@ const QUICK_CHIPS = [
 export default function OrderReviewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ orderId?: string }>();
+  const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
+  const commentYRef = useRef(0);
+  const riderCardYRef = useRef(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const orderId =
     typeof params.orderId === "string" ? params.orderId : undefined;
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Scroll the focused field to just below the top of the (keyboard-shrunk) view.
+  // Targeting the field's own offset — not scrollToEnd — keeps it from flying up
+  // past the fields/submit button that sit below it.
+  const scrollFieldIntoView = (y: number) => {
+    setTimeout(
+      () => scrollRef.current?.scrollTo({ y: Math.max(y - 24, 0), animated: true }),
+      150,
+    );
+  };
 
   const [rating, setRating] = useState(0);
   const [riderRating, setRiderRating] = useState(0);
@@ -119,25 +151,37 @@ export default function OrderReviewScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => router.back()}
-          style={styles.headerButton}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-        >
-          <Ionicons name="arrow-back" size={22} color={palette.foreground} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Rate your order</Text>
-        <View style={styles.headerButton} />
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={insets.top + 12}
       >
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.headerButton}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="arrow-back" size={22} color={palette.foreground} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Rate your order</Text>
+          <View style={styles.headerButton} />
+        </View>
+
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.content,
+            isKeyboardVisible
+              ? { paddingBottom: 48 + Math.max(insets.bottom, 16) + 140 }
+              : null,
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
         {orderQuery.isLoading ? (
           <View style={styles.loadingState}>
             <ActivityIndicator color={palette.primary} />
@@ -323,16 +367,27 @@ export default function OrderReviewScreen() {
                   numberOfLines={4}
                   maxLength={500}
                   textAlignVertical="top"
+                  onLayout={(event) => {
+                    commentYRef.current = event.nativeEvent.layout.y;
+                  }}
+                  onFocus={() => scrollFieldIntoView(commentYRef.current)}
                 />
 
                 {hasRider && riderReviewEnabled ? (
-                  <RiderRatingCard
-                    value={riderRating}
-                    onChange={setRiderRating}
-                    comment={riderComment}
-                    onCommentChange={setRiderComment}
-                    riderName={order.riderSnapshot?.name}
-                  />
+                  <View
+                    onLayout={(event) => {
+                      riderCardYRef.current = event.nativeEvent.layout.y;
+                    }}
+                  >
+                    <RiderRatingCard
+                      value={riderRating}
+                      onChange={setRiderRating}
+                      comment={riderComment}
+                      onCommentChange={setRiderComment}
+                      onCommentFocus={() => scrollFieldIntoView(riderCardYRef.current)}
+                      riderName={order.riderSnapshot?.name}
+                    />
+                  </View>
                 ) : null}
 
                 <Pressable
@@ -355,6 +410,7 @@ export default function OrderReviewScreen() {
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -377,6 +433,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     color: palette.foreground,
+  },
+  flex: {
+    flex: 1,
   },
   content: {
     padding: 20,

@@ -241,7 +241,6 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         title: "Test",
         to: "/test",
         icon: MailCheck,
-        devOnly: true,
       },
     ],
   },

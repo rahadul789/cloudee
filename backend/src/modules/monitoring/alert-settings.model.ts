@@ -16,6 +16,7 @@ const alertDeliverySettingsSchema = new Schema(
     memoryRssMb: { type: Number, default: 900 },
     cpuPercent: { type: Number, default: 85 },
     fivexxThreshold: { type: Number, default: 5 },
+    rateLimitThreshold: { type: Number, default: 20 },
     sslExpiryDays: { type: Number, default: 14 },
     updatedByAdminId: { type: String, default: "" },
     updatedByAdminName: { type: String, default: "" },

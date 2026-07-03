@@ -948,6 +948,7 @@ type CustomerOrderResponse = {
   pricing?: {
     subtotal?: number;
     deliveryFee?: number;
+    rainSurcharge?: number;
     discountAmount?: number;
     total?: number;
   };

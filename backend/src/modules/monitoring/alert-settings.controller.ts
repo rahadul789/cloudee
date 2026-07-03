@@ -35,6 +35,7 @@ const alertSettingsSchema = z
     memoryRssMb: z.coerce.number().int().min(128).max(8192),
     cpuPercent: z.coerce.number().int().min(1).max(100),
     fivexxThreshold: z.coerce.number().int().min(1).max(1000),
+    rateLimitThreshold: z.coerce.number().int().min(1).max(100000),
     sslExpiryDays: z.coerce.number().int().min(1).max(90),
   })
   .superRefine((settings, ctx) => {

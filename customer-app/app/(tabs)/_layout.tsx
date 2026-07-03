@@ -83,7 +83,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="browse"
         options={{
-          title: "Browse",
+          title: "Browse all",
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               color={color}

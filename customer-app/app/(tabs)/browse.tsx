@@ -188,10 +188,17 @@ export default function BrowseScreen() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Whenever the search term changes (new search or cleared), jump the list back
-  // to the top so results always start from the top instead of a leftover offset.
+  // Return the list to the top when the search term changes — above all when it's
+  // cleared. FlashList v2 keeps the previously-visible item anchored by default
+  // (maintainVisibleContentPosition), which was dragging the full list down to the
+  // searched restaurant's row; that anchoring is disabled on the list below, and we
+  // scroll to the top after the new data has laid out (rAF), so a plain offset reset
+  // isn't undone by a mid-update re-anchor.
   useEffect(() => {
-    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    const frame = requestAnimationFrame(() =>
+      listRef.current?.scrollToOffset({ offset: 0, animated: false }),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [debouncedSearchQuery]);
 
   // radiusKm omitted: backend applies the resolved zone / admin fallback radius.
@@ -503,6 +510,10 @@ export default function BrowseScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={RestaurantSeparator}
+        // Off by default in FlashList v2 this would re-anchor to the previously
+        // visible restaurant when search is cleared, pinning the full list to that
+        // row instead of the top. Disable so the scroll-to-top above wins.
+        maintainVisibleContentPosition={{ disabled: true }}
         drawDistance={560}
         refreshControl={
           <RefreshControl

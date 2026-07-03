@@ -13,6 +13,7 @@ export type AlertDeliverySettings = {
   memoryRssMb: number;
   cpuPercent: number;
   fivexxThreshold: number;
+  rateLimitThreshold: number;
   sslExpiryDays: number;
 };
 
@@ -59,6 +60,7 @@ export function getEnvAlertDeliverySettings(): AlertDeliverySettings {
     memoryRssMb: env.ALERT_MEMORY_RSS_MB,
     cpuPercent: env.ALERT_CPU_PERCENT,
     fivexxThreshold: env.ALERT_5XX_THRESHOLD,
+    rateLimitThreshold: env.ALERT_RATE_LIMIT_THRESHOLD,
     sslExpiryDays: env.ALERT_SSL_EXPIRY_DAYS,
   };
 }
@@ -107,6 +109,12 @@ function mergeSettings(
       fallback.fivexxThreshold,
       1,
       1000,
+    ),
+    rateLimitThreshold: numberValue(
+      override.rateLimitThreshold,
+      fallback.rateLimitThreshold,
+      1,
+      100000,
     ),
     sslExpiryDays: numberValue(
       override.sslExpiryDays,

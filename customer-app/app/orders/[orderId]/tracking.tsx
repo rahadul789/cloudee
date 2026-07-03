@@ -674,6 +674,14 @@ export default function OrderTrackingScreen() {
             {formatCurrency(order.pricing?.deliveryFee ?? 0)}
           </Text>
         </View>
+        {(order.pricing?.rainSurcharge ?? 0) > 0 ? (
+          <View style={styles.paymentRow}>
+            <Text style={styles.paymentLabel}>Rain surcharge</Text>
+            <Text style={styles.paymentValue}>
+              {formatCurrency(order.pricing?.rainSurcharge ?? 0)}
+            </Text>
+          </View>
+        ) : null}
         {(order.pricing?.discountAmount ?? 0) > 0 ? (
           <View style={styles.paymentRow}>
             <Text style={styles.paymentLabel}>Discount</Text>
@@ -1236,7 +1244,7 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {journeyIndex >= 0 ? (
+        {journeyIndex >= 0 && !isDeliveredOrder ? (
           <View style={styles.journeyCard}>
             <Text style={styles.journeyTitle}>Order journey</Text>
 

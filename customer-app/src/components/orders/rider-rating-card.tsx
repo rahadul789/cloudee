@@ -18,6 +18,7 @@ type RiderRatingCardProps = {
   onChange: (rating: number) => void;
   comment?: string;
   onCommentChange?: (comment: string) => void;
+  onCommentFocus?: () => void;
   riderName?: string | null;
   defaultExpanded?: boolean;
 };
@@ -32,6 +33,7 @@ export function RiderRatingCard({
   onChange,
   comment = "",
   onCommentChange,
+  onCommentFocus,
   riderName,
   defaultExpanded = false,
 }: RiderRatingCardProps) {
@@ -114,6 +116,7 @@ export function RiderRatingCard({
               style={styles.commentInput}
               value={comment}
               onChangeText={onCommentChange}
+              onFocus={onCommentFocus}
               placeholder="Anything about the delivery? (optional)"
               placeholderTextColor={palette.placeholder}
               multiline
