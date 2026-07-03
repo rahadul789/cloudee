@@ -87,6 +87,7 @@ import {
   RestaurantCollectionModel,
   VoucherModel,
   VoucherRedemptionModel,
+  VoucherUserUsageModel,
 } from "./customer.model";
 import {
   attachReferralToNewCustomer,
@@ -1773,6 +1774,26 @@ async function findSearchMatchedRestaurantIds(search?: string) {
   if (!tokens.length) return null;
 
   const exactRegexes = tokens.map((token) => new RegExp(escapeRegex(token), "i"));
+  const normalizedSearch = normalizeDiscoverySearchText(search);
+  // Relevance ranks (lower = more relevant): a restaurant whose NAME matches must
+  // outrank one that merely has a matching menu item, so an exact restaurant-name
+  // search surfaces that restaurant first instead of burying it. A full-name match
+  // (query === restaurant name) beats a partial-name match.
+  const RANK_NAME_EXACT = -1;
+  const RANK_NAME = 0;
+  const RANK_RESTAURANT_FIELD = 1;
+  const RANK_CATEGORY = 2;
+  const RANK_MENU_ITEM = 3;
+  const RANK_FUZZY_OFFSET = 10;
+  const rankById = new Map<string, number>();
+  const addRank = (id: string, rank: number) => {
+    if (!id) return;
+    const existing = rankById.get(id);
+    if (existing === undefined || rank < existing) rankById.set(id, rank);
+  };
+  const nameMatchesTokens = (value: unknown) =>
+    exactRegexes.some((regex) => regex.test(String(value ?? "")));
+
   const [restaurantRows, categoryRows, menuRows] = await Promise.all([
     RestaurantModel.find(
       {
@@ -1784,7 +1805,7 @@ async function findSearchMatchedRestaurantIds(search?: string) {
           { tags: regex },
         ]),
       },
-      { _id: 1 },
+      { _id: 1, name: 1 },
     ).lean(),
     CategoryModel.find(
       {
@@ -1802,10 +1823,23 @@ async function findSearchMatchedRestaurantIds(search?: string) {
     ).lean(),
   ]);
 
-  const matchedIds = new Set<string>();
-  restaurantRows.forEach((restaurant) => matchedIds.add(String(restaurant._id)));
-  categoryRows.forEach((category) => matchedIds.add(String(category.restaurantId)));
-  menuRows.forEach((item) => matchedIds.add(String(item.restaurantId)));
+  restaurantRows.forEach((restaurant) => {
+    const nameIsExact =
+      Boolean(normalizedSearch) &&
+      normalizeDiscoverySearchText(restaurant.name) === normalizedSearch;
+    addRank(
+      String(restaurant._id),
+      nameIsExact
+        ? RANK_NAME_EXACT
+        : nameMatchesTokens(restaurant.name)
+          ? RANK_NAME
+          : RANK_RESTAURANT_FIELD,
+    );
+  });
+  categoryRows.forEach((category) =>
+    addRank(String(category.restaurantId), RANK_CATEGORY),
+  );
+  menuRows.forEach((item) => addRank(String(item.restaurantId), RANK_MENU_ITEM));
 
   if (tokens.some((token) => token.length >= 4)) {
     const [fuzzyRestaurants, fuzzyCategories, fuzzyItems] = await Promise.all([
@@ -1841,12 +1875,18 @@ async function findSearchMatchedRestaurantIds(search?: string) {
           ...(restaurant.tags ?? []),
         ])
       ) {
-        matchedIds.add(String(restaurant._id));
+        addRank(
+          String(restaurant._id),
+          RANK_FUZZY_OFFSET +
+            (isDiscoverySearchMatch(tokens, [restaurant.name])
+              ? RANK_NAME
+              : RANK_RESTAURANT_FIELD),
+        );
       }
     });
     fuzzyCategories.forEach((category) => {
       if (isDiscoverySearchMatch(tokens, [category.name, category.description])) {
-        matchedIds.add(String(category.restaurantId));
+        addRank(String(category.restaurantId), RANK_FUZZY_OFFSET + RANK_CATEGORY);
       }
     });
     fuzzyItems.forEach((item) => {
@@ -1854,12 +1894,32 @@ async function findSearchMatchedRestaurantIds(search?: string) {
         ? ((item as any).tags as string[])
         : [];
       if (isDiscoverySearchMatch(tokens, [item.name, item.description, ...itemTags])) {
-        matchedIds.add(String(item.restaurantId));
+        addRank(String(item.restaurantId), RANK_FUZZY_OFFSET + RANK_MENU_ITEM);
       }
     });
   }
 
-  return [...matchedIds].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const ids = [...rankById.keys()].filter((id) =>
+    mongoose.Types.ObjectId.isValid(id),
+  );
+  return { ids, rankById };
+}
+
+// Reorders discovery rows so search-relevant restaurants (name match first) lead,
+// while preserving the DB's isOpen/distance ordering within each relevance tier.
+function reorderBySearchRelevance<T extends Record<string, any>>(
+  rows: T[],
+  rankById: Map<string, number> | null,
+) {
+  if (!rankById) return rows;
+  return rows
+    .map((row, index) => ({
+      row,
+      index,
+      rank: rankById.get(String(row._id ?? "")) ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map((entry) => entry.row);
 }
 
 async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
@@ -2112,18 +2172,17 @@ export async function listDiscoverableRestaurants(params?: {
         query["discovery.isFeatured"] = true;
       }
 
-      const searchMatchedRestaurantIds = await findSearchMatchedRestaurantIds(
-        params?.search,
-      );
-      if (searchMatchedRestaurantIds) {
+      const searchMatch = await findSearchMatchedRestaurantIds(params?.search);
+      const searchRankById = searchMatch?.rankById ?? null;
+      if (searchMatch) {
         const existingIds = Array.isArray((query._id as any)?.$in)
           ? ((query._id as any).$in as mongoose.Types.ObjectId[]).map((id) =>
               id.toString(),
             )
           : null;
         const nextIds = existingIds
-          ? searchMatchedRestaurantIds.filter((id) => existingIds.includes(id))
-          : searchMatchedRestaurantIds;
+          ? searchMatch.ids.filter((id) => existingIds.includes(id))
+          : searchMatch.ids;
 
         if (!nextIds.length) {
           return [];
@@ -2164,7 +2223,9 @@ export async function listDiscoverableRestaurants(params?: {
           },
         ]);
 
-        return enrichRestaurantDiscoveryRows(restaurants);
+        return enrichRestaurantDiscoveryRows(
+          reorderBySearchRelevance(restaurants, searchRankById),
+        );
       }
 
       const geoNearQuery = {
@@ -2249,7 +2310,9 @@ export async function listDiscoverableRestaurants(params?: {
             )
           : restaurants;
 
-      return enrichRestaurantDiscoveryRows(eligibleRestaurants);
+      return enrichRestaurantDiscoveryRows(
+        reorderBySearchRelevance(eligibleRestaurants, searchRankById),
+      );
     },
   );
 }
@@ -2302,6 +2365,13 @@ export async function listDiscoverableRestaurantsPage(params?: {
   const page = Math.max(1, Math.floor(params?.page ?? 1));
   const pageSize = Math.max(1, Math.min(30, Math.floor(params?.pageSize ?? 12)));
   let restaurants = [...(await listDiscoverableRestaurants(params))];
+  // listDiscoverableRestaurants already returns search results ordered by relevance
+  // (restaurant-name matches first). Capture that order so the sort below keeps an
+  // exact restaurant-name match on top instead of dropping it to distance order.
+  const searchActive = Boolean(params?.search && params.search.trim());
+  const searchRelevanceOrder = searchActive
+    ? new Map(restaurants.map((restaurant, index) => [String(restaurant._id), index]))
+    : null;
 
   if (params?.filter === "open") {
     restaurants = restaurants.filter((restaurant) => restaurant.isOpen !== false);
@@ -2336,6 +2406,15 @@ export async function listDiscoverableRestaurantsPage(params?: {
   }
 
   restaurants.sort((left, right) => {
+    // Search relevance wins first: an exact restaurant-name match must lead even if
+    // a menu-item match happens to be closer/faster/higher-rated.
+    if (searchRelevanceOrder) {
+      const leftRank =
+        searchRelevanceOrder.get(String(left._id)) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank =
+        searchRelevanceOrder.get(String(right._id)) ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+    }
     if (params?.sortBy === "fastest") {
       return (
         Number(left.preparationTimeMinutes ?? Number.MAX_SAFE_INTEGER) -
@@ -4347,6 +4426,41 @@ export async function placeCustomerOrder(params: {
     );
   }
 
+  // Per-user usage counters for vouchers that allow more than one use per customer
+  // (maxUsesPerUser > 1) — the === 1 case is guarded by the partial unique index.
+  // Ensure the counter docs exist BEFORE the transaction (tolerating the first-write
+  // duplicate-key race here) so the in-transaction claim only ever does a conditional
+  // $inc on an existing doc — that produces retryable write-conflicts, never a
+  // transaction-aborting duplicate-key error.
+  const appliedVoucherIdsForUsage = Array.isArray(quote.appliedVouchers)
+    ? quote.appliedVouchers.map((voucher) => voucher.id).filter(Boolean)
+    : [];
+  const perUserLimitedVouchers = appliedVoucherIdsForUsage.length
+    ? await VoucherModel.find(
+        { _id: { $in: appliedVoucherIdsForUsage }, maxUsesPerUser: { $gt: 1 } },
+        { _id: 1, maxUsesPerUser: 1 },
+      ).lean()
+    : [];
+  const perUserLimitById = new Map(
+    perUserLimitedVouchers.map((voucher) => [
+      String(voucher._id),
+      voucher.maxUsesPerUser as number,
+    ]),
+  );
+  for (const voucher of perUserLimitedVouchers) {
+    try {
+      await VoucherUserUsageModel.updateOne(
+        { voucherId: voucher._id, customerId },
+        { $setOnInsert: { usedCount: 0 } },
+        { upsert: true },
+      );
+    } catch (error) {
+      // Concurrent first-insert loses the unique-index race — the doc now exists,
+      // which is all we needed. Re-throw anything else.
+      if ((error as { code?: number })?.code !== 11000) throw error;
+    }
+  }
+
   const session = await mongoose.startSession();
 
   try {
@@ -4517,6 +4631,29 @@ export async function placeCustomerOrder(params: {
           }
           countedVoucherIds.add(String(voucher._id));
         }
+        // Race-free per-user usage cap for maxUsesPerUser > 1: conditional atomic
+        // $inc on the pre-ensured counter doc. At the boundary the guard fails
+        // (usedCount already == limit) and the order is rejected.
+        const perUserCountedVoucherIds = new Set<string>();
+        for (const [voucherId, maxUsesPerUser] of perUserLimitById) {
+          const claimed = await VoucherUserUsageModel.findOneAndUpdate(
+            {
+              voucherId: new mongoose.Types.ObjectId(voucherId),
+              customerId,
+              usedCount: { $lt: maxUsesPerUser },
+            },
+            { $inc: { usedCount: 1 } },
+            { session, new: true },
+          );
+          if (!claimed) {
+            throw new AppError(
+              StatusCodes.CONFLICT,
+              "VOUCHER_USER_LIMIT_REACHED",
+              "You have already used this voucher the maximum number of times",
+            );
+          }
+          perUserCountedVoucherIds.add(voucherId);
+        }
         await VoucherRedemptionModel.create(
           appliedVouchers.map((voucher: CustomerCacheRecord) => {
             const discountAmount =
@@ -4533,6 +4670,7 @@ export async function placeCustomerOrder(params: {
               voucherId: voucher.id,
               singleUsePerUser: singleUseVoucherIds.has(String(voucher.id)),
               countedTowardTotal: countedVoucherIds.has(String(voucher.id)),
+              countedPerUser: perUserCountedVoucherIds.has(String(voucher.id)),
               voucherSnapshot: {
                 ...voucher,
                 customerId,
@@ -5779,16 +5917,43 @@ export async function cancelCustomerOrder(params: {
     cancelledAt: cancelledAt,
   };
 
-  await order.save();
-  await Promise.all([
-    syncOrderLedgerForFinalStatus({
-      restaurantId: order.restaurantId.toString(),
-      orderId: order.id,
-      nextStatus: "Cancelled",
-      finalizedAt: cancelledAt,
-    }),
-    releaseVoucherRedemptionsForOrder(order._id, "customer_cancelled"),
-  ]);
+  // Cancel + voucher release must be atomic: if the release failed after the
+  // status flip, the order would read Cancelled while the customer's single-use
+  // voucher stayed consumed. A transaction keeps both consistent; a fresh status
+  // re-check inside it guards against a concurrent cancel/accept slipping through.
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const fresh = await OrderModel.findById(order._id)
+        .select("status")
+        .session(session)
+        .lean();
+      if (!fresh || fresh.status !== "New") {
+        throw new AppError(
+          StatusCodes.BAD_REQUEST,
+          "ORDER_CANCELLATION_NOT_ALLOWED",
+          "This order can no longer be cancelled",
+        );
+      }
+      await order.save({ session });
+      await releaseVoucherRedemptionsForOrder(
+        order._id,
+        "customer_cancelled",
+        session,
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  // Ledger settlement is an eventual side-effect (and a no-op for a New order that
+  // has no earning entry yet); run it after the cancel has durably committed.
+  await syncOrderLedgerForFinalStatus({
+    restaurantId: order.restaurantId.toString(),
+    orderId: order.id,
+    nextStatus: "Cancelled",
+    finalizedAt: cancelledAt,
+  });
 
   const restaurant = await RestaurantModel.findById(order.restaurantId);
   if (restaurant) {

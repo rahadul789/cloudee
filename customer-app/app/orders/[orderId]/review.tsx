@@ -44,7 +44,8 @@ export default function OrderReviewScreen() {
   const [riderComment, setRiderComment] = useState("");
   const [comment, setComment] = useState("");
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
-  const riderReviewEnabled = useCustomerRiderReviewEnabledQuery().data !== false;
+  const riderReviewEnabled =
+    useCustomerRiderReviewEnabledQuery().data !== false;
 
   const orderQuery = useCustomerOrderDetailsQuery(orderId);
   const order = orderQuery.data;
@@ -148,7 +149,9 @@ export default function OrderReviewScreen() {
               size={32}
               color={palette.mutedForeground}
             />
-            <Text style={styles.emptyText}>We couldn&apos;t find this order.</Text>
+            <Text style={styles.emptyText}>
+              We couldn&apos;t find this order.
+            </Text>
           </View>
         ) : (
           <>
@@ -180,7 +183,7 @@ export default function OrderReviewScreen() {
                   <Text style={styles.orderNumber}>
                     Order #{order.orderNumber}
                   </Text>
-                  <Text style={styles.viewDetailsText}>View details</Text>
+                  {/* <Text style={styles.viewDetailsText}>View details</Text> */}
                 </View>
               </View>
               <Ionicons
@@ -195,7 +198,9 @@ export default function OrderReviewScreen() {
                 <View style={styles.thankYouBadge}>
                   <Ionicons name="checkmark" size={24} color="#fff" />
                 </View>
-                <Text style={styles.thankYouTitle}>Thanks for your rating!</Text>
+                <Text style={styles.thankYouTitle}>
+                  Thanks for your rating!
+                </Text>
                 <View style={styles.starRowStatic}>
                   {Array.from({ length: 5 }, (_, index) => (
                     <Ionicons

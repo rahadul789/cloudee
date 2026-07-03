@@ -3,13 +3,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -65,6 +65,7 @@ export default function CustomerSearchScreen() {
   const params = useLocalSearchParams<{ query?: string; focus?: string }>();
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput | null>(null);
+  const listRef = useRef<FlashListRef<DiscoverableRestaurant>>(null);
   const [query, setQuery] = useState(typeof params.query === "string" ? params.query : "");
   const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
@@ -96,6 +97,11 @@ export default function CustomerSearchScreen() {
     }, query.trim().length <= 2 ? 180 : 280);
     return () => clearTimeout(timer);
   }, [query]);
+
+  // New/changed search term always starts from the top of the results list.
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [debouncedQuery]);
 
   const searchQuery = debouncedQuery;
   // radiusKm omitted: backend applies the resolved zone / admin fallback radius.
@@ -201,7 +207,7 @@ export default function CustomerSearchScreen() {
             <TextInput
               ref={inputRef}
               value={query}
-              onChangeText={setQuery}
+              onChangeText={(text) => setQuery(text.replace(/^\s+/, ""))}
               placeholder="Search food or restaurant"
               placeholderTextColor={palette.placeholder}
               autoCapitalize="none"
@@ -227,12 +233,15 @@ export default function CustomerSearchScreen() {
           <OfflineNoticeCard description="Search may show cached results until your internet connection returns." />
         ) : null}
 
-        <FlatList
+        <View style={styles.listWrap}>
+        <FlashList
+          ref={listRef}
           data={restaurants}
           keyExtractor={(item) => item._id}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          drawDistance={560}
           ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
           onEndReachedThreshold={0.35}
           onEndReached={() => {
@@ -395,6 +404,7 @@ export default function CustomerSearchScreen() {
             />
           )}
         />
+        </View>
       </View>
     </Screen>
   );
@@ -467,6 +477,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "700",
     color: palette.foreground,
+  },
+  listWrap: {
+    flex: 1,
   },
   listContent: {
     paddingTop: 8,

@@ -101,7 +101,9 @@
       "Bash(awk -F: '$1>4200 && $1<4550')",
       "Bash(awk '/ensureCustomerIdentity/ && !/Backfill/ {print NR\": \"$0}' src/modules/customer/customer.service.ts)",
       "Bash(npx tsx *)",
-      "Bash(rm -f diag-voucher.ts diag-notif.ts diag-analytics.ts)"
+      "Bash(rm -f diag-voucher.ts diag-notif.ts diag-analytics.ts)",
+      "Bash(grep -iE 'sort|score|rank|regex|$text|name')",
+      "Bash(grep -n \"^  return \\(\\\\|const openDetailsSheet\\\\|const closeDetailsSheet\\\\|^  \\);$\\\\|^}\" customer-app/app/orders/\\\\[orderId\\\\]/tracking.tsx)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

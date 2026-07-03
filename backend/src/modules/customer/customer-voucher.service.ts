@@ -3,7 +3,11 @@ import mongoose from "mongoose";
 
 import { AppError } from "../../common/utils/app-error";
 import { OrderModel } from "../owner/operational.model";
-import { VoucherModel, VoucherRedemptionModel } from "./customer.model";
+import {
+  VoucherModel,
+  VoucherRedemptionModel,
+  VoucherUserUsageModel,
+} from "./customer.model";
 
 // Voucher eligibility, discount calculation and redemption lifecycle.
 // Extracted from customer.service.ts. Depends only on models + shared utils,
@@ -66,16 +70,27 @@ export async function releaseVoucherRedemptionsForOrder(
   reason: string,
   session?: mongoose.ClientSession,
 ) {
-  // Capture which redemptions counted toward a voucher's global usage cap or a
-  // menu-markdown budget so we can give those slots/spend back when the order is
-  // released (cancelled/rejected).
+  // Capture which redemptions counted toward a voucher's global usage cap, a
+  // menu-markdown budget, or a per-user usage counter so we can give those
+  // slots/spend back when the order is released (cancelled/rejected).
   const counted = await VoucherRedemptionModel.find(
     {
       orderId,
       releasedAt: null,
-      $or: [{ countedTowardTotal: true }, { countedTowardBudget: true }],
+      $or: [
+        { countedTowardTotal: true },
+        { countedTowardBudget: true },
+        { countedPerUser: true },
+      ],
     },
-    { voucherId: 1, countedTowardTotal: 1, countedTowardBudget: 1, budgetConsumed: 1 },
+    {
+      voucherId: 1,
+      countedTowardTotal: 1,
+      countedTowardBudget: 1,
+      budgetConsumed: 1,
+      countedPerUser: 1,
+      "voucherSnapshot.customerId": 1,
+    },
     session ? { session } : undefined,
   ).lean();
 
@@ -92,22 +107,42 @@ export async function releaseVoucherRedemptionsForOrder(
   );
 
   if (counted.length) {
-    await VoucherModel.bulkWrite(
-      counted.map((redemption) => {
-        const dec: Record<string, number> = {};
-        if (redemption.countedTowardTotal) dec.redeemedCount = -1;
-        if (redemption.countedTowardBudget && redemption.budgetConsumed) {
-          dec.consumedDiscountBudget = -redemption.budgetConsumed;
-        }
-        return {
-          updateOne: {
-            filter: { _id: redemption.voucherId },
-            update: { $inc: dec },
+    const voucherOps: Parameters<typeof VoucherModel.bulkWrite>[0] = [];
+    for (const redemption of counted) {
+      const dec: Record<string, number> = {};
+      if (redemption.countedTowardTotal) dec.redeemedCount = -1;
+      if (redemption.countedTowardBudget && redemption.budgetConsumed) {
+        dec.consumedDiscountBudget = -redemption.budgetConsumed;
+      }
+      if (Object.keys(dec).length) {
+        voucherOps.push({
+          updateOne: { filter: { _id: redemption.voucherId }, update: { $inc: dec } },
+        });
+      }
+    }
+    if (voucherOps.length) {
+      await VoucherModel.bulkWrite(voucherOps, session ? { session } : {});
+    }
+
+    // Give back per-user usage slots (maxUsesPerUser > 1). Guard usedCount > 0 so a
+    // double release can never drive the counter negative.
+    const perUserOps = counted
+      .filter((redemption) => redemption.countedPerUser)
+      .map((redemption) => ({
+        updateOne: {
+          filter: {
+            voucherId: redemption.voucherId,
+            customerId: String(
+              (redemption as any).voucherSnapshot?.customerId ?? "",
+            ),
+            usedCount: { $gt: 0 },
           },
-        };
-      }),
-      session ? { session } : {},
-    );
+          update: { $inc: { usedCount: -1 } },
+        },
+      }));
+    if (perUserOps.length) {
+      await VoucherUserUsageModel.bulkWrite(perUserOps, session ? { session } : {});
+    }
   }
 }
 

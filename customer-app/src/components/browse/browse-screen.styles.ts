@@ -7,6 +7,15 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 40,
   },
+  stickySearchBar: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+    backgroundColor: palette.background,
+  },
+  listWrap: {
+    flex: 1,
+  },
   restaurantSeparator: {
     height: 14,
   },
@@ -29,7 +38,7 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   headerWrap: {
-    paddingTop: 12,
+    paddingTop: 2,
     paddingBottom: 16,
   },
   headerCard: {
@@ -114,9 +123,6 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
     paddingVertical: 0,
     textAlignVertical: "center",
-  },
-  searchInputCentered: {
-    textAlign: "center",
   },
   clearButton: {
     width: 28,

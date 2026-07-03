@@ -143,6 +143,12 @@ export function RiderSocketBridge() {
     void connectIfActive();
     const handleSocketConnected = () => {
       setDeliveryNetworkOnline(true);
+      // Re-join the rider room on every (re)connect. socket.io reconnects the
+      // transport but does NOT restore server-side room membership, and the
+      // backend only joins on an explicit "rider:join" — without this, a rider
+      // silently stops receiving assignment/order events after a network blip
+      // until the next poll or app foreground.
+      socket.emit("rider:join", riderId);
       refetchRiderRealtimeState();
     };
     const handleSocketDisconnected = (reason: string) => {

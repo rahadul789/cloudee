@@ -658,10 +658,28 @@ const voucherRedemptionSchema = new Schema(
     // consumedDiscountBudget. budgetConsumed records how much, so a release can
     // give the exact amount back race-free.
     countedTowardBudget: { type: Boolean, default: false },
-    budgetConsumed: { type: Number, default: 0 }
+    budgetConsumed: { type: Number, default: 0 },
+    // True when this redemption incremented the per-user usage counter
+    // (VoucherUserUsage) for a voucher with maxUsesPerUser > 1. Drives the matching
+    // decrement on release. maxUsesPerUser === 1 stays guarded by singleUsePerUser.
+    countedPerUser: { type: Boolean, default: false }
   },
   { timestamps: true }
 )
+
+// Race-free per-user usage counter for vouchers with maxUsesPerUser > 1 (the
+// single-use === 1 case is guarded by the partial unique index above). The order
+// transaction claims a slot with a conditional atomic $inc; concurrent orders at
+// the limit boundary lose the claim instead of slipping past the count check.
+const voucherUserUsageSchema = new Schema(
+  {
+    voucherId: { type: Schema.Types.ObjectId, ref: "Voucher", required: true },
+    customerId: { type: String, required: true },
+    usedCount: { type: Number, default: 0 }
+  },
+  { timestamps: true }
+)
+voucherUserUsageSchema.index({ voucherId: 1, customerId: 1 }, { unique: true })
 
 voucherRedemptionSchema.index({ voucherId: 1, releasedAt: 1 })
 voucherRedemptionSchema.index({ "voucherSnapshot.customerId": 1, voucherId: 1, releasedAt: 1 })
@@ -696,4 +714,8 @@ export const RestaurantCollectionModel = mongoose.model(
 export const VoucherRedemptionModel = mongoose.model(
   "VoucherRedemption",
   voucherRedemptionSchema
+)
+export const VoucherUserUsageModel = mongoose.model(
+  "VoucherUserUsage",
+  voucherUserUsageSchema
 )

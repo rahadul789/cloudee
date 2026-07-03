@@ -122,14 +122,26 @@ export default function ProfileScreen() {
   useCustomerProfileQuery(Boolean(customer));
   const logoutMutation = useCustomerLogoutMutation();
   const profileUpdateMutation = useCustomerProfileUpdateMutation();
-  const pendingPromotions = profileUpdateMutation.isPending
-    ? profileUpdateMutation.variables?.notificationSettings?.promotions
-    : undefined;
-  const promotionsEnabled =
-    pendingPromotions ?? customer?.notificationSettings?.promotions !== false;
+  const serverPromotionsEnabled =
+    customer?.notificationSettings?.promotions !== false;
+  // Track the toggle locally so the Switch flips in the same commit as the tap.
+  // Relying on the mutation's async isPending caused the knob to snap back to the
+  // server value for a frame before re-applying — the "back then switch" glitch.
+  const [optimisticPromotions, setOptimisticPromotions] = useState<boolean | null>(
+    null,
+  );
+  const promotionsEnabled = optimisticPromotions ?? serverPromotionsEnabled;
   const togglePromotions = useCallback(
     (next: boolean) => {
-      profileUpdateMutation.mutate({ notificationSettings: { promotions: next } });
+      setOptimisticPromotions(next);
+      profileUpdateMutation.mutate(
+        { notificationSettings: { promotions: next } },
+        {
+          // Server is authoritative once it responds; on failure fall back to it.
+          onSuccess: () => setOptimisticPromotions(null),
+          onError: () => setOptimisticPromotions(null),
+        },
+      );
     },
     [profileUpdateMutation],
   );

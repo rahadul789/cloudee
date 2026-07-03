@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
 import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -140,6 +140,7 @@ export default function BrowseScreen() {
   // instantly on focus, matching Home. Focus still gates the network queries below.
   const isBrowseFocused = useIsFocused();
   const searchQueryRef = useRef(searchQuery);
+  const listRef = useRef<FlashListRef<DiscoverableRestaurant>>(null);
   const isAuthenticated = useCustomerAuthStore((state) =>
     Boolean(state.accessToken)
   );
@@ -186,6 +187,12 @@ export default function BrowseScreen() {
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Whenever the search term changes (new search or cleared), jump the list back
+  // to the top so results always start from the top instead of a leftover offset.
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [debouncedSearchQuery]);
 
   // radiusKm omitted: backend applies the resolved zone / admin fallback radius.
   const nearbyRestaurantsQuery = useRestaurantDiscoveryInfiniteQuery({
@@ -438,7 +445,57 @@ export default function BrowseScreen() {
 
   return (
     <Screen>
+      {/* Search + filter stay pinned above the list so they never scroll away and
+          clearing the query can't yank the list to the top (search-bar reflow). */}
+      <View style={styles.stickySearchBar}>
+        <View style={styles.searchRow}>
+          <View style={styles.searchBar}>
+            <View style={styles.searchIconWrap}>
+              <Ionicons name="search" size={17} color={palette.secondary} />
+            </View>
+            <TextInput
+              value={searchQuery}
+              onChangeText={(text) => setSearchQuery(text.replace(/^\s+/, ""))}
+              placeholder="Search by restaurant or menu"
+              placeholderTextColor={palette.mutedForeground}
+              style={styles.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+              returnKeyType="search"
+              onSubmitEditing={commitRecentSearch}
+            />
+            {searchQuery.trim().length > 0 ? (
+              <Pressable
+                onPress={() => setSearchQuery("")}
+                style={({ pressed }) => [
+                  styles.clearButton,
+                  pressed ? styles.pressablePressed : null,
+                ]}
+              >
+                <Ionicons name="close" size={16} color={palette.mutedForeground} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.filterButton,
+              pressed ? styles.pressablePressed : null,
+            ]}
+            onPress={openFilters}
+          >
+            <Ionicons name="options-outline" size={16} color="#fff" />
+            {activeFilterCount ? (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </View>
+      </View>
+      <View style={styles.listWrap}>
       <FlashList
+        ref={listRef}
         data={filteredRestaurants}
         keyExtractor={(item) => item._id}
         renderItem={renderRestaurant}
@@ -478,54 +535,6 @@ export default function BrowseScreen() {
               {!isOnline ? (
                 <OfflineNoticeCard description="Browse is showing the last available data. Reconnect to refresh menus, prices, and availability." />
               ) : null}
-              <View style={styles.searchRow}>
-                <View style={styles.searchBar}>
-                  <View style={styles.searchIconWrap}>
-                    <Ionicons name="search" size={17} color={palette.secondary} />
-                  </View>
-                  <TextInput
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholder="Search by restaurant or menu"
-                    placeholderTextColor={palette.mutedForeground}
-                    style={[
-                      styles.searchInput,
-                      searchQuery.length === 0 ? styles.searchInputCentered : null,
-                    ]}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    returnKeyType="search"
-                    onSubmitEditing={commitRecentSearch}
-                  />
-                  {searchQuery.length > 0 ? (
-                    <Pressable
-                      onPress={() => setSearchQuery("")}
-                      style={({ pressed }) => [
-                        styles.clearButton,
-                        pressed ? styles.pressablePressed : null,
-                      ]}
-                    >
-                      <Ionicons name="close" size={16} color={palette.mutedForeground} />
-                    </Pressable>
-                  ) : null}
-                </View>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.filterButton,
-                    pressed ? styles.pressablePressed : null,
-                  ]}
-                  onPress={openFilters}
-                >
-                  <Ionicons name="options-outline" size={16} color="#fff" />
-                  {activeFilterCount ? (
-                    <View style={styles.filterBadge}>
-                      <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              </View>
-
               <View style={styles.sortRow}>
                 <Text style={styles.sortSummary}>
                   {totalRestaurantCount} result
@@ -744,6 +753,7 @@ export default function BrowseScreen() {
           )
         }
       />
+      </View>
 
       <AppBottomSheet
         visible={isFilterOpen}

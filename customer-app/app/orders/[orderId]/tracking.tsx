@@ -25,7 +25,6 @@ import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { CardListSkeleton, ShimmerBlock } from "@/src/components/loading-skeleton";
 import { LiveOrderMap } from "@/src/components/orders/live-order-map";
-import { RiderRatingCard } from "@/src/components/orders/rider-rating-card";
 import { styles } from "@/src/components/orders/order-tracking.styles";
 import { PreparationRuntime, type PreparationEstimate } from "@/src/components/orders/preparation-runtime";
 import { ReadyForPickupIcon } from "@/src/components/orders/ready-for-pickup-icon";
@@ -37,11 +36,8 @@ import {
   useCustomerMapStyleQuery,
   useCustomerReorderMutation,
   useCustomerRestaurantDetailsQuery,
-  useCustomerReviewMutation,
-  useCustomerRiderReviewEnabledQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatCurrency } from "@/src/lib/currency";
-import { getRatingLabel } from "@/src/lib/rating-labels";
 import {
   getCustomerOrderStatusMeta,
   getLiveOrderJourneyIndex,
@@ -360,10 +356,6 @@ export default function OrderTrackingScreen() {
   const params = useLocalSearchParams<{ orderId?: string; justPlaced?: string }>();
   const [isDetailsOpen, setDetailsOpen] = useState(false);
   const [noteExpanded, setNoteExpanded] = useState(false);
-  const [selectedRating, setSelectedRating] = useState(0);
-  const [selectedRiderRating, setSelectedRiderRating] = useState(0);
-  const [selectedRiderComment, setSelectedRiderComment] = useState("");
-  const [reviewComment, setReviewComment] = useState("");
   const [reorderConflictMeta, setReorderConflictMeta] = useState<{
     currentRestaurantName: string;
     incomingRestaurantName: string;
@@ -378,8 +370,6 @@ export default function OrderTrackingScreen() {
   const orderQuery = useCustomerOrderDetailsQuery(orderId);
   const trackingMapStyleQuery = useCustomerMapStyleQuery("customer.order_tracking");
   const cancelOrderMutation = useCustomerCancelOrderMutation(orderId);
-  const reviewMutation = useCustomerReviewMutation(orderId);
-  const riderReviewEnabled = useCustomerRiderReviewEnabledQuery().data !== false;
   const reorderMutation = useCustomerReorderMutation();
   const showBanner = useAppBannerStore((state) => state.showBanner);
   const isOnline = useIsOnline();
@@ -629,21 +619,79 @@ export default function OrderTrackingScreen() {
 
     void Linking.openURL(`tel:${riderPhone}`);
   };
-  const handleSubmitReview = () => {
-    if (!selectedRating) {
-      return;
-    }
-
-    reviewMutation.mutate({
-      rating: selectedRating,
-      comment: reviewComment.trim() || undefined,
-      riderRating: selectedRiderRating > 0 ? selectedRiderRating : undefined,
-      riderComment:
-        selectedRiderRating > 0 && selectedRiderComment.trim()
-          ? selectedRiderComment.trim()
-          : undefined,
-    });
+  const openReviewScreen = () => {
+    router.push(`/orders/${orderId}/review`);
   };
+  // Shared receipt (items + price breakdown) so the delivered screen can show it
+  // inline while live orders keep it inside the on-demand details sheet.
+  const renderOrderReceipt = () => (
+    <>
+      {itemRows.map((item, index) => {
+        const quantity = item.quantity ?? 0;
+        const unitPrice = item.unitPrice ?? 0;
+
+        return (
+          <View
+            key={`${item.itemId ?? item.name}-${index}`}
+            style={styles.detailsItemRow}
+          >
+            <View style={styles.detailsItemIcon}>
+              <Ionicons
+                name="restaurant-outline"
+                size={16}
+                color={palette.primary}
+              />
+            </View>
+            <View style={styles.detailsItemCopy}>
+              <View style={styles.detailsItemTopRow}>
+                <Text style={styles.detailsItemName} numberOfLines={1}>
+                  {item.name || "Menu item"}
+                </Text>
+                <Text style={styles.detailsItemPrice}>
+                  {formatCurrency(quantity * unitPrice)}
+                </Text>
+              </View>
+              <Text style={styles.detailsItemMeta}>
+                {quantity} x {formatCurrency(unitPrice)}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
+
+      <View style={styles.detailsDivider} />
+
+      <View style={styles.paymentSummary}>
+        <View style={styles.paymentRow}>
+          <Text style={styles.paymentLabel}>Items subtotal</Text>
+          <Text style={styles.paymentValue}>
+            {formatCurrency(order.pricing?.subtotal ?? 0)}
+          </Text>
+        </View>
+        <View style={styles.paymentRow}>
+          <Text style={styles.paymentLabel}>Delivery fee</Text>
+          <Text style={styles.paymentValue}>
+            {formatCurrency(order.pricing?.deliveryFee ?? 0)}
+          </Text>
+        </View>
+        {(order.pricing?.discountAmount ?? 0) > 0 ? (
+          <View style={styles.paymentRow}>
+            <Text style={styles.paymentLabel}>Discount</Text>
+            <Text style={styles.paymentDiscount}>
+              -{formatCurrency(order.pricing?.discountAmount ?? 0)}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.detailsDivider} />
+        <View style={styles.paymentRow}>
+          <Text style={styles.paymentValueStrong}>Total</Text>
+          <Text style={styles.paymentValueStrong}>
+            {formatCurrency(order.pricing?.total ?? 0)}
+          </Text>
+        </View>
+      </View>
+    </>
+  );
   const handleReorder = async (forceReplace = false) => {
     const result = await reorderMutation.mutateAsync({
       order: {
@@ -1139,20 +1187,22 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        <View style={styles.detailsButtonRow}>
-          <Pressable
-            android_ripple={{ color: "rgba(255,255,255,0.18)" }}
-            style={({ pressed }) => [
-              styles.detailsButton,
-              styles.detailsButtonFull,
-              pressed && styles.detailsButtonPressed,
-            ]}
-            onPress={openDetailsSheet}
-          >
-            <Ionicons name="receipt-outline" size={15} color="#fff" />
-            <Text style={styles.detailsButtonText}>Order details</Text>
-          </Pressable>
-        </View>
+        {!isDeliveredOrder ? (
+          <View style={styles.detailsButtonRow}>
+            <Pressable
+              android_ripple={{ color: "rgba(255,255,255,0.18)" }}
+              style={({ pressed }) => [
+                styles.detailsButton,
+                styles.detailsButtonFull,
+                pressed && styles.detailsButtonPressed,
+              ]}
+              onPress={openDetailsSheet}
+            >
+              <Ionicons name="receipt-outline" size={15} color="#fff" />
+              <Text style={styles.detailsButtonText}>Order details</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {order.note?.trim() ? (
           <View style={styles.noteCard}>
@@ -1186,7 +1236,7 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {journeyIndex >= 0 && !isDeliveredOrder ? (
+        {journeyIndex >= 0 ? (
           <View style={styles.journeyCard}>
             <Text style={styles.journeyTitle}>Order journey</Text>
 
@@ -1288,6 +1338,16 @@ export default function OrderTrackingScreen() {
         </View>
         ) : null}
 
+        {isDeliveredOrder ? (
+          <View style={styles.journeyCard}>
+            <Text style={styles.journeyTitle}>Order details</Text>
+            <Text style={styles.detailsDateText}>
+              Placed {formatDateMedium(order.createdAt)}
+            </Text>
+            {renderOrderReceipt()}
+          </View>
+        ) : null}
+
         {order.customerReview ? (
           <View style={styles.reviewCard}>
             <View style={styles.reviewHeaderRow}>
@@ -1308,76 +1368,29 @@ export default function OrderTrackingScreen() {
         ) : null}
 
         {canReviewOrder ? (
-          <View style={styles.reviewCard}>
-            <View style={styles.reviewHeaderRow}>
-              <View>
-                <Text style={styles.reviewTitle}>Rate this order</Text>
-                <Text style={styles.reviewHint}>
-                  Tell us how your food and delivery felt.
-                </Text>
-              </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.reviewCard,
+              styles.rateCtaCard,
+              pressed ? styles.rateCtaCardPressed : null,
+            ]}
+            onPress={openReviewScreen}
+          >
+            <View style={styles.rateCtaIcon}>
+              <Ionicons name="star" size={20} color={palette.amber} />
             </View>
-            <View style={styles.reviewStarsRow}>
-              {Array.from({ length: 5 }).map((_, index) => {
-                const ratingValue = index + 1;
-                const isActive = ratingValue <= selectedRating;
-
-                return (
-                  <Pressable
-                    key={`star-${ratingValue}`}
-                    style={styles.reviewStarButton}
-                    onPress={() => setSelectedRating(ratingValue)}
-                  >
-                    <Ionicons
-                      name={isActive ? "star" : "star-outline"}
-                      size={23}
-                      color={isActive ? palette.amber : palette.mutedForeground}
-                    />
-                  </Pressable>
-                );
-              })}
-            </View>
-            {selectedRating > 0 ? (
-              <Text style={styles.reviewRatingLabel}>
-                {getRatingLabel(selectedRating)}
+            <View style={styles.rateCtaCopy}>
+              <Text style={styles.reviewTitle}>Rate this order</Text>
+              <Text style={styles.reviewHint}>
+                Tell us how your food and delivery felt.
               </Text>
-            ) : null}
-            <TextInput
-              value={reviewComment}
-              onChangeText={setReviewComment}
-              placeholder="Add a comment about the food and your order (optional)"
-              placeholderTextColor={palette.placeholder}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
-              style={styles.reviewInput}
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={palette.mutedForeground}
             />
-            {(riderPhone || order.riderSnapshot?.name) && riderReviewEnabled ? (
-              <RiderRatingCard
-                value={selectedRiderRating}
-                onChange={setSelectedRiderRating}
-                comment={selectedRiderComment}
-                onCommentChange={setSelectedRiderComment}
-                riderName={order.riderSnapshot?.name}
-              />
-            ) : null}
-            <Pressable
-              style={[
-                styles.submitReviewButton,
-                selectedRating === 0 || reviewMutation.isPending
-                  ? styles.submitReviewButtonDisabled
-                  : null,
-              ]}
-              disabled={selectedRating === 0 || reviewMutation.isPending}
-              onPress={handleSubmitReview}
-            >
-              {reviewMutation.isPending ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.submitReviewButtonText}>Submit review</Text>
-              )}
-            </Pressable>
-          </View>
+          </Pressable>
         ) : null}
       </ScrollView>
 
@@ -1476,70 +1489,7 @@ export default function OrderTrackingScreen() {
                 </View>
               ) : null}
 
-              {itemRows.map((item, index) => {
-                const quantity = item.quantity ?? 0;
-                const unitPrice = item.unitPrice ?? 0;
-
-                return (
-                  <View
-                    key={`${item.itemId ?? item.name}-${index}`}
-                    style={styles.detailsItemRow}
-                  >
-                    <View style={styles.detailsItemIcon}>
-                      <Ionicons
-                        name="restaurant-outline"
-                        size={16}
-                        color={palette.primary}
-                      />
-                    </View>
-                    <View style={styles.detailsItemCopy}>
-                      <View style={styles.detailsItemTopRow}>
-                        <Text style={styles.detailsItemName} numberOfLines={1}>
-                          {item.name || "Menu item"}
-                        </Text>
-                        <Text style={styles.detailsItemPrice}>
-                          {formatCurrency(quantity * unitPrice)}
-                        </Text>
-                      </View>
-                      <Text style={styles.detailsItemMeta}>
-                        {quantity} x {formatCurrency(unitPrice)}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-
-              <View style={styles.detailsDivider} />
-
-              <View style={styles.paymentSummary}>
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Items subtotal</Text>
-                  <Text style={styles.paymentValue}>
-                    {formatCurrency(order.pricing?.subtotal ?? 0)}
-                  </Text>
-                </View>
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Delivery fee</Text>
-                  <Text style={styles.paymentValue}>
-                    {formatCurrency(order.pricing?.deliveryFee ?? 0)}
-                  </Text>
-                </View>
-                {(order.pricing?.discountAmount ?? 0) > 0 ? (
-                  <View style={styles.paymentRow}>
-                    <Text style={styles.paymentLabel}>Discount</Text>
-                    <Text style={styles.paymentDiscount}>
-                      -{formatCurrency(order.pricing?.discountAmount ?? 0)}
-                    </Text>
-                  </View>
-                ) : null}
-                <View style={styles.detailsDivider} />
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentValueStrong}>Total</Text>
-                  <Text style={styles.paymentValueStrong}>
-                    {formatCurrency(order.pricing?.total ?? 0)}
-                  </Text>
-                </View>
-              </View>
+              {renderOrderReceipt()}
 
               {canCancelOrder ? (
                 <Pressable

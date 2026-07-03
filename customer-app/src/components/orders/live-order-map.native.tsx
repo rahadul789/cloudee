@@ -47,10 +47,14 @@ const ESTIMATED_ROUTE = "rgba(31, 36, 48, 0.45)";
 const RIDER_PIN_YELLOW = "#FFD54A";
 const RIDER_ICON_DARK = "#1F2430";
 const OFF_ROAD_GAP_METERS = 25;
-// GPS jitter and overview polylines commonly drift by 10-30m. Only show dotted
-// connectors for a genuine pin-to-road handoff, not for normal on-road movement.
+// The rider is a live GPS source that jitters 10-30m, so its connector needs a
+// higher floor to avoid flickering dashes during normal on-road movement.
 const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
-const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 50;
+// The destination is a FIXED saved pin (no GPS jitter), so any real gap between
+// the road route's end and the pin is a genuine off-road handoff. Keep the floor
+// small — just above a road-snapped pin's few metres — so off-road homes always
+// get the dotted "last metres" connector to the exact location.
+const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 12;
 const ROUTE_DRAW_SNAP_MAX_METERS = 90;
 const MAP_HEIGHT_SCREEN_RATIO = 0.54;
 const ROUTE_DETOUR_DIRECT_MAX_METERS = 180;

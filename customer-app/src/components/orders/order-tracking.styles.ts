@@ -1113,6 +1113,26 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  rateCtaCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  rateCtaCardPressed: {
+    opacity: 0.85,
+  },
+  rateCtaIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF3D6",
+  },
+  rateCtaCopy: {
+    flex: 1,
+    gap: 2,
+  },
   noteCard: {
     marginHorizontal: 18,
     backgroundColor: palette.surface,
