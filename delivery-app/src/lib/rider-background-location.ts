@@ -4,6 +4,13 @@ import { AppState, Platform } from "react-native";
 
 import { API_BASE_URL } from "@/src/config/api";
 import { secureStateStorage } from "@/src/lib/secure-storage";
+import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
+
+// Last GPS fix we trusted + how many we've rejected since, so the quality gate can
+// detect teleports and re-baseline after a bad reference. Module-level: persists for
+// the life of the foreground-service task, resets to a clean slate if it restarts.
+let lastAcceptedFix: AcceptedFix | null = null;
+let consecutiveRejects = 0;
 
 export const RIDER_BACKGROUND_LOCATION_TASK =
   "foodbela-rider-background-location";
@@ -314,6 +321,29 @@ async function sendBackgroundLocationPayload(
 
 async function sendBackgroundLocation(location: Location.LocationObject) {
   const latestPayload = getLocationPayload(location);
+  const now = Date.now();
+
+  // Drop implausible fixes (huge accuracy radius, or a teleport that a bike could
+  // never do) before they reach the server — this is what stops the rider marker
+  // from jumping to a wrong spot and snapping back while the rider is stationary.
+  const accepted = shouldAcceptFix({
+    latitude: latestPayload.latitude,
+    longitude: latestPayload.longitude,
+    accuracyMeters: latestPayload.accuracyMeters,
+    nowMs: now,
+    last: lastAcceptedFix,
+    consecutiveRejects,
+  });
+  if (!accepted) {
+    consecutiveRejects += 1;
+    return;
+  }
+  consecutiveRejects = 0;
+  lastAcceptedFix = {
+    latitude: latestPayload.latitude,
+    longitude: latestPayload.longitude,
+    atMs: now,
+  };
 
   // Always try to flush a previously failed send first (offline recovery).
   const pendingPayload = await readPendingBackgroundLocation();
@@ -329,7 +359,6 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
   // what keeps the customer's marker/ETA alive while the rider is stuck in traffic.
   const policy = await readSendPolicy();
   const lastSent = await readLastSentLocation();
-  const now = Date.now();
   const movedMeters = lastSent ? distanceMeters(lastSent, latestPayload) : Infinity;
   const elapsedMs = lastSent ? now - lastSent.sentAtMs : Infinity;
   const shouldSend =

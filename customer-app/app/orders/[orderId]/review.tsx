@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Animated,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -14,7 +13,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RemoteImage } from "@/src/components/remote-image";
 import { RiderRatingCard } from "@/src/components/orders/rider-rating-card";
@@ -40,11 +38,10 @@ const QUICK_CHIPS = [
 export default function OrderReviewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ orderId?: string }>();
-  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
   const commentYRef = useRef(0);
   const riderCardYRef = useRef(0);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const orderId =
     typeof params.orderId === "string" ? params.orderId : undefined;
 
@@ -53,8 +50,10 @@ export default function OrderReviewScreen() {
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
+    const showSub = Keyboard.addListener(showEvent, (event) =>
+      setKeyboardHeight(event.endCoordinates?.height ?? 0),
+    );
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
     return () => {
       showSub.remove();
       hideSub.remove();
@@ -151,11 +150,12 @@ export default function OrderReviewScreen() {
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={insets.top + 12}
-      >
+      {/* Manual keyboard padding instead of KeyboardAvoidingView: on Android
+          edge-to-edge, KAV "height" double-adjusted with the OS and left a residual
+          gap at the top/bottom after the keyboard closed (hiding the submit button).
+          Padding the scroll content by the exact keyboard height — and scrolling the
+          focused field into view — lifts the field with no leftover layout. */}
+      <View style={styles.flex}>
         <View style={styles.header}>
           <Pressable
             onPress={() => router.back()}
@@ -174,8 +174,8 @@ export default function OrderReviewScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            isKeyboardVisible
-              ? { paddingBottom: 48 + Math.max(insets.bottom, 16) + 140 }
+            keyboardHeight > 0
+              ? { paddingBottom: keyboardHeight + 24 }
               : null,
           ]}
           showsVerticalScrollIndicator={false}
@@ -410,7 +410,7 @@ export default function OrderReviewScreen() {
           </>
         )}
       </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </Screen>
   );
 }

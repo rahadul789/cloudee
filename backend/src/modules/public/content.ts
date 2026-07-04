@@ -479,14 +479,10 @@ export const platformContent = {
       // When on, the customer app shows a separate (collapsible) rider review
       // section alongside the food review.
       riderReviewEnabled: true,
-      // Wait this long after delivery before the first review push.
+      // Wait this long after delivery, then send exactly ONE review push. No repeats.
       delayMinutes: 20,
-      // Total pushes per order (including the first). Reminders stop once a
-      // review is submitted.
-      maxReminders: 2,
-      // Gap between reminder pushes.
-      reminderGapHours: 24,
-      // Stop requesting once the order is older than this (hours since delivery).
+      // Safety cap only: never nudge an order older than this (hours since delivery).
+      // Not a repeat setting — still a single push per order.
       windowHours: 72,
       // Asia/Dhaka quiet hours; no review push sent inside this range.
       quietHoursStart: 22,

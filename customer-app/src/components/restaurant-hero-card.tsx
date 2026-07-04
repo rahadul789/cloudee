@@ -106,7 +106,7 @@ function RestaurantHeroCardComponent({
 
   return (
     <Pressable
-      style={[
+      style={({ pressed }) => [
         styles.card,
         compact ? styles.cardCompact : null,
         isFeaturedVariant ? styles.cardFeatured : null,
@@ -114,6 +114,7 @@ function RestaurantHeroCardComponent({
         isNearbyVariant ? styles.cardNearby : null,
         flat ? styles.cardFlat : null,
         !isOpen ? styles.closedCard : null,
+        pressed ? styles.cardPressed : null,
       ]}
       onPress={onPress}
     >
@@ -341,6 +342,12 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 14 },
     elevation: 7,
+  },
+  // Subtle press feedback (the professional "tap" feel). Only applied while the
+  // finger is down, so it never affects scroll performance or the memoized children.
+  cardPressed: {
+    transform: [{ scale: 0.98 }],
+    opacity: 0.96,
   },
   cardCompact: {
     borderRadius: 22,

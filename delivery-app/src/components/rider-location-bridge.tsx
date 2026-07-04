@@ -7,6 +7,7 @@ import {
   useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
 import { normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
+import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import {
   setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
@@ -36,6 +37,8 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
   );
   const isLocationMutationPendingRef = useRef(false);
   const lastSentAtRef = useRef(0);
+  const lastAcceptedFixRef = useRef<AcceptedFix | null>(null);
+  const consecutiveRejectsRef = useRef(0);
 
   useEffect(() => {
     isLocationMutationPendingRef.current = updateLocationMutation.isPending;
@@ -86,6 +89,31 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
           }
 
           const now = Date.now();
+
+          // Drop implausible fixes (bad accuracy / teleport) so a stationary drift
+          // never gets published as the rider's position.
+          const accepted = shouldAcceptFix({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracyMeters:
+              typeof position.coords.accuracy === "number"
+                ? position.coords.accuracy
+                : undefined,
+            nowMs: now,
+            last: lastAcceptedFixRef.current,
+            consecutiveRejects: consecutiveRejectsRef.current,
+          });
+          if (!accepted) {
+            consecutiveRejectsRef.current += 1;
+            return;
+          }
+          consecutiveRejectsRef.current = 0;
+          lastAcceptedFixRef.current = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            atMs: now,
+          };
+
           if (now - lastSentAtRef.current < trackingPolicy.passiveHeartbeatSeconds * 1000) {
             return;
           }

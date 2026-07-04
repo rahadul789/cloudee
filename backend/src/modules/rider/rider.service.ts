@@ -899,9 +899,6 @@ export async function refreshRiderSession(params: {
     throw new AppError(StatusCodes.UNAUTHORIZED, "INVALID_REFRESH_TOKEN", "Refresh session is not active")
   }
 
-  session.revokedAt = new Date()
-  await session.save()
-
   const rider = await RiderModel.findById(payload.sub)
 
   if (!rider) {
@@ -913,12 +910,14 @@ export async function refreshRiderSession(params: {
   rider.lastLoginAt = new Date()
   await rider.save()
 
-  const refreshSession = await createRiderRefreshSession({
-    riderId: rider.id,
-    userAgent: params.userAgent,
-    ipAddress: params.ipAddress
-  })
-
+  // Do NOT rotate the rider refresh token — reuse the same long-lived (10y) session
+  // and hand back the same refresh token, only minting a fresh access token. A rider
+  // runs two independent token contexts (the foreground app + the background location
+  // TaskManager) that can't share in-memory state; rotating would instantly make the
+  // other context's token stale, so its next refresh hit SESSION_REVOKED (401) → the
+  // app logged the rider out, and the background task's per-send retries stormed the
+  // refresh rate limit (the 35/30 seen in admin). Reusing keeps every context valid.
+  // The session is still revocable on explicit logout via its tokenId.
   return buildRiderAuthPayload({
     riderId: rider.id,
     fullName: rider.fullName,
@@ -928,8 +927,8 @@ export async function refreshRiderSession(params: {
     isAvailableForAssignments: rider.isAvailableForAssignments ?? true,
     status: rider.status,
     profileImage: rider.profileImage,
-    refreshToken: refreshSession.refreshToken,
-    tokenId: refreshSession.tokenId
+    refreshToken: params.refreshToken,
+    tokenId: session.tokenId
   })
 }
 

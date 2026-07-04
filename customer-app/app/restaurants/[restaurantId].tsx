@@ -1,7 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Animated,
   BackHandler,
@@ -66,7 +73,9 @@ import type {
   CustomerRestaurantMenuItem,
 } from "@/src/types/restaurant";
 
-const AnimatedFlatList = Animated.createAnimatedComponent(FlatList as any) as unknown as typeof FlatList;
+const AnimatedFlatList = Animated.createAnimatedComponent(
+  FlatList as any,
+) as unknown as typeof FlatList;
 const EMPTY_RESTAURANT_CART_ITEMS: CartItem[] = [];
 
 type PendingCartAdd = {
@@ -123,7 +132,9 @@ function formatOfferValue(offer: CustomerVoucherOffer) {
 
 function formatOfferLabel(offer: CustomerVoucherOffer) {
   const value = formatOfferValue(offer);
-  return offer.mode === "coupon" && offer.code ? `${offer.code} - ${value}` : value;
+  return offer.mode === "coupon" && offer.code
+    ? `${offer.code} - ${value}`
+    : value;
 }
 
 function buildOfferExplanation(offer: CustomerVoucherOffer) {
@@ -132,7 +143,8 @@ function buildOfferExplanation(offer: CustomerVoucherOffer) {
       ? ` Your food subtotal needs to be at least ${formatCurrency(offer.minimumOrderAmount)}.`
       : "";
   const maxText =
-    typeof offer.maximumDiscountAmount === "number" && offer.maximumDiscountAmount > 0
+    typeof offer.maximumDiscountAmount === "number" &&
+    offer.maximumDiscountAmount > 0
       ? ` The maximum discount is ${formatCurrency(offer.maximumDiscountAmount)}.`
       : "";
 
@@ -155,18 +167,21 @@ export default function RestaurantDetailsScreen() {
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const isLocationHydrated = useLocationStore((state) => state.isHydrated);
   const activeCartItems = useCartStore(
-    useCallback((state) => {
-      if (!restaurantId || state.restaurant?.restaurantId !== restaurantId) {
-        return EMPTY_RESTAURANT_CART_ITEMS;
-      }
-      return state.items;
-    }, [restaurantId]),
+    useCallback(
+      (state) => {
+        if (!restaurantId || state.restaurant?.restaurantId !== restaurantId) {
+          return EMPTY_RESTAURANT_CART_ITEMS;
+        }
+        return state.items;
+      },
+      [restaurantId],
+    ),
   );
   const addItem = useCartStore((state) => state.addItem);
   const replaceCart = useCartStore((state) => state.replaceCart);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const conflictingRestaurantName = useCartStore(
-    (state) => state.restaurant?.restaurantName ?? "another restaurant"
+    (state) => state.restaurant?.restaurantName ?? "another restaurant",
   );
 
   const detailsQuery = useCustomerRestaurantDetailsQuery({
@@ -175,17 +190,24 @@ export default function RestaurantDetailsScreen() {
     longitude: selectedLocation?.longitude,
   });
 
-  const [selectedItem, setSelectedItem] = useState<CustomerRestaurantMenuItem | null>(null);
+  const [selectedItem, setSelectedItem] =
+    useState<CustomerRestaurantMenuItem | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariants, setSelectedVariants] = useState<Record<string, string[]>>({});
-  const [selectedAddOns, setSelectedAddOns] = useState<Record<string, string[]>>({});
+  const [selectedVariants, setSelectedVariants] = useState<
+    Record<string, string[]>
+  >({});
+  const [selectedAddOns, setSelectedAddOns] = useState<
+    Record<string, string[]>
+  >({});
   const [activeCategoryId, setActiveCategoryId] = useState("");
   const [menuSearch, setMenuSearch] = useState("");
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [showStickyControls, setShowStickyControls] = useState(false);
   const [isInfoSheetVisible, setInfoSheetVisible] = useState(false);
-  const [selectedOffer, setSelectedOffer] = useState<CustomerVoucherOffer | null>(null);
-  const [cartConflictItem, setCartConflictItem] = useState<PendingCartAdd | null>(null);
+  const [selectedOffer, setSelectedOffer] =
+    useState<CustomerVoucherOffer | null>(null);
+  const [cartConflictItem, setCartConflictItem] =
+    useState<PendingCartAdd | null>(null);
   const [isFavorite, setIsFavorite] = useState(false);
   const [customQuantityBurstKey, setCustomQuantityBurstKey] = useState(0);
   const handleCustomQuantityBurstComplete = useCallback(
@@ -209,16 +231,22 @@ export default function RestaurantDetailsScreen() {
   const handledRouteItemIdRef = useRef<string | null>(null);
   const scheduleTimeout = useSafeTimeout();
 
-  const categories = useMemo(() => detailsQuery.data?.categories ?? [], [detailsQuery.data?.categories]);
-  const allMenuItems = useMemo(() => detailsQuery.data?.menuItems ?? [], [detailsQuery.data?.menuItems]);
+  const categories = useMemo(
+    () => detailsQuery.data?.categories ?? [],
+    [detailsQuery.data?.categories],
+  );
+  const allMenuItems = useMemo(
+    () => detailsQuery.data?.menuItems ?? [],
+    [detailsQuery.data?.menuItems],
+  );
   const restaurant = detailsQuery.data?.restaurant;
   const detailsData = detailsQuery.data;
   const deliveryRadiusKm = restaurant?.deliveryRadiusKm ?? DELIVERY_RADIUS_KM;
   const isResolvingServiceability = Boolean(
     selectedLocation &&
-      detailsQuery.isFetching &&
-      !detailsQuery.isError &&
-      (detailsQuery.isPlaceholderData || detailsQuery.dataUpdatedAt === 0),
+    detailsQuery.isFetching &&
+    !detailsQuery.isError &&
+    (detailsQuery.isPlaceholderData || detailsQuery.dataUpdatedAt === 0),
   );
   const serviceabilityNotice = useMemo(() => {
     if (!restaurant) {
@@ -258,7 +286,10 @@ export default function RestaurantDetailsScreen() {
     selectedLocation,
   ]);
   const canAddFromRestaurant = !serviceabilityNotice;
-  const recentReviews = useMemo(() => detailsData?.recentReviews ?? [], [detailsData?.recentReviews]);
+  const recentReviews = useMemo(
+    () => detailsData?.recentReviews ?? [],
+    [detailsData?.recentReviews],
+  );
   const isMenuLoading =
     Boolean(restaurant) &&
     detailsQuery.isFetching &&
@@ -274,26 +305,33 @@ export default function RestaurantDetailsScreen() {
           item.name,
           item.description,
           ...(item.variants?.map((group) => group.name) ?? []),
-          ...(item.variants?.flatMap((group) => group.options.map((option) => option.label)) ?? []),
+          ...(item.variants?.flatMap((group) =>
+            group.options.map((option) => option.label),
+          ) ?? []),
           ...(item.addOnGroups?.map((group) => group.name) ?? []),
-          ...(item.addOnGroups?.flatMap((group) => group.options.map((option) => option.label)) ?? []),
+          ...(item.addOnGroups?.flatMap((group) =>
+            group.options.map((option) => option.label),
+          ) ?? []),
         ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase(),
       })),
-    [allMenuItems]
+    [allMenuItems],
   );
   const menuItemsByCategory = useMemo(
     () =>
-      allMenuItems.reduce<Record<string, CustomerRestaurantMenuItem[]>>((acc, item) => {
-        if (!acc[item.categoryId]) {
-          acc[item.categoryId] = [];
-        }
-        acc[item.categoryId].push(item);
-        return acc;
-      }, {}),
-    [allMenuItems]
+      allMenuItems.reduce<Record<string, CustomerRestaurantMenuItem[]>>(
+        (acc, item) => {
+          if (!acc[item.categoryId]) {
+            acc[item.categoryId] = [];
+          }
+          acc[item.categoryId].push(item);
+          return acc;
+        },
+        {},
+      ),
+    [allMenuItems],
   );
   const categoryNameById = useMemo(
     () =>
@@ -301,7 +339,7 @@ export default function RestaurantDetailsScreen() {
         acc[category._id] = category.name;
         return acc;
       }, {}),
-    [categories]
+    [categories],
   );
   const searchResults = useMemo(() => {
     if (!normalizedMenuSearch) {
@@ -327,7 +365,8 @@ export default function RestaurantDetailsScreen() {
         icon: "star-outline" as const,
         label: "Rating",
         value:
-          typeof restaurant?.avgRating === "number" && (restaurant.reviewCount ?? 0) > 0
+          typeof restaurant?.avgRating === "number" &&
+          (restaurant.reviewCount ?? 0) > 0
             ? `${restaurant.avgRating} (${restaurant.reviewCount})`
             : "No reviews yet",
       },
@@ -368,12 +407,12 @@ export default function RestaurantDetailsScreen() {
       restaurant?.lowestMenuPrice,
       restaurant?.preparationTimeMinutes,
       restaurant?.reviewCount,
-    ]
+    ],
   );
 
   const popularItems = useMemo(
     () => allMenuItems.filter((item) => item.isPopular),
-    [allMenuItems]
+    [allMenuItems],
   );
 
   const rows = useMemo<Row[]>(() => {
@@ -412,10 +451,12 @@ export default function RestaurantDetailsScreen() {
     () => [
       ...(popularItems.length ? [{ id: "popular", label: "Popular" }] : []),
       ...categories
-        .filter((category) => (menuItemsByCategory[category._id]?.length ?? 0) > 0)
+        .filter(
+          (category) => (menuItemsByCategory[category._id]?.length ?? 0) > 0,
+        )
         .map((category) => ({ id: category._id, label: category.name })),
     ],
-    [categories, menuItemsByCategory, popularItems.length]
+    [categories, menuItemsByCategory, popularItems.length],
   );
 
   useEffect(() => {
@@ -431,12 +472,15 @@ export default function RestaurantDetailsScreen() {
       return;
     }
 
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      Keyboard.dismiss();
-      setMenuSearch("");
-      setIsSearchMode(false);
-      return true;
-    });
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        Keyboard.dismiss();
+        setMenuSearch("");
+        setIsSearchMode(false);
+        return true;
+      },
+    );
 
     return () => subscription.remove();
   }, [isSearchMode]);
@@ -448,7 +492,7 @@ export default function RestaurantDetailsScreen() {
         if (row.kind === "section") acc[row.categoryId] = index;
         return acc;
       }, {}),
-    [rows]
+    [rows],
   );
 
   const selectedItemTotal = useMemo(() => {
@@ -482,10 +526,14 @@ export default function RestaurantDetailsScreen() {
     for (const group of selectedItem.variants ?? []) {
       const labels = selectedVariants[group.name] ?? [];
       for (const option of group.options ?? []) {
-        if (labels.includes(option.label)) baseVariantUnit += option.priceDelta ?? 0;
+        if (labels.includes(option.label))
+          baseVariantUnit += option.priceDelta ?? 0;
       }
     }
-    const perUnit = computeItemMarkdownAmount(baseVariantUnit, selectedItem.markdown);
+    const perUnit = computeItemMarkdownAmount(
+      baseVariantUnit,
+      selectedItem.markdown,
+    );
     return {
       perUnit,
       effectiveTotal: Math.max(selectedItemTotal - perUnit * quantity, 0),
@@ -494,16 +542,16 @@ export default function RestaurantDetailsScreen() {
 
   const selectedItemHasCustomizations = useMemo(
     () => (selectedItem ? hasCustomizations(selectedItem) : false),
-    [selectedItem]
+    [selectedItem],
   );
 
   const autoAppliedOffer = useMemo(
     () =>
       detailsData?.activeOffers.find(
         (offer) =>
-          offer.mode === "auto" && typeof offer.minimumOrderAmount === "number"
+          offer.mode === "auto" && typeof offer.minimumOrderAmount === "number",
       ) ?? null,
-    [detailsData?.activeOffers]
+    [detailsData?.activeOffers],
   );
   // Guards the "Add to cart" action against a rapid double-fire (the action runs on
   // press-in for reliable single-tap response inside the modal sheet).
@@ -517,32 +565,35 @@ export default function RestaurantDetailsScreen() {
     setSelectedAddOns(defaults.defaultAddOns);
   }, []);
 
-  const openCustomizer = useCallback((item: CustomerRestaurantMenuItem) => {
-    if (isSearchMode) {
-      Keyboard.dismiss();
-    }
+  const openCustomizer = useCallback(
+    (item: CustomerRestaurantMenuItem) => {
+      if (isSearchMode) {
+        Keyboard.dismiss();
+      }
 
-    presentCustomizer(item);
+      presentCustomizer(item);
 
-    if (restaurant?._id) {
-      runAfterUiCommit(() => {
-        void trackCustomerEvent({
-          eventType: "menu_item_view",
-          path: `/restaurants/${restaurant._id}`,
-          screenName: "restaurant-details",
-          entityType: "menu_item",
-          entityId: item._id,
-          metadata: {
-            restaurantId: restaurant._id,
-            itemName: item.name,
-            categoryId: item.categoryId,
-            price: item.basePrice,
-            isPopular: Boolean(item.isPopular),
-          },
+      if (restaurant?._id) {
+        runAfterUiCommit(() => {
+          void trackCustomerEvent({
+            eventType: "menu_item_view",
+            path: `/restaurants/${restaurant._id}`,
+            screenName: "restaurant-details",
+            entityType: "menu_item",
+            entityId: item._id,
+            metadata: {
+              restaurantId: restaurant._id,
+              itemName: item.name,
+              categoryId: item.categoryId,
+              price: item.basePrice,
+              isPopular: Boolean(item.isPopular),
+            },
+          });
         });
-      });
-    }
-  }, [isSearchMode, presentCustomizer, restaurant?._id]);
+      }
+    },
+    [isSearchMode, presentCustomizer, restaurant?._id],
+  );
 
   useEffect(() => {
     if (
@@ -576,15 +627,18 @@ export default function RestaurantDetailsScreen() {
     groupName: string,
     optionLabel: string,
     group: CustomerMenuVariantGroup | CustomerMenuAddOnGroup,
-    type: "variant" | "addon"
+    type: "variant" | "addon",
   ) {
-    const setState = type === "variant" ? setSelectedVariants : setSelectedAddOns;
+    const setState =
+      type === "variant" ? setSelectedVariants : setSelectedAddOns;
     // Variants are always a "pick one" choice, so they carry an implicit minimum of 1
     // even when the backend leaves minSelect unset. Required groups must never drop
     // below their minimum, so tapping the last selected option is a no-op rather than
     // leaving the group empty.
     const effectiveMinSelect =
-      type === "variant" ? Math.max(group.minSelect ?? 0, 1) : group.minSelect ?? 0;
+      type === "variant"
+        ? Math.max(group.minSelect ?? 0, 1)
+        : (group.minSelect ?? 0);
     setState((current) => {
       const selected = current[groupName] ?? [];
       const isSelected = selected.includes(optionLabel);
@@ -594,7 +648,10 @@ export default function RestaurantDetailsScreen() {
         if (selected.length <= effectiveMinSelect) {
           return current;
         }
-        return { ...current, [groupName]: selected.filter((label) => label !== optionLabel) };
+        return {
+          ...current,
+          [groupName]: selected.filter((label) => label !== optionLabel),
+        };
       }
 
       if (maxSelect <= 1) {
@@ -606,61 +663,65 @@ export default function RestaurantDetailsScreen() {
     });
   }
 
-  const attemptAddToCart = useCallback((payload: PendingCartAdd): CartAddResult => {
-    if (!restaurant) return "blocked";
-    if (!canAddFromRestaurant) {
-      return "blocked";
-    }
+  const attemptAddToCart = useCallback(
+    (payload: PendingCartAdd): CartAddResult => {
+      if (!restaurant) return "blocked";
+      if (!canAddFromRestaurant) {
+        return "blocked";
+      }
 
-    const restaurantIdentity = {
-      restaurantId: restaurant._id,
-      restaurantName: restaurant.name,
-    };
-    const currentCart = useCartStore.getState();
+      const restaurantIdentity = {
+        restaurantId: restaurant._id,
+        restaurantName: restaurant.name,
+      };
+      const currentCart = useCartStore.getState();
 
-    if (
-      currentCart.restaurant &&
-      currentCart.restaurant.restaurantId !== restaurantIdentity.restaurantId &&
-      currentCart.items.length > 0
-    ) {
-      setCartConflictItem(payload);
-      return "conflict";
-    }
+      if (
+        currentCart.restaurant &&
+        currentCart.restaurant.restaurantId !==
+          restaurantIdentity.restaurantId &&
+        currentCart.items.length > 0
+      ) {
+        setCartConflictItem(payload);
+        return "conflict";
+      }
 
-    addItem({
-      restaurant: restaurantIdentity,
-      item: {
-        itemId: payload.item._id,
-        name: payload.item.name,
-        imageUrl: payload.item.images?.[0]?.url ?? null,
-        quantity: payload.quantity,
-        unitPrice: payload.unitPrice,
-        selectedVariantOptions: payload.selectedVariants,
-        selectedAddOnOptions: payload.selectedAddOns,
-      },
-    });
-
-    runAfterUiCommit(() => {
-      void trackCustomerEvent({
-        eventType: "cart_add",
-        path: `/restaurants/${restaurant._id}`,
-        screenName: "restaurant-details",
-        entityType: "menu_item",
-        entityId: payload.item._id,
-        metadata: {
-          restaurantId: restaurant._id,
-          itemName: payload.item.name,
-          categoryId: payload.item.categoryId,
+      addItem({
+        restaurant: restaurantIdentity,
+        item: {
+          itemId: payload.item._id,
+          name: payload.item.name,
+          imageUrl: payload.item.images?.[0]?.url ?? null,
           quantity: payload.quantity,
           unitPrice: payload.unitPrice,
-          hasCustomizations: Boolean(
-            payload.selectedAddOns.length || payload.selectedVariants.length,
-          ),
+          selectedVariantOptions: payload.selectedVariants,
+          selectedAddOnOptions: payload.selectedAddOns,
         },
       });
-    });
-    return "added";
-  }, [addItem, canAddFromRestaurant, restaurant]);
+
+      runAfterUiCommit(() => {
+        void trackCustomerEvent({
+          eventType: "cart_add",
+          path: `/restaurants/${restaurant._id}`,
+          screenName: "restaurant-details",
+          entityType: "menu_item",
+          entityId: payload.item._id,
+          metadata: {
+            restaurantId: restaurant._id,
+            itemName: payload.item.name,
+            categoryId: payload.item.categoryId,
+            quantity: payload.quantity,
+            unitPrice: payload.unitPrice,
+            hasCustomizations: Boolean(
+              payload.selectedAddOns.length || payload.selectedVariants.length,
+            ),
+          },
+        });
+      });
+      return "added";
+    },
+    [addItem, canAddFromRestaurant, restaurant],
+  );
 
   function handleConfirmReplaceCart() {
     if (!cartConflictItem || !restaurant) return;
@@ -706,53 +767,67 @@ export default function RestaurantDetailsScreen() {
     setCartConflictItem(null);
   }
 
-  const handleIncrease = useCallback((item: CustomerRestaurantMenuItem) => {
-    if (
-      item.availability === "unavailable" ||
-      restaurant?.isOpen === false ||
-      !canAddFromRestaurant
-    ) return false;
+  const handleIncrease = useCallback(
+    (item: CustomerRestaurantMenuItem) => {
+      if (
+        item.availability === "unavailable" ||
+        restaurant?.isOpen === false ||
+        !canAddFromRestaurant
+      )
+        return false;
 
-    if (hasCustomizations(item)) {
-      openCustomizer(item);
+      if (hasCustomizations(item)) {
+        openCustomizer(item);
+        return false;
+      }
+
+      const addResult = attemptAddToCart({
+        item,
+        quantity: 1,
+        unitPrice: item.basePrice,
+        selectedAddOns: [],
+        selectedVariants: [],
+      });
+      if (addResult === "added") {
+        return true;
+      }
+
       return false;
-    }
+    },
+    [
+      canAddFromRestaurant,
+      restaurant?.isOpen,
+      openCustomizer,
+      attemptAddToCart,
+    ],
+  );
 
-    const addResult = attemptAddToCart({
-      item,
-      quantity: 1,
-      unitPrice: item.basePrice,
-      selectedAddOns: [],
-      selectedVariants: [],
-    });
-    if (addResult === "added") {
-      return true;
-    }
+  const handleDecrease = useCallback(
+    (item: CustomerRestaurantMenuItem) => {
+      const state = useCartStore.getState();
+      if (state.restaurant?.restaurantId !== restaurant?._id) {
+        return;
+      }
 
-    return false;
-  }, [canAddFromRestaurant, restaurant?.isOpen, openCustomizer, attemptAddToCart]);
-
-  const handleDecrease = useCallback((item: CustomerRestaurantMenuItem) => {
-    const state = useCartStore.getState();
-    if (state.restaurant?.restaurantId !== restaurant?._id) {
-      return;
-    }
-
-    const current = state.items.find((entry) => entry.itemId === item._id);
-    if (!current) return;
-    updateQuantity(current.key, current.quantity - 1);
-  }, [restaurant?._id, updateQuantity]);
+      const current = state.items.find((entry) => entry.itemId === item._id);
+      if (!current) return;
+      updateQuantity(current.key, current.quantity - 1);
+    },
+    [restaurant?._id, updateQuantity],
+  );
 
   function handleAddToCart() {
     if (!selectedItem) return false;
 
     const invalidVariantGroup = (selectedItem.variants ?? []).find(
-      (group) => !isSelectionValid((selectedVariants[group.name] ?? []).length, group)
+      (group) =>
+        !isSelectionValid((selectedVariants[group.name] ?? []).length, group),
     );
     if (invalidVariantGroup) return false;
 
     const invalidAddOnGroup = (selectedItem.addOnGroups ?? []).find(
-      (group) => !isSelectionValid((selectedAddOns[group.name] ?? []).length, group)
+      (group) =>
+        !isSelectionValid((selectedAddOns[group.name] ?? []).length, group),
     );
     if (invalidAddOnGroup) return false;
 
@@ -760,11 +835,13 @@ export default function RestaurantDetailsScreen() {
       item: selectedItem,
       quantity,
       unitPrice: selectedItemTotal / quantity,
-      selectedVariants: Object.entries(selectedVariants).flatMap(([groupName, labels]) =>
-        labels.map((optionLabel) => ({ groupName, optionLabel }))
+      selectedVariants: Object.entries(selectedVariants).flatMap(
+        ([groupName, labels]) =>
+          labels.map((optionLabel) => ({ groupName, optionLabel })),
       ),
-      selectedAddOns: Object.entries(selectedAddOns).flatMap(([groupName, labels]) =>
-        labels.map((optionLabel) => ({ groupName, optionLabel }))
+      selectedAddOns: Object.entries(selectedAddOns).flatMap(
+        ([groupName, labels]) =>
+          labels.map((optionLabel) => ({ groupName, optionLabel })),
       ),
     });
 
@@ -795,7 +872,7 @@ export default function RestaurantDetailsScreen() {
     listRef.current?.scrollToIndex({
       index,
       animated: true,
-      viewOffset: insets.top + controlsHeightRef.current + 12,
+      viewOffset: insets.top + controlsHeightRef.current + 2,
     });
   }
 
@@ -849,7 +926,9 @@ export default function RestaurantDetailsScreen() {
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken<Row>[] }) => {
       if (Date.now() < ignoreAutoSyncUntilRef.current) return;
-      const first = viewableItems.find((token) => token.isViewable && token.item)?.item;
+      const first = viewableItems.find(
+        (token) => token.isViewable && token.item,
+      )?.item;
       if (!first) return;
 
       const nextId =
@@ -863,7 +942,7 @@ export default function RestaurantDetailsScreen() {
         activeCategoryRef.current = nextId;
         setActiveCategoryId(nextId);
       }
-    }
+    },
   );
 
   if (detailsQuery.isLoading) {
@@ -899,10 +978,7 @@ export default function RestaurantDetailsScreen() {
         maxToRenderPerBatch={8}
         windowSize={8}
         removeClippedSubviews
-        contentContainerStyle={[
-          styles.listContent,
-          styles.listContentWithCart,
-        ]}
+        contentContainerStyle={[styles.listContent, styles.listContentWithCart]}
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
@@ -918,7 +994,10 @@ export default function RestaurantDetailsScreen() {
               scrollOffsetYRef.current = offsetY;
               const threshold = Math.max(
                 0,
-                controlsYRef.current + controlsHeightRef.current - insets.top - 12
+                controlsYRef.current +
+                  controlsHeightRef.current -
+                  insets.top -
+                  12,
               );
               const shouldShowControls = offsetY >= threshold;
               if (showStickyControlsRef.current !== shouldShowControls) {
@@ -926,13 +1005,17 @@ export default function RestaurantDetailsScreen() {
                 setShowStickyControls(shouldShowControls);
               }
             },
-          }
+          },
         )}
-        onScrollToIndexFailed={(info: { averageItemLength: number; index: number }) => {
+        onScrollToIndexFailed={(info: {
+          averageItemLength: number;
+          index: number;
+        }) => {
           listRef.current?.scrollToOffset({
             offset: Math.max(
               0,
-              info.averageItemLength * info.index - (insets.top + controlsHeightRef.current),
+              info.averageItemLength * info.index -
+                (insets.top + controlsHeightRef.current),
             ),
             animated: true,
           });
@@ -940,7 +1023,7 @@ export default function RestaurantDetailsScreen() {
             listRef.current?.scrollToIndex({
               index: info.index,
               animated: true,
-              viewOffset: insets.top + controlsHeightRef.current + 12,
+              viewOffset: insets.top + controlsHeightRef.current + 2,
             });
           }, 140);
         }}
@@ -982,8 +1065,15 @@ export default function RestaurantDetailsScreen() {
               </Animated.View>
               <View style={styles.heroShade} />
               <View style={styles.heroTopRow}>
-                <Pressable style={styles.heroButton} onPress={() => router.back()}>
-                  <Ionicons name="chevron-back" size={20} color={palette.foreground} />
+                <Pressable
+                  style={styles.heroButton}
+                  onPress={() => router.back()}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={20}
+                    color={palette.foreground}
+                  />
                 </Pressable>
                 <View style={styles.heroActionGroup}>
                   <Pressable
@@ -996,7 +1086,9 @@ export default function RestaurantDetailsScreen() {
                     <Ionicons
                       name={isFavorite ? "heart" : "heart-outline"}
                       size={18}
-                      color={isFavorite ? palette.secondary : palette.foreground}
+                      color={
+                        isFavorite ? palette.secondary : palette.foreground
+                      }
                     />
                   </Pressable>
                   <Pressable
@@ -1024,7 +1116,9 @@ export default function RestaurantDetailsScreen() {
                   <Text
                     style={[
                       styles.statePillText,
-                      restaurant.isOpen === false ? styles.statePillTextClosed : null,
+                      restaurant.isOpen === false
+                        ? styles.statePillTextClosed
+                        : null,
                     ]}
                   >
                     {restaurant.isOpen === false ? "Closed now" : "Open now"}
@@ -1033,9 +1127,15 @@ export default function RestaurantDetailsScreen() {
                 {detailsData?.activeOffers[0] ? (
                   <Pressable
                     style={styles.offerPillButton}
-                    onPress={() => setSelectedOffer(detailsData.activeOffers[0])}
+                    onPress={() =>
+                      setSelectedOffer(detailsData.activeOffers[0])
+                    }
                   >
-                    <Ionicons name="pricetag" size={12} color={palette.surface} />
+                    <Ionicons
+                      name="pricetag"
+                      size={12}
+                      color={palette.surface}
+                    />
                     <Text style={styles.offerPillText} numberOfLines={1}>
                       {formatOfferLabel(detailsData.activeOffers[0])}
                     </Text>
@@ -1084,14 +1184,22 @@ export default function RestaurantDetailsScreen() {
                           onPress={() => setSelectedOffer(offer)}
                         >
                           <Ionicons
-                            name={offer.mode === "auto" ? "flash-outline" : "pricetag-outline"}
+                            name={
+                              offer.mode === "auto"
+                                ? "flash-outline"
+                                : "pricetag-outline"
+                            }
                             size={12}
                             color={palette.secondary}
                           />
                           <Text style={styles.inlineOfferText}>
                             {formatOfferLabel(offer)}
                           </Text>
-                          <Ionicons name="chevron-forward" size={11} color={palette.secondary} />
+                          <Ionicons
+                            name="chevron-forward"
+                            size={11}
+                            color={palette.secondary}
+                          />
                         </Pressable>
                       ))}
                     </ScrollView>
@@ -1118,13 +1226,16 @@ export default function RestaurantDetailsScreen() {
                   />
                 ))}
               </View>
-
             </Animated.View>
 
             {serviceabilityNotice ? (
               <View style={styles.serviceabilityCard}>
                 <View style={styles.serviceabilityIconWrap}>
-                  <Ionicons name="location-outline" size={18} color={palette.secondary} />
+                  <Ionicons
+                    name="location-outline"
+                    size={18}
+                    color={palette.secondary}
+                  />
                 </View>
                 <View style={styles.serviceabilityCopy}>
                   <Text style={styles.serviceabilityTitle}>
@@ -1168,12 +1279,12 @@ export default function RestaurantDetailsScreen() {
               }}
             >
               <View style={styles.controlsStack}>
-                  <MenuSearchBar
-                    value={menuSearch}
-                    onChangeText={handleMenuSearchChange}
-                    onFocus={openSearchMode}
-                    showSoftInputOnFocus={false}
-                  />
+                <MenuSearchBar
+                  value={menuSearch}
+                  onChangeText={handleMenuSearchChange}
+                  onFocus={openSearchMode}
+                  showSoftInputOnFocus={false}
+                />
                 {isMenuLoading ? (
                   <MenuCategoryChipsSkeleton />
                 ) : (
@@ -1196,7 +1307,9 @@ export default function RestaurantDetailsScreen() {
                     <Ionicons name="flame" size={15} color={palette.primary} />
                     <Text style={styles.sectionHeaderTitle}>Popular</Text>
                   </View>
-                  <Text style={styles.sectionHeaderSubtitle}>Most ordered right now</Text>
+                  <Text style={styles.sectionHeaderSubtitle}>
+                    Most ordered right now
+                  </Text>
                 </View>
                 <ScrollView
                   horizontal
@@ -1208,7 +1321,9 @@ export default function RestaurantDetailsScreen() {
                       key={popularItem._id}
                       item={popularItem}
                       quantity={cartQuantitiesByItemId[popularItem._id] ?? 0}
-                      isRestaurantOpen={restaurant.isOpen !== false && canAddFromRestaurant}
+                      isRestaurantOpen={
+                        restaurant.isOpen !== false && canAddFromRestaurant
+                      }
                       onPressIncrease={handleIncrease}
                       onPressDecrease={handleDecrease}
                       onPressCard={openCustomizer}
@@ -1224,7 +1339,9 @@ export default function RestaurantDetailsScreen() {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionHeaderTitle}>{item.title}</Text>
                 {item.description ? (
-                  <Text style={styles.sectionHeaderSubtitle}>{item.description}</Text>
+                  <Text style={styles.sectionHeaderSubtitle}>
+                    {item.description}
+                  </Text>
                 ) : null}
               </View>
             );
@@ -1235,7 +1352,9 @@ export default function RestaurantDetailsScreen() {
               <MenuCard
                 item={item.item}
                 quantity={cartQuantitiesByItemId[item.item._id] ?? 0}
-                isRestaurantOpen={restaurant.isOpen !== false && canAddFromRestaurant}
+                isRestaurantOpen={
+                  restaurant.isOpen !== false && canAddFromRestaurant
+                }
                 onPressIncrease={handleIncrease}
                 onPressDecrease={handleDecrease}
                 onPressCard={openCustomizer}
@@ -1249,10 +1368,16 @@ export default function RestaurantDetailsScreen() {
           ) : (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIconWrap}>
-                <Ionicons name="search-outline" size={20} color={palette.secondary} />
+                <Ionicons
+                  name="search-outline"
+                  size={20}
+                  color={palette.secondary}
+                />
               </View>
               <Text style={styles.emptyTitle}>No items found</Text>
-              <Text style={styles.emptySubtitle}>Try another search or another category.</Text>
+              <Text style={styles.emptySubtitle}>
+                Try another search or another category.
+              </Text>
             </View>
           )
         }
@@ -1378,19 +1503,32 @@ export default function RestaurantDetailsScreen() {
         animationType="fade"
         onRequestClose={() => setCartConflictItem(null)}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setCartConflictItem(null)}>
-          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setCartConflictItem(null)}
+        >
+          <Pressable
+            style={styles.modalCard}
+            onPress={(event) => event.stopPropagation()}
+          >
             <View style={styles.modalGlow} />
             {cartConflictItem ? (
               <>
                 <View style={styles.modalBadge}>
-                  <Ionicons name="bag-handle-outline" size={14} color={palette.secondary} />
+                  <Ionicons
+                    name="bag-handle-outline"
+                    size={14}
+                    color={palette.secondary}
+                  />
                   <Text style={styles.modalBadgeText}>Cart switch</Text>
                 </View>
                 <Text style={styles.modalTitle}>Start a fresh cart?</Text>
                 <Text style={styles.modalText}>
                   Replace items from{" "}
-                  <Text style={styles.modalTextStrong}>{conflictingRestaurantName}</Text> with{" "}
+                  <Text style={styles.modalTextStrong}>
+                    {conflictingRestaurantName}
+                  </Text>{" "}
+                  with{" "}
                   <Text style={styles.modalTextStrong}>{restaurant.name}</Text>?
                 </Text>
                 <View style={styles.modalPreviewRow}>
@@ -1414,10 +1552,17 @@ export default function RestaurantDetailsScreen() {
                     style={styles.modalSecondaryButton}
                     onPress={() => setCartConflictItem(null)}
                   >
-                    <Text style={styles.modalSecondaryButtonText}>Keep current cart</Text>
+                    <Text style={styles.modalSecondaryButtonText}>
+                      Keep current cart
+                    </Text>
                   </Pressable>
-                  <Pressable style={styles.modalPrimaryButton} onPress={handleConfirmReplaceCart}>
-                    <Text style={styles.modalPrimaryButtonText}>Replace and add</Text>
+                  <Pressable
+                    style={styles.modalPrimaryButton}
+                    onPress={handleConfirmReplaceCart}
+                  >
+                    <Text style={styles.modalPrimaryButtonText}>
+                      Replace and add
+                    </Text>
                   </Pressable>
                 </View>
               </>
@@ -1435,124 +1580,145 @@ export default function RestaurantDetailsScreen() {
         snapPoints={[0.7, 0.9]}
         initialSnapPoint={0.7}
       >
-            <View style={styles.infoSheetCard}>
-              <Text style={styles.infoSheetSectionTitle}>Quick facts</Text>
-              <View style={styles.infoSheetMetricsGrid}>
-                <InfoMiniCard
-                  icon="star-outline"
-                  label="Rating"
-                  value={
-                    typeof restaurant.avgRating === "number" && (restaurant.reviewCount ?? 0) > 0
-                      ? `${restaurant.avgRating} / 5`
-                      : "No ratings yet"
-                  }
-                />
-                <InfoMiniCard
-                  icon="time-outline"
-                  label="Preparation"
-                  value={
-                    typeof restaurant.preparationTimeMinutes === "number"
-                      ? formatDurationMinutes(restaurant.preparationTimeMinutes)
-                      : "Kitchen updates soon"
-                  }
-                />
-                <InfoMiniCard
-                  icon="pricetag-outline"
-                  label="Starts from"
-                  value={
-                    typeof restaurant.lowestMenuPrice === "number"
-                      ? formatCurrency(restaurant.lowestMenuPrice)
-                      : "Checking price"
-                  }
-                />
-                <InfoMiniCard
-                  icon="navigate-outline"
-                  label="Distance"
-                  value={
-                    typeof restaurant.distanceKm === "number"
-                      ? `${restaurant.distanceKm.toFixed(1)} km away`
-                      : "Delivery area"
-                  }
-                />
-              </View>
-            </View>
+        <View style={styles.infoSheetCard}>
+          <Text style={styles.infoSheetSectionTitle}>Quick facts</Text>
+          <View style={styles.infoSheetMetricsGrid}>
+            <InfoMiniCard
+              icon="star-outline"
+              label="Rating"
+              value={
+                typeof restaurant.avgRating === "number" &&
+                (restaurant.reviewCount ?? 0) > 0
+                  ? `${restaurant.avgRating} / 5`
+                  : "No ratings yet"
+              }
+            />
+            <InfoMiniCard
+              icon="time-outline"
+              label="Preparation"
+              value={
+                typeof restaurant.preparationTimeMinutes === "number"
+                  ? formatDurationMinutes(restaurant.preparationTimeMinutes)
+                  : "Kitchen updates soon"
+              }
+            />
+            <InfoMiniCard
+              icon="pricetag-outline"
+              label="Starts from"
+              value={
+                typeof restaurant.lowestMenuPrice === "number"
+                  ? formatCurrency(restaurant.lowestMenuPrice)
+                  : "Checking price"
+              }
+            />
+            <InfoMiniCard
+              icon="navigate-outline"
+              label="Distance"
+              value={
+                typeof restaurant.distanceKm === "number"
+                  ? `${restaurant.distanceKm.toFixed(1)} km away`
+                  : "Delivery area"
+              }
+            />
+          </View>
+        </View>
 
-            <View style={styles.infoSheetCard}>
-              <Text style={styles.infoSheetSectionTitle}>Delivery & location</Text>
-              <InfoSheetRow
-                icon="location-outline"
-                label="Address"
-                value={formatCustomerAddressLine(
-                  [restaurant.address?.address, restaurant.address?.city]
-                    .filter(Boolean)
-                    .join(", "),
-                  "Address unavailable",
-                )}
-              />
-              <InfoSheetRow
-                icon="bag-handle-outline"
-                label="Offers live"
-                value={
-                  detailsData?.activeOffers.length
-                    ? `${detailsData.activeOffers.length} offer${detailsData.activeOffers.length === 1 ? "" : "s"} available now`
-                    : "No active offers right now"
-                }
-              />
-              <InfoSheetRow
-                icon={restaurant.isOpen === false ? "moon-outline" : "checkmark-circle-outline"}
-                label="Store status"
-                value={restaurant.isOpen === false ? "Currently closed" : "Open and taking orders"}
-              />
-            </View>
+        <View style={styles.infoSheetCard}>
+          <Text style={styles.infoSheetSectionTitle}>Delivery & location</Text>
+          <InfoSheetRow
+            icon="location-outline"
+            label="Address"
+            value={formatCustomerAddressLine(
+              [restaurant.address?.address, restaurant.address?.city]
+                .filter(Boolean)
+                .join(", "),
+              "Address unavailable",
+            )}
+          />
+          <InfoSheetRow
+            icon="bag-handle-outline"
+            label="Offers live"
+            value={
+              detailsData?.activeOffers.length
+                ? `${detailsData.activeOffers.length} offer${detailsData.activeOffers.length === 1 ? "" : "s"} available now`
+                : "No active offers right now"
+            }
+          />
+          <InfoSheetRow
+            icon={
+              restaurant.isOpen === false
+                ? "moon-outline"
+                : "checkmark-circle-outline"
+            }
+            label="Store status"
+            value={
+              restaurant.isOpen === false
+                ? "Currently closed"
+                : "Open and taking orders"
+            }
+          />
+        </View>
 
-            <View style={styles.infoSheetCard}>
-              <Text style={styles.infoSheetSectionTitle}>Cuisine & tags</Text>
-              <View style={styles.infoSheetChipWrap}>
-                {[...(restaurant.cuisineTypes ?? []), ...(restaurant.tags ?? [])].map((entry) => (
-                  <View key={entry} style={styles.infoSheetChip}>
-                    <Text style={styles.infoSheetChipText}>{entry}</Text>
-                  </View>
-                ))}
+        <View style={styles.infoSheetCard}>
+          <Text style={styles.infoSheetSectionTitle}>Cuisine & tags</Text>
+          <View style={styles.infoSheetChipWrap}>
+            {[
+              ...(restaurant.cuisineTypes ?? []),
+              ...(restaurant.tags ?? []),
+            ].map((entry) => (
+              <View key={entry} style={styles.infoSheetChip}>
+                <Text style={styles.infoSheetChipText}>{entry}</Text>
               </View>
-            </View>
+            ))}
+          </View>
+        </View>
 
-            {recentReviews.length ? (
-              <View style={styles.infoSheetCard}>
-                <View style={styles.infoSheetReviewHeader}>
-                  <Text style={styles.infoSheetSectionTitle}>Guest reviews</Text>
-                  <Pressable
-                    style={styles.infoSheetReviewLink}
-                    onPress={() => {
-                      setInfoSheetVisible(false);
-                      router.push({
-                        pathname: "/restaurants/[restaurantId]/reviews",
-                        params: { restaurantId: restaurant._id },
-                      });
-                    }}
-                  >
-                    <Text style={styles.infoSheetReviewLinkText}>Open all</Text>
-                    <Ionicons name="chevron-forward" size={14} color={palette.secondary} />
-                  </Pressable>
-                </View>
-                <InfoSheetRow
-                  icon="chatbubbles-outline"
-                  label="Reviews"
-                  value={
-                    typeof restaurant.avgRating === "number" && (restaurant.reviewCount ?? 0) > 0
-                      ? `${restaurant.avgRating} average from ${restaurant.reviewCount} reviews`
-                      : "Open the dedicated review screen for customer feedback"
-                  }
+        {recentReviews.length ? (
+          <View style={styles.infoSheetCard}>
+            <View style={styles.infoSheetReviewHeader}>
+              <Text style={styles.infoSheetSectionTitle}>Guest reviews</Text>
+              <Pressable
+                style={styles.infoSheetReviewLink}
+                onPress={() => {
+                  setInfoSheetVisible(false);
+                  router.push({
+                    pathname: "/restaurants/[restaurantId]/reviews",
+                    params: { restaurantId: restaurant._id },
+                  });
+                }}
+              >
+                <Text style={styles.infoSheetReviewLinkText}>Open all</Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color={palette.secondary}
                 />
-              </View>
-            ) : null}
+              </Pressable>
+            </View>
+            <InfoSheetRow
+              icon="chatbubbles-outline"
+              label="Reviews"
+              value={
+                typeof restaurant.avgRating === "number" &&
+                (restaurant.reviewCount ?? 0) > 0
+                  ? `${restaurant.avgRating} average from ${restaurant.reviewCount} reviews`
+                  : "Open the dedicated review screen for customer feedback"
+              }
+            />
+          </View>
+        ) : null}
       </AppBottomSheet>
 
       <AppBottomSheet
         visible={Boolean(selectedOffer)}
         onClose={() => setSelectedOffer(null)}
-        title={selectedOffer ? formatOfferLabel(selectedOffer) : "Offer details"}
+        title={
+          selectedOffer ? formatOfferLabel(selectedOffer) : "Offer details"
+        }
         subtitle={selectedOffer?.name ?? "How this offer works"}
-        leadingIcon={selectedOffer?.mode === "auto" ? "flash-outline" : "pricetag-outline"}
+        leadingIcon={
+          selectedOffer?.mode === "auto" ? "flash-outline" : "pricetag-outline"
+        }
         snapPoints={[0.7, 0.9]}
         initialSnapPoint={0.7}
       >
@@ -1561,21 +1727,29 @@ export default function RestaurantDetailsScreen() {
             <View style={styles.offerSheetHero}>
               <View style={styles.offerSheetIcon}>
                 <Ionicons
-                  name={selectedOffer.mode === "auto" ? "flash" : "ticket-outline"}
+                  name={
+                    selectedOffer.mode === "auto" ? "flash" : "ticket-outline"
+                  }
                   size={22}
                   color={palette.secondary}
                 />
               </View>
               <View style={styles.offerSheetCopy}>
                 <Text style={styles.offerSheetTitle}>{selectedOffer.name}</Text>
-                <Text style={styles.offerSheetSubtitle}>{buildOfferExplanation(selectedOffer)}</Text>
+                <Text style={styles.offerSheetSubtitle}>
+                  {buildOfferExplanation(selectedOffer)}
+                </Text>
               </View>
             </View>
 
             <View style={styles.infoSheetCard}>
               <Text style={styles.infoSheetSectionTitle}>Offer rules</Text>
               <InfoSheetRow
-                icon={selectedOffer.mode === "auto" ? "flash-outline" : "keypad-outline"}
+                icon={
+                  selectedOffer.mode === "auto"
+                    ? "flash-outline"
+                    : "keypad-outline"
+                }
                 label="Apply method"
                 value={
                   selectedOffer.mode === "coupon" && selectedOffer.code
@@ -1615,281 +1789,336 @@ export default function RestaurantDetailsScreen() {
         visible={Boolean(selectedItem)}
         onClose={closeCustomizer}
         title={selectedItem?.name ?? "Item details"}
-        subtitle={selectedItemHasCustomizations ? "Customize your item" : "Ready to add"}
-        leadingIcon={selectedItemHasCustomizations ? "options-outline" : "restaurant-outline"}
+        subtitle={
+          selectedItemHasCustomizations ? "Customize your item" : "Ready to add"
+        }
+        leadingIcon={
+          selectedItemHasCustomizations
+            ? "options-outline"
+            : "restaurant-outline"
+        }
         snapPoints={[0.72, 0.9]}
         initialSnapPoint={0.72}
         scroll={false}
         contentContainerStyle={styles.customBottomSheetContent}
       >
-            {selectedItem ? (
-              <>
-                <View style={styles.customHeroCard}>
-                  <RemoteImage
-                    uri={selectedItem.images?.[0]?.url}
-                    style={styles.customHeroImage}
-                    fallbackIcon="fast-food-outline"
-                    accessibilityLabel={`${selectedItem.name} food photo`}
-                  />
-                  <View style={styles.customHeroCopy}>
-                    <Text style={styles.customHeroTitle}>{selectedItem.name}</Text>
-                    {selectedItem.description ? (
-                      <Text style={styles.customHeroDescription}>{selectedItem.description}</Text>
-                    ) : null}
-                    {selectedItem.markdown?.hasMarkdown ? (
-                      <View style={styles.customHeroPriceRow}>
-                        <Text style={styles.customHeroPriceStrike}>
-                          {selectedItemHasCustomizations
-                            ? `Starts from ${formatCurrency(selectedItem.markdown.originalPrice)}`
-                            : formatCurrency(selectedItem.markdown.originalPrice)}
-                        </Text>
-                        <Text style={styles.customHeroPrice}>
-                          {formatCurrency(selectedItem.markdown.effectivePrice)}
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.customHeroPrice}>
-                        {selectedItemHasCustomizations
-                          ? `Starts from ${formatCurrency(buildStartingPrice(selectedItem))}`
-                          : formatCurrency(selectedItem.basePrice)}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-
-                <ScrollView
-                  style={styles.customScrollArea}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.customContent}
-                >
-                  {!selectedItemHasCustomizations ? (
-                    <View style={styles.simpleItemCard}>
-                      <View style={styles.simpleItemBadge}>
-                        <Ionicons name="sparkles-outline" size={14} color={palette.secondary} />
-                        <Text style={styles.simpleItemBadgeText}>Quick add item</Text>
-                      </View>
-                      <Text style={styles.simpleItemBody}>
-                        {selectedItem.description?.trim()
-                          ? selectedItem.description
-                          : "This item is ready to add to your cart as-is."}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {(selectedItem.variants ?? []).map((group) => {
-                    const selected = selectedVariants[group.name] ?? [];
-                    const isMissingRequired =
-                      (group.minSelect ?? 0) > 0 &&
-                      selected.length < Math.max(group.minSelect ?? 0, 1);
-
-                    return (
-                      <View
-                        key={group.name}
-                        style={[
-                          styles.groupCard,
-                          isMissingRequired ? styles.groupCardWarning : null,
-                        ]}
-                      >
-                        <View style={styles.groupHeader}>
-                          <View style={styles.groupTitleWrap}>
-                            <Text style={styles.groupTitle}>{group.name}</Text>
-                            <Text style={styles.groupMeta}>Required • Pick 1</Text>
-                          </View>
-                        </View>
-                        <View style={styles.optionsList}>
-                          {group.options.map((option) => {
-                            const isSelected = selected.includes(option.label);
-                            return (
-                              <Pressable
-                                key={option.label}
-                                onPress={() => {
-                                  void Haptics.selectionAsync();
-                                  toggleSelection(group.name, option.label, group, "variant");
-                                }}
-                                style={[
-                                  styles.optionCard,
-                                  isSelected ? styles.optionCardSelected : null,
-                                ]}
-                              >
-                                <View
-                                  style={[
-                                    styles.optionIndicator,
-                                    isSelected ? styles.optionIndicatorSelected : null,
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name={isSelected ? "radio-button-on" : "radio-button-off-outline"}
-                                    size={13}
-                                    color={isSelected ? palette.surface : palette.mutedForeground}
-                                  />
-                                </View>
-                                <View style={styles.optionCopy}>
-                                  <Text style={styles.optionTitle}>{option.label}</Text>
-                                  <Text style={styles.optionSubtitle}>
-                                    {option.priceDelta > 0
-                                      ? `+ ${formatCurrency(option.priceDelta)}`
-                                      : "Included"}
-                                  </Text>
-                                </View>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    );
-                  })}
-
-                  {(selectedItem.addOnGroups ?? []).map((group) => {
-                    const selected = selectedAddOns[group.name] ?? [];
-                    const isMissingRequired =
-                      (group.minSelect ?? 0) > 0 &&
-                      selected.length < Math.max(group.minSelect ?? 0, 1);
-
-                    return (
-                      <View
-                        key={group.name}
-                        style={[
-                          styles.groupCard,
-                          isMissingRequired ? styles.groupCardWarning : null,
-                        ]}
-                      >
-                        <View style={styles.groupHeader}>
-                          <View style={styles.groupTitleWrap}>
-                            <Text style={styles.groupTitle}>{group.name}</Text>
-                            <Text style={styles.groupMeta}>
-                              {(group.minSelect ?? 0) > 0 ? "Required" : "Optional"} • Up to{" "}
-                              {group.maxSelect ?? 10}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.optionsList}>
-                          {group.options.map((option) => {
-                            const isSelected = selected.includes(option.label);
-                            return (
-                              <Pressable
-                                key={option.label}
-                                onPress={() => {
-                                  void Haptics.selectionAsync();
-                                  toggleSelection(group.name, option.label, group, "addon");
-                                }}
-                                style={[
-                                  styles.optionCard,
-                                  isSelected ? styles.optionCardSelected : null,
-                                ]}
-                              >
-                                <View
-                                  style={[
-                                    styles.optionIndicator,
-                                    isSelected ? styles.optionIndicatorSelected : null,
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name={isSelected ? "checkmark" : "add"}
-                                    size={13}
-                                    color={isSelected ? palette.surface : palette.mutedForeground}
-                                  />
-                                </View>
-                                <View style={styles.optionCopy}>
-                                  <Text style={styles.optionTitle}>{option.label}</Text>
-                                  <Text style={styles.optionSubtitle}>
-                                    {option.price > 0 ? `+ ${formatCurrency(option.price)}` : "Included"}
-                                  </Text>
-                                </View>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-
-                <View
-                  style={[
-                    styles.customFooter,
-                    { paddingBottom: Math.max(insets.bottom + 14, 24) },
-                  ]}
-                >
-                  <View style={styles.quantityWrap}>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.quantityButton,
-                        pressed
-                          ? [
-                              styles.quickButtonPressed,
-                              styles.quickButtonSecondaryPressed,
-                            ]
-                          : null,
-                      ]}
-                      onPressIn={() => {
-                        setQuantity((current) => Math.max(1, current - 1));
-                      }}
-                    >
-                      <Ionicons name="remove" size={16} color={palette.foreground} />
-                    </Pressable>
-                    <Text style={styles.quantityText}>{quantity}</Text>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.quantityButton,
-                        styles.quantityButtonPrimary,
-                        pressed ? styles.quickButtonPressed : null,
-                      ]}
-                      onPressIn={() => {
-                        setQuantity((current) => current + 1);
-                        setCustomQuantityBurstKey((current) => current + 1);
-                      }}
-                    >
-                      <Ionicons name="add" size={16} color={palette.surface} />
-                      {customQuantityBurstKey > 0 ? (
-                        <ButtonParticleBurst
-                          triggerKey={customQuantityBurstKey}
-                          onComplete={handleCustomQuantityBurstComplete}
-                        />
-                      ) : null}
-                    </Pressable>
-                  </View>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.submitButton,
-                      !canAddFromRestaurant ? styles.submitButtonDisabled : null,
-                      pressed ? styles.submitButtonPressed : null,
-                    ]}
-                    onPressIn={() => {
-                      if (!canAddFromRestaurant) {
-                        router.push("/location-picker");
-                        return;
-                      }
-                      // Fire on press-in (like the quantity steppers): React Native's
-                      // Modal can swallow the first press-release after it opens, which
-                      // is what made the button need a second tap. The ref guards
-                      // against the same touch adding twice.
-                      if (addInFlightRef.current) return;
-                      addInFlightRef.current = true;
-                      const didAdd = handleAddToCart();
-                      if (!didAdd) {
-                        addInFlightRef.current = false;
-                      }
-                    }}
-                  >
-                    <Text style={styles.submitButtonText}>
-                      {!canAddFromRestaurant ? (
-                        "Change location"
-                      ) : selectedItemMarkdown.perUnit > 0 ? (
-                        <>
-                          {`Add ${formatCurrency(selectedItemMarkdown.effectiveTotal)}  `}
-                          <Text style={{ textDecorationLine: "line-through", opacity: 0.7 }}>
-                            {formatCurrency(selectedItemTotal)}
-                          </Text>
-                        </>
-                      ) : (
-                        `Add ${formatCurrency(selectedItemTotal)}`
-                      )}
+        {selectedItem ? (
+          <>
+            <View style={styles.customHeroCard}>
+              <RemoteImage
+                uri={selectedItem.images?.[0]?.url}
+                style={styles.customHeroImage}
+                fallbackIcon="fast-food-outline"
+                accessibilityLabel={`${selectedItem.name} food photo`}
+              />
+              <View style={styles.customHeroCopy}>
+                <Text style={styles.customHeroTitle}>{selectedItem.name}</Text>
+                {selectedItem.description ? (
+                  <Text style={styles.customHeroDescription}>
+                    {selectedItem.description}
+                  </Text>
+                ) : null}
+                {selectedItem.markdown?.hasMarkdown ? (
+                  <View style={styles.customHeroPriceRow}>
+                    <Text style={styles.customHeroPriceStrike}>
+                      {selectedItemHasCustomizations
+                        ? `Starts from ${formatCurrency(selectedItem.markdown.originalPrice)}`
+                        : formatCurrency(selectedItem.markdown.originalPrice)}
                     </Text>
-                  </Pressable>
+                    <Text style={styles.customHeroPrice}>
+                      {formatCurrency(selectedItem.markdown.effectivePrice)}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.customHeroPrice}>
+                    {selectedItemHasCustomizations
+                      ? `Starts from ${formatCurrency(buildStartingPrice(selectedItem))}`
+                      : formatCurrency(selectedItem.basePrice)}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.customScrollArea}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.customContent}
+            >
+              {!selectedItemHasCustomizations ? (
+                <View style={styles.simpleItemCard}>
+                  <View style={styles.simpleItemBadge}>
+                    <Ionicons
+                      name="sparkles-outline"
+                      size={14}
+                      color={palette.secondary}
+                    />
+                    <Text style={styles.simpleItemBadgeText}>
+                      Quick add item
+                    </Text>
+                  </View>
+                  <Text style={styles.simpleItemBody}>
+                    {selectedItem.description?.trim()
+                      ? selectedItem.description
+                      : "This item is ready to add to your cart as-is."}
+                  </Text>
                 </View>
-              </>
-            ) : null}
+              ) : null}
+
+              {(selectedItem.variants ?? []).map((group) => {
+                const selected = selectedVariants[group.name] ?? [];
+                const isMissingRequired =
+                  (group.minSelect ?? 0) > 0 &&
+                  selected.length < Math.max(group.minSelect ?? 0, 1);
+
+                return (
+                  <View
+                    key={group.name}
+                    style={[
+                      styles.groupCard,
+                      isMissingRequired ? styles.groupCardWarning : null,
+                    ]}
+                  >
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleWrap}>
+                        <Text style={styles.groupTitle}>{group.name}</Text>
+                        <Text style={styles.groupMeta}>Required • Pick 1</Text>
+                      </View>
+                    </View>
+                    <View style={styles.optionsList}>
+                      {group.options.map((option) => {
+                        const isSelected = selected.includes(option.label);
+                        return (
+                          <Pressable
+                            key={option.label}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              toggleSelection(
+                                group.name,
+                                option.label,
+                                group,
+                                "variant",
+                              );
+                            }}
+                            style={[
+                              styles.optionCard,
+                              isSelected ? styles.optionCardSelected : null,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.optionIndicator,
+                                isSelected
+                                  ? styles.optionIndicatorSelected
+                                  : null,
+                              ]}
+                            >
+                              <Ionicons
+                                name={
+                                  isSelected
+                                    ? "radio-button-on"
+                                    : "radio-button-off-outline"
+                                }
+                                size={13}
+                                color={
+                                  isSelected
+                                    ? palette.surface
+                                    : palette.mutedForeground
+                                }
+                              />
+                            </View>
+                            <View style={styles.optionCopy}>
+                              <Text style={styles.optionTitle}>
+                                {option.label}
+                              </Text>
+                              <Text style={styles.optionSubtitle}>
+                                {option.priceDelta > 0
+                                  ? `+ ${formatCurrency(option.priceDelta)}`
+                                  : "Included"}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+
+              {(selectedItem.addOnGroups ?? []).map((group) => {
+                const selected = selectedAddOns[group.name] ?? [];
+                const isMissingRequired =
+                  (group.minSelect ?? 0) > 0 &&
+                  selected.length < Math.max(group.minSelect ?? 0, 1);
+
+                return (
+                  <View
+                    key={group.name}
+                    style={[
+                      styles.groupCard,
+                      isMissingRequired ? styles.groupCardWarning : null,
+                    ]}
+                  >
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleWrap}>
+                        <Text style={styles.groupTitle}>{group.name}</Text>
+                        <Text style={styles.groupMeta}>
+                          {(group.minSelect ?? 0) > 0 ? "Required" : "Optional"}{" "}
+                          • Up to {group.maxSelect ?? 10}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.optionsList}>
+                      {group.options.map((option) => {
+                        const isSelected = selected.includes(option.label);
+                        return (
+                          <Pressable
+                            key={option.label}
+                            onPress={() => {
+                              void Haptics.selectionAsync();
+                              toggleSelection(
+                                group.name,
+                                option.label,
+                                group,
+                                "addon",
+                              );
+                            }}
+                            style={[
+                              styles.optionCard,
+                              isSelected ? styles.optionCardSelected : null,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.optionIndicator,
+                                isSelected
+                                  ? styles.optionIndicatorSelected
+                                  : null,
+                              ]}
+                            >
+                              <Ionicons
+                                name={isSelected ? "checkmark" : "add"}
+                                size={13}
+                                color={
+                                  isSelected
+                                    ? palette.surface
+                                    : palette.mutedForeground
+                                }
+                              />
+                            </View>
+                            <View style={styles.optionCopy}>
+                              <Text style={styles.optionTitle}>
+                                {option.label}
+                              </Text>
+                              <Text style={styles.optionSubtitle}>
+                                {option.price > 0
+                                  ? `+ ${formatCurrency(option.price)}`
+                                  : "Included"}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View
+              style={[
+                styles.customFooter,
+                { paddingBottom: Math.max(insets.bottom + 14, 24) },
+              ]}
+            >
+              <View style={styles.quantityWrap}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quantityButton,
+                    pressed
+                      ? [
+                          styles.quickButtonPressed,
+                          styles.quickButtonSecondaryPressed,
+                        ]
+                      : null,
+                  ]}
+                  onPressIn={() => {
+                    setQuantity((current) => Math.max(1, current - 1));
+                  }}
+                >
+                  <Ionicons
+                    name="remove"
+                    size={16}
+                    color={palette.foreground}
+                  />
+                </Pressable>
+                <Text style={styles.quantityText}>{quantity}</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.quantityButton,
+                    styles.quantityButtonPrimary,
+                    pressed ? styles.quickButtonPressed : null,
+                  ]}
+                  onPressIn={() => {
+                    setQuantity((current) => current + 1);
+                    setCustomQuantityBurstKey((current) => current + 1);
+                  }}
+                >
+                  <Ionicons name="add" size={16} color={palette.surface} />
+                  {customQuantityBurstKey > 0 ? (
+                    <ButtonParticleBurst
+                      triggerKey={customQuantityBurstKey}
+                      onComplete={handleCustomQuantityBurstComplete}
+                    />
+                  ) : null}
+                </Pressable>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  !canAddFromRestaurant ? styles.submitButtonDisabled : null,
+                  pressed ? styles.submitButtonPressed : null,
+                ]}
+                onPressIn={() => {
+                  if (!canAddFromRestaurant) {
+                    router.push("/location-picker");
+                    return;
+                  }
+                  // Fire on press-in (like the quantity steppers): React Native's
+                  // Modal can swallow the first press-release after it opens, which
+                  // is what made the button need a second tap. The ref guards
+                  // against the same touch adding twice.
+                  if (addInFlightRef.current) return;
+                  addInFlightRef.current = true;
+                  const didAdd = handleAddToCart();
+                  if (!didAdd) {
+                    addInFlightRef.current = false;
+                  }
+                }}
+              >
+                <Text style={styles.submitButtonText}>
+                  {!canAddFromRestaurant ? (
+                    "Change location"
+                  ) : selectedItemMarkdown.perUnit > 0 ? (
+                    <>
+                      {`Add ${formatCurrency(selectedItemMarkdown.effectiveTotal)}  `}
+                      <Text
+                        style={{
+                          textDecorationLine: "line-through",
+                          opacity: 0.7,
+                        }}
+                      >
+                        {formatCurrency(selectedItemTotal)}
+                      </Text>
+                    </>
+                  ) : (
+                    `Add ${formatCurrency(selectedItemTotal)}`
+                  )}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
       </AppBottomSheet>
     </Screen>
   );

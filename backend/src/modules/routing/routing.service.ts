@@ -1015,18 +1015,26 @@ export async function getOrderRouteMetrics(params: {
     }
 
     const googleRoute = await fetchGoogleRoute(origin, destination, context);
-    const route = googleRoute ?? fallback();
-    orderRouteSessions.set(
-      mapKey,
-      createOrderRouteSession({
-        route,
-        origin,
-        destination,
-        sessionKey,
-        routeKey,
-      }),
-    );
-    return route;
+    if (googleRoute) {
+      orderRouteSessions.set(
+        mapKey,
+        createOrderRouteSession({
+          route: googleRoute,
+          origin,
+          destination,
+          sessionKey,
+          routeKey,
+        }),
+      );
+      return googleRoute;
+    }
+
+    // Google failed on this FIRST fetch. Return a straight-line estimate for this one
+    // response but do NOT cache it as the order's route — otherwise a single transient
+    // failure would stick the customer on the dotted Haversine line for the whole
+    // session while the rider (whose route resolved fine) shows the real polyline.
+    // Not caching means the next poll retries Google and both converge to the road route.
+    return fallback();
   } catch (error) {
     logger.warn({ error }, "Order route metrics failed; using Haversine fallback");
     return currentSession

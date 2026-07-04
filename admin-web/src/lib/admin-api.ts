@@ -3685,8 +3685,6 @@ export type PlatformContent = {
       autoEnabled: boolean
       riderReviewEnabled: boolean
       delayMinutes: number
-      maxReminders: number
-      reminderGapHours: number
       windowHours: number
       quietHoursStart: number
       quietHoursEnd: number

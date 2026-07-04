@@ -25,11 +25,13 @@ export default function TabsLayout() {
         //     to the visible tab (the real cause of the Home→Browse jank).
         // Background cost is already minimal: the skeleton shimmer that used to
         // run in blurred tabs was removed (see loading-skeleton.tsx).
-        animation: "fade",
-        transitionSpec: {
-          animation: "timing",
-          config: { duration: 90 },
-        },
+        // Instant tab switching (the bottom-tab standard). The previous "fade"
+        // animation animated the incoming scene's opacity; when the JS thread was
+        // busy (e.g. right after a fast Browse scroll) that fade could be
+        // interrupted / race react-native-screens' scene attach, leaving the target
+        // tab stuck near opacity 0 = a blank screen until you re-navigated. Only
+        // surfaced in release builds (different, faster scheduling than dev).
+        animation: "none",
         freezeOnBlur: false,
         sceneStyle: {
           backgroundColor: palette.background,

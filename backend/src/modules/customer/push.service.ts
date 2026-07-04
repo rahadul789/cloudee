@@ -938,9 +938,10 @@ export async function sendPushToCustomer(params: {
 
 type ReviewRequestConfig = {
   autoEnabled: boolean
+  // Minutes after delivery before the single rating push goes out (admin-set).
   delayMinutes: number
-  maxReminders: number
-  reminderGapHours: number
+  // Safety cap: never nudge an order older than this (avoids waking someone about a
+  // 3-day-old order if the scheduler was down). Not a "repeat" — still one push only.
   windowHours: number
   quietHoursStart: number
   quietHoursEnd: number
@@ -951,8 +952,6 @@ type ReviewRequestConfig = {
 const REVIEW_REQUEST_DEFAULTS: ReviewRequestConfig = {
   autoEnabled: true,
   delayMinutes: 20,
-  maxReminders: 2,
-  reminderGapHours: 24,
   windowHours: 72,
   quietHoursStart: 22,
   quietHoursEnd: 9,
@@ -1023,13 +1022,6 @@ function buildReviewRequestPayload(
       ctaLabel: "Rate order",
     },
   }
-}
-
-function wasReviewNotificationDelivered(result: Awaited<ReturnType<typeof sendPushToCustomer>>) {
-  return (
-    result.sent > 0 ||
-    (result.inAppCreated > 0 && result.sentExpoTokens.length === 0 && result.disabled === 0)
-  )
 }
 
 function getOrderDeliveredAtMs(order: {
@@ -1127,6 +1119,9 @@ export async function processDueReviewRequests() {
   const candidates = await OrderModel.find({
     status: "Delivered",
     customerId: { $nin: ["", null] },
+    // Skip orders that already got the single review push (pushCount >= 1) so each
+    // tick only looks at ones still awaiting their one-and-only nudge.
+    "reviewRequest.pushCount": { $not: { $gte: 1 } },
     $or: [
       { "timestamps.Delivered": { $gte: windowStart } },
       { "timestamps.deliveredAt": { $gte: windowStart } },
@@ -1150,52 +1145,37 @@ export async function processDueReviewRequests() {
       const deliveredAtMs = getOrderDeliveredAtMs(order)
       if (!Number.isFinite(deliveredAtMs)) continue
       const ageMs = now - deliveredAtMs
-      if (ageMs < config.delayMinutes * 60_000) continue
-      if (ageMs > config.windowHours * 3_600_000) continue
+      if (ageMs < config.delayMinutes * 60_000) continue // not due yet
+      if (ageMs > config.windowHours * 3_600_000) continue // too old to nudge
 
-      const reviewState = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
-      const pushCount = Number(reviewState.pushCount ?? 0)
-      if (pushCount >= config.maxReminders) continue
+      if (await ReviewModel.exists({ orderId: order._id })) continue // already reviewed
 
-      const lastPushAt = reviewState.lastPushAt
-        ? new Date(reviewState.lastPushAt as string).getTime()
-        : 0
-      if (lastPushAt && now - lastPushAt < config.reminderGapHours * 3_600_000) {
-        continue
-      }
-      const lastAttemptAt = reviewState.lastAttemptAt
-        ? new Date(reviewState.lastAttemptAt as string).getTime()
-        : 0
-      if (!lastPushAt && lastAttemptAt && now - lastAttemptAt < 10 * 60_000) {
-        continue
-      }
+      // Atomically claim the single review push by flipping pushCount 0 -> 1. Only ONE
+      // caller can match the "not yet pushed" filter, so even with several backend
+      // instances (or overlapping ticks) each running this scheduler, exactly one push
+      // is ever sent per order — this is what stops the duplicate rating spam.
+      const claimed = await OrderModel.findOneAndUpdate(
+        {
+          _id: order._id,
+          $or: [
+            { "reviewRequest.pushCount": { $in: [null, undefined, 0] } },
+            { reviewRequest: { $in: [null, undefined] } },
+          ],
+        },
+        {
+          $set: {
+            "reviewRequest.pushCount": 1,
+            "reviewRequest.lastPushAt": new Date(),
+            "reviewRequest.lastChannel": "auto",
+          },
+        },
+      )
+      if (!claimed) continue // another instance/tick already sent it
 
-      const existingReview = await ReviewModel.exists({ orderId: order._id })
-      if (existingReview) {
-        order.set("reviewRequest", { ...reviewState, reviewedAt: new Date() })
-        await order.save()
-        continue
-      }
-
-      const result = await sendPushToCustomer({
+      await sendPushToCustomer({
         customerId,
         payload: buildReviewRequestPayload(String(order._id), config),
       })
-
-      const nextReviewState: Record<string, unknown> = {
-        ...reviewState,
-        lastChannel: "auto",
-        lastAttemptAt: new Date(),
-        lastAttemptSent: result.sent,
-        lastAttemptInAppCreated: result.inAppCreated,
-      }
-      if (wasReviewNotificationDelivered(result)) {
-        nextReviewState.pushCount = pushCount + 1
-        nextReviewState.lastPushAt = new Date()
-      }
-
-      order.set("reviewRequest", nextReviewState)
-      await order.save()
     } catch (error) {
       logger.error(
         { error, orderId: String(order._id) },

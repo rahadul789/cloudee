@@ -103,7 +103,10 @@
       "Bash(npx tsx *)",
       "Bash(rm -f diag-voucher.ts diag-notif.ts diag-analytics.ts)",
       "Bash(grep -iE 'sort|score|rank|regex|$text|name')",
-      "Bash(grep -n \"^  return \\(\\\\|const openDetailsSheet\\\\|const closeDetailsSheet\\\\|^  \\);$\\\\|^}\" customer-app/app/orders/\\\\[orderId\\\\]/tracking.tsx)"
+      "Bash(grep -n \"^  return \\(\\\\|const openDetailsSheet\\\\|const closeDetailsSheet\\\\|^  \\);$\\\\|^}\" customer-app/app/orders/\\\\[orderId\\\\]/tracking.tsx)",
+      "Bash(grep -n \"export async function updateRiderProfileLocation\\\\|export async function updateRiderLocation\\\\|riderTracking.latitude\\\\|riderTracking.lastLocationAt\\\\|customer:\\\\${\" backend/src/modules/rider/rider.service.ts)",
+      "Bash(awk 'NR>=1998 && NR<=2075' backend/src/modules/owner/operational.service.ts)",
+      "Bash(grep -n \"customer:\\\\${\" backend/src/modules/owner/operational.service.ts)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

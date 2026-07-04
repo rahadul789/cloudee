@@ -55,7 +55,6 @@ const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
 // small — just above a road-snapped pin's few metres — so off-road homes always
 // get the dotted "last metres" connector to the exact location.
 const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 12;
-const ROUTE_DRAW_SNAP_MAX_METERS = 90;
 const MAP_HEIGHT_SCREEN_RATIO = 0.54;
 const ROUTE_DETOUR_DIRECT_MAX_METERS = 180;
 const ROUTE_DETOUR_ROUTE_MIN_METERS = 450;
@@ -188,8 +187,11 @@ function buildRemainingRouteFromProjection(
   projection: ReturnType<typeof projectOntoRoute> | null,
 ) {
   if (points.length < 2 || !projection) return points;
-  if (projection.offRouteMeters > ROUTE_DRAW_SNAP_MAX_METERS) return points;
 
+  // Always trim the remaining route to start at the rider's projection — even when
+  // the rider is well off the road (large offRouteMeters). Returning the full route
+  // there was the bug where the solid polyline still showed the already-passed part
+  // and the rider's dotted connector attached to the MIDDLE of it instead of its start.
   const tail = points.filter(
     (_point, index) => cumulative[index] > projection.distanceAlong + 1,
   );
@@ -455,7 +457,12 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     routeDistanceMeters >= ROUTE_DETOUR_ROUTE_MIN_METERS &&
     routeDistanceMeters / Math.max(distanceMeters, OFF_ROAD_GAP_METERS) >=
       ROUTE_DETOUR_RATIO;
-  const hasRealRoute = routeProvider === "google" && realRoutePoints.length >= 2 && !hasRouteDetour;
+  // Trust the real Google route whenever we have one: show it SOLID. The old
+  // `!hasRouteDetour` clause hid a genuine long road route (e.g. a river/bridge
+  // crossing) behind a straight dotted curve just because the rider was close in a
+  // straight line — that's the "route shows as dotted" bug. The final off-road gap
+  // to the exact pin is still handled by the dotted offRoadToCustomer connector.
+  const hasRealRoute = routeProvider === "google" && realRoutePoints.length >= 2;
   const riderRouteProjection = useMemo(
     () =>
       hasRealRoute

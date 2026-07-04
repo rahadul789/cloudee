@@ -341,7 +341,10 @@ export default function CustomerSearchScreen() {
                       {recentViewedRestaurants.map((restaurant) => (
                         <Pressable
                           key={restaurant.id}
-                          style={styles.recentViewedCard}
+                          style={({ pressed }) => [
+                            styles.recentViewedCard,
+                            pressed ? styles.recentViewedCardPressed : null,
+                          ]}
                           onPress={() =>
                             router.push({
                               pathname: "/restaurants/[restaurantId]",
@@ -597,6 +600,10 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: "#F0E0EA",
+  },
+  recentViewedCardPressed: {
+    transform: [{ scale: 0.98 }],
+    opacity: 0.96,
   },
   recentViewedIcon: {
     width: 40,

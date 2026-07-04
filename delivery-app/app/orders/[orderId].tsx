@@ -34,6 +34,7 @@ import { useNetworkStatus } from "@/src/hooks/use-network-status";
 import { isBangla, useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
 import { normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
+import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import { getOrderStatusBadge, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
 import {
   startRiderBackgroundLocationAsync,
@@ -619,6 +620,36 @@ export default function RiderOrderDetailsScreen() {
     void Linking.openURL(url);
   }, [customerCoordinate, isPickedUp, restaurantCoordinate, riderCoordinate]);
 
+  const orderLastAcceptedFixRef = useRef<AcceptedFix | null>(null);
+  const orderConsecutiveRejectsRef = useRef(0);
+  // Gate raw fixes before they reach the map or the server, so a stationary GPS
+  // teleport / low-accuracy fix never becomes the rider's shown/published position.
+  const acceptOrderFix = useCallback((position: Location.LocationObject) => {
+    const nowMs = Date.now();
+    const ok = shouldAcceptFix({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracyMeters:
+        typeof position.coords.accuracy === "number"
+          ? position.coords.accuracy
+          : undefined,
+      nowMs,
+      last: orderLastAcceptedFixRef.current,
+      consecutiveRejects: orderConsecutiveRejectsRef.current,
+    });
+    if (!ok) {
+      orderConsecutiveRejectsRef.current += 1;
+      return false;
+    }
+    orderConsecutiveRejectsRef.current = 0;
+    orderLastAcceptedFixRef.current = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      atMs: nowMs,
+    };
+    return true;
+  }, []);
+
   const updateLiveRider = useCallback((position: Location.LocationObject) => {
     const now = Date.now();
     if (now - lastUiPositionAtRef.current < UI_POSITION_THROTTLE_MS) return;
@@ -708,7 +739,11 @@ export default function RiderOrderDetailsScreen() {
         const currentPosition = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        if (isMounted && !isCompletingDeliveryRef.current) {
+        if (
+          isMounted &&
+          !isCompletingDeliveryRef.current &&
+          acceptOrderFix(currentPosition)
+        ) {
           updateLiveRider(currentPosition);
           sendForegroundLocation(currentPosition);
           setTrackingError("");
@@ -725,6 +760,7 @@ export default function RiderOrderDetailsScreen() {
         },
         (position) => {
           if (!isMounted || isCompletingDeliveryRef.current) return;
+          if (!acceptOrderFix(position)) return;
           setTrackingError("");
           updateLiveRider(position);
           sendForegroundLocation(position);
@@ -749,6 +785,7 @@ export default function RiderOrderDetailsScreen() {
     orderId,
     trackingPolicy.distanceIntervalMeters,
     trackingPolicy.updateIntervalSeconds,
+    acceptOrderFix,
     sendForegroundLocation,
     updateLiveRider,
   ]);

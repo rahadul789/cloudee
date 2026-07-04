@@ -151,8 +151,6 @@ const defaultReviewRequestSettings: NonNullable<
   autoEnabled: true,
   riderReviewEnabled: true,
   delayMinutes: 20,
-  maxReminders: 2,
-  reminderGapHours: 24,
   windowHours: 72,
   quietHoursStart: 22,
   quietHoursEnd: 9,
@@ -2283,82 +2281,6 @@ export function SettingsPage() {
                                 ),
                                 0,
                                 1440
-                              )
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Max reminders / order
-                      </span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={5}
-                        step={1}
-                        value={reviewRequests.maxReminders}
-                        onChange={(event) =>
-                          updateDraft((content) => {
-                            ensureReviewRequestSettings(content).maxReminders =
-                              clampNumber(
-                                numberFromInput(
-                                  event.target.value,
-                                  reviewRequests.maxReminders
-                                ),
-                                1,
-                                5
-                              )
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Reminder gap (hours)
-                      </span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={168}
-                        step={1}
-                        value={reviewRequests.reminderGapHours}
-                        onChange={(event) =>
-                          updateDraft((content) => {
-                            ensureReviewRequestSettings(
-                              content
-                            ).reminderGapHours = clampNumber(
-                              numberFromInput(
-                                event.target.value,
-                                reviewRequests.reminderGapHours
-                              ),
-                              1,
-                              168
-                            )
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        Stop after (hours since delivery)
-                      </span>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={336}
-                        step={1}
-                        value={reviewRequests.windowHours}
-                        onChange={(event) =>
-                          updateDraft((content) => {
-                            ensureReviewRequestSettings(content).windowHours =
-                              clampNumber(
-                                numberFromInput(
-                                  event.target.value,
-                                  reviewRequests.windowHours
-                                ),
-                                1,
-                                336
                               )
                           })
                         }
