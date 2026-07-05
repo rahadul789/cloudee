@@ -454,7 +454,7 @@ const defaultRateLimitSettings: PlatformContent["auth"]["rateLimits"] = {
   otpSendPerIpWindow: 12,
   otpVerifyAttemptsPerWindow: 8,
   passwordRecoveryPerWindow: 5,
-  refreshPerWindow: 30,
+  refreshPerWindow: 60,
   paymentInitiatePerWindow: 8,
   orderPlacePerWindow: 12,
   orderActionPerWindow: 10,
