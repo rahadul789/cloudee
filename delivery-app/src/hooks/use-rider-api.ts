@@ -389,6 +389,36 @@ export function useRiderProfileQuery(enabled = true) {
   });
 }
 
+export type RiderReview = {
+  _id: string;
+  riderRating: number | null;
+  riderComment: string;
+  orderId: string;
+  createdAt: string | null;
+};
+
+export type RiderReviewsResponse = {
+  items: RiderReview[];
+  total: number;
+  averageRating: number;
+};
+
+export function useRiderReviewsQuery(enabled = true, pageSize = 20) {
+  const isAuthenticated = useRiderAuthStore((state: { accessToken: string }) => Boolean(state.accessToken));
+
+  return useQuery({
+    queryKey: ["rider", "reviews", pageSize],
+    enabled: enabled && isAuthenticated,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const response = await apiGet<RiderReviewsResponse>(
+        `/rider/reviews?page=1&pageSize=${pageSize}`,
+      );
+      return response.data;
+    },
+  });
+}
+
 export function useUpdateRiderAvailabilityMutation() {
   const queryClient = useQueryClient();
   const setSession = useRiderAuthStore((state) => state.setSession);

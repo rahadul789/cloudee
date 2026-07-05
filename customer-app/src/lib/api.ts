@@ -3,11 +3,26 @@ import { API_BASE_URL } from "@/src/config/runtime";
 
 let refreshPromise: Promise<boolean> | null = null;
 let lastRefreshFailureAtMs = 0;
+// On a 429 (rate-limited) refresh, back off until this timestamp rather than retrying
+// every REFRESH_RETRY_COOLDOWN_MS — retrying while rate-limited only sustains the lock.
+let refreshBackoffUntilMs = 0;
 
 const API_REQUEST_TIMEOUT_MS = 18_000;
 const API_REFRESH_TIMEOUT_MS = 12_000;
 const TOKEN_REFRESH_BUFFER_MS = 90_000;
 const REFRESH_RETRY_COOLDOWN_MS = 10_000;
+const RATE_LIMIT_BACKOFF_FALLBACK_MS = 5 * 60_000;
+const MAX_REFRESH_BACKOFF_MS = 15 * 60_000;
+
+function resolveRefreshBackoffMs(response: Response) {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  const reset = Number(response.headers.get("ratelimit-reset"));
+  const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : reset;
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(seconds * 1000 + 1000, MAX_REFRESH_BACKOFF_MS);
+  }
+  return RATE_LIMIT_BACKOFF_FALLBACK_MS;
+}
 
 type ApiResponse<T> = {
   success: boolean;
@@ -200,6 +215,9 @@ async function refreshCustomerSession() {
 
   if (!response.ok) {
     lastRefreshFailureAtMs = Date.now();
+    if (response.status === 429) {
+      refreshBackoffUntilMs = Date.now() + resolveRefreshBackoffMs(response);
+    }
     if (response.status === 401 || response.status === 403) {
       useCustomerAuthStore.getState().clearSession();
     }
@@ -238,6 +256,7 @@ async function refreshCustomerSession() {
     customer: payload.data.customer,
   });
   lastRefreshFailureAtMs = 0;
+  refreshBackoffUntilMs = 0;
 
   return true;
 }
@@ -258,6 +277,11 @@ export async function ensureFreshCustomerSession(options?: {
 }) {
   const { accessToken, refreshToken } = useCustomerAuthStore.getState();
   if (!refreshToken) return false;
+
+  // Honour a 429 backoff even for forced refreshes — the server asked us to stop.
+  if (Date.now() < refreshBackoffUntilMs) {
+    return false;
+  }
 
   if (!options?.force && accessToken) {
     const bufferMs = options?.bufferMs ?? TOKEN_REFRESH_BUFFER_MS;

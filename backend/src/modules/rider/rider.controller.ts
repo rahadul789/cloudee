@@ -18,6 +18,7 @@ import {
   getRiderPlatformContent,
   getRiderProfile,
   listRiderOrders,
+  listRiderReviews,
   logoutRiderSession,
   pickupRiderOrder,
   postRiderLocation,
@@ -230,6 +231,18 @@ export const logoutRiderAuth = asyncHandler(async (req: Request, res: Response) 
 
 export const getRiderProfileSummary = asyncHandler(async (req: Request, res: Response) => {
   const data = await getRiderProfile(req.user?.id ?? "")
+
+  return sendSuccess(res, { data })
+})
+
+export const getRiderReviews = asyncHandler(async (req: Request, res: Response) => {
+  const pageSize = Number.parseInt(String(req.query.pageSize ?? ""), 10)
+  const page = Number.parseInt(String(req.query.page ?? ""), 10)
+  const data = await listRiderReviews({
+    riderId: req.user?.id ?? "",
+    page: Number.isFinite(page) ? page : undefined,
+    pageSize: Number.isFinite(pageSize) ? pageSize : undefined
+  })
 
   return sendSuccess(res, { data })
 })

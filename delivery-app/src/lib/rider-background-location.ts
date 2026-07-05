@@ -35,6 +35,22 @@ const DEFAULT_MOVE_THRESHOLD_METERS = 60;
 const DEFAULT_HEARTBEAT_MS = 35_000;
 // Cap a single location PATCH so a slow/2G network can't leave the task hanging.
 const LOCATION_SEND_TIMEOUT_MS = 9_000;
+// Refresh the access token this long before it actually expires, so a valid token is
+// almost always in hand and 401s (which trigger a reactive refresh) stay rare.
+const ACCESS_TOKEN_REFRESH_BUFFER_MS = 90_000;
+// After a refresh failure, don't retry for a while. This is THE guard against the
+// refresh storm: OS location callbacks fire every 1-5s, so without a backoff an
+// expired token would trigger a refresh on every single callback and blow the
+// per-token rate limit (which is shared with the foreground app).
+const BACKGROUND_REFRESH_FAILURE_BACKOFF_MS = 30_000;
+// When the server rate-limits us (429) and sends no reset hint, back off this long.
+const BACKGROUND_REFRESH_RATE_LIMIT_BACKOFF_MS = 5 * 60_000;
+const MAX_BACKGROUND_REFRESH_BACKOFF_MS = 15 * 60_000;
+
+// Single-flight + backoff for background refresh. Module-level so every location
+// callback in this task shares one in-flight refresh and one backoff window.
+let backgroundRefreshPromise: Promise<string | null> | null = null;
+let backgroundRefreshBackoffUntilMs = 0;
 
 type SendPolicy = {
   moveThresholdMeters: number;
@@ -139,7 +155,48 @@ async function writePersistedAuth(nextAuth: PersistedAuthState) {
   await secureStateStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextAuth));
 }
 
-async function refreshBackgroundSession(refreshToken: string) {
+function decodeJwtExpiryMs(token: string) {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    const json =
+      typeof globalThis.atob === "function"
+        ? globalThis.atob(padded)
+        : Buffer.from(padded, "base64").toString("binary");
+    const parsed = JSON.parse(json) as { exp?: unknown };
+    return typeof parsed.exp === "number" ? parsed.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAccessTokenFresh(token: string, bufferMs: number) {
+  const expiresAtMs = decodeJwtExpiryMs(token);
+  // If we can't read an expiry, treat it as usable — a real 401 will still force a
+  // (backoff-guarded) refresh, so we never storm even for an opaque token.
+  if (expiresAtMs === null) return true;
+  return expiresAtMs - Date.now() > bufferMs;
+}
+
+function resolveRefreshBackoffMs(response: Response) {
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const reset = Number(response.headers.get("ratelimit-reset"));
+    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : reset;
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.min(seconds * 1000 + 1000, MAX_BACKGROUND_REFRESH_BACKOFF_MS);
+    }
+    return BACKGROUND_REFRESH_RATE_LIMIT_BACKOFF_MS;
+  }
+  return BACKGROUND_REFRESH_FAILURE_BACKOFF_MS;
+}
+
+// The single low-level refresh call. Persists the new tokens on success and, on ANY
+// failure, opens a backoff window so callers stop retrying — respecting the server's
+// rate-limit reset hint when it's a 429.
+async function performBackgroundRefresh(refreshToken: string): Promise<string | null> {
   const response = await fetchWithTimeout(`${API_BASE_URL}/rider/auth/refresh`, {
     method: "POST",
     headers: {
@@ -148,7 +205,13 @@ async function refreshBackgroundSession(refreshToken: string) {
     body: JSON.stringify({ refreshToken }),
   });
 
-  if (!response?.ok) {
+  if (!response) {
+    backgroundRefreshBackoffUntilMs = Date.now() + BACKGROUND_REFRESH_FAILURE_BACKOFF_MS;
+    return null;
+  }
+
+  if (!response.ok) {
+    backgroundRefreshBackoffUntilMs = Date.now() + resolveRefreshBackoffMs(response);
     return null;
   }
 
@@ -163,6 +226,7 @@ async function refreshBackgroundSession(refreshToken: string) {
   const accessToken = body?.data?.accessToken;
   const nextRefreshToken = body?.data?.refreshToken;
   if (!accessToken || !nextRefreshToken) {
+    backgroundRefreshBackoffUntilMs = Date.now() + BACKGROUND_REFRESH_FAILURE_BACKOFF_MS;
     return null;
   }
 
@@ -178,11 +242,39 @@ async function refreshBackgroundSession(refreshToken: string) {
   };
 
   await writePersistedAuth(nextAuth);
+  backgroundRefreshBackoffUntilMs = 0;
+  return accessToken;
+}
 
-  return {
-    accessToken,
-    refreshToken: nextRefreshToken,
-  };
+// Single-flight: many location callbacks can arrive while a refresh is in progress;
+// they all await the same one instead of each firing their own.
+function runBackgroundRefreshOnce(refreshToken: string): Promise<string | null> {
+  if (!backgroundRefreshPromise) {
+    backgroundRefreshPromise = performBackgroundRefresh(refreshToken).finally(() => {
+      backgroundRefreshPromise = null;
+    });
+  }
+  return backgroundRefreshPromise;
+}
+
+// Returns a usable access token, refreshing PROACTIVELY (before expiry) at most once
+// per cycle. Returns null while inside a backoff window so the task simply skips the
+// send instead of hammering refresh — this is what prevents the rate-limit storm.
+async function getBackgroundAccessToken(): Promise<string | null> {
+  const auth = await getPersistedAuth();
+  const accessToken = auth?.state?.accessToken;
+  const refreshToken = auth?.state?.refreshToken;
+  if (!refreshToken) return null;
+
+  if (accessToken && isAccessTokenFresh(accessToken, ACCESS_TOKEN_REFRESH_BUFFER_MS)) {
+    return accessToken;
+  }
+
+  if (Date.now() < backgroundRefreshBackoffUntilMs) {
+    return null;
+  }
+
+  return runBackgroundRefreshOnce(refreshToken);
 }
 
 async function persistPendingBackgroundLocation(payload: BackgroundLocationPayload) {
@@ -282,8 +374,10 @@ async function sendBackgroundLocationPayload(
   payload: BackgroundLocationPayload,
   allowRefresh = true,
 ) {
-  const auth = await getPersistedAuth();
-  const accessToken = auth?.state?.accessToken;
+  // Proactively resolve a fresh token (single-flight + backoff). Returns null while a
+  // refresh backoff window is open (e.g. after a 429), so we skip the send instead of
+  // hammering the refresh endpoint — the caller queues it as pending.
+  const accessToken = await getBackgroundAccessToken();
 
   if (!accessToken) {
     return false;
@@ -298,11 +392,18 @@ async function sendBackgroundLocationPayload(
     body: JSON.stringify(payload),
   });
 
-  if (response?.status === 401 && allowRefresh && auth?.state?.refreshToken) {
-    const refreshed = await refreshBackgroundSession(auth.state.refreshToken);
-    if (refreshed?.accessToken) {
-      return sendBackgroundLocationPayload(payload, false);
+  if (response?.status === 401 && allowRefresh) {
+    // Token looked valid but was rejected (revoked / clock skew). Force ONE refresh —
+    // still single-flight and still guarded by the shared backoff window.
+    const auth = await getPersistedAuth();
+    const refreshToken = auth?.state?.refreshToken;
+    if (refreshToken && Date.now() >= backgroundRefreshBackoffUntilMs) {
+      const refreshed = await runBackgroundRefreshOnce(refreshToken);
+      if (refreshed) {
+        return sendBackgroundLocationPayload(payload, false);
+      }
     }
+    return false;
   }
 
   if (!response?.ok) {

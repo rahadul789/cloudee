@@ -18,6 +18,7 @@ export default function RootLayout() {
             <Stack.Screen name="verify" />
             <Stack.Screen name="(app)" />
             <Stack.Screen name="notifications" />
+            <Stack.Screen name="reviews" />
             <Stack.Screen name="orders/[orderId]" />
           </Stack>
         </AppBootstrapGate>

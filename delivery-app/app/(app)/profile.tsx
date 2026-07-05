@@ -167,6 +167,17 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
         </Pressable>
 
+        <Pressable style={styles.navButton} onPress={() => router.push("/reviews" as never)}>
+          <View style={styles.navIconWrap}>
+            <Ionicons name="star-outline" size={18} color={palette.primary} />
+          </View>
+          <View style={styles.navCopy}>
+            <Text style={styles.navTitle}>Reviews</Text>
+            <Text style={styles.navText}>Ratings customers left for your deliveries</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
+        </Pressable>
+
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{copy.profile.languageTitle ?? copy.common.language}</Text>
           <View style={styles.languageRow}>

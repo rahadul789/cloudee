@@ -479,7 +479,7 @@ export function createRefreshLimiter(scope?: string): RequestHandler {
     label: limiter.label,
     category: "auth",
     windowMs: 15 * 60 * 1000,
-    limit: 30,
+    limit: 60,
     settingKey: "refreshPerWindow",
     keyGenerator: withRefreshTokenFingerprint,
     message: "Too many session refresh attempts. Please try again in a few minutes.",

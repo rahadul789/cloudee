@@ -106,7 +106,10 @@
       "Bash(grep -n \"^  return \\(\\\\|const openDetailsSheet\\\\|const closeDetailsSheet\\\\|^  \\);$\\\\|^}\" customer-app/app/orders/\\\\[orderId\\\\]/tracking.tsx)",
       "Bash(grep -n \"export async function updateRiderProfileLocation\\\\|export async function updateRiderLocation\\\\|riderTracking.latitude\\\\|riderTracking.lastLocationAt\\\\|customer:\\\\${\" backend/src/modules/rider/rider.service.ts)",
       "Bash(awk 'NR>=1998 && NR<=2075' backend/src/modules/owner/operational.service.ts)",
-      "Bash(grep -n \"customer:\\\\${\" backend/src/modules/owner/operational.service.ts)"
+      "Bash(grep -n \"customer:\\\\${\" backend/src/modules/owner/operational.service.ts)",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('scripts:', JSON.stringify\\(p.scripts\\)\\); console.log\\('deps:', Object.keys\\(p.dependencies||{}\\).join\\(', '\\)\\)\")",
+      "Skill(artifact-design)",
+      "Skill(artifact-design:*)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

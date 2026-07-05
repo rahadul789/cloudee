@@ -21,7 +21,11 @@ export const defaultAuthRateLimitSettings = {
   otpSendPerIpWindow: 12,
   otpVerifyAttemptsPerWindow: 8,
   passwordRecoveryPerWindow: 5,
-  refreshPerWindow: 30,
+  // Headroom for a legit multi-context mobile client (foreground app + background
+  // location service + socket) that each may refresh around token expiry. A
+  // well-behaved client still refreshes ~once per 44m; this margin absorbs restarts
+  // and reconnect bursts without locking a working rider out.
+  refreshPerWindow: 60,
   paymentInitiatePerWindow: 8,
   orderPlacePerWindow: 12,
   orderActionPerWindow: 10,
@@ -889,7 +893,7 @@ const platformContentSchema = z.object({
         otpSendPerIpWindow: z.number().int().min(3).max(100).optional().default(12),
         otpVerifyAttemptsPerWindow: z.number().int().min(3).max(30).optional().default(8),
         passwordRecoveryPerWindow: z.number().int().min(1).max(30).optional().default(5),
-        refreshPerWindow: z.number().int().min(10).max(300).optional().default(30),
+        refreshPerWindow: z.number().int().min(10).max(300).optional().default(60),
         paymentInitiatePerWindow: z.number().int().min(2).max(60).optional().default(8),
         orderPlacePerWindow: z.number().int().min(2).max(100).optional().default(12),
         orderActionPerWindow: z.number().int().min(2).max(100).optional().default(10),

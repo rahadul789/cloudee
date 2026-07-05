@@ -13,11 +13,27 @@ type ApiResponse<T> = {
 
 let refreshSessionPromise: Promise<boolean> | null = null;
 let lastRefreshFailureAtMs = 0;
+// When the server rate-limits refresh (429), back off until this timestamp instead of
+// the short generic cooldown — retrying every 10s while rate-limited just keeps us
+// rate-limited. We honour the server's reset hint when it provides one.
+let refreshBackoffUntilMs = 0;
 const AUTH_STORAGE_KEY = "delivery-rider-auth";
 const API_REQUEST_TIMEOUT_MS = 18_000;
 const API_REFRESH_TIMEOUT_MS = 12_000;
 const TOKEN_REFRESH_BUFFER_MS = 90_000;
 const REFRESH_RETRY_COOLDOWN_MS = 10_000;
+const RATE_LIMIT_BACKOFF_FALLBACK_MS = 5 * 60_000;
+const MAX_REFRESH_BACKOFF_MS = 15 * 60_000;
+
+function resolveRefreshBackoffMs(response: Response) {
+  const retryAfter = Number(response.headers.get("retry-after"));
+  const reset = Number(response.headers.get("ratelimit-reset"));
+  const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : reset;
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(seconds * 1000 + 1000, MAX_REFRESH_BACKOFF_MS);
+  }
+  return RATE_LIMIT_BACKOFF_FALLBACK_MS;
+}
 
 export class ApiRequestError extends Error {
   status?: number;
@@ -193,6 +209,9 @@ async function refreshRiderSession() {
 
   if (!response.ok) {
     lastRefreshFailureAtMs = Date.now();
+    if (response.status === 429) {
+      refreshBackoffUntilMs = Date.now() + resolveRefreshBackoffMs(response);
+    }
     if (response.status === 401 || response.status === 403) {
       useRiderAuthStore.getState().clearSession();
     }
@@ -211,6 +230,7 @@ async function refreshRiderSession() {
     rider: payload.data.rider,
   });
   lastRefreshFailureAtMs = 0;
+  refreshBackoffUntilMs = 0;
 
   return true;
 }
@@ -231,6 +251,12 @@ export async function ensureFreshRiderSession(options?: {
 }) {
   const { accessToken, refreshToken } = useRiderAuthStore.getState();
   if (!refreshToken) return false;
+
+  // A 429 backoff applies even to forced refreshes: the server has explicitly asked us
+  // to stop, so hammering (even on a 401 retry) only prolongs the lockout.
+  if (Date.now() < refreshBackoffUntilMs) {
+    return false;
+  }
 
   if (!options?.force && accessToken) {
     const bufferMs = options?.bufferMs ?? TOKEN_REFRESH_BUFFER_MS;

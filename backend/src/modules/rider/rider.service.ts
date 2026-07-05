@@ -22,6 +22,7 @@ import {
   RiderModel,
   RiderRefreshTokenSessionModel
 } from "../auth/auth.model"
+import { ReviewModel } from "../owner/experience.model"
 import {
   comparePassword,
   compareOtpCode,
@@ -2276,4 +2277,53 @@ export async function postRiderLocation(params: {
     accuracyMeters: params.accuracyMeters,
     speedKmph: params.speedKmph
   })
+}
+
+// Reviews a customer left for THIS rider (only entries where the customer actually
+// rated the rider). Read-only — riders can see their ratings, not reply to them.
+export async function listRiderReviews(params: {
+  riderId: string
+  page?: number
+  pageSize?: number
+}) {
+  const riderId = String(params.riderId ?? "").trim()
+  if (!riderId) {
+    throw new AppError(StatusCodes.UNAUTHORIZED, "RIDER_NOT_FOUND", "Rider not found")
+  }
+
+  const page = Math.max(1, params.page ?? 1)
+  const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20))
+  const query = { riderId, riderRating: { $ne: null } }
+
+  const [items, total, ratingAgg] = await Promise.all([
+    ReviewModel.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * pageSize)
+      .limit(pageSize)
+      .select("_id riderRating riderComment orderId createdAt")
+      .lean<Record<string, any>[]>(),
+    ReviewModel.countDocuments(query),
+    ReviewModel.aggregate<{ _id: null; average: number }>([
+      { $match: query },
+      { $group: { _id: null, average: { $avg: "$riderRating" } } }
+    ])
+  ])
+
+  return {
+    items: items.map((review) => ({
+      _id: String(review._id ?? ""),
+      riderRating:
+        typeof review.riderRating === "number" ? review.riderRating : null,
+      riderComment: review.riderComment ?? "",
+      orderId: review.orderId ? String(review.orderId) : "",
+      createdAt:
+        review.createdAt instanceof Date
+          ? review.createdAt.toISOString()
+          : (review.createdAt ?? null)
+    })),
+    total,
+    averageRating: ratingAgg[0]?.average
+      ? Math.round(ratingAgg[0].average * 10) / 10
+      : 0
+  }
 }

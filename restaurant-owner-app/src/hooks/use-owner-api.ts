@@ -533,6 +533,53 @@ export function useUpdateOwnerStoreSettingsMutation() {
   });
 }
 
+export type OwnerReview = {
+  _id: string;
+  id?: string;
+  rating: number;
+  comment?: string;
+  orderId?: string;
+  riderRating?: number | null;
+  riderComment?: string;
+  createdAt?: string;
+  ownerReply?: {
+    message?: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  };
+};
+
+export function useOwnerReviewsQuery(enabled = true, pageSize = 20) {
+  return useQuery({
+    queryKey: ["owner", "reviews", pageSize],
+    enabled,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const response = await apiGet<OwnerListResponse<OwnerReview>>(
+        `/owner/reviews?page=1&pageSize=${pageSize}`,
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useOwnerReviewReplyMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: { reviewId: string; message: string }) => {
+      const response = await apiPost<OwnerReview>(
+        `/owner/reviews/${payload.reviewId}/reply`,
+        { message: payload.message },
+      );
+      return response.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] });
+    },
+  });
+}
+
 export function useOwnerVouchersQuery(enabled = true) {
   return useQuery({
     queryKey: ["owner", "vouchers"],

@@ -218,6 +218,13 @@ export default function AccountScreen() {
               onPress={() => router.push("/notifications" as never)}
             />
             <AccountNavCard
+              icon="star-outline"
+              tint="#FFF7E6"
+              title={t("reviews.title")}
+              caption={t("reviews.subtitle")}
+              onPress={() => router.push("/reviews" as never)}
+            />
+            <AccountNavCard
               icon="desktop-outline"
               tint="#EAF0FF"
               title={t("account.manage.webTitle")}

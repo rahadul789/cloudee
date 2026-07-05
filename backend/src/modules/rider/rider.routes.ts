@@ -18,6 +18,7 @@ import {
   getRiderOrdersSummary,
   getRiderPlatformContentPayload,
   getRiderProfileSummary,
+  getRiderReviews,
   logoutRiderAuth,
   deleteRiderPushToken,
   patchRiderNotificationRead,
@@ -59,6 +60,7 @@ riderRouter.post("/auth/refresh", riderRefreshLimiter, refreshRiderAuth)
 riderRouter.post("/auth/logout", logoutRiderAuth)
 
 riderRouter.get("/profile", requireAuth, requireRole("rider"), getRiderProfileSummary)
+riderRouter.get("/reviews", requireAuth, requireRole("rider"), getRiderReviews)
 riderRouter.get(
   "/platform-content",
   requireAuth,
