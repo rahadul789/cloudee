@@ -1464,6 +1464,7 @@ export default function HomeScreen() {
                           }
                           variant="offer"
                           badge="none"
+                          sponsored={restaurant.discovery?.isSponsored === true}
                           onToggleFavorite={() =>
                             handleToggleFavorite(restaurant._id)
                           }

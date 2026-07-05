@@ -33,6 +33,7 @@ type Props = {
   flat?: boolean;
   variant?: "default" | "featured" | "offer" | "nearby";
   badge?: "featured" | "nearby" | "none";
+  sponsored?: boolean;
 };
 
 function RestaurantHeroCardComponent({
@@ -54,6 +55,7 @@ function RestaurantHeroCardComponent({
   flat = false,
   variant = "default",
   badge,
+  sponsored = false,
 }: Props) {
   const isFeaturedVariant = variant === "featured";
   const isOfferVariant = variant === "offer";
@@ -155,6 +157,13 @@ function RestaurantHeroCardComponent({
               <Ionicons name="time-outline" size={15} color={palette.surface} />
               <Text style={styles.closedOverlayText}>Temporarily unavailable</Text>
             </View>
+          </View>
+        ) : null}
+
+        {sponsored ? (
+          <View style={styles.sponsoredBadge}>
+            <Ionicons name="megaphone" size={9} color="#F4F6FB" />
+            <Text style={styles.sponsoredBadgeText}>Sponsored</Text>
           </View>
         ) : null}
 
@@ -306,7 +315,8 @@ function arePropsEqual(prev: Props, next: Props) {
     prev.compact === next.compact &&
     prev.flat === next.flat &&
     prev.variant === next.variant &&
-    prev.badge === next.badge
+    prev.badge === next.badge &&
+    prev.sponsored === next.sponsored
   );
 }
 
@@ -343,11 +353,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 14 },
     elevation: 7,
   },
-  // Subtle press feedback (the professional "tap" feel). Only applied while the
-  // finger is down, so it never affects scroll performance or the memoized children.
+  // Subtle press feedback (the professional "tap" feel), identical to the menu-item
+  // card in the restaurant-details screen so every tappable card in the app feels the
+  // same. Only applied while the finger is down, so it never affects scroll
+  // performance or the memoized children.
   cardPressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.96,
+    opacity: 0.94,
+    transform: [{ scale: 0.99 }],
   },
   cardCompact: {
     borderRadius: 22,
@@ -570,6 +582,30 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     fontWeight: "800",
     color: "#fff",
+  },
+  // Neutral "Sponsored" disclosure pill, top-left of the cover. Deliberately
+  // understated (translucent dark, no bright colour) — it's an ad label, not a promo.
+  sponsoredBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    zIndex: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(20, 24, 35, 0.58)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+  },
+  sponsoredBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    color: "#F4F6FB",
   },
   content: {
     paddingHorizontal: 14,

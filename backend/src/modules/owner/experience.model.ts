@@ -51,7 +51,13 @@ reviewSchema.index({ restaurantId: 1, createdAt: -1 })
 reviewSchema.index({ restaurantId: 1, moderationStatus: 1, isHidden: 1, createdAt: -1 })
 reviewSchema.index({ moderationStatus: 1, isHidden: 1, createdAt: -1 })
 reviewSchema.index({ customerId: 1, createdAt: -1 })
-reviewSchema.index({ orderId: 1 })
+// One review per order. Partial so it only constrains real order-linked reviews —
+// reviews with a null orderId (non-order sources) are exempt and can coexist. This is
+// the DB-level guard behind createCustomerReview's find-then-create duplicate check.
+reviewSchema.index(
+  { orderId: 1 },
+  { unique: true, partialFilterExpression: { orderId: { $type: "objectId" } } }
+)
 
 const supportCaseSchema = new Schema(
   {

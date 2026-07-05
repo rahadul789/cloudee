@@ -23,6 +23,7 @@ export type DiscoverableRestaurant = {
   discovery?: {
     isFeatured?: boolean;
     featuredSortOrder?: number;
+    isSponsored?: boolean;
   };
   preparationTimeMinutes?: number | null;
   lowestMenuPrice?: number | null;

@@ -2002,6 +2002,19 @@ function RestaurantDetailsSheet({
                     : null,
                 })
               }
+              onSponsoredChange={(isSponsored) =>
+                merchandisingMutation.mutate({
+                  restaurantId,
+                  // Preserve the current featured placement while toggling the
+                  // independent sponsored disclosure badge.
+                  isFeatured: details.isFeatured === true,
+                  featuredPosition:
+                    details.isFeatured === true
+                      ? getFeaturedPositionDraftValue()
+                      : null,
+                  isSponsored,
+                })
+              }
               onCustomerNoteSave={() => updateCustomerNoteSetting()}
               onCustomerNoteToggle={(enabled) => {
                 setCustomerNoteEnabledDraft(enabled)
@@ -3576,6 +3589,7 @@ function RestaurantDetailsContent({
   onEnforcementSave,
   onVisibilityChange,
   onFeatureChange,
+  onSponsoredChange,
   onCustomerNoteSave,
   onCustomerNoteToggle,
   onCommissionSave,
@@ -3631,6 +3645,7 @@ function RestaurantDetailsContent({
   }) => void
   onVisibilityChange: (isVisible: boolean) => void
   onFeatureChange: (isFeatured: boolean) => void
+  onSponsoredChange: (isSponsored: boolean) => void
   onCustomerNoteSave: () => void
   onCustomerNoteToggle: (enabled: boolean) => void
   onCommissionSave: () => void
@@ -3789,6 +3804,21 @@ function RestaurantDetailsContent({
                   >
                     Save order
                   </Button>
+                </div>
+              </div>
+              <div className="rounded-lg border bg-background p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">Sponsored</p>
+                    <p className="text-xs text-muted-foreground">
+                      Adds a “Sponsored” badge to the restaurant card.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={details.isSponsored}
+                    disabled={merchandisingPending}
+                    onCheckedChange={onSponsoredChange}
+                  />
                 </div>
               </div>
               <div className="rounded-lg border bg-background p-3">

@@ -1254,6 +1254,7 @@ export type AdminRestaurantSummary = {
   isVisible: boolean
   isFeatured: boolean
   featuredPosition: number | null
+  isSponsored: boolean
   commissionRate: number
   profileCompletionPercentage: number
   totalOrders: number
@@ -1302,6 +1303,7 @@ export type AdminRestaurantDetails = AdminRestaurantSummary & {
   merchandising: {
     isFeatured: boolean
     featuredPosition: number | null
+    isSponsored: boolean
     customerNote: {
       enabled: boolean
       label: string
@@ -1643,6 +1645,7 @@ export type AdminRestaurantMerchandisingUpdate = {
   name: string
   isFeatured: boolean
   featuredPosition: number | null
+  isSponsored: boolean
   customerNote: {
     enabled: boolean
     label: string
@@ -5769,6 +5772,7 @@ export async function updateAdminRestaurantMerchandising(params: {
   restaurantId: string
   isFeatured: boolean
   featuredPosition: number | null
+  isSponsored?: boolean
   customerNote?: {
     enabled: boolean
     label: string
@@ -5785,6 +5789,7 @@ export async function updateAdminRestaurantMerchandising(params: {
       body: JSON.stringify({
         isFeatured: params.isFeatured,
         featuredPosition: params.featuredPosition,
+        isSponsored: params.isSponsored,
         customerNote: params.customerNote,
       }),
     }

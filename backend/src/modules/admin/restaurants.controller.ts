@@ -112,6 +112,7 @@ const enforcementSchema = z.object({
 const merchandisingSchema = z.object({
   isFeatured: z.boolean(),
   featuredPosition: z.number().int().positive().nullable().optional(),
+  isSponsored: z.boolean().optional(),
   customerNote: z
     .object({
       enabled: z.boolean(),
@@ -296,6 +297,7 @@ export const patchAdminRestaurantMerchandising = asyncHandler(
       restaurantId: getStringParam(req.params.restaurantId),
       isFeatured: payload.isFeatured,
       featuredPosition: payload.featuredPosition ?? null,
+      isSponsored: payload.isSponsored,
       customerNote: payload.customerNote,
     });
 

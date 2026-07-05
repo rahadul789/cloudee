@@ -706,6 +706,7 @@ function mapRestaurantSummary(params: {
       typeof restaurant.discovery?.featuredSortOrder === "number"
         ? restaurant.discovery.featuredSortOrder
         : null,
+    isSponsored: restaurant.discovery?.isSponsored === true,
     commissionRate: numberValue(restaurant.commercial?.commissionRate, 15),
     profileCompletionPercentage: numberValue(
       restaurant.profileCompletion?.percentage,
@@ -1777,6 +1778,7 @@ export async function getAdminRestaurantDetails(
         typeof restaurant.discovery?.featuredSortOrder === "number"
           ? restaurant.discovery.featuredSortOrder
           : null,
+      isSponsored: restaurant.discovery?.isSponsored === true,
       customerNote: getRestaurantCustomerNoteSetting(restaurant),
     },
     discovery: {
@@ -2364,6 +2366,7 @@ export async function updateAdminRestaurantMerchandising(params: {
   restaurantId: string;
   isFeatured: boolean;
   featuredPosition: number | null;
+  isSponsored?: boolean;
   customerNote?: {
     enabled?: boolean;
     label?: string;
@@ -2375,6 +2378,12 @@ export async function updateAdminRestaurantMerchandising(params: {
     ...(restaurant.discovery ?? {}),
     isFeatured: params.isFeatured,
     featuredSortOrder: params.isFeatured ? params.featuredPosition : null,
+    // Sponsored is independent of featured: it only adds a disclosure badge to the
+    // card. Preserve the existing value when a caller omits it.
+    isSponsored:
+      params.isSponsored === undefined
+        ? restaurant.discovery?.isSponsored === true
+        : params.isSponsored,
   };
   if (params.customerNote) {
     const currentSettings =
@@ -2407,6 +2416,7 @@ export async function updateAdminRestaurantMerchandising(params: {
       typeof restaurant.discovery?.featuredSortOrder === "number"
         ? restaurant.discovery.featuredSortOrder
         : null,
+    isSponsored: restaurant.discovery?.isSponsored === true,
     customerNote: getRestaurantCustomerNoteSetting(restaurant),
     updatedAt: serializeDate(restaurant.updatedAt),
   };

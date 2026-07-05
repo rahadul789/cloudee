@@ -47,9 +47,6 @@ const ESTIMATED_ROUTE = "rgba(31, 36, 48, 0.45)";
 const RIDER_PIN_YELLOW = "#FFD54A";
 const RIDER_ICON_DARK = "#1F2430";
 const OFF_ROAD_GAP_METERS = 25;
-// The rider is a live GPS source that jitters 10-30m, so its connector needs a
-// higher floor to avoid flickering dashes during normal on-road movement.
-const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
 // The destination is a FIXED saved pin (no GPS jitter), so any real gap between
 // the road route's end and the pin is a genuine off-road handoff. Keep the floor
 // small — just above a road-snapped pin's few metres — so off-road homes always
@@ -121,7 +118,11 @@ const RIDER_MIN_ANIMATE_METERS = 3; // ignore GPS jitter; snap tiny moves
 const RIDER_MIN_ANIM_MS = 800;
 const RIDER_MAX_ANIM_MS = 16_000;
 
-const RIDER_ROUTE_OFF_MAX_METERS = 60; // beyond this the rider isn't really on this route
+// Within this distance the rider is treated as ON the road: the marker snaps onto the
+// route so it always rides the road, and normal GPS error (10-30m) never renders the
+// marker off-road. Beyond it the rider is genuinely off the network — the marker stays
+// at the raw GPS point and a dotted connector bridges the gap to the road.
+const RIDER_SNAP_MAX_METERS = 40;
 
 function toLocalMeters(point: TrackingCoordinate, refLat: number) {
   const latMeters = 110_540;
@@ -198,77 +199,78 @@ function buildRemainingRouteFromProjection(
   return [projection.point, ...tail];
 }
 
-// Build the waypoints the marker should glide through so it follows the road between
-// `previous` and `target`. Returns null when route-snapping doesn't apply (no usable
-// route, rider far off-route, not moving forward, or only a single segment) — the
-// caller then does a plain straight glide.
-function buildRouteSnapPath(
-  points: TrackingCoordinate[],
-  cumulative: number[],
-  previous: TrackingCoordinate,
-  target: TrackingCoordinate,
-): TrackingCoordinate[] | null {
-  if (points.length < 2) return null;
-  const from = projectOntoRoute(points, cumulative, previous);
-  const to = projectOntoRoute(points, cumulative, target);
-  if (
-    from.offRouteMeters > RIDER_ROUTE_OFF_MAX_METERS ||
-    to.offRouteMeters > RIDER_ROUTE_OFF_MAX_METERS ||
-    to.distanceAlong - from.distanceAlong < RIDER_MIN_ANIMATE_METERS
-  ) {
-    return null;
-  }
-  const between: TrackingCoordinate[] = [];
-  for (let index = 0; index < points.length; index += 1) {
-    if (cumulative[index] > from.distanceAlong && cumulative[index] < to.distanceAlong) {
-      between.push(points[index]);
-    }
-  }
-  return between.length ? [previous, ...between, target] : null;
-}
-
 /**
  * Smoothly interpolates the rider marker between socket updates instead of letting it
  * teleport. Position lives in an AnimatedRegion (native, ref-based), so there is no
- * per-frame React state and no re-render while it glides. When a real road route is
- * available the marker glides ALONG the polyline (route-snapping); otherwise it does a
- * straight glide. Big jumps, the delivered state, and sub-jitter moves snap instantly.
+ * per-frame React state and no re-render while it glides.
+ *
+ * The marker rides the ROAD. When the rider is within RIDER_SNAP_MAX_METERS of the
+ * route its position is the projection onto the route (snapped on-road), and it glides
+ * ALONG the polyline between consecutive projections — so it never sits off-road and
+ * never zig-zags. On the same route it only ever advances toward the customer (backward
+ * GPS jitter is ignored); a genuine backtrack arrives as a refreshed route, which
+ * re-baselines. When the rider is genuinely off the network the marker uses the raw
+ * point (a dotted connector shows the gap). Delivered / teleport / sub-jitter snap.
  */
 function useAnimatedRiderCoordinate(
-  target: TrackingCoordinate,
+  rawTarget: TrackingCoordinate,
+  projection: ReturnType<typeof projectOntoRoute> | null,
   status: string,
   routePoints: TrackingCoordinate[],
-  hasRealRoute: boolean,
+  cumulative: number[],
 ) {
+  const onRoute =
+    projection != null && projection.offRouteMeters <= RIDER_SNAP_MAX_METERS;
+  // Where the marker should actually be: snapped onto the road when on-route, else raw.
+  const dest = onRoute ? projection!.point : rawTarget;
+  const along = onRoute ? projection!.distanceAlong : null;
+
   const regionRef = useRef<AnimatedRegion | null>(null);
   if (!regionRef.current) {
     regionRef.current = new AnimatedRegion({
-      latitude: target.latitude,
-      longitude: target.longitude,
+      latitude: dest.latitude,
+      longitude: dest.longitude,
       latitudeDelta: 0,
       longitudeDelta: 0,
     });
   }
-  const previousRef = useRef<TrackingCoordinate>(target);
+  const prevMarkerRef = useRef<TrackingCoordinate>(dest);
+  const prevAlongRef = useRef<number | null>(along);
+  const routeRef = useRef(cumulative);
   const lastUpdateAtRef = useRef(Date.now());
   const animationRef = useRef<{ stop: () => void } | null>(null);
-
-  // Cumulative distances along the route — recomputed only when the route changes.
-  const cumulativeRoute = useMemo(
-    () => cumulativeRouteDistances(routePoints),
-    [routePoints],
-  );
 
   useEffect(() => {
     const region = regionRef.current;
     if (!region) return;
 
-    const previous = previousRef.current;
+    // A refreshed route changes the distance-along scale, so the old baseline is
+    // meaningless — reset it and glide straight onto the new route this once.
+    if (routeRef.current !== cumulative) {
+      routeRef.current = cumulative;
+      prevAlongRef.current = null;
+    }
+
+    const prevAlong = prevAlongRef.current;
+
+    // Ignore backward jitter on the SAME route: the marker only advances toward the
+    // customer. This is what removes the forward/backward wobble.
+    if (
+      along != null &&
+      prevAlong != null &&
+      along < prevAlong - RIDER_MIN_ANIMATE_METERS
+    ) {
+      return;
+    }
+
     const now = Date.now();
-    const movedMeters = calculateDistanceMeters(previous, target);
     const elapsedMs = now - lastUpdateAtRef.current;
-    previousRef.current = target;
+    const previous = prevMarkerRef.current;
+    const movedMeters = calculateDistanceMeters(previous, dest);
+
     lastUpdateAtRef.current = now;
+    prevMarkerRef.current = dest;
+    if (along != null) prevAlongRef.current = along;
 
     animationRef.current?.stop();
 
@@ -279,8 +281,8 @@ function useAnimatedRiderCoordinate(
 
     if (snapInstantly) {
       region.setValue({
-        latitude: target.latitude,
-        longitude: target.longitude,
+        latitude: dest.latitude,
+        longitude: dest.longitude,
         latitudeDelta: 0,
         longitudeDelta: 0,
       });
@@ -304,39 +306,46 @@ function useAnimatedRiderCoordinate(
         // `toValue`; the runtime API animates the coordinate fields passed here.
       } as unknown as Parameters<typeof region.timing>[0]);
 
-    const snapPath = hasRealRoute
-      ? buildRouteSnapPath(routePoints, cumulativeRoute, previous, target)
-      : null;
-
-    if (snapPath && snapPath.length > 2) {
-      const segmentLengths: number[] = [];
-      let totalLength = 0;
-      for (let index = 0; index < snapPath.length - 1; index += 1) {
-        const length = calculateDistanceMeters(snapPath[index], snapPath[index + 1]);
-        segmentLengths.push(length);
-        totalLength += length;
+    // On-road glide: walk the polyline waypoints between the previous and new
+    // projection so the marker follows the road, not a straight line across blocks.
+    if (along != null && prevAlong != null && along > prevAlong) {
+      const between: TrackingCoordinate[] = [];
+      for (let index = 0; index < routePoints.length; index += 1) {
+        if (cumulative[index] > prevAlong && cumulative[index] < along) {
+          between.push(routePoints[index]);
+        }
       }
-      if (totalLength > 0) {
-        const animations = snapPath
-          .slice(1)
-          .map((point, index) =>
-            timingTo(point, duration * (segmentLengths[index] / totalLength)),
+      const path = [previous, ...between, dest];
+      if (path.length > 2) {
+        const segmentLengths: number[] = [];
+        let totalLength = 0;
+        for (let index = 0; index < path.length - 1; index += 1) {
+          const length = calculateDistanceMeters(path[index], path[index + 1]);
+          segmentLengths.push(length);
+          totalLength += length;
+        }
+        if (totalLength > 0) {
+          const animations = path
+            .slice(1)
+            .map((point, index) =>
+              timingTo(point, duration * (segmentLengths[index] / totalLength)),
+            );
+          const sequence = Animated.sequence(
+            animations as unknown as Animated.CompositeAnimation[],
           );
-        const sequence = Animated.sequence(
-          animations as unknown as Animated.CompositeAnimation[],
-        );
-        animationRef.current = sequence;
-        sequence.start();
-        return;
+          animationRef.current = sequence;
+          sequence.start();
+          return;
+        }
       }
     }
 
-    // Fallback: straight glide.
-    const animation = timingTo(target, duration);
+    // Fallback: straight glide (off-route, or the first fix onto a route).
+    const animation = timingTo(dest, duration);
     animationRef.current = animation;
     animation.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.latitude, target.longitude, status, cumulativeRoute, hasRealRoute]);
+  }, [dest.latitude, dest.longitude, along, status, cumulative]);
 
   useEffect(() => () => animationRef.current?.stop(), []);
 
@@ -488,9 +497,10 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   // route/camera maths.
   const riderAnimatedCoordinate = useAnimatedRiderCoordinate(
     resolvedRiderLocation,
+    riderRouteProjection,
     status,
     realRoutePoints,
-    hasRealRoute,
+    realRouteCumulative,
   );
 
   const remainingRoute = useMemo(() => {
@@ -533,7 +543,10 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   }, [customerLocation, hasRealRoute, realRoutePoints, remainingRealRoute]);
   const offRoadFromRider = useMemo(() => {
     if (!hasRealRoute || !riderRouteProjection) return null;
-    return riderRouteProjection.offRouteMeters > RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS
+    // Draw the dotted connector exactly when the marker itself stays at the raw point
+    // (rider genuinely off the road network). Within the snap distance the marker sits
+    // on the route, so no connector is needed — they use the same threshold.
+    return riderRouteProjection.offRouteMeters > RIDER_SNAP_MAX_METERS
       ? [resolvedRiderLocation, riderRouteProjection.point]
       : null;
   }, [hasRealRoute, riderRouteProjection, resolvedRiderLocation]);

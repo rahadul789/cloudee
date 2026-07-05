@@ -1285,15 +1285,13 @@ export async function refreshCustomerSession(params: {
 
   assertCustomerAccountAccessible(customer);
 
-  session.revokedAt = new Date();
-  await session.save();
-
-  const refreshSession = await createCustomerRefreshSession({
-    customerId: customer.id,
-    userAgent: params.userAgent,
-    ipAddress: params.ipAddress,
-  });
-
+  // Do NOT rotate the customer refresh token. On app relaunch several callers can
+  // refresh at once (queued API requests + the live-tracking socket's token fetch);
+  // rotating (revoke-old + issue-new) makes whichever token another caller already
+  // holds instantly stale, so its refresh hits SESSION_REVOKED (401) and the app
+  // logs the customer out — and a dropped socket auth is why the rider marker had
+  // frozen just before. Reusing the long-lived (10y) session keeps every caller
+  // valid. The session is still revocable on explicit logout via its tokenId.
   return buildCustomerAuthPayload({
     customerId: customer.id,
     fullName: customer.fullName,
@@ -1304,8 +1302,8 @@ export async function refreshCustomerSession(params: {
     profileImage: customer.profileImage,
     previousPhones: customer.previousPhones,
     notificationSettings: customer.notificationSettings,
-    refreshToken: refreshSession.refreshToken,
-    tokenId: refreshSession.tokenId,
+    refreshToken: params.refreshToken,
+    tokenId: session.tokenId,
   });
 }
 
@@ -6071,17 +6069,31 @@ export async function createCustomerReview(params: {
     );
   }
 
-  const review = await ReviewModel.create({
-    restaurantId: order.restaurantId,
-    customerId: safeCustomerId,
-    orderId: order._id,
-    rating: params.rating,
-    comment: params.comment ?? "",
-    riderId: String(order.riderId ?? ""),
-    riderRating:
-      typeof params.riderRating === "number" ? params.riderRating : null,
-    riderComment: params.riderComment ?? "",
-  });
+  let review;
+  try {
+    review = await ReviewModel.create({
+      restaurantId: order.restaurantId,
+      customerId: safeCustomerId,
+      orderId: order._id,
+      rating: params.rating,
+      comment: params.comment ?? "",
+      riderId: String(order.riderId ?? ""),
+      riderRating:
+        typeof params.riderRating === "number" ? params.riderRating : null,
+      riderComment: params.riderComment ?? "",
+    });
+  } catch (error) {
+    // The partial unique index on orderId is the race-free backstop for the
+    // find-then-create check above: a concurrent double-submit loses here.
+    if (isDuplicateKeyError(error)) {
+      throw new AppError(
+        StatusCodes.CONFLICT,
+        "REVIEW_ALREADY_EXISTS",
+        "A review has already been submitted for this order",
+      );
+    }
+    throw error;
+  }
 
   // Stamp the order so the admin orders list can show review state cheaply
   // (without a per-row ReviewModel lookup) and the scheduler stops reminding.

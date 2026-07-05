@@ -1,12 +1,17 @@
 import * as Location from "expo-location";
 import { PropsWithChildren, useEffect, useRef } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 
 import {
   useRiderLiveTrackingPolicyQuery,
   useRiderOrdersQuery,
   useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
-import { normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
+import {
+  accuracyForMode,
+  buildActiveTrackingConfig,
+  normalizeRiderLiveTrackingPolicy,
+} from "@/src/lib/live-tracking-policy";
 import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import {
   setRiderBackgroundTrackingOrderId,
@@ -15,14 +20,9 @@ import {
 } from "@/src/lib/rider-background-location";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
-// Map the admin "tracking mode" to a real GPS accuracy level so "High accuracy" and
-// "Battery saver" actually change the sensor, not just the update cadence.
-function accuracyForMode(mode: string | undefined) {
-  if (mode === "high_accuracy") return Location.Accuracy.High;
-  if (mode === "battery_saver") return Location.Accuracy.Low;
-  return Location.Accuracy.Balanced;
-}
-
+// Single owner of the rider's live-location lifecycle for the whole app (mounted in
+// app-providers): starts/stops the background foreground-service stream based on
+// whether the rider has an active delivery. No other screen should start/stop it.
 export function RiderLocationBridge({ children }: PropsWithChildren) {
   const rider = useRiderAuthStore((state) => state.rider);
   const activeOrdersQuery = useRiderOrdersQuery("active");
@@ -51,16 +51,12 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     }
 
     if (hasPickedUpOrder) {
-      // Active-delivery heartbeat: even if the rider is stationary, send at least
-      // this often so the customer's marker/ETA never freezes in traffic.
-      const heartbeatMs =
-        Math.min(Math.max(trackingPolicy.updateIntervalSeconds * 2, 30), 90) * 1000;
+      // Active delivery → keep the background foreground-service stream running with
+      // the admin-configured, GPS-grade config. Idempotent: unchanged config won't
+      // restart it, so it survives order-to-order handoffs.
       void setRiderBackgroundTrackingOrderId(pickedUpOrderId);
       void startRiderBackgroundLocationAsync({
-        timeIntervalMs: trackingPolicy.updateIntervalSeconds * 1000,
-        distanceIntervalMeters: trackingPolicy.distanceIntervalMeters,
-        heartbeatMs,
-        accuracy: accuracyForMode(trackingPolicy.mode),
+        ...buildActiveTrackingConfig(trackingPolicy),
         notificationBody: "Foodbela is sharing your live delivery location.",
       });
       return;
@@ -151,6 +147,33 @@ export function RiderLocationBridge({ children }: PropsWithChildren) {
     trackingPolicy.updateIntervalSeconds,
     trackingPolicy.mode,
   ]);
+
+  // Live snapshot for the AppState re-arm below (kept in refs so the listener stays
+  // subscribed once and always reads current values).
+  const shouldTrackRef = useRef(false);
+  const activeConfigRef = useRef(buildActiveTrackingConfig(trackingPolicy));
+  const pickedUpOrderIdRef = useRef(pickedUpOrderId);
+  shouldTrackRef.current = Boolean(
+    rider?.id && rider.isAvailableForAssignments !== false && hasPickedUpOrder,
+  );
+  activeConfigRef.current = buildActiveTrackingConfig(trackingPolicy);
+  pickedUpOrderIdRef.current = pickedUpOrderId;
+
+  // Re-arm the foreground-service stream when the app returns to the foreground.
+  // Android can't start it while backgrounded, and aggressive OEMs may have killed
+  // it — so on resume we ensure it's running again (idempotent if it already is).
+  useEffect(() => {
+    const handleAppState = (state: AppStateStatus) => {
+      if (state !== "active" || !shouldTrackRef.current) return;
+      void setRiderBackgroundTrackingOrderId(pickedUpOrderIdRef.current);
+      void startRiderBackgroundLocationAsync({
+        ...activeConfigRef.current,
+        notificationBody: "Foodbela is sharing your live delivery location.",
+      });
+    };
+    const subscription = AppState.addEventListener("change", handleAppState);
+    return () => subscription.remove();
+  }, []);
 
   return children;
 }

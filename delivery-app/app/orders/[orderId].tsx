@@ -33,13 +33,13 @@ import {
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 import { isBangla, useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
-import { normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
+import {
+  buildActiveTrackingConfig,
+  normalizeRiderLiveTrackingPolicy,
+} from "@/src/lib/live-tracking-policy";
 import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import { getOrderStatusBadge, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
-import {
-  startRiderBackgroundLocationAsync,
-  stopRiderBackgroundLocationAsync,
-} from "@/src/lib/rider-background-location";
+import { startRiderBackgroundLocationAsync } from "@/src/lib/rider-background-location";
 import {
   openRiderLocationSettings,
   requestRiderForegroundPermission,
@@ -867,9 +867,10 @@ export default function RiderOrderDetailsScreen() {
           setTrackingError(copy.orderDetails.pickupSavedWaiting);
         }
 
+        // Kick off the shared background stream immediately on pickup with the same
+        // config the bridge uses → idempotent, so the bridge won't restart it.
         void startRiderBackgroundLocationAsync({
-          timeIntervalMs: trackingPolicy.updateIntervalSeconds * 1000,
-          distanceIntervalMeters: trackingPolicy.distanceIntervalMeters,
+          ...buildActiveTrackingConfig(trackingPolicy),
           notificationBody: "Foodbela is sharing your live delivery location.",
         });
       }
@@ -904,7 +905,9 @@ export default function RiderOrderDetailsScreen() {
     isCompletingDeliveryRef.current = true;
     try {
       await deliverMutation.mutateAsync(order.id);
-      await stopRiderBackgroundLocationAsync();
+      // Do NOT stop the background stream here — the rider may still have another
+      // active delivery. RiderLocationBridge is the single owner and stops it only
+      // when no PickedUp order remains (so the next order keeps live tracking).
       router.replace("/(app)/history");
     } catch (error) {
       isCompletingDeliveryRef.current = false;

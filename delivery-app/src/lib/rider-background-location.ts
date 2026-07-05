@@ -11,6 +11,11 @@ import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 // the life of the foreground-service task, resets to a clean slate if it restarts.
 let lastAcceptedFix: AcceptedFix | null = null;
 let consecutiveRejects = 0;
+// Signature of the currently-running stream (accuracy/interval/etc). Lets repeated
+// start calls be idempotent: if the config is unchanged we DON'T stop+restart, so
+// the foreground service survives order-to-order handoffs (a restart in the
+// background would fail and drop tracking).
+let activeStreamSignature = "";
 
 export const RIDER_BACKGROUND_LOCATION_TASK =
   "foodbela-rider-background-location";
@@ -304,18 +309,11 @@ async function sendBackgroundLocationPayload(
     return false;
   }
 
-  const body = await response.json().catch(() => null) as {
-    data?: { activeTrackingOrderId?: string | null };
-  } | null;
-  const activeTrackingOrderId =
-    typeof body?.data?.activeTrackingOrderId === "string"
-      ? body.data.activeTrackingOrderId.trim()
-      : "";
-
-  if (!activeTrackingOrderId) {
-    await stopRiderBackgroundLocationAsync().catch(() => undefined);
-  }
-
+  // Lifecycle is owned solely by RiderLocationBridge (it starts/stops based on
+  // whether the rider has any active delivery). The task no longer self-stops on a
+  // single "no active order" response — that used to kill tracking during the brief
+  // window between one order being delivered and the next being promoted, so the
+  // next order's customer got no updates until the rider reopened the app.
   return true;
 }
 
@@ -458,9 +456,17 @@ export async function startRiderBackgroundLocationAsync({
       heartbeatMs,
     });
 
+    const signature = `${accuracy}:${timeIntervalMs}:${distanceIntervalMeters}:${heartbeatMs}`;
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(
       RIDER_BACKGROUND_LOCATION_TASK,
     );
+
+    // Already streaming with the same config → leave it running. This is what keeps
+    // tracking alive when one delivery ends and the next is promoted (the bridge
+    // calls start again with the same policy).
+    if (hasStarted && signature === activeStreamSignature) {
+      return true;
+    }
 
     if (hasStarted) {
       await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
@@ -478,6 +484,7 @@ export async function startRiderBackgroundLocationAsync({
         notificationColor: "#0f766e",
       },
     });
+    activeStreamSignature = signature;
 
     return true;
   } catch {
@@ -488,6 +495,7 @@ export async function startRiderBackgroundLocationAsync({
 }
 
 export async function stopRiderBackgroundLocationAsync() {
+  activeStreamSignature = "";
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(
     RIDER_BACKGROUND_LOCATION_TASK,
   );
