@@ -684,6 +684,25 @@ export const platformContent = {
       shareMessageTemplate:
         "Use my Foodbela referral code {{code}} at checkout before your first delivered order. After your first delivered order, I get a Tk {{rewardAmount}} reward voucher. {{link}}",
     },
+    // Instant, code-free discount applied at checkout on a new customer's very first
+    // order once the subtotal clears the threshold. Platform-funded. Off by default so
+    // it never pays out before an admin configures + enables it. Abuse is gated at
+    // quote/placement time by the shared referral fraud engine (device/phone/wallet).
+    firstOrderDiscount: {
+      enabled: false,
+      discountAmountTaka: 50,
+      minimumOrderAmountTaka: 350,
+      // "any" allows COD + bKash; "bkash_only" restricts the discount to prepaid
+      // orders (safer against COD farming for higher discount amounts).
+      paymentRestriction: "any",
+      // Hard cap on how many first-order discounts one device/IP can trigger per day —
+      // the last line of defence against rapid multi-account farming with new phones.
+      maxRedemptionsPerDevicePerDay: 2,
+      startsAt: "",
+      endsAt: "",
+      bannerTitle: "৳{{amount}} off your first order",
+      bannerSubtitle: "On your first order over ৳{{minimum}}. Auto-applied at checkout.",
+    },
     customOffers: {
       enabled: true,
       profileSectionEnabled: true,

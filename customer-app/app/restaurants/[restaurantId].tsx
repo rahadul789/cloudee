@@ -545,12 +545,12 @@ export default function RestaurantDetailsScreen() {
     [selectedItem],
   );
 
-  const autoAppliedOffer = useMemo(
+  const autoOffers = useMemo(
     () =>
-      detailsData?.activeOffers.find(
+      (detailsData?.activeOffers ?? []).filter(
         (offer) =>
           offer.mode === "auto" && typeof offer.minimumOrderAmount === "number",
-      ) ?? null,
+      ),
     [detailsData?.activeOffers],
   );
   // Guards the "Add to cart" action against a rapid double-fire (the action runs on
@@ -1493,7 +1493,7 @@ export default function RestaurantDetailsScreen() {
       <ConnectedRestaurantCartFooter
         restaurantId={restaurant._id}
         restaurantName={restaurant.name}
-        autoAppliedOffer={autoAppliedOffer}
+        autoOffers={autoOffers}
         bottomInset={Math.max(insets.bottom, 12)}
       />
 

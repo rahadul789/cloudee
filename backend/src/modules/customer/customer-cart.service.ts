@@ -12,6 +12,7 @@ import {
   type MarkdownRule,
 } from "../promotions/menu-markdown";
 import { buildActiveMenuMarkdownFilter } from "../promotions/menu-markdown-query";
+import { evaluateFirstOrderDiscount } from "./first-order-discount.service";
 import {
   applyServiceAreaDeliveryPricing,
   assertLocationInsideServiceArea,
@@ -267,7 +268,7 @@ export async function quoteCustomerCart(params: {
   latitude?: number;
   longitude?: number;
 }): Promise<CustomerCartQuoteResult> {
-  return customerCartQuoteCache.getOrSet(
+  const baseQuote = await customerCartQuoteCache.getOrSet(
     buildCustomerCartQuoteCacheKey(params),
     async () => {
       const [platformContent, restaurant] = await Promise.all([
@@ -501,6 +502,7 @@ export async function quoteCustomerCart(params: {
         restaurantId: String(restaurant._id),
         voucherCode: params.voucherCode,
         subtotal: customerSubtotal,
+        deliveryFee,
         customerId: params.customerId,
         items: resolvedItems.map((item) => ({
           itemId: item.itemId,
@@ -581,5 +583,99 @@ export async function quoteCustomerCart(params: {
       };
     },
   );
+
+  return applyFirstOrderDiscountToQuote(
+    baseQuote,
+    params.customerId,
+    Boolean(params.voucherCode?.trim()),
+  );
+}
+
+// Layers the instant, platform-funded first-order (welcome) discount on top of the
+// cached base quote. Kept OUTSIDE the cache because eligibility is per-customer and
+// changes after their first order. Never mutates the cached object — clones pricing.
+//
+// Exactly ONE discount ever applies:
+//  - A coupon the customer explicitly entered always wins (respect their choice).
+//  - Otherwise, between an AUTO voucher and the first-order discount, apply whichever
+//    saves the customer more — the customer-friendly choice.
+async function applyFirstOrderDiscountToQuote(
+  baseQuote: CustomerCartQuoteResult,
+  customerId?: string,
+  hasCoupon = false,
+): Promise<CustomerCartQuoteResult> {
+  if (!customerId) return baseQuote;
+
+  const pricing = (baseQuote as Record<string, any>).pricing ?? {};
+  const voucherDiscount = Number(pricing.discountAmount ?? 0);
+
+  // An explicitly entered coupon always wins; never override it.
+  if (hasCoupon && voucherDiscount > 0) {
+    return baseQuote;
+  }
+
+  const customerSubtotal = Math.max(
+    0,
+    Number(pricing.subtotal ?? 0) - Number(pricing.menuMarkdownAmount ?? 0),
+  );
+
+  const result = await evaluateFirstOrderDiscount({
+    customerId,
+    subtotalTaka: customerSubtotal,
+  });
+
+  if (!result.eligible) {
+    return baseQuote;
+  }
+
+  const amount = result.amount;
+
+  // An auto voucher is on the quote and it saves at least as much — keep it.
+  if (voucherDiscount >= amount) {
+    return baseQuote;
+  }
+
+  const firstOrderMeta = {
+    applied: true,
+    amount,
+    minimumOrderAmount: result.settings.minimumOrderAmountTaka,
+    title: result.settings.bannerTitle.replace("{{amount}}", String(amount)),
+    subtitle: result.settings.bannerSubtitle.replace(
+      "{{minimum}}",
+      String(result.settings.minimumOrderAmountTaka),
+    ),
+  };
+
+  // No voucher on the quote — simply add the first-order discount.
+  if (voucherDiscount <= 0) {
+    return {
+      ...(baseQuote as Record<string, any>),
+      pricing: {
+        ...pricing,
+        firstOrderDiscountAmount: amount,
+        platformDiscountCost: Number(pricing.platformDiscountCost ?? 0) + amount,
+        total: Math.max(0, Number(pricing.total ?? 0) - amount),
+      },
+      firstOrderDiscount: firstOrderMeta,
+    } as CustomerCartQuoteResult;
+  }
+
+  // An auto voucher is on the quote but the first-order discount saves more — drop the
+  // voucher and apply the first-order discount instead (still exactly one discount).
+  // Add the voucher discount back, take the first-order off, and reset the voucher's
+  // owner/platform cost split (markdown, which is platform-funded item pricing, stays).
+  return {
+    ...(baseQuote as Record<string, any>),
+    appliedVouchers: [],
+    pricing: {
+      ...pricing,
+      discountAmount: 0,
+      ownerDiscountCost: 0,
+      platformDiscountCost: Number(pricing.menuMarkdownAmount ?? 0) + amount,
+      firstOrderDiscountAmount: amount,
+      total: Math.max(0, Number(pricing.total ?? 0) + voucherDiscount - amount),
+    },
+    firstOrderDiscount: firstOrderMeta,
+  } as CustomerCartQuoteResult;
 }
 

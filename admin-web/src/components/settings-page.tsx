@@ -534,6 +534,27 @@ function ensureCustomOfferSettings(content: PlatformContent) {
   return content.operations.customOffers
 }
 
+const defaultFirstOrderDiscountSettings: PlatformContent["operations"]["firstOrderDiscount"] =
+  {
+    enabled: false,
+    discountAmountTaka: 50,
+    minimumOrderAmountTaka: 350,
+    paymentRestriction: "any",
+    maxRedemptionsPerDevicePerDay: 3,
+    startsAt: "",
+    endsAt: "",
+    bannerTitle: "৳{{amount}} off your first order",
+    bannerSubtitle: "On your first order over ৳{{minimum}}. Auto-applied at checkout.",
+  }
+
+function ensureFirstOrderDiscountSettings(content: PlatformContent) {
+  content.operations.firstOrderDiscount = {
+    ...defaultFirstOrderDiscountSettings,
+    ...(content.operations.firstOrderDiscount ?? {}),
+  }
+  return content.operations.firstOrderDiscount
+}
+
 function ensureMapStyleSettings(content: PlatformContent) {
   const current = content.operations.mapStyles ?? defaultMapStyleSettings
   const rawDefaultStyle = defaultMapStyleSettings.styles.find(
@@ -1392,6 +1413,7 @@ export function SettingsPage() {
     ensureCustomOfferSettings(cloned)
     syncMapStyleEditor(cloned)
     ensureRateLimitSettings(cloned)
+    ensureFirstOrderDiscountSettings(cloned)
     setDraft(cloned)
     setIsDirty(false)
   }, [platformContentQuery.data?.settings, syncMapStyleEditor])
@@ -1411,6 +1433,7 @@ export function SettingsPage() {
       ensureCustomOfferSettings(cloned)
       syncMapStyleEditor(cloned, selectedMapStyleId)
       ensureRateLimitSettings(cloned)
+    ensureFirstOrderDiscountSettings(cloned)
       setDraft(cloned)
       setIsDirty(false)
       void queryClient.invalidateQueries({
@@ -1492,6 +1515,7 @@ export function SettingsPage() {
     ensureCustomOfferSettings(cloned)
     syncMapStyleEditor(cloned, selectedMapStyleId)
     ensureRateLimitSettings(cloned)
+    ensureFirstOrderDiscountSettings(cloned)
     setDraft(cloned)
     setIsDirty(false)
     toast.info("Unsaved settings reset")
@@ -1716,6 +1740,7 @@ export function SettingsPage() {
   const adminNotifications =
     draft.operations.adminNotifications ?? defaultAdminNotificationSettings
   const referrals = draft.operations.referrals
+  const firstOrderDiscount = draft.operations.firstOrderDiscount
   const customOffers =
     draft.operations.customOffers ?? defaultCustomOfferSettings
   const ownerApp = {
@@ -3806,6 +3831,152 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="referrals" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Gift className="size-4" />
+                First-order discount
+              </CardTitle>
+              <CardDescription>
+                Instant, platform-funded discount auto-applied at checkout on a new
+                customer&apos;s very first order once the subtotal clears the minimum.
+                Fraud-guarded by device / phone / wallet fingerprints + a per-device
+                daily cap. Referred customers get this too.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <SettingRow
+                title="Enable first-order discount"
+                description="When off, no first-order discount is offered or applied."
+              >
+                <Switch
+                  checked={firstOrderDiscount.enabled}
+                  onCheckedChange={(checked) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.enabled = checked
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Discount amount (Tk)"
+                description="Flat amount taken off the first order."
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  step={1}
+                  value={firstOrderDiscount.discountAmountTaka}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.discountAmountTaka =
+                        clampNumber(
+                          numberFromInput(
+                            event.target.value,
+                            firstOrderDiscount.discountAmountTaka
+                          ),
+                          1,
+                          100000
+                        )
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Minimum order (Tk)"
+                description="Subtotal must reach this before the discount applies (e.g. 350)."
+              >
+                <Input
+                  type="number"
+                  min={0}
+                  max={100000}
+                  step={1}
+                  value={firstOrderDiscount.minimumOrderAmountTaka}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.minimumOrderAmountTaka =
+                        clampNumber(
+                          numberFromInput(
+                            event.target.value,
+                            firstOrderDiscount.minimumOrderAmountTaka
+                          ),
+                          0,
+                          100000
+                        )
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="bKash (prepaid) only"
+                description="Restrict the discount to prepaid orders — safer against cash-on-delivery farming for higher amounts."
+              >
+                <Switch
+                  checked={firstOrderDiscount.paymentRestriction === "bkash_only"}
+                  onCheckedChange={(checked) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.paymentRestriction =
+                        checked ? "bkash_only" : "any"
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Max per device / day"
+                description="Hard cap on first-order discounts one device can trigger per day (anti-farming)."
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={firstOrderDiscount.maxRedemptionsPerDevicePerDay}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.maxRedemptionsPerDevicePerDay =
+                        clampNumber(
+                          numberFromInput(
+                            event.target.value,
+                            firstOrderDiscount.maxRedemptionsPerDevicePerDay
+                          ),
+                          1,
+                          100
+                        )
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Banner title"
+                description="Shown to customers. Placeholder: {{amount}}."
+              >
+                <Input
+                  value={firstOrderDiscount.bannerTitle}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.bannerTitle =
+                        event.target.value
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Banner subtitle"
+                description="Shown to customers. Placeholder: {{minimum}}."
+              >
+                <Input
+                  value={firstOrderDiscount.bannerSubtitle}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      content.operations.firstOrderDiscount.bannerSubtitle =
+                        event.target.value
+                    })
+                  }
+                />
+              </SettingRow>
+            </CardContent>
+          </Card>
           <div className="grid gap-4 xl:grid-cols-[1fr_0.85fr]">
             <Card>
               <CardHeader>

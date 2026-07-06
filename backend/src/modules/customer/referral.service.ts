@@ -14,7 +14,7 @@ import {
   VoucherModel,
   VoucherRedemptionModel,
 } from "./customer.model"
-import { sendPushToCustomer } from "./push.service"
+import { createCustomerNotification, sendPushToCustomer } from "./push.service"
 
 export const REFERRAL_REWARD_AMOUNT = 50
 export const REFERRAL_REWARD_MIN_ORDER_AMOUNT = 250
@@ -513,7 +513,7 @@ export async function getCustomerReferralSummary(customerId: string) {
     referredByCustomerId: customer._id,
   })
     .select(
-      "fullName createdAt referralRewardedAt referralRewardOrderId referralRewardVoucherId referralRewardStatus referralRewardSkippedAt referralRewardSkippedReason"
+      "fullName phone createdAt referralRewardedAt referralRewardOrderId referralRewardVoucherId referralRewardStatus referralRewardSkippedAt referralRewardSkippedReason"
     )
     .sort({ createdAt: -1 })
     .limit(40)
@@ -525,7 +525,7 @@ export async function getCustomerReferralSummary(customerId: string) {
 
   const vouchers = rewardVoucherIds.length
     ? await VoucherModel.find({ _id: { $in: rewardVoucherIds } })
-        .select("code discountValue minimumOrderAmount endsAt status")
+        .select("code discountValue minimumOrderAmount endsAt status redeemedCount maxTotalUses")
         .lean()
     : []
   const voucherById = new Map(
@@ -591,6 +591,12 @@ export async function getCustomerReferralSummary(customerId: string) {
             ? rawStatus
             : "pending"
 
+      const rawPhone = String(referral.phone ?? "").trim()
+      const maskedPhone =
+        rawPhone.length >= 7
+          ? `${rawPhone.slice(0, 3)}***${rawPhone.slice(-4)}`
+          : rawPhone
+
       return {
         referredCustomerName:
           referral.fullName?.trim() &&
@@ -598,6 +604,7 @@ export async function getCustomerReferralSummary(customerId: string) {
           referral.fullName !== "Your name"
             ? referral.fullName
             : "Friend",
+        referredCustomerPhone: maskedPhone,
         referredAt: referral.createdAt
           ? new Date(referral.createdAt).toISOString()
           : null,
@@ -617,6 +624,9 @@ export async function getCustomerReferralSummary(customerId: string) {
                 voucher.minimumOrderAmount ?? settings.minimumOrderAmountTaka,
               expiresAt: formatReferralRewardExpiry(voucher.endsAt),
               status: voucher.status ?? "Active",
+              used:
+                Number(voucher.redeemedCount ?? 0) >=
+                Number(voucher.maxTotalUses ?? 1),
             }
           : null,
       }
@@ -693,6 +703,20 @@ export async function applyReferralCodeToCustomer(params: {
       StatusCodes.BAD_REQUEST,
       "SELF_REFERRAL_NOT_ALLOWED",
       "You cannot use your own referral code."
+    )
+  }
+
+  // The referrer must have completed at least one delivered order before their code
+  // works — this stops brand-new accounts from farming referrals in a chain.
+  const referrerDeliveredOrders = await OrderModel.countDocuments({
+    customerId: referrer._id,
+    status: "Delivered",
+  })
+  if (referrerDeliveredOrders < 1) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "REFERRAL_CODE_NOT_ACTIVE",
+      "This referral code isn't active yet. The person who shared it needs to complete at least one order first."
     )
   }
 
@@ -1247,8 +1271,30 @@ export async function grantReferralRewardForDeliveredOrder(params: {
         body: `You earned Tk ${settings.rewardAmountTaka}. Use code ${voucherCode} on your next order.`,
         data: {
           type: "promotion",
-          path: "/referrals",
+          path: "/offers",
           voucherCode,
+        },
+      },
+    })
+  })
+
+  // Persist it as a personal offer so the referral reward voucher shows up in the
+  // customer's "My offers" list (and offer details) with its real expiry date.
+  enqueueBackgroundTask("customer.referral_reward.offer", async () => {
+    await createCustomerNotification({
+      customerId: referrer.id,
+      payload: {
+        title: `Tk ${settings.rewardAmountTaka} referral reward`,
+        body: `Use code ${voucherCode} on orders over Tk ${settings.minimumOrderAmountTaka}.`,
+        data: {
+          type: "promotion",
+          personalOffer: true,
+          voucherId: String(voucherId),
+          voucherCode,
+          voucherLabel: `Tk ${settings.rewardAmountTaka} referral reward`,
+          voucherExpiresAt: expiresAt.toISOString(),
+          voucherMinOrder: settings.minimumOrderAmountTaka,
+          path: "/offers",
         },
       },
     })

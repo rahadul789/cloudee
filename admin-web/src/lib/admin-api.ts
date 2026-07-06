@@ -3766,6 +3766,17 @@ export type PlatformContent = {
       shareLinkTemplate: string
       shareMessageTemplate: string
     }
+    firstOrderDiscount: {
+      enabled: boolean
+      discountAmountTaka: number
+      minimumOrderAmountTaka: number
+      paymentRestriction: "any" | "bkash_only"
+      maxRedemptionsPerDevicePerDay: number
+      startsAt: string
+      endsAt: string
+      bannerTitle: string
+      bannerSubtitle: string
+    }
     customOffers: {
       enabled: boolean
       profileSectionEnabled?: boolean

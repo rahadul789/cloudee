@@ -171,6 +171,7 @@ type CustomerProfile = {
 
 export type CustomerReferralReward = {
   referredCustomerName: string;
+  referredCustomerPhone?: string;
   referredAt: string | null;
   status:
     | "pending"
@@ -190,6 +191,7 @@ export type CustomerReferralReward = {
     minimumOrderAmount: number;
     expiresAt: string | null;
     status: string;
+    used?: boolean;
   } | null;
 };
 
@@ -827,6 +829,7 @@ export type CartQuoteResponse = {
     deliveryFee: number;
     rainSurcharge?: number;
     discountAmount: number;
+    firstOrderDiscountAmount?: number;
     total: number;
   };
   appliedVouchers: {
@@ -837,6 +840,13 @@ export type CartQuoteResponse = {
     mode: string;
     discountAmount?: number;
   }[];
+  firstOrderDiscount?: {
+    applied: boolean;
+    amount: number;
+    minimumOrderAmount: number;
+    title: string;
+    subtitle: string;
+  };
 };
 
 type BkashInitiateResponse = {

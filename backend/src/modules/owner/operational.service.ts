@@ -15,6 +15,7 @@ import { OwnerModel, RestaurantModel, RiderModel } from "../auth/auth.model"
 import { sendPushToCustomer } from "../customer/push.service"
 import { handleCustomerCustomOfferDeliveredOrder } from "../customer/custom-offer.service"
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service"
+import { releaseFirstOrderDiscountForOrder } from "../customer/first-order-discount.service"
 import { grantReferralRewardForDeliveredOrder } from "../customer/referral.service"
 import { getPlatformContent } from "../public/content.service"
 import { getOrderRouteMetrics } from "../routing/routing.service"
@@ -1646,7 +1647,12 @@ export async function transitionOrder(params: {
       releaseVoucherRedemptionsForOrder(
         order._id,
         params.nextStatus === "Rejected" ? "owner_rejected" : "owner_cancelled"
-      )
+      ),
+      releaseFirstOrderDiscountForOrder({
+        orderId: order._id,
+        customerId: order.customerId,
+        reason: params.nextStatus === "Rejected" ? "owner_rejected" : "owner_cancelled",
+      })
     ])
   }
 
@@ -1918,6 +1924,13 @@ export async function transitionOrderBySystem(params: {
             updatedOrder._id,
             params.note ?? "system_cancelled"
           )
+        : Promise.resolve(),
+      params.nextStatus === "Cancelled"
+        ? releaseFirstOrderDiscountForOrder({
+            orderId: updatedOrder._id,
+            customerId: updatedOrder.customerId,
+            reason: params.note ?? "system_cancelled",
+          })
         : Promise.resolve()
     ])
 

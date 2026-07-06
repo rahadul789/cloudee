@@ -235,6 +235,11 @@ const customerSchema = new Schema(
     },
     referralRewardSkippedAt: { type: Date, default: null },
     referralRewardSkippedReason: { type: String, default: "" },
+    // First-order (welcome) instant discount: consumed once per customer, released if
+    // the qualifying order is cancelled/rejected before delivery so honest users retry.
+    firstOrderDiscountRedeemedAt: { type: Date, default: null },
+    firstOrderDiscountOrderId: { type: Schema.Types.ObjectId, ref: "Order", default: null },
+    firstOrderDiscountAmount: { type: Number, default: 0 },
     previousPhones: { type: [customerPhoneHistorySchema], default: [] },
     notificationSettings: {
       type: customerNotificationSettingsSchema,
@@ -692,7 +697,42 @@ voucherRedemptionSchema.index(
   { unique: true, partialFilterExpression: { singleUsePerUser: true } }
 )
 
+// Ledger of first-order (welcome) discount claims. One row per claim, carrying the
+// fraud fingerprints so a person can't re-claim the discount from a fresh account with
+// a new phone (device / wallet / IP / address are cross-checked at eligibility time),
+// and so per-device/day velocity can be counted. Per-customer double-claim is guarded
+// separately by the atomic firstOrderDiscountRedeemedAt lock on the customer doc.
+const firstOrderDiscountClaimSchema = new Schema(
+  {
+    customerId: { type: Schema.Types.ObjectId, ref: "Customer", required: true },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order", default: null },
+    amount: { type: Number, default: 0 },
+    deviceId: { type: String, default: "", trim: true },
+    phone: { type: String, default: "", trim: true },
+    walletNumber: { type: String, default: "", trim: true },
+    ipAddress: { type: String, default: "", trim: true },
+    addressFingerprint: { type: String, default: "", trim: true },
+    status: {
+      type: String,
+      enum: ["reserved", "confirmed", "released"],
+      default: "reserved",
+    },
+    releasedAt: { type: Date, default: null },
+    releasedReason: { type: String, default: "" },
+  },
+  { timestamps: true }
+)
+firstOrderDiscountClaimSchema.index({ customerId: 1 })
+firstOrderDiscountClaimSchema.index({ deviceId: 1, status: 1, createdAt: -1 })
+firstOrderDiscountClaimSchema.index({ phone: 1, status: 1 })
+firstOrderDiscountClaimSchema.index({ walletNumber: 1, status: 1 })
+firstOrderDiscountClaimSchema.index({ ipAddress: 1, createdAt: -1 })
+
 export const CustomerModel = mongoose.model("Customer", customerSchema)
+export const FirstOrderDiscountClaimModel = mongoose.model(
+  "FirstOrderDiscountClaim",
+  firstOrderDiscountClaimSchema
+)
 export const CustomerRefreshTokenSessionModel = mongoose.model(
   "CustomerRefreshTokenSession",
   customerRefreshTokenSessionSchema

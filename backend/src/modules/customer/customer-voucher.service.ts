@@ -150,6 +150,7 @@ export async function resolveActiveVoucher(params: {
   restaurantId: string;
   voucherCode?: string;
   subtotal: number;
+  deliveryFee?: number;
   customerId?: string;
   items: Array<{ itemId: string; categoryId: string }>;
 }) {
@@ -351,8 +352,23 @@ export async function resolveActiveVoucher(params: {
     eligibleVouchers.push(voucher);
   }
 
-  const autoVoucher =
-    eligibleVouchers.find((voucher) => voucher.mode === "auto") ?? null;
+  const deliveryFeeForCompare = Number(params.deliveryFee ?? 0);
+  const autoDiscountFor = (voucher: any) =>
+    calculateVoucherDiscount({
+      voucher,
+      subtotal: params.subtotal,
+      deliveryFee: voucher.type === "free_delivery" ? deliveryFeeForCompare : 0,
+    });
+
+  // Best single AUTO voucher for the current cart. With tiered auto offers (e.g. Tk 40
+  // over 350, Tk 60 over 750) every threshold the cart clears is eligible — we keep
+  // only the one that saves the most, never two at once.
+  const autoVoucher = eligibleVouchers
+    .filter((voucher) => voucher.mode === "auto")
+    .reduce((best: any, voucher: any) => {
+      if (!best) return voucher;
+      return autoDiscountFor(voucher) > autoDiscountFor(best) ? voucher : best;
+    }, null as any);
 
   if (!params.voucherCode) {
     return autoVoucher ? [autoVoucher] : [];
@@ -378,17 +394,8 @@ export async function resolveActiveVoucher(params: {
     );
   }
 
-  if (!autoVoucher) {
-    return [couponVoucher];
-  }
-
-  if (
-    autoVoucher.stackingRule === "stackable" &&
-    couponVoucher.stackingRule === "stackable"
-  ) {
-    return [autoVoucher, couponVoucher].sort((a, b) => b.priority - a.priority);
-  }
-
+  // A coupon the customer explicitly entered always wins over an auto offer, and the
+  // two never stack — exactly ONE discount applies at any time.
   return [couponVoucher];
 }
 

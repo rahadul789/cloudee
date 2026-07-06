@@ -1165,13 +1165,7 @@ export default function CheckoutScreen() {
               )}
             </View>
             {voucherFeedback ? (
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
+              <View style={styles.voucherFeedbackWrap}>
                 <Text
                   style={[
                     styles.voucherFeedbackText,
@@ -1182,10 +1176,15 @@ export default function CheckoutScreen() {
                 >
                   {voucherFeedback.message}
                 </Text>
-
-                <Pressable onPress={handleRemoveVoucher}>
-                  <Text style={styles.voucherRemoveText}>Remove</Text>
-                </Pressable>
+                {hasAppliedCode ? (
+                  <Pressable
+                    onPress={handleRemoveVoucher}
+                    style={styles.voucherRemoveButton}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.voucherRemoveText}>Remove</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
             {appliedVoucherCode ? (
@@ -1357,6 +1356,17 @@ export default function CheckoutScreen() {
               ))}
             </View>
 
+            {quoteQuery.data?.firstOrderDiscount?.applied ? (
+              <View style={styles.firstOrderBanner}>
+                <Text style={styles.firstOrderBannerTitle}>
+                  🎁 {quoteQuery.data.firstOrderDiscount.title}
+                </Text>
+                <Text style={styles.firstOrderBannerSubtitle}>
+                  {quoteQuery.data.firstOrderDiscount.subtitle}
+                </Text>
+              </View>
+            ) : null}
+
             <View style={styles.summaryTotals}>
               <CheckoutSummaryRow
                 label="Subtotal"
@@ -1384,6 +1394,13 @@ export default function CheckoutScreen() {
                 value={`- ${formatCurrency(pricing?.discountAmount ?? 0)}`}
                 highlight={(pricing?.discountAmount ?? 0) > 0}
               />
+              {(pricing?.firstOrderDiscountAmount ?? 0) > 0 ? (
+                <CheckoutSummaryRow
+                  label="First order discount"
+                  value={`- ${formatCurrency(pricing?.firstOrderDiscountAmount ?? 0)}`}
+                  highlight
+                />
+              ) : null}
               <View style={styles.divider} />
               <CheckoutSummaryRow
                 label="Total"

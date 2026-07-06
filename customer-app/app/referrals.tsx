@@ -1,6 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { FlashList } from "@shopify/flash-list";
 import { useRouter } from "expo-router";
-import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -13,6 +23,16 @@ import { formatDateTimeAmPm } from "@/src/lib/date-time";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
+type ReferralTab = "how" | "conditions" | "rewards";
+
+const REFERRAL_TABS: { key: ReferralTab; label: string }[] = [
+  { key: "how", label: "How it works" },
+  { key: "conditions", label: "Conditions" },
+  { key: "rewards", label: "Rewards" },
+];
+
+const REWARDS_PAGE_STEP = 12;
+
 function buildReferralLink(referralCode: string) {
   return `foodbela://checkout?ref=${encodeURIComponent(referralCode)}`;
 }
@@ -23,6 +43,18 @@ export default function ReferralsScreen() {
   const customer = useCustomerAuthStore((state) => state.customer);
   const summaryQuery = useCustomerReferralSummaryQuery(Boolean(customer));
   const summary = summaryQuery.data;
+  const [activeTab, setActiveTab] = useState<ReferralTab>("how");
+  const [visibleCount, setVisibleCount] = useState(REWARDS_PAGE_STEP);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await summaryQuery.refetch();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [summaryQuery]);
 
   async function handleShare() {
     if (!summary?.referralCode || !summary.enabled) return;
@@ -36,165 +68,250 @@ export default function ReferralsScreen() {
     });
   }
 
-  return (
-    <Screen>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: Math.max(insets.bottom, 18) + 28 },
+  const topBar = (
+    <View style={styles.topBar}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.backButton,
+          pressed
+            ? { transform: [{ scale: 0.97 }, { translateY: 1 }], opacity: 0.92 }
+            : null,
         ]}
-        showsVerticalScrollIndicator={false}
+        onPress={() => router.back()}
       >
-        <View style={styles.topBar}>
+        <Ionicons name="chevron-back" size={21} color={palette.foreground} />
+      </Pressable>
+      <Text style={styles.topBarTitle}>Refer & earn</Text>
+      <View style={styles.topBarSpacer} />
+    </View>
+  );
+
+  if (!customer) {
+    return (
+      <Screen>
+        <View style={styles.fixedTop}>{topBar}</View>
+        <View style={styles.emptyWrap}>
+          <EmptyStateCard
+            title="Sign in to invite friends"
+            description="Your referral code appears here after sign-in."
+            actionLabel="Sign in"
+            onPress={() =>
+              router.replace({
+                pathname: "/sign-in",
+                params: { redirectTo: "/referrals" },
+              })
+            }
+          />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (summaryQuery.isLoading) {
+    return (
+      <Screen>
+        <View style={styles.fixedTop}>{topBar}</View>
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="small" color={palette.primary} />
+          <Text style={styles.loadingText}>Loading referral rewards</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  if (summaryQuery.isError || !summary) {
+    return (
+      <Screen>
+        <View style={styles.fixedTop}>{topBar}</View>
+        <View style={styles.emptyWrap}>
+          <EmptyStateCard
+            title="Could not load referrals"
+            description="Reconnect and try again."
+            actionLabel="Retry"
+            onPress={() => summaryQuery.refetch()}
+          />
+        </View>
+      </Screen>
+    );
+  }
+
+  const rewards = summary.rewards ?? [];
+  const visibleRewards =
+    activeTab === "rewards" ? rewards.slice(0, visibleCount) : [];
+  // Badge on the Rewards tab: how many referrals are earned or still processing
+  // (waiting for first order / under review) — the ones worth checking.
+  const rewardBadge =
+    summary.rewardedReferrals +
+    summary.pendingReferrals +
+    (summary.underReviewReferrals ?? 0);
+
+  const listHeader = (
+    <View style={styles.headerContent}>
+      <View style={styles.hero}>
+        <View style={styles.heroIcon}>
+          <Ionicons name="gift-outline" size={26} color="#FFFFFF" />
+        </View>
+        <Text style={styles.heroTitle}>
+          {summary.enabled
+            ? `Share Foodbela. Earn Tk ${summary.rewardAmount}.`
+            : "Referral program is paused"}
+        </Text>
+        <Text style={styles.heroText}>
+          {summary.enabled
+            ? "Reward unlocks after your friend places a first delivered order."
+            : "Your code stays ready. New referral rewards are currently turned off."}
+        </Text>
+
+        <View style={styles.codeCard}>
+          <View style={styles.codeCopy}>
+            <Text style={styles.codeLabel}>Your code</Text>
+            <Text style={styles.codeValue}>{summary.referralCode}</Text>
+          </View>
           <Pressable
             style={({ pressed }) => [
-              styles.backButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
+              styles.shareButton,
+              !summary.enabled ? styles.shareButtonDisabled : null,
+              pressed && summary.enabled
+                ? { transform: [{ scale: 0.985 }, { translateY: 1 }], opacity: 0.96 }
                 : null,
             ]}
-            onPress={() => router.back()}
+            onPress={handleShare}
+            disabled={!summary.enabled}
           >
-            <Ionicons name="chevron-back" size={21} color={palette.foreground} />
+            <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.shareButtonText}>Share</Text>
           </Pressable>
-          <Text style={styles.topBarTitle}>Refer & earn</Text>
-          <View style={styles.topBarSpacer} />
         </View>
+      </View>
 
-        {!customer ? (
-          <View style={styles.emptyWrap}>
-            <EmptyStateCard
-              title="Sign in to invite friends"
-              description="Your referral code appears here after sign-in."
-              actionLabel="Sign in"
-              onPress={() =>
-                router.replace({
-                  pathname: "/sign-in",
-                  params: { redirectTo: "/referrals" },
-                })
-              }
-            />
-          </View>
-        ) : summaryQuery.isLoading ? (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="small" color={palette.primary} />
-            <Text style={styles.loadingText}>Loading referral rewards</Text>
-          </View>
-        ) : summaryQuery.isError || !summary ? (
-          <View style={styles.emptyWrap}>
-            <EmptyStateCard
-              title="Could not load referrals"
-              description="Reconnect and try again."
-              actionLabel="Retry"
-              onPress={() => summaryQuery.refetch()}
-            />
-          </View>
-        ) : (
-          <>
-            <View style={styles.hero}>
-              <View style={styles.heroIcon}>
-                <Ionicons name="gift-outline" size={26} color="#FFFFFF" />
-              </View>
-              <Text style={styles.heroTitle}>
-                {summary.enabled
-                  ? `Share Foodbela. Earn Tk ${summary.rewardAmount}.`
-                  : "Referral program is paused"}
-              </Text>
-              <Text style={styles.heroText}>
-                {summary.enabled
-                  ? "Reward unlocks after your friend places a first delivered order."
-                  : "Your code stays ready. New referral rewards are currently turned off."}
-              </Text>
+      <View style={styles.statsGrid}>
+        <StatCard label="Invited" value={`${summary.totalReferrals}`} tint="#FFE8F0" />
+        <StatCard label="Rewarded" value={`${summary.rewardedReferrals}`} tint="#EAF8F0" />
+        <StatCard
+          label="This month"
+          value={`${summary.monthlyRewardCount}/${summary.monthlyRewardCap}`}
+          tint="#FFF4D8"
+        />
+      </View>
 
-              <View style={styles.codeCard}>
-                <View style={styles.codeCopy}>
-                  <Text style={styles.codeLabel}>Your code</Text>
-                  <Text style={styles.codeValue}>{summary.referralCode}</Text>
+      <View style={styles.tabBar}>
+        {REFERRAL_TABS.map((tab) => {
+          const active = activeTab === tab.key;
+          return (
+            <Pressable
+              key={tab.key}
+              style={[styles.tabButton, active ? styles.tabButtonActive : null]}
+              onPress={() => setActiveTab(tab.key)}
+            >
+              <Text
+                style={[styles.tabLabel, active ? styles.tabLabelActive : null]}
+              >
+                {tab.label}
+              </Text>
+              {tab.key === "rewards" && rewardBadge > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{rewardBadge}</Text>
                 </View>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.shareButton,
-                    !summary.enabled ? styles.shareButtonDisabled : null,
-                    pressed && summary.enabled
-                      ? {
-                          transform: [{ scale: 0.985 }, { translateY: 1 }],
-                          opacity: 0.96,
-                        }
-                      : null,
-                  ]}
-                  onPress={handleShare}
-                  disabled={!summary.enabled}
-                >
-                  <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.shareButtonText}>Share</Text>
-                </Pressable>
-              </View>
-            </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
 
-            <View style={styles.statsGrid}>
-              <StatCard label="Invited" value={`${summary.totalReferrals}`} tint="#FFE8F0" />
-              <StatCard label="Rewarded" value={`${summary.rewardedReferrals}`} tint="#EAF8F0" />
-              <StatCard
-                label="This month"
-                value={`${summary.monthlyRewardCount}/${summary.monthlyRewardCap}`}
-                tint="#FFF4D8"
-              />
-            </View>
+      {activeTab === "how" ? (
+        <View style={styles.ruleCard}>
+          <Text style={styles.ruleCardTitle}>How your code is used</Text>
+          <RuleRow icon="share-social-outline" text="Share your code with a friend." />
+          <RuleRow
+            icon="phone-portrait-outline"
+            text="Your friend signs in with a verified phone number."
+          />
+          <RuleRow
+            icon="ticket-outline"
+            text={`They enter ${summary.referralCode} in checkout before their first delivered order.`}
+          />
+          <RuleRow icon="bicycle-outline" text="Their first order is delivered." />
+          <RuleRow
+            icon="gift-outline"
+            text={`You get Tk ${summary.rewardAmount} voucher for orders over Tk ${summary.minimumOrderAmount}`}
+          />
+        </View>
+      ) : null}
 
-            <View style={styles.ruleCard}>
-              <Text style={styles.ruleCardTitle}>How your code is used</Text>
-              <RuleRow icon="share-social-outline" text="Share your code with a friend." />
-              <RuleRow icon="phone-portrait-outline" text="Your friend signs in with a verified phone number." />
-              <RuleRow icon="ticket-outline" text={`They enter ${summary.referralCode} in checkout before their first delivered order.`} />
-              <RuleRow icon="bicycle-outline" text="Their first order is delivered." />
-              <RuleRow
-                icon="gift-outline"
-                text={`You get Tk ${summary.rewardAmount} voucher for orders over Tk ${summary.minimumOrderAmount}`}
-              />
-            </View>
+      {activeTab === "conditions" ? (
+        <View style={styles.ruleCard}>
+          <Text style={styles.ruleCardTitle}>Conditions</Text>
+          <RuleRow
+            icon="checkmark-done-outline"
+            text="Complete at least one delivered order yourself before your referral code works for friends."
+          />
+          <RuleRow
+            icon="calendar-outline"
+            text={`Maximum ${summary.monthlyRewardCap} referral rewards per month`}
+          />
+          <RuleRow
+            icon="close-circle-outline"
+            text="Cancelled, rejected, or refunded orders do not count."
+          />
+          <RuleRow
+            icon="shield-checkmark-outline"
+            text="Self-referral, same device, or suspicious activity may be rejected or reviewed."
+          />
+          <RuleRow
+            icon="pricetag-outline"
+            text={`Reward vouchers are one-time use, not stackable, and expire in ${summary.rewardExpiryDays} days.`}
+          />
+        </View>
+      ) : null}
 
-            <View style={styles.ruleCard}>
-              <Text style={styles.ruleCardTitle}>Conditions</Text>
-              <RuleRow
-                icon="calendar-outline"
-                text={`Maximum ${summary.monthlyRewardCap} referral rewards per month`}
-              />
-              <RuleRow
-                icon="close-circle-outline"
-                text="Cancelled, rejected, or refunded orders do not count."
-              />
-              <RuleRow
-                icon="shield-checkmark-outline"
-                text="Self-referral, same device, or suspicious activity may be rejected or reviewed."
-              />
-              <RuleRow
-                icon="pricetag-outline"
-                text={`Reward vouchers are one-time use, not stackable, and expire in ${summary.rewardExpiryDays} days.`}
-              />
-            </View>
+      {activeTab === "rewards" ? (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Reward activity</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Reward activity</Text>
-            </View>
-
-            {summary.rewards.length ? (
-              <View style={styles.rewardList}>
-                {summary.rewards.map((reward, index) => (
-                  <RewardRow key={`${reward.referredAt}-${index}`} reward={reward} />
-                ))}
-              </View>
-            ) : (
-              <View style={styles.noRewardsCard}>
-                <Ionicons name="sparkles-outline" size={22} color={palette.secondary} />
-                <Text style={styles.noRewardsTitle}>No invites yet</Text>
-              </View>
-            )}
-          </>
+  return (
+    <Screen>
+      <View style={styles.fixedTop}>{topBar}</View>
+      <FlashList
+        data={visibleRewards}
+        keyExtractor={(item, index) => `${item.referredAt}-${index}`}
+        renderItem={({ item }) => (
+          <View style={styles.rewardItemWrap}>
+            <RewardRow reward={item} />
+          </View>
         )}
-      </ScrollView>
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={
+          activeTab === "rewards" ? (
+            <View style={styles.noRewardsCard}>
+              <Ionicons name="sparkles-outline" size={22} color={palette.secondary} />
+              <Text style={styles.noRewardsTitle}>No invites yet</Text>
+            </View>
+          ) : null
+        }
+        onEndReachedThreshold={0.6}
+        onEndReached={() => {
+          if (activeTab === "rewards" && visibleCount < rewards.length) {
+            setVisibleCount((current) => current + REWARDS_PAGE_STEP);
+          }
+        }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingTop: 4,
+          paddingBottom: Math.max(insets.bottom, 18) + 28,
+        }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={palette.primary}
+          />
+        }
+      />
     </Screen>
   );
 }
@@ -222,6 +339,8 @@ function RuleRow({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: s
 function RewardRow({ reward }: { reward: CustomerReferralReward }) {
   const isRewarded = reward.status === "rewarded";
   const isReview = reward.status === "under_review";
+  const isPending = reward.status === "pending";
+  const isUsedVoucher = reward.voucher?.used === true;
   const isSkipped =
     reward.status === "capped" ||
     reward.status === "disabled" ||
@@ -249,12 +368,12 @@ function RewardRow({ reward }: { reward: CustomerReferralReward }) {
       : "");
 
   return (
-    <View style={styles.rewardRow}>
+    <View style={[styles.rewardRow, isUsedVoucher ? styles.rewardRowUsed : null]}>
       <View
         style={[
           styles.rewardIcon,
           isRewarded ? styles.rewardIconSuccess : null,
-          isSkipped ? styles.rewardIconMuted : null,
+          (isSkipped || isUsedVoucher) ? styles.rewardIconMuted : null,
         ]}
       >
         <Ionicons
@@ -283,6 +402,9 @@ function RewardRow({ reward }: { reward: CustomerReferralReward }) {
           {reward.referredCustomerName} joined
           {reward.referredAt ? ` on ${formatDateTimeAmPm(reward.referredAt)}` : ""}
         </Text>
+        {isPending && reward.referredCustomerPhone ? (
+          <Text style={styles.rewardMeta}>Invited: {reward.referredCustomerPhone}</Text>
+        ) : null}
         {(isSkipped || isReview) && skippedMessage ? (
           <Text style={styles.rewardSkipped}>{skippedMessage}</Text>
         ) : null}
@@ -290,12 +412,24 @@ function RewardRow({ reward }: { reward: CustomerReferralReward }) {
           <Text style={styles.rewardSupportHint}>{supportHint}</Text>
         ) : null}
         {reward.voucher ? (
-          <Text style={styles.rewardVoucher}>
-            Code {reward.voucher.code}
-            {reward.voucher.expiresAt
-              ? ` · expires ${formatDateTimeAmPm(reward.voucher.expiresAt)}`
-              : ""}
-          </Text>
+          <View style={styles.rewardVoucherRow}>
+            <Text
+              style={[
+                styles.rewardVoucher,
+                isUsedVoucher ? styles.rewardVoucherUsed : null,
+              ]}
+            >
+              Code {reward.voucher.code}
+              {reward.voucher.expiresAt
+                ? ` · expires ${formatDateTimeAmPm(reward.voucher.expiresAt)}`
+                : ""}
+            </Text>
+            {isUsedVoucher ? (
+              <View style={styles.usedPill}>
+                <Text style={styles.usedPillText}>Used</Text>
+              </View>
+            ) : null}
+          </View>
         ) : null}
       </View>
     </View>
@@ -303,10 +437,15 @@ function RewardRow({ reward }: { reward: CustomerReferralReward }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  fixedTop: {
     paddingHorizontal: 20,
     paddingTop: 12,
+    paddingBottom: 8,
+  },
+  headerContent: {
     gap: 18,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   topBar: {
     minHeight: 44,
@@ -337,9 +476,11 @@ const styles = StyleSheet.create({
     width: 42,
   },
   emptyWrap: {
+    paddingHorizontal: 20,
     paddingTop: 60,
   },
   loadingCard: {
+    marginHorizontal: 20,
     minHeight: 180,
     borderRadius: 24,
     alignItems: "center",
@@ -449,6 +590,55 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.mutedForeground,
   },
+  tabBar: {
+    flexDirection: "row",
+    gap: 6,
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: palette.surfaceMuted,
+  },
+  tabButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 6,
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.secondary,
+  },
+  tabBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  tabButtonActive: {
+    backgroundColor: palette.surface,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  tabLabel: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  tabLabelActive: {
+    color: palette.foreground,
+  },
   ruleCard: {
     borderRadius: 24,
     backgroundColor: palette.surface,
@@ -495,8 +685,8 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: palette.foreground,
   },
-  rewardList: {
-    gap: 10,
+  rewardItemWrap: {
+    marginBottom: 10,
   },
   rewardRow: {
     flexDirection: "row",
@@ -536,12 +726,38 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: palette.mutedForeground,
   },
+  rewardRowUsed: {
+    opacity: 0.6,
+  },
+  rewardVoucherRow: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   rewardVoucher: {
-    marginTop: 2,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "800",
     color: palette.secondary,
+  },
+  rewardVoucherUsed: {
+    color: palette.mutedForeground,
+    textDecorationLine: "line-through",
+  },
+  usedPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#EDEDED",
+  },
+  usedPillText: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    color: palette.mutedForeground,
   },
   rewardSkipped: {
     marginTop: 2,

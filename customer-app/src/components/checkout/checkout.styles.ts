@@ -288,10 +288,22 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.surface,
   },
+  voucherFeedbackWrap: {
+    marginTop: 8,
+    gap: 8,
+    alignItems: "flex-start",
+  },
   voucherFeedbackText: {
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "700",
+  },
+  voucherRemoveButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: "#FFF0F6",
   },
   voucherFeedbackTextSuccess: {
     color: palette.successText,
@@ -541,6 +553,27 @@ export const styles = StyleSheet.create({
   summaryHint: {
     fontSize: 12,
     lineHeight: 18,
+    color: palette.mutedForeground,
+  },
+  firstOrderBanner: {
+    gap: 2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#F1E2EA",
+    backgroundColor: palette.primarySoft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  firstOrderBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  firstOrderBannerSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   footerWrap: {

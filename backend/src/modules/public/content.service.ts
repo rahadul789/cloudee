@@ -807,6 +807,40 @@ const platformContentSchema = z.object({
         shareMessageTemplate:
           "Use my Foodbela referral code {{code}} at checkout before your first delivered order. After your first delivered order, I get a Tk {{rewardAmount}} reward voucher. {{link}}",
       }),
+    firstOrderDiscount: z
+      .object({
+        enabled: z.boolean().optional().default(false),
+        discountAmountTaka: z.number().int().min(1).max(100000).optional().default(50),
+        minimumOrderAmountTaka: z.number().int().min(0).max(100000).optional().default(350),
+        paymentRestriction: z.enum(["any", "bkash_only"]).optional().default("any"),
+        maxRedemptionsPerDevicePerDay: z.number().int().min(1).max(100).optional().default(2),
+        startsAt: z.string().trim().optional().default(""),
+        endsAt: z.string().trim().optional().default(""),
+        bannerTitle: z
+          .string()
+          .trim()
+          .max(120)
+          .optional()
+          .default("৳{{amount}} off your first order"),
+        bannerSubtitle: z
+          .string()
+          .trim()
+          .max(200)
+          .optional()
+          .default("On your first order over ৳{{minimum}}. Auto-applied at checkout."),
+      })
+      .optional()
+      .default({
+        enabled: false,
+        discountAmountTaka: 50,
+        minimumOrderAmountTaka: 350,
+        paymentRestriction: "any",
+        maxRedemptionsPerDevicePerDay: 2,
+        startsAt: "",
+        endsAt: "",
+        bannerTitle: "৳{{amount}} off your first order",
+        bannerSubtitle: "On your first order over ৳{{minimum}}. Auto-applied at checkout.",
+      }),
     customOffers: z
       .object({
         enabled: z.boolean().optional().default(true),

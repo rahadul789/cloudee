@@ -84,11 +84,13 @@ import {
   BkashSandboxPaymentSessionModel,
   CustomerModel,
   CustomerRefreshTokenSessionModel,
+  FirstOrderDiscountClaimModel,
   RestaurantCollectionModel,
   VoucherModel,
   VoucherRedemptionModel,
   VoucherUserUsageModel,
 } from "./customer.model";
+import { releaseFirstOrderDiscountForOrder } from "./first-order-discount.service";
 import {
   attachReferralToNewCustomer,
   createCustomerReferralCode,
@@ -4584,6 +4586,67 @@ export async function placeCustomerOrder(params: {
       order = created;
       createdOrder = true;
 
+      // First-order (welcome) discount: consume it race-free. The order pricing already
+      // reflects the discount (via the quote); here we lock the customer's one-time
+      // eligibility and record the claim + fraud fingerprints. The platform cost is
+      // already in pricing.platformDiscountCost, so the ledger below accounts for it.
+      const firstOrderDiscountAmount = Number(
+        (quote as CustomerCacheRecord).firstOrderDiscount?.applied
+          ? quote.pricing?.firstOrderDiscountAmount ?? 0
+          : 0,
+      );
+      if (firstOrderDiscountAmount > 0) {
+        const lock = await CustomerModel.updateOne(
+          { _id: customer.id, firstOrderDiscountRedeemedAt: null },
+          {
+            $set: {
+              firstOrderDiscountRedeemedAt: placedAt,
+              firstOrderDiscountOrderId: orderId,
+              firstOrderDiscountAmount,
+            },
+          },
+          { session },
+        );
+        if (lock.modifiedCount === 0) {
+          throw new AppError(
+            StatusCodes.CONFLICT,
+            "FIRST_ORDER_DISCOUNT_UNAVAILABLE",
+            "The first-order discount is no longer available for this account.",
+          );
+        }
+
+        const fpCustomer = await CustomerModel.findById(customer.id)
+          .select("lastKnownDeviceId lastKnownIpAddress phone")
+          .session(session)
+          .lean<Record<string, any>>();
+        const walletNumber =
+          params.paymentMethod === "Bkash"
+            ? String(params.paymentReference?.walletNumber ?? "").trim()
+            : "";
+        const addr = params.deliveryAddress;
+        const addressFingerprint =
+          typeof addr?.latitude === "number" && typeof addr?.longitude === "number"
+            ? `${addr.latitude.toFixed(4)},${addr.longitude.toFixed(4)}`
+            : String(addr?.addressLine ?? "").trim().toLowerCase();
+
+        await FirstOrderDiscountClaimModel.create(
+          [
+            {
+              customerId: customer.id,
+              orderId: created._id,
+              amount: firstOrderDiscountAmount,
+              deviceId: String(fpCustomer?.lastKnownDeviceId ?? "").trim(),
+              phone: String(fpCustomer?.phone ?? customer.phone ?? "").replace(/\D/g, ""),
+              walletNumber,
+              ipAddress: String(fpCustomer?.lastKnownIpAddress ?? "").trim(),
+              addressFingerprint,
+              status: "confirmed",
+            },
+          ],
+          { session },
+        );
+      }
+
       if (Array.isArray(quote.appliedVouchers) && quote.appliedVouchers.length) {
         const appliedVouchers: CustomerCacheRecord[] = quote.appliedVouchers;
         // Determine which applied vouchers are single-use-per-customer so the
@@ -5939,6 +6002,12 @@ export async function cancelCustomerOrder(params: {
         "customer_cancelled",
         session,
       );
+      await releaseFirstOrderDiscountForOrder({
+        orderId: order._id,
+        customerId: order.customerId,
+        reason: "customer_cancelled",
+        session,
+      });
     });
   } finally {
     await session.endSession();

@@ -469,12 +469,12 @@ const InlineMenuQuantityControl = memo(function InlineMenuQuantityControl({
 export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCartFooter({
   restaurantId,
   restaurantName,
-  autoAppliedOffer,
+  autoOffers,
   bottomInset,
 }: {
   restaurantId: string;
   restaurantName: string;
-  autoAppliedOffer: CustomerVoucherOffer | null;
+  autoOffers: CustomerVoucherOffer[];
   bottomInset: number;
 }) {
   const router = useRouter();
@@ -498,17 +498,40 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
   const hasCart = itemCount > 0;
 
   const offerProgress = useMemo(() => {
-    if (!autoAppliedOffer || !autoAppliedOffer.minimumOrderAmount || !hasCart) {
-      return null;
-    }
+    if (!hasCart) return null;
 
-    const target = Math.max(autoAppliedOffer.minimumOrderAmount, 1);
+    // Tiered auto offers (e.g. Tk 40 over 350, Tk 60 over 750): always point the bar at
+    // the NEXT threshold the cart hasn't cleared yet, so it advances tier-by-tier as the
+    // customer adds more. Once every tier is cleared, show the top tier as unlocked.
+    const tiers = autoOffers
+      .filter(
+        (offer) =>
+          typeof offer.minimumOrderAmount === "number" &&
+          offer.minimumOrderAmount > 0,
+      )
+      .sort(
+        (left, right) =>
+          (left.minimumOrderAmount ?? 0) - (right.minimumOrderAmount ?? 0),
+      );
+    if (!tiers.length) return null;
+
+    const nextTier = tiers.find(
+      (offer) => (offer.minimumOrderAmount ?? 0) > subtotal,
+    );
+    const offer = nextTier ?? tiers[tiers.length - 1];
+    const target = Math.max(offer.minimumOrderAmount ?? 0, 1);
     const remaining = Math.max(0, target - subtotal);
     const ratio = Math.max(0, Math.min(1, subtotal / target));
-    const unlocked = remaining <= 0;
+    const unlocked = !nextTier;
+    const discountLabel =
+      offer.type === "free_delivery"
+        ? "free delivery"
+        : offer.type === "percentage"
+          ? `${offer.discountValue ?? 0}% off`
+          : `${formatCurrency(offer.discountValue ?? 0)} off`;
 
-    return { target, remaining, ratio, unlocked };
-  }, [autoAppliedOffer, hasCart, subtotal]);
+    return { target, remaining, ratio, unlocked, offer, discountLabel };
+  }, [autoOffers, hasCart, subtotal]);
 
   useEffect(() => {
     if (!offerProgress?.unlocked) {
@@ -557,7 +580,7 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
                   offerProgress.unlocked ? styles.offerProgressBadgeTextUnlocked : null,
                 ]}
               >
-                {offerProgress.unlocked ? "Applied automatically" : autoAppliedOffer?.name}
+                {offerProgress.unlocked ? "Applied automatically" : offerProgress.offer?.name}
               </Text>
             </View>
             <Text style={styles.offerProgressValue}>
@@ -566,8 +589,8 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
           </View>
           <Text style={styles.offerProgressSubtitle}>
             {offerProgress.unlocked
-              ? "Discount will be used at checkout."
-              : `${formatCurrency(offerProgress.remaining)} more to unlock this offer.`}
+              ? `${offerProgress.discountLabel} applied at checkout.`
+              : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.discountLabel}.`}
           </Text>
           <View style={styles.offerTrack}>
             <Animated.View

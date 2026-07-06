@@ -86,8 +86,12 @@ function getOfferDetailsTitle(offer: CustomerNotification) {
 function getOfferDetailsDescription(offer: CustomerNotification) {
   if (!isVoucherOffer(offer)) return offer.description;
   const amount = getOfferAmountLabel(offer);
-  const expiry = formatOfferExpiry(offer.voucherExpiresAt);
-  return `${amount}. ${expiry}.`;
+  // Only mention expiry when we actually know it — showing "No expiry" for an offer
+  // whose expiry simply wasn't passed through (e.g. referral rewards) is misleading.
+  const expiry = offer.voucherExpiresAt
+    ? formatOfferExpiry(offer.voucherExpiresAt)
+    : "";
+  return expiry ? `${amount}. ${expiry}.` : `${amount}.`;
 }
 
 function DetailsSkeleton() {
