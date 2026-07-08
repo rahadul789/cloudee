@@ -4,12 +4,7 @@ import LottieView from "lottie-react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -400,7 +395,7 @@ export default function OrdersScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.kicker}>Orders</Text>
-          <Text style={styles.title}>Track your orders</Text>
+          <Text style={styles.title}>Track your orders here ✅</Text>
           {!isOnline ? (
             <OfflineNoticeCard description="Showing your last synced orders. Live delivery updates will resume when you're back online." />
           ) : null}

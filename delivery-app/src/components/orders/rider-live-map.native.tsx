@@ -602,6 +602,7 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         customMapStyle={resolvedMapStyle}
+        showsUserLocation
         showsMyLocationButton={false}
         showsCompass
         toolbarEnabled={false}

@@ -6,12 +6,14 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { NetworkStatusBanner } from "@/src/components/network-status-banner";
 import { NetworkStateBridge } from "@/src/components/network-state-bridge";
-import { RiderLocationBridge } from "@/src/components/rider-location-bridge";
+import { RiderLocationController } from "@/src/components/rider-location-controller";
 import { RiderPushBridge } from "@/src/components/rider-push-bridge";
 import { RiderSocketBridge } from "@/src/components/rider-socket-bridge";
 import { queryClient } from "@/src/lib/query-client";
-import "@/src/lib/rider-background-location";
 
+// LIVE TRACKING (rebuilt): RiderLocationController is the single, foreground location
+// producer — it publishes the rider's position during an active delivery. Background
+// continuity (foreground-service) is added in a later step.
 export function AppProviders({ children }: PropsWithChildren) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -21,7 +23,7 @@ export function AppProviders({ children }: PropsWithChildren) {
           <RiderPushBridge>
             <View style={styles.shell}>
               <RiderSocketBridge />
-              <RiderLocationBridge>{children}</RiderLocationBridge>
+              <RiderLocationController>{children}</RiderLocationController>
               <NetworkStatusBanner />
             </View>
           </RiderPushBridge>

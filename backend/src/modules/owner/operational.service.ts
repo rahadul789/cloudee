@@ -2470,13 +2470,12 @@ export async function updateOrderRiderLocation(params: {
     "customer.order.updated",
     order.toObject(),
   );
-  if (order.riderId) {
-    emitSocketEvent(
-      `rider:${order.riderId}`,
-      "rider.order.updated",
-      order.toObject(),
-    );
-  }
+  // NOTE: we intentionally do NOT echo this live-location update back to the rider.
+  // The rider is the source of the location, and their own app shows their position via
+  // the native map dot — echoing rider.order.updated here every ~10s only forced a heavy
+  // order-screen + map re-render on the rider. Status/assignment changes still reach the
+  // rider through their own dedicated emits (pickup/deliver/assignment). Customer, owner
+  // and admin still receive the live update above.
   emitAdminLiveMapUpdated({
     type: "rider.location",
     orderId: order.id,
