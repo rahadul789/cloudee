@@ -10,6 +10,8 @@ import { RiderLocationController } from "@/src/components/rider-location-control
 import { RiderPushBridge } from "@/src/components/rider-push-bridge";
 import { RiderSocketBridge } from "@/src/components/rider-socket-bridge";
 import { queryClient } from "@/src/lib/query-client";
+// Registers the background location TaskManager task (used by RiderLocationController).
+import "@/src/lib/rider-background-location";
 
 // LIVE TRACKING (rebuilt): RiderLocationController is the single, foreground location
 // producer — it publishes the rider's position during an active delivery. Background

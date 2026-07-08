@@ -602,7 +602,9 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         customMapStyle={resolvedMapStyle}
-        showsUserLocation
+        // No showsUserLocation: the native "my location" dot fights the background
+        // location service for the GPS, which blinked the dot and froze the app. The
+        // rider follows the drawn route + the external "Navigate" button instead.
         showsMyLocationButton={false}
         showsCompass
         toolbarEnabled={false}
