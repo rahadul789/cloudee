@@ -11,6 +11,25 @@ import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 // the life of the foreground-service task, resets to a clean slate if it restarts.
 let lastAcceptedFix: AcceptedFix | null = null;
 let consecutiveRejects = 0;
+// Android's fused provider can deliver GPS fixes far faster than the requested
+// timeInterval (High accuracy + distanceInterval:0 especially). Each fix used to run
+// storage reads + a server send + a socket echo → refetch cascade; a burst of fixes
+// compounded into JS-thread saturation right after pickup (heavy app, blinking status
+// bar, eventual crash). This floor makes the task do real work at most this often no
+// matter how fast the OS fires — the true admin cadence is still enforced by the
+// move/heartbeat throttle inside sendBackgroundLocation.
+const MIN_TASK_PROCESS_INTERVAL_MS = 3000;
+let lastTaskProcessedAtMs = 0;
+
+// In-memory caches so the hot path (every processed fix) does essentially NO SecureStore
+// I/O. The original fast version stayed light; the rate-limit rewrite added several
+// secure-store reads per fix, which — once the OS streamed fixes — saturated the JS
+// thread and froze the app while sharing location. These live for the task's lifetime.
+let cachedSendPolicy: SendPolicy | null = null;
+let cachedLastSent: LastSentLocation | null = null;
+let hasPendingBackgroundLocation = false;
+let backgroundLocationSendPromise: Promise<void> | null = null;
+let queuedBackgroundLocation: Location.LocationObject | null = null;
 // Signature of the currently-running stream (accuracy/interval/etc). Lets repeated
 // start calls be idempotent: if the config is unchanged we DON'T stop+restart, so
 // the foreground service survives order-to-order handoffs (a restart in the
@@ -55,6 +74,7 @@ let backgroundRefreshBackoffUntilMs = 0;
 type SendPolicy = {
   moveThresholdMeters: number;
   heartbeatMs: number;
+  minIntervalMs: number;
 };
 
 type LastSentLocation = {
@@ -137,6 +157,10 @@ function getLocationPayload(location: Location.LocationObject) {
 }
 
 type BackgroundLocationPayload = ReturnType<typeof getLocationPayload>;
+type BackgroundLocationSendResult = {
+  ok: boolean;
+  shouldStopTracking: boolean;
+};
 
 async function getPersistedAuth() {
   const rawAuth = await secureStateStorage.getItem(AUTH_STORAGE_KEY);
@@ -278,6 +302,7 @@ async function getBackgroundAccessToken(): Promise<string | null> {
 }
 
 async function persistPendingBackgroundLocation(payload: BackgroundLocationPayload) {
+  hasPendingBackgroundLocation = true;
   await secureStateStorage.setItem(
     BACKGROUND_PENDING_LOCATION_KEY,
     JSON.stringify({
@@ -288,6 +313,10 @@ async function persistPendingBackgroundLocation(payload: BackgroundLocationPaylo
 }
 
 async function readPendingBackgroundLocation() {
+  // Common case: nothing was ever queued in this session → skip the SecureStore read
+  // entirely on every fix. (On a headless cold start the flag is false but any queued
+  // item is stale anyway — live tracking only cares about the current position.)
+  if (!hasPendingBackgroundLocation) return null;
   const raw = await secureStateStorage.getItem(BACKGROUND_PENDING_LOCATION_KEY);
   if (!raw) return null;
 
@@ -306,10 +335,12 @@ async function readPendingBackgroundLocation() {
 }
 
 async function clearPendingBackgroundLocation() {
+  hasPendingBackgroundLocation = false;
   await secureStateStorage.removeItem(BACKGROUND_PENDING_LOCATION_KEY);
 }
 
 async function writeSendPolicy(policy: SendPolicy) {
+  cachedSendPolicy = policy;
   await secureStateStorage.setItem(
     BACKGROUND_SEND_POLICY_KEY,
     JSON.stringify(policy),
@@ -317,11 +348,13 @@ async function writeSendPolicy(policy: SendPolicy) {
 }
 
 async function readSendPolicy(): Promise<SendPolicy> {
+  // Hot path: served from memory once the stream has started (writeSendPolicy runs then).
+  if (cachedSendPolicy) return cachedSendPolicy;
   const raw = await secureStateStorage.getItem(BACKGROUND_SEND_POLICY_KEY);
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as Partial<SendPolicy>;
-      return {
+      cachedSendPolicy = {
         moveThresholdMeters:
           typeof parsed.moveThresholdMeters === "number"
             ? parsed.moveThresholdMeters
@@ -330,7 +363,12 @@ async function readSendPolicy(): Promise<SendPolicy> {
           typeof parsed.heartbeatMs === "number"
             ? parsed.heartbeatMs
             : DEFAULT_HEARTBEAT_MS,
+        minIntervalMs:
+          typeof parsed.minIntervalMs === "number"
+            ? parsed.minIntervalMs
+            : 30_000,
       };
+      return cachedSendPolicy;
     } catch {
       // fall through to defaults
     }
@@ -338,17 +376,19 @@ async function readSendPolicy(): Promise<SendPolicy> {
   return {
     moveThresholdMeters: DEFAULT_MOVE_THRESHOLD_METERS,
     heartbeatMs: DEFAULT_HEARTBEAT_MS,
+    minIntervalMs: 30_000,
   };
 }
 
+// Last-sent lives in memory only — it exists purely to throttle sends within a tracking
+// session. Persisting it to SecureStore on every fix was pure overhead; if the app is
+// cold-started headless, starting fresh just means the first fix sends immediately.
 async function writeLastSentLocation(location: LastSentLocation) {
-  await secureStateStorage.setItem(
-    BACKGROUND_LAST_SENT_KEY,
-    JSON.stringify(location),
-  );
+  cachedLastSent = location;
 }
 
 async function readLastSentLocation(): Promise<LastSentLocation | null> {
+  if (cachedLastSent) return cachedLastSent;
   const raw = await secureStateStorage.getItem(BACKGROUND_LAST_SENT_KEY);
   if (!raw) return null;
   try {
@@ -360,6 +400,7 @@ async function readLastSentLocation(): Promise<LastSentLocation | null> {
     ) {
       return null;
     }
+    cachedLastSent = parsed;
     return parsed;
   } catch {
     return null;
@@ -367,20 +408,21 @@ async function readLastSentLocation(): Promise<LastSentLocation | null> {
 }
 
 async function clearLastSentLocation() {
+  cachedLastSent = null;
   await secureStateStorage.removeItem(BACKGROUND_LAST_SENT_KEY);
 }
 
 async function sendBackgroundLocationPayload(
   payload: BackgroundLocationPayload,
   allowRefresh = true,
-) {
+): Promise<BackgroundLocationSendResult> {
   // Proactively resolve a fresh token (single-flight + backoff). Returns null while a
   // refresh backoff window is open (e.g. after a 429), so we skip the send instead of
   // hammering the refresh endpoint — the caller queues it as pending.
   const accessToken = await getBackgroundAccessToken();
 
   if (!accessToken) {
-    return false;
+    return { ok: false, shouldStopTracking: false };
   }
 
   const response = await fetchWithTimeout(`${API_BASE_URL}/rider/profile/location`, {
@@ -403,22 +445,30 @@ async function sendBackgroundLocationPayload(
         return sendBackgroundLocationPayload(payload, false);
       }
     }
-    return false;
+    return { ok: false, shouldStopTracking: false };
   }
 
   if (!response?.ok) {
-    return false;
+    return { ok: false, shouldStopTracking: false };
   }
 
-  // Lifecycle is owned solely by RiderLocationBridge (it starts/stops based on
-  // whether the rider has any active delivery). The task no longer self-stops on a
-  // single "no active order" response — that used to kill tracking during the brief
-  // window between one order being delivered and the next being promoted, so the
-  // next order's customer got no updates until the rider reopened the app.
-  return true;
+  // Empty activeTrackingOrderId means the final live delivery finished while this
+  // background task was still running, so the task should stop its own service.
+  const body = (await response.json().catch(() => null)) as {
+    data?: {
+      activeTrackingOrderId?: string | null;
+    };
+  } | null;
+
+  return {
+    ok: true,
+    shouldStopTracking:
+      body?.data?.activeTrackingOrderId === "" ||
+      body?.data?.activeTrackingOrderId === null,
+  };
 }
 
-async function sendBackgroundLocation(location: Location.LocationObject) {
+async function sendBackgroundLocation(location: Location.LocationObject): Promise<boolean> {
   const latestPayload = getLocationPayload(location);
   const now = Date.now();
 
@@ -435,7 +485,7 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
   });
   if (!accepted) {
     consecutiveRejects += 1;
-    return;
+    return false;
   }
   consecutiveRejects = 0;
   lastAcceptedFix = {
@@ -448,8 +498,12 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
   const pendingPayload = await readPendingBackgroundLocation();
   if (pendingPayload) {
     const pendingSent = await sendBackgroundLocationPayload(pendingPayload);
-    if (pendingSent) {
+    if (pendingSent.ok) {
       await clearPendingBackgroundLocation();
+    }
+    if (pendingSent.shouldStopTracking) {
+      await stopRiderBackgroundLocationAsync();
+      return true;
     }
   }
 
@@ -462,15 +516,19 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
   const elapsedMs = lastSent ? now - lastSent.sentAtMs : Infinity;
   const shouldSend =
     !lastSent ||
-    movedMeters >= policy.moveThresholdMeters ||
-    elapsedMs >= policy.heartbeatMs;
+    (elapsedMs >= policy.minIntervalMs &&
+      (movedMeters >= policy.moveThresholdMeters || elapsedMs >= policy.heartbeatMs));
 
   if (!shouldSend) {
-    return;
+    return false;
   }
 
   const latestSent = await sendBackgroundLocationPayload(latestPayload);
-  if (latestSent) {
+  if (latestSent.shouldStopTracking) {
+    await stopRiderBackgroundLocationAsync();
+    return true;
+  }
+  if (latestSent.ok) {
     await writeLastSentLocation({
       latitude: latestPayload.latitude,
       longitude: latestPayload.longitude,
@@ -479,6 +537,37 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
   } else {
     await persistPendingBackgroundLocation(latestPayload);
   }
+  return false;
+}
+
+function queueBackgroundLocationSend(location: Location.LocationObject) {
+  if (backgroundLocationSendPromise) {
+    queuedBackgroundLocation = location;
+    return backgroundLocationSendPromise;
+  }
+
+  backgroundLocationSendPromise = (async () => {
+    let nextLocation: Location.LocationObject | null = location;
+
+    while (nextLocation) {
+      const currentLocation = nextLocation;
+      nextLocation = null;
+      const stopped = await sendBackgroundLocation(currentLocation);
+      if (stopped) {
+        queuedBackgroundLocation = null;
+        return;
+      }
+
+      if (queuedBackgroundLocation) {
+        nextLocation = queuedBackgroundLocation;
+        queuedBackgroundLocation = null;
+      }
+    }
+  })().finally(() => {
+    backgroundLocationSendPromise = null;
+  });
+
+  return backgroundLocationSendPromise;
 }
 
 TaskManager.defineTask(
@@ -494,7 +583,17 @@ TaskManager.defineTask(
       return;
     }
 
-    await sendBackgroundLocation(latestLocation);
+    // Hard rate-cap: ignore fixes that arrive faster than the floor, before ANY work
+    // (storage, network). Keeps a burst of OS fixes from piling up.
+    const nowTaskMs = Date.now();
+    if (nowTaskMs - lastTaskProcessedAtMs < MIN_TASK_PROCESS_INTERVAL_MS) {
+      return;
+    }
+    lastTaskProcessedAtMs = nowTaskMs;
+
+    // This task ONLY publishes to the server. It deliberately does NOT touch React
+    // state; feeding maps from here re-rendered the UI on every background fix.
+    await queueBackgroundLocationSend(latestLocation);
   },
 );
 
@@ -547,17 +646,20 @@ export async function startRiderBackgroundLocationAsync({
       return false;
     }
 
-    // The move threshold is applied as a *send* filter inside the task (see
-    // sendBackgroundLocation), not as the OS displacement filter — otherwise a
-    // stationary rider would get no OS samples at all and the heartbeat could
-    // never fire. So the OS streams samples on the time interval, and the task
-    // decides whether each one is worth sending.
+    // IMPORTANT: apply the move threshold as the OS displacement filter too (not just as
+    // a send filter in the task). With distanceInterval:0 the fused provider streams fixes
+    // almost continuously — every one wakes the JS task, and that constant task traffic is
+    // what froze the app whenever location was being shared. Letting the OS deliver only
+    // after real movement means the task barely runs while the rider is stopped, and at a
+    // sane cadence while moving.
+    const osDistanceInterval = Math.max(20, distanceIntervalMeters);
     await writeSendPolicy({
       moveThresholdMeters: distanceIntervalMeters,
       heartbeatMs,
+      minIntervalMs: timeIntervalMs,
     });
 
-    const signature = `${accuracy}:${timeIntervalMs}:${distanceIntervalMeters}:${heartbeatMs}`;
+    const signature = `${accuracy}:${timeIntervalMs}:${osDistanceInterval}:${heartbeatMs}`;
     const hasStarted = await Location.hasStartedLocationUpdatesAsync(
       RIDER_BACKGROUND_LOCATION_TASK,
     );
@@ -576,7 +678,7 @@ export async function startRiderBackgroundLocationAsync({
     await Location.startLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK, {
       accuracy,
       timeInterval: timeIntervalMs,
-      distanceInterval: 0,
+      distanceInterval: osDistanceInterval,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
@@ -597,6 +699,7 @@ export async function startRiderBackgroundLocationAsync({
 
 export async function stopRiderBackgroundLocationAsync() {
   activeStreamSignature = "";
+  queuedBackgroundLocation = null;
   const hasStarted = await Location.hasStartedLocationUpdatesAsync(
     RIDER_BACKGROUND_LOCATION_TASK,
   );

@@ -3,7 +3,11 @@ import { AppState, type AppStateStatus } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useCustomerActiveOrderQuery } from "@/src/hooks/use-customer-api";
-import { connectCustomerSocket, disconnectCustomerSocket, getCustomerSocket } from "@/src/lib/socket-client";
+import {
+  connectCustomerSocket,
+  disconnectCustomerSocket,
+  getCustomerSocket,
+} from "@/src/lib/socket-client";
 import { getFreshCustomerAccessToken } from "@/src/lib/api";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
@@ -170,7 +174,9 @@ function mergeOrderPayload(
   };
 }
 
-function getOrderSummarySignature(order: CustomerOrderPayload | null | undefined) {
+function getOrderSummarySignature(
+  order: CustomerOrderPayload | null | undefined,
+) {
   if (!order) return "";
 
   return JSON.stringify({
@@ -215,12 +221,14 @@ function hasOrderSummaryChanged(
   current: CustomerOrderPayload | null | undefined,
   nextOrder: CustomerOrderPayload,
 ) {
-  return getOrderSummarySignature(current) !== getOrderSummarySignature(nextOrder);
+  return (
+    getOrderSummarySignature(current) !== getOrderSummarySignature(nextOrder)
+  );
 }
 
 function upsertOrderList(
   current: CustomerOrderPayload[] | undefined,
-  nextOrder: CustomerOrderPayload
+  nextOrder: CustomerOrderPayload,
 ) {
   const list = current ?? [];
   const existing = list.find((order) => order._id === nextOrder._id);
@@ -231,19 +239,21 @@ function upsertOrderList(
 
   const updated = existing
     ? list.map((order) =>
-        order._id === nextOrder._id ? mergeOrderPayload(order, nextOrder) : order
+        order._id === nextOrder._id
+          ? mergeOrderPayload(order, nextOrder)
+          : order,
       )
     : [nextOrder, ...list];
 
   return [...updated].sort(
     (left, right) =>
-      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
   );
 }
 
 function upsertLiveOrderList(
   current: CustomerOrderPayload[] | undefined,
-  nextOrder: CustomerOrderPayload
+  nextOrder: CustomerOrderPayload,
 ) {
   if (!isLiveOrderStatus(nextOrder.status)) {
     return (current ?? []).filter((order) => order._id !== nextOrder._id);
@@ -298,14 +308,15 @@ function getOrderBanner(status: string, cancelledBy?: string) {
         tone: "success" as const,
         emoji: "🎉",
         title: "Delivered",
-        description: "Your food has arrived. Tap to rate your order.",
+        description: "Your food has arrived. Enjoy your food!",
       };
     case "Rejected":
       return {
         tone: "warning" as const,
         emoji: "😕",
         title: "Order not accepted",
-        description: "The restaurant could not accept your order. Please try another restaurant.",
+        description:
+          "The restaurant could not accept your order. Please try another restaurant.",
       };
     case "Cancelled":
       return {
@@ -330,11 +341,10 @@ export function useCustomerSocketBridge() {
   const customer = useCustomerAuthStore((state) => state.customer);
   const accessToken = useCustomerAuthStore((state) => state.accessToken);
   const showBanner = useAppBannerStore((state) => state.showBanner);
-  const { data: activeOrder, refetch: refetchActiveOrder } = useCustomerActiveOrderQuery(
-    Boolean(customer?.id && accessToken)
-  );
+  const { data: activeOrder, refetch: refetchActiveOrder } =
+    useCustomerActiveOrderQuery(Boolean(customer?.id && accessToken));
   const hasLiveOrder = Boolean(
-    activeOrder && isLiveOrderStatus(activeOrder.status)
+    activeOrder && isLiveOrderStatus(activeOrder.status),
   );
   const joinedRef = React.useRef<string | null>(null);
   const appStateRef = React.useRef(AppState.currentState);
@@ -404,11 +414,13 @@ export function useCustomerSocketBridge() {
         );
 
       if (shouldPatchSummaryCaches) {
-        queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders"], (current) =>
-          upsertOrderList(current, payload)
+        queryClient.setQueryData<CustomerOrderPayload[]>(
+          ["customer", "orders"],
+          (current) => upsertOrderList(current, payload),
         );
-        queryClient.setQueryData<CustomerOrderPayload[]>(["customer", "orders", "live"], (current) =>
-          upsertLiveOrderList(current, payload)
+        queryClient.setQueryData<CustomerOrderPayload[]>(
+          ["customer", "orders", "live"],
+          (current) => upsertLiveOrderList(current, payload),
         );
         queryClient.setQueryData<CustomerOrderPayload | null>(
           ["customer", "orders", "active"],
@@ -417,13 +429,17 @@ export function useCustomerSocketBridge() {
               ? mergeOrderPayload(current, payload)
               : current?._id === payload._id
                 ? null
-                : current ?? null,
+                : (current ?? null),
         );
       }
 
-      if (payload.status === "PickedUp" && payload.riderTracking?.currentLocation) {
+      if (
+        payload.status === "PickedUp" &&
+        payload.riderTracking?.currentLocation
+      ) {
         const now = Date.now();
-        const lastRouteRefreshAt = routeRefreshedAtRef.current.get(payload._id) ?? 0;
+        const lastRouteRefreshAt =
+          routeRefreshedAtRef.current.get(payload._id) ?? 0;
         if (now - lastRouteRefreshAt >= LIVE_ROUTE_REFRESH_THROTTLE_MS) {
           routeRefreshedAtRef.current.set(payload._id, now);
           void queryClient.invalidateQueries({
@@ -440,7 +456,9 @@ export function useCustomerSocketBridge() {
       // live deliveries.
       if (isStatusTransition) {
         if (HISTORY_ORDER_STATUSES.includes(payload.status)) {
-          queryClient.invalidateQueries({ queryKey: ["customer", "orders", "history"] });
+          queryClient.invalidateQueries({
+            queryKey: ["customer", "orders", "history"],
+          });
         }
         if (payload.status === "Delivered") {
           queryClient.invalidateQueries({
@@ -450,7 +468,9 @@ export function useCustomerSocketBridge() {
             queryKey: ["customer", "notifications", "infinite"],
           });
         }
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "presence"] });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", "presence"],
+        });
       }
 
       // Keep the bannered status for finished orders (order ids are unique
@@ -476,14 +496,19 @@ export function useCustomerSocketBridge() {
         showBanner({
           ...banner,
           path: `/orders/${payload._id}/tracking`,
-          actionLabel: payload.status === "Delivered" ? "Rate order" : "View order",
+          actionLabel:
+            payload.status === "Delivered" ? "Rate order" : "View order",
           dedupeKey: `order:${payload._id}:${payload.status}`,
         });
       }
     };
 
-    const handleNotificationCreated = (notification?: CustomerNotificationPayload) => {
-      queryClient.invalidateQueries({ queryKey: ["customer", "notifications"] });
+    const handleNotificationCreated = (
+      notification?: CustomerNotificationPayload,
+    ) => {
+      queryClient.invalidateQueries({
+        queryKey: ["customer", "notifications"],
+      });
       queryClient.invalidateQueries({ queryKey: ["customer", "profile"] });
 
       if (
@@ -501,19 +526,33 @@ export function useCustomerSocketBridge() {
 
       const orderId = extractOrderIdFromPath(notification?.path);
       if (orderId) {
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", orderId] });
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "active"] });
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "live"] });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", orderId],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", "active"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", "live"],
+        });
       }
 
-      if (typeof notification?.path === "string" && notification.path.includes("/support-chat")) {
-        queryClient.invalidateQueries({ queryKey: ["customer", "support-case"] });
+      if (
+        typeof notification?.path === "string" &&
+        notification.path.includes("/support-chat")
+      ) {
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "support-case"],
+        });
       }
     };
 
     const handleSupportUpdated = (payload: CustomerSupportPayload) => {
       queryClient.setQueryData(["customer", "support-case", "latest"], payload);
-      queryClient.setQueryData(["customer", "support-case", payload.id], payload);
+      queryClient.setQueryData(
+        ["customer", "support-case", payload.id],
+        payload,
+      );
     };
 
     const handleAppStateChange = (nextState: AppStateStatus) => {
@@ -524,12 +563,18 @@ export function useCustomerSocketBridge() {
         void connectIfNeeded().then((activeSocket) => {
           activeSocket?.emit("customer:join", customer.id);
         });
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "active"] });
-        queryClient.invalidateQueries({ queryKey: ["customer", "orders", "live"] });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", "active"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "orders", "live"],
+        });
         queryClient.invalidateQueries({
           queryKey: ["customer", "offers", "custom-summary"],
         });
-        queryClient.invalidateQueries({ queryKey: ["customer", "support-case"] });
+        queryClient.invalidateQueries({
+          queryKey: ["customer", "support-case"],
+        });
         return;
       }
 
@@ -542,7 +587,10 @@ export function useCustomerSocketBridge() {
     socket.on("customer.order.updated", handleOrderEvent);
     socket.on("customer.notification.created", handleNotificationCreated);
     socket.on("customer.support.updated", handleSupportUpdated);
-    const subscription = AppState.addEventListener("change", handleAppStateChange);
+    const subscription = AppState.addEventListener(
+      "change",
+      handleAppStateChange,
+    );
 
     return () => {
       subscription.remove();
@@ -552,5 +600,12 @@ export function useCustomerSocketBridge() {
       socket.off("customer.notification.created", handleNotificationCreated);
       socket.off("customer.support.updated", handleSupportUpdated);
     };
-  }, [accessToken, customer?.id, hasLiveOrder, queryClient, refetchActiveOrder, showBanner]);
+  }, [
+    accessToken,
+    customer?.id,
+    hasLiveOrder,
+    queryClient,
+    refetchActiveOrder,
+    showBanner,
+  ]);
 }

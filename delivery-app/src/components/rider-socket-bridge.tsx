@@ -8,7 +8,7 @@ import { connectRiderSocket, disconnectRiderSocket, getRiderSocket } from "@/src
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { getFreshRiderAccessToken } from "@/src/lib/api";
 import { patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
-import { useRiderAuthStore } from "@/src/store/auth-store";
+import { useRiderAuthStore, type RiderProfile } from "@/src/store/auth-store";
 import { setDeliveryNetworkOnline, useNetworkStore } from "@/src/store/network-store";
 import { palette } from "@/src/theme/palette";
 
@@ -51,11 +51,30 @@ async function markSocketConnectionProblem() {
 export function RiderSocketBridge() {
   const riderId = useRiderAuthStore((state: { rider: { id?: string } | null }) => state.rider?.id ?? "");
   const accessToken = useRiderAuthStore((state: { accessToken: string }) => state.accessToken);
+  const refreshToken = useRiderAuthStore((state: { refreshToken: string }) => state.refreshToken);
+  const setSession = useRiderAuthStore((state) => state.setSession);
   const queryClient = useQueryClient();
   const { copy, language } = useDeliveryCopy();
   const [assignmentNotice, setAssignmentNotice] = useState<AssignmentNotice | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appStateRef = useRef(AppState.currentState);
+  // Auth token values are read through refs inside the socket effect so that a routine
+  // access-token refresh does NOT re-run the effect (which tore the socket down and
+  // reconnected + refetched on every refresh — the rider rate-limit storm). The effect
+  // only re-runs when auth appears/disappears (hasAuth) or the rider changes.
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
+  const refreshTokenRef = useRef(refreshToken);
+  refreshTokenRef.current = refreshToken;
+  const lastRealtimeRefetchAtRef = useRef(0);
+  // Throttles the map-heavy order-cache update from routine location echoes. The backend
+  // re-emits rider.order.updated (with a freshly recomputed route) every ~10s while a
+  // delivery is live; applying each one re-rendered the order screen + re-projected the
+  // route + animated the follow-camera, which made the app sluggish after pickup. The
+  // rider's own position is the native map dot, so the route/ETA only needs a slower
+  // refresh — status/assignment changes still apply immediately (see handleOrderUpdated).
+  const lastOrderLocationPatchRef = useRef(new Map<string, number>());
+  const hasAuth = Boolean(riderId && accessToken);
   const riderSocketCopy = useMemo(() => {
     const riderSocketText = (copy as Record<string, unknown>).riderSocket as Record<string, unknown> | undefined;
 
@@ -114,16 +133,21 @@ export function RiderSocketBridge() {
   }, []);
 
   useEffect(() => {
-    if (!riderId || !accessToken) {
+    if (!riderId || !hasAuth) {
       disconnectRiderSocket();
       return;
     }
 
     const socket = getRiderSocket();
+    // Debounced catch-up refetch: socket (re)connects and app-resumes can fire in quick
+    // succession, and refetching the order lists on every one is what flooded the rate
+    // limiter. One catch-up per window is enough; live-map is left to its own polling.
     const refetchRiderRealtimeState = () => {
+      const now = Date.now();
+      if (now - lastRealtimeRefetchAtRef.current < 20_000) return;
+      lastRealtimeRefetchAtRef.current = now;
       void queryClient.refetchQueries({ queryKey: ["rider", "orders", "available"], type: "active" });
       void queryClient.refetchQueries({ queryKey: ["rider", "orders", "active"], type: "active" });
-      void queryClient.invalidateQueries({ queryKey: ["rider", "live-map"] });
     };
     const connectIfActive = async () => {
       if (appStateRef.current !== "active") {
@@ -178,7 +202,31 @@ export function RiderSocketBridge() {
           (shouldBeActive && !activeOrders.some((order) => order.id === orderId)) ||
           (shouldBeAvailable && !availableOrders.some((order) => order.id === orderId)));
 
-      patchRiderOrderCaches(queryClient, payload, { invalidateLiveMap: true });
+      // A routine location echo = same order, unchanged status/assignment. Apply at most
+      // once per window so the heavy map re-render doesn't fire every ~10s. Anything that
+      // actually changes (status/assignment) skips the throttle and applies immediately.
+      const isLocationOnlyEcho =
+        Boolean(orderId) &&
+        Boolean(cachedOrder) &&
+        cachedOrder?.status === payload.status &&
+        cachedOrder?.assignmentState === payload.assignmentState;
+      if (isLocationOnlyEcho) {
+        const lastAt = lastOrderLocationPatchRef.current.get(orderId) ?? 0;
+        if (Date.now() - lastAt < 20_000) {
+          return;
+        }
+        lastOrderLocationPatchRef.current.set(orderId, Date.now());
+      }
+
+      // Do NOT invalidate live-map here: rider.order.updated fires on every location
+      // echo while a delivery is live, and refetching /rider/live-map on each one was a
+      // per-fix network + re-render storm. The live-map query already polls every 15s.
+      patchRiderOrderCaches(queryClient, payload, {
+        invalidateLiveMap: false,
+        // A location-only echo never changes list membership → skip the 4 list-cache
+        // writes (and their subscribers' re-renders); only the order detail needs it.
+        patchScopedLists: !isLocationOnlyEcho,
+      });
 
       if (shouldRefetchLists) {
         void queryClient.refetchQueries({ queryKey: ["rider", "orders", "available"], type: "active" });
@@ -208,9 +256,22 @@ export function RiderSocketBridge() {
       });
     };
 
-    const handleProfileUpdated = () => {
+    const handleProfileUpdated = (payload?: RiderProfile) => {
+      // Profile events now represent rider state changes (availability/focused trip),
+      // not every location ping, so patch auth/profile cache without a refetch.
+      if (payload?.id) {
+        queryClient.setQueryData(["rider", "profile"], payload);
+        if (accessTokenRef.current && refreshTokenRef.current) {
+          setSession({
+            rider: payload,
+            accessToken: accessTokenRef.current,
+            refreshToken: refreshTokenRef.current,
+          });
+        }
+        return;
+      }
+
       queryClient.invalidateQueries({ queryKey: ["rider", "profile"] });
-      queryClient.invalidateQueries({ queryKey: ["rider", "live-map"] });
     };
     const handleRestaurantUpdated = (payload: RiderRestaurantUpdatedPayload) => {
       queryClient.invalidateQueries({ queryKey: ["rider", "orders"] });
@@ -256,7 +317,14 @@ export function RiderSocketBridge() {
       socket.off("rider.notification.created", handleNotificationCreated);
       disconnectRiderSocket();
     };
-  }, [accessToken, queryClient, riderId, riderSocketCopy, showAssignmentNotice]);
+  }, [hasAuth, queryClient, riderId, riderSocketCopy, setSession, showAssignmentNotice]);
+
+  // Keep the socket's auth token current so an internal reconnect (a network blip) uses a
+  // fresh token — without tearing the whole effect down + refetching on every refresh.
+  useEffect(() => {
+    if (!hasAuth) return;
+    getRiderSocket().auth = { token: accessToken };
+  }, [accessToken, hasAuth]);
 
   if (!assignmentNotice) {
     return null;

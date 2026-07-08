@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import MapView, {
   Marker,
   Polyline,
@@ -29,7 +29,9 @@ const RIDER_OFF_ROUTE_CONNECTOR_MIN_METERS = 70;
 const DESTINATION_OFF_ROUTE_CONNECTOR_MIN_METERS = 50;
 const ROUTE_DRAW_SNAP_MAX_METERS = 90;
 const RIDER_MAP_VISUAL_VERSION = "circle-route-v5";
-
+// The rider's position is a custom marker fed by server/cache updates, so this map
+// never starts a second native GPS client.
+// Route projection and follow-camera work only need coarse updates.
 export type RiderMapCoordinate = {
   latitude: number;
   longitude: number;
@@ -37,12 +39,6 @@ export type RiderMapCoordinate = {
 
 export type RiderLiveMapPhase = "to_restaurant" | "to_customer";
 export type RiderLiveMapHandle = {
-  setLiveRider: (next: {
-    latitude: number;
-    longitude: number;
-    heading: number | null;
-  } | null) => void;
-  clearLiveRider: () => void;
   recenter: () => void;
 };
 
@@ -265,6 +261,21 @@ const CustomerPin = memo(function CustomerPin() {
   );
 });
 
+const RiderPin = memo(function RiderPin({ heading }: { heading?: number | null }) {
+  const headingStyle: ViewStyle | null =
+    typeof heading === "number" && Number.isFinite(heading)
+      ? { transform: [{ rotate: `${heading}deg` }] }
+      : null;
+
+  return (
+    <View collapsable={false} pointerEvents="none" style={styles.riderPuckRoot}>
+      <View collapsable={false} style={styles.riderPuckHalo} />
+      <View collapsable={false} style={styles.riderPuckCore} />
+      <View collapsable={false} style={[styles.riderPuckArrow, headingStyle]} />
+    </View>
+  );
+});
+
 const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(function RiderLiveMap({
   phase,
   restaurantLocation,
@@ -286,15 +297,14 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   const mapReadyRef = useRef(false);
   const frameCameraRef = useRef<(animated: boolean) => void>(() => undefined);
   const [followEnabled, setFollowEnabled] = useState(true);
-  const [liveRider, setLiveRider] = useState<{
-    location: RiderMapCoordinate;
-    heading: number | null;
-  } | null>(null);
   const lastFollowBandRef = useRef<FollowBand | null>(null);
   const lastFollowRiderRef = useRef<RiderMapCoordinate | null>(null);
   const lastFollowDestinationRef = useRef<RiderMapCoordinate | null>(null);
 
-  const effectiveRiderLocation = liveRider?.location ?? riderLocation ?? null;
+  // Route-trimming / follow-camera anchor. This comes from server/cache updates rather
+  // than a per-screen GPS stream, so maps never start their own location clients.
+  const effectiveRiderLocation = riderLocation ?? null;
+
   const resolvedMapStyle = mapStyle ?? undefined;
   const mapStyleSignature = useMemo(
     () => getMapStyleSignature(resolvedMapStyle),
@@ -495,38 +505,8 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
     topInset,
   ]);
 
-  useImperativeHandle(
-    ref,
-    () => ({
-      setLiveRider: (next) => {
-        if (!next) {
-          setLiveRider(null);
-          return;
-        }
 
-        setLiveRider((current) => {
-          if (
-            current &&
-            distanceMeters(current.location, next) < 2 &&
-            current.heading === next.heading
-          ) {
-            return current;
-          }
-
-          return {
-            location: {
-              latitude: next.latitude,
-              longitude: next.longitude,
-            },
-            heading: next.heading ?? null,
-          };
-        });
-      },
-      clearLiveRider: () => setLiveRider(null),
-      recenter: () => handleRecenter(),
-    }),
-    [handleRecenter],
-  );
+  useImperativeHandle(ref, () => ({ recenter: () => handleRecenter() }), [handleRecenter]);
 
   const followBand = useMemo(() => {
     if (!effectiveRiderLocation || !activeDestination) return null;
@@ -598,6 +578,11 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   const customerTracking = useTemporaryTracking(
     customerLocation ? `${customerLocation.latitude},${customerLocation.longitude}` : "none",
   );
+  const riderTracking = useTemporaryTracking(
+    effectiveRiderLocation
+      ? `${effectiveRiderLocation.latitude},${effectiveRiderLocation.longitude},${riderHeading ?? "none"}`
+      : "none",
+  );
   const initialRegion = useMemo(() => {
     const anchor =
       effectiveRiderLocation ?? activeDestination ?? restaurantLocation ?? customerLocation;
@@ -617,9 +602,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         customMapStyle={resolvedMapStyle}
-        // The rider sees their own position as the native blue GPS dot (real-time +
-        // heading direction), so the map can rotate for natural turn-by-turn navigation.
-        showsUserLocation
         showsMyLocationButton={false}
         showsCompass
         toolbarEnabled={false}
@@ -722,8 +704,18 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
           </Marker>
         ) : null}
 
-        {/* The rider's own position is the native blue GPS dot (showsUserLocation),
-            so no custom rider marker is rendered here. */}
+        {effectiveRiderLocation ? (
+          <Marker
+            key={`rider-${RIDER_MAP_VISUAL_VERSION}`}
+            coordinate={effectiveRiderLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            title="You"
+            tracksViewChanges={riderTracking}
+            zIndex={6}
+          >
+            <RiderPin heading={riderHeading} />
+          </Marker>
+        ) : null}
       </MapView>
 
       <View style={[styles.controls, { bottom: bottomInset + 16 }]} pointerEvents="box-none">
@@ -828,6 +820,39 @@ const styles = StyleSheet.create({
   },
   pinRider: {
     backgroundColor: ROUTE_PINK,
+  },
+  riderPuckRoot: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  riderPuckHalo: {
+    position: "absolute",
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "rgba(37,99,235,0.18)",
+  },
+  riderPuckCore: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#2563EB",
+    borderWidth: 2.5,
+    borderColor: "#fff",
+  },
+  riderPuckArrow: {
+    position: "absolute",
+    top: -3,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderBottomWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderBottomColor: "#2563EB",
   },
   riderArrow: {
     marginTop: -1,

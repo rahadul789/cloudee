@@ -1356,16 +1356,56 @@ export default function CheckoutScreen() {
               ))}
             </View>
 
-            {quoteQuery.data?.firstOrderDiscount?.applied ? (
-              <View style={styles.firstOrderBanner}>
-                <Text style={styles.firstOrderBannerTitle}>
-                  🎁 {quoteQuery.data.firstOrderDiscount.title}
-                </Text>
-                <Text style={styles.firstOrderBannerSubtitle}>
-                  {quoteQuery.data.firstOrderDiscount.subtitle}
-                </Text>
-              </View>
-            ) : null}
+            {(() => {
+              const firstOrder = quoteQuery.data?.firstOrderDiscount;
+              if (!firstOrder) return null;
+
+              // Discount already unlocked → success banner.
+              if (firstOrder.applied) {
+                return (
+                  <View style={styles.firstOrderBanner}>
+                    <Text style={styles.firstOrderBannerTitle}>
+                      🎁 {firstOrder.title}
+                    </Text>
+                    <Text style={styles.firstOrderBannerSubtitle}>
+                      {firstOrder.subtitle}
+                    </Text>
+                  </View>
+                );
+              }
+
+              // Not yet at the threshold → guide the customer with a progress bar.
+              const remaining = firstOrder.remaining ?? 0;
+              if (remaining <= 0 || firstOrder.minimumOrderAmount <= 0) {
+                return null;
+              }
+              const currentSubtotal = pricing?.subtotal ?? localSubtotal;
+              const ratio = Math.max(
+                0,
+                Math.min(1, currentSubtotal / firstOrder.minimumOrderAmount),
+              );
+              return (
+                <View style={styles.firstOrderBanner}>
+                  <Text style={styles.firstOrderBannerTitle}>
+                    🎁 Add {formatCurrency(remaining)} more for{" "}
+                    {formatCurrency(firstOrder.amount)} off
+                  </Text>
+                  <Text style={styles.firstOrderBannerSubtitle}>
+                    On your first order over{" "}
+                    {formatCurrency(firstOrder.minimumOrderAmount)}. Auto-applied at
+                    checkout.
+                  </Text>
+                  <View style={styles.firstOrderProgressTrack}>
+                    <View
+                      style={[
+                        styles.firstOrderProgressFill,
+                        { width: `${ratio * 100}%` },
+                      ]}
+                    />
+                  </View>
+                </View>
+              );
+            })()}
 
             <View style={styles.summaryTotals}>
               <CheckoutSummaryRow

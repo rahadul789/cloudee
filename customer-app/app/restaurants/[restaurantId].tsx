@@ -1494,6 +1494,15 @@ export default function RestaurantDetailsScreen() {
         restaurantId={restaurant._id}
         restaurantName={restaurant.name}
         autoOffers={autoOffers}
+        firstOrderOffer={
+          detailsData?.firstOrderDiscount?.eligible
+            ? {
+                amount: detailsData.firstOrderDiscount.amount,
+                minimumOrderAmount:
+                  detailsData.firstOrderDiscount.minimumOrderAmount,
+              }
+            : null
+        }
         bottomInset={Math.max(insets.bottom, 12)}
       />
 

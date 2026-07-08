@@ -43,6 +43,7 @@ type ReferralRewardStatus =
 type ReferralProgramSettings = {
   enabled: boolean
   rewardAmountTaka: number
+  refereeRewardAmountTaka: number
   minimumOrderAmountTaka: number
   voucherExpiryDays: number
   monthlyRewardCapPerCustomer: number
@@ -250,6 +251,10 @@ export async function getReferralProgramSettings(): Promise<ReferralProgramSetti
   return {
     enabled: referrals?.enabled !== false,
     rewardAmountTaka: referrals?.rewardAmountTaka ?? REFERRAL_REWARD_AMOUNT,
+    refereeRewardAmountTaka:
+      referrals?.refereeRewardAmountTaka ??
+      referrals?.rewardAmountTaka ??
+      REFERRAL_REWARD_AMOUNT,
     minimumOrderAmountTaka:
       referrals?.minimumOrderAmountTaka ?? REFERRAL_REWARD_MIN_ORDER_AMOUNT,
     voucherExpiryDays: referrals?.voucherExpiryDays ?? REFERRAL_REWARD_EXPIRY_DAYS,
@@ -560,6 +565,7 @@ export async function getCustomerReferralSummary(customerId: string) {
     shareLink: shareContent.shareLink,
     shareMessage: shareContent.shareMessage,
     rewardAmount: settings.rewardAmountTaka,
+    refereeRewardAmount: settings.refereeRewardAmountTaka,
     minimumOrderAmount: settings.minimumOrderAmountTaka,
     rewardExpiryDays: settings.voucherExpiryDays,
     monthlyRewardCap: settings.monthlyRewardCapPerCustomer,
@@ -746,12 +752,93 @@ export async function applyReferralCodeToCustomer(params: {
     )
   }
 
+  // Give the referred friend their welcome voucher right away so it's usable on their
+  // first order. Platform-funded, single-use, auto-applied. Non-fatal on failure so a
+  // voucher hiccup never blocks linking the referral.
+  let refereeRewardGranted = false
+  if (settings.refereeRewardAmountTaka > 0) {
+    try {
+      const refereeVoucherId = new mongoose.Types.ObjectId()
+      const refereeVoucherCode = await createReferralRewardVoucherCode()
+      const now = new Date()
+      const expiresAt = new Date(
+        now.getTime() + settings.voucherExpiryDays * 24 * 60 * 60 * 1000,
+      )
+      await VoucherModel.create({
+        _id: refereeVoucherId,
+        restaurantId: null,
+        scopeType: "all_restaurants",
+        selectedRestaurantIds: [],
+        audienceType: "selected_users",
+        selectedCustomerIds: [customer._id],
+        createdByType: "system",
+        createdById: "referral-system",
+        fundedBy: "platform",
+        ownerSharePercent: 0,
+        platformSharePercent: 100,
+        stackingRule: "exclusive",
+        priority: 80,
+        mode: "auto",
+        type: "flat",
+        name: "Welcome referral reward",
+        code: refereeVoucherCode,
+        discountValue: settings.refereeRewardAmountTaka,
+        maxDiscountAmount: settings.refereeRewardAmountTaka,
+        minimumOrderAmount: settings.minimumOrderAmountTaka,
+        maxTotalUses: 1,
+        maxUsesPerUser: 1,
+        allowRepeatUsage: false,
+        status: "Active",
+        applicability: "all",
+        startsAt: now,
+        endsAt: expiresAt,
+        display: {
+          showOnHome: true,
+          showInOfferStrip: true,
+          placement: "offers_row",
+          variant: "chip",
+          title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+          subtitle: `Use on orders over Tk ${settings.minimumOrderAmountTaka}`,
+          ctaLabel: "Order now",
+          ctaPath: "/(tabs)/browse",
+          backgroundColor: "#FFF0F6",
+          textColor: "#3F2432",
+          accentColor: "#FF5C93",
+        },
+      })
+      await createCustomerNotification({
+        customerId: customer.id,
+        payload: {
+          title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+          body: `Your friend's referral gave you Tk ${settings.refereeRewardAmountTaka} off. Use it on orders over Tk ${settings.minimumOrderAmountTaka}.`,
+          data: {
+            type: "promotion",
+            personalOffer: true,
+            voucherId: String(refereeVoucherId),
+            voucherCode: refereeVoucherCode,
+            voucherLabel: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+            voucherExpiresAt: expiresAt.toISOString(),
+            voucherMinOrder: settings.minimumOrderAmountTaka,
+            path: "/offers",
+          },
+        },
+      })
+      refereeRewardGranted = true
+    } catch (error) {
+      logger.warn(
+        { error, customerId: customer.id },
+        "Failed to grant referee welcome voucher",
+      )
+    }
+  }
+
   return {
     applied: true,
     referralCode,
     referrerName: result.referrerName || referrer.fullName || "Foodbela friend",
-    message:
-      "Referral code saved. The reward unlocks after your first delivered order.",
+    message: refereeRewardGranted
+      ? `Referral applied! Tk ${settings.refereeRewardAmountTaka} welcome reward added to your offers.`
+      : "Referral code saved. The reward unlocks after your first delivered order.",
   }
 }
 

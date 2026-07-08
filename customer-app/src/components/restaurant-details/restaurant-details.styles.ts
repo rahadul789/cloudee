@@ -366,8 +366,11 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flexShrink: 1,
+    minWidth: 0,
   },
   offerProgressBadgeText: {
+    flexShrink: 1,
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "700",
@@ -379,10 +382,12 @@ export const styles = StyleSheet.create({
     color: palette.successText,
   },
   offerProgressValue: {
+    flexShrink: 0,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "700",
     color: palette.foreground,
+    fontVariant: ["tabular-nums"],
   },
   offerProgressTitle: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.foreground },
   offerProgressSubtitle: {

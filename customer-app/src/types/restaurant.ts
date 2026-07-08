@@ -324,6 +324,11 @@ export type CustomerRestaurantDetails = {
   categories: CustomerRestaurantCategory[];
   menuItems: CustomerRestaurantMenuItem[];
   activeOffers: CustomerVoucherOffer[];
+  firstOrderDiscount?: {
+    eligible: boolean;
+    amount: number;
+    minimumOrderAmount: number;
+  };
   cartRecommendations?: CustomerCartRecommendationConfig;
   recentReviews: {
     id: string;

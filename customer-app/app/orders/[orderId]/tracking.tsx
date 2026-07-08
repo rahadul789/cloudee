@@ -118,16 +118,30 @@ function getOrderStatusTime(order: OrderTimelineSource, status: string) {
   );
 }
 
-function isBkashRefundNoticeVisible(order: {
+type RefundNoticeState = "completed" | "review";
+
+// A cancelled/rejected bKash order moves through: paid → refund in review → refunded.
+// "completed" wins so a finished refund reads as done, not still "in review".
+function getRefundNoticeState(order: {
   status: string;
   paymentMethod?: string;
   paymentStatus?: string;
-}) {
-  return (
-    ["Cancelled", "Rejected"].includes(order.status) &&
-    order.paymentMethod === "Bkash" &&
-    ["paid", "refund_pending"].includes(order.paymentStatus ?? "")
-  );
+  paymentSnapshot?: { refundStatus?: string };
+}): RefundNoticeState | null {
+  if (!["Cancelled", "Rejected"].includes(order.status)) return null;
+  if (order.paymentMethod !== "Bkash") return null;
+
+  const refundStatus = order.paymentSnapshot?.refundStatus ?? "";
+  if (order.paymentStatus === "refunded" || refundStatus === "refunded") {
+    return "completed";
+  }
+  if (
+    ["paid", "refund_pending"].includes(order.paymentStatus ?? "") ||
+    refundStatus === "pending"
+  ) {
+    return "review";
+  }
+  return null;
 }
 
 function formatRefundEta(minutes?: number) {
@@ -569,7 +583,7 @@ export default function OrderTrackingScreen() {
   const canShowLiveMap = order.status === "PickedUp" && !isQueuedForDelivery;
   const queuedDeliveryEtaText =
     typeof queuedEtaMinutes === "number" && Number.isFinite(queuedEtaMinutes)
-      ? `Delivery man will arrive in ${formatDurationRangeMinutes(
+      ? `Delivery man will start your delivery in ${formatDurationRangeMinutes(
           Math.max(queuedEtaMinutes, 1),
           Math.max(queuedEtaMinutes, 1) + 5,
         )}`
@@ -604,7 +618,7 @@ export default function OrderTrackingScreen() {
     "Delivery address unavailable",
   );
   const isDeliveredOrder = order.status === "Delivered";
-  const showBkashRefundNotice = isBkashRefundNoticeVisible(order);
+  const refundNoticeState = getRefundNoticeState(order);
   const refundEtaText = formatRefundEta(order.paymentSnapshot?.refundEtaMinutes);
   const totalItemCount = itemRows.reduce(
     (sum, item) => sum + Math.max(item.quantity ?? 0, 0),
@@ -687,6 +701,14 @@ export default function OrderTrackingScreen() {
             <Text style={styles.paymentLabel}>Discount</Text>
             <Text style={styles.paymentDiscount}>
               -{formatCurrency(order.pricing?.discountAmount ?? 0)}
+            </Text>
+          </View>
+        ) : null}
+        {(order.pricing?.firstOrderDiscountAmount ?? 0) > 0 ? (
+          <View style={styles.paymentRow}>
+            <Text style={styles.paymentLabel}>First order discount</Text>
+            <Text style={styles.paymentDiscount}>
+              -{formatCurrency(order.pricing?.firstOrderDiscountAmount ?? 0)}
             </Text>
           </View>
         ) : null}
@@ -844,7 +866,24 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {showBkashRefundNotice ? (
+        {refundNoticeState === "completed" ? (
+          <View style={[styles.refundNoticeCard, styles.refundNoticeCardDone]}>
+            <View style={[styles.refundNoticeIcon, styles.refundNoticeIconDone]}>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={18}
+                color={palette.successText}
+              />
+            </View>
+            <View style={styles.refundNoticeCopy}>
+              <Text style={styles.refundNoticeTitle}>bKash refund completed</Text>
+              <Text style={styles.refundNoticeText}>
+                Your bKash payment for this cancelled order has been refunded. It may
+                take a little time to appear in your bKash account.
+              </Text>
+            </View>
+          </View>
+        ) : refundNoticeState === "review" ? (
           <View style={styles.refundNoticeCard}>
             <View style={styles.refundNoticeIcon}>
               <Ionicons name="wallet-outline" size={18} color={palette.secondary} />

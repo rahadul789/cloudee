@@ -229,6 +229,7 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
                 style={styles.cmsCarouselOnlyImage}
                 fallbackIcon="pricetag-outline"
                 skeletonVariant="home-image"
+                targetWidth={slideWidth}
                 accessibilityLabel="Foodbela offer banner"
               />
             </View>
@@ -281,6 +282,7 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
           style={styles.cmsImageOnly}
           fallbackIcon="pricetag-outline"
           skeletonVariant="home-image"
+          targetWidth={windowWidth}
           accessibilityLabel={block.title || "Foodbela offer"}
         />
       ) : null}
@@ -290,6 +292,7 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
           style={styles.cmsBlockImage}
           fallbackIcon="pricetag-outline"
           skeletonVariant="home-image"
+          targetWidth={windowWidth}
           accessibilityLabel={block.title || "Foodbela offer"}
         />
       ) : null}

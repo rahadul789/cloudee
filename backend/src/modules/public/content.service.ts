@@ -776,6 +776,7 @@ const platformContentSchema = z.object({
       .object({
         enabled: z.boolean().optional().default(true),
         rewardAmountTaka: z.number().int().min(1).max(10000).optional().default(50),
+        refereeRewardAmountTaka: z.number().int().min(1).max(10000).optional().default(50),
         minimumOrderAmountTaka: z.number().int().min(0).max(100000).optional().default(250),
         voucherExpiryDays: z.number().int().min(1).max(365).optional().default(30),
         monthlyRewardCapPerCustomer: z.number().int().min(1).max(100).optional().default(5),
@@ -800,6 +801,7 @@ const platformContentSchema = z.object({
       .default({
         enabled: true,
         rewardAmountTaka: 50,
+        refereeRewardAmountTaka: 50,
         minimumOrderAmountTaka: 250,
         voucherExpiryDays: 30,
         monthlyRewardCapPerCustomer: 5,

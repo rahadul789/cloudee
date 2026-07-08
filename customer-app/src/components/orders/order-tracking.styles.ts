@@ -311,6 +311,10 @@ export const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
   },
+  refundNoticeCardDone: {
+    borderColor: "#BFEBD5",
+    backgroundColor: palette.successSurface,
+  },
   refundNoticeIcon: {
     width: 34,
     height: 34,
@@ -318,6 +322,9 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FFE2EF",
+  },
+  refundNoticeIconDone: {
+    backgroundColor: "#DCF5E9",
   },
   refundNoticeCopy: {
     flex: 1,

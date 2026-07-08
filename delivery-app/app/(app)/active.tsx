@@ -64,6 +64,24 @@ export default function ActiveOrdersScreen() {
   const orders = useMemo(() => ordersQuery.data ?? [], [ordersQuery.data]);
   const deliveryThresholds = deliveryThresholdsQuery.data;
 
+  // Queue position for picked-up orders that aren't the live one: the live trip is "now",
+  // the rest are #2, #3… in pickup (creation) order — matching the backend's hand-off.
+  const queuePositionById = useMemo(() => {
+    const hasLive = orders.some(
+      (order) => order.status === "PickedUp" && order.isFocusedLiveTrip,
+    );
+    const queued = orders
+      .filter((order) => order.status === "PickedUp" && !order.isFocusedLiveTrip)
+      .sort(
+        (first, second) =>
+          new Date(first.createdAt ?? 0).getTime() -
+          new Date(second.createdAt ?? 0).getTime(),
+      );
+    const map = new Map<string, number>();
+    queued.forEach((order, index) => map.set(order.id, index + (hasLive ? 2 : 1)));
+    return map;
+  }, [orders]);
+
   useEffect(() => {
     if (!orders.length) return;
     setNowMs(Date.now());
@@ -85,6 +103,11 @@ export default function ActiveOrdersScreen() {
       );
 
       return [...matchingOrders].sort((firstOrder, secondOrder) => {
+        // The live "delivering now" trip is always pinned to the very top.
+        const firstLive = firstOrder.isFocusedLiveTrip ? 1 : 0;
+        const secondLive = secondOrder.isFocusedLiveTrip ? 1 : 0;
+        if (firstLive !== secondLive) return secondLive - firstLive;
+
         const firstPriority = getRiderDelayPriority(
           getRiderDelaySignal(firstOrder, deliveryThresholds, nowMs)
         );
@@ -233,7 +256,17 @@ export default function ActiveOrdersScreen() {
                   {item.isFocusedLiveTrip ? (
                     <View style={styles.liveChip}>
                       <View style={styles.liveDot} />
-                      <Text style={styles.liveText}>Live</Text>
+                      <Text style={styles.liveText}>{copy.orderDetails.deliveringNow}</Text>
+                    </View>
+                  ) : item.status === "PickedUp" ? (
+                    <View style={styles.queueChip}>
+                      <Ionicons name="time-outline" size={11} color={palette.warningText} />
+                      <Text style={styles.queueText}>
+                        {copy.orderDetails.inQueue}
+                        {queuePositionById.get(item.id)
+                          ? ` #${queuePositionById.get(item.id)}`
+                          : ""}
+                      </Text>
                     </View>
                   ) : null}
                 </View>
@@ -401,6 +434,23 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     fontWeight: "900",
     color: palette.successText,
+  },
+  queueChip: {
+    minHeight: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: palette.warningSoft,
+    borderWidth: 1,
+    borderColor: "rgba(231,139,39,0.22)",
+  },
+  queueText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+    color: palette.warningText,
   },
   tripStatusChip: {
     borderRadius: 999,

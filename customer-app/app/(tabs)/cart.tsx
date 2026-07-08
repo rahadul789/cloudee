@@ -25,6 +25,10 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
+import {
+  computeOfferProgress,
+  type OfferTier,
+} from "@/src/lib/offer-progress";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import {
   buildStartingPrice,
@@ -311,14 +315,32 @@ export default function CartScreen() {
     items,
     restaurantDetailsQuery.data?.menuItems,
   ]);
-  const autoAppliedOffer = useMemo(
+  const autoOffers = useMemo(
     () =>
-      restaurantDetailsQuery.data?.activeOffers.find(
+      (restaurantDetailsQuery.data?.activeOffers ?? []).filter(
         (offer) =>
           offer.mode === "auto" && typeof offer.minimumOrderAmount === "number",
-      ) ?? null,
+      ),
     [restaurantDetailsQuery.data?.activeOffers],
   );
+  // The auto tier the cart currently qualifies for that saves the most (mirrors the
+  // backend's best-auto selection) — used for the local pricing estimate + labels.
+  const bestApplicableOffer = useMemo(() => {
+    let best: CustomerVoucherOffer | null = null;
+    let bestAmount = 0;
+    for (const offer of autoOffers) {
+      const amount = estimateAutoDiscount(
+        offer,
+        localSubtotal,
+        pricing?.deliveryFee ?? 0,
+      );
+      if (amount > bestAmount) {
+        bestAmount = amount;
+        best = offer;
+      }
+    }
+    return best;
+  }, [autoOffers, localSubtotal, pricing?.deliveryFee]);
   const appliedAutoVoucher = useMemo(
     () =>
       quoteQuery.data?.appliedVouchers.find(
@@ -335,7 +357,7 @@ export default function CartScreen() {
     const deliveryFee = pricing?.deliveryFee ?? 0;
     const rainSurcharge = pricing?.rainSurcharge ?? 0;
     const discountAmount = estimateAutoDiscount(
-      autoAppliedOffer,
+      bestApplicableOffer,
       localSubtotal,
       deliveryFee,
     );
@@ -345,29 +367,56 @@ export default function CartScreen() {
       deliveryFee,
       rainSurcharge,
       discountAmount,
+      firstOrderDiscountAmount: 0,
       total: Math.max(
         0,
         localSubtotal + deliveryFee + rainSurcharge - discountAmount,
       ),
     };
-  }, [autoAppliedOffer, localSubtotal, pricing, shouldUseQuotedPricing]);
+  }, [bestApplicableOffer, localSubtotal, pricing, shouldUseQuotedPricing]);
   const displayDiscountLabel =
     displayPricing.discountAmount > 0
-      ? (appliedAutoVoucher?.name ?? autoAppliedOffer?.name ?? "Discount")
+      ? (appliedAutoVoucher?.name ?? bestApplicableOffer?.name ?? "Discount")
       : "";
+  const firstOrderMeta = quoteQuery.data?.firstOrderDiscount;
   const offerProgress = useMemo(() => {
-    if (!autoAppliedOffer || !autoAppliedOffer.minimumOrderAmount) {
-      return null;
+    const subtotal = displayPricing.subtotal;
+    const deliveryFee = pricing?.deliveryFee ?? 0;
+    const labelFor = (offer: CustomerVoucherOffer) =>
+      offer.type === "free_delivery"
+        ? "free delivery"
+        : offer.type === "percentage"
+          ? `${offer.discountValue ?? 0}% off`
+          : `${formatCurrency(offer.discountValue ?? 0)} off`;
+
+    const tiers: OfferTier[] = autoOffers.map((offer) => ({
+      minimumOrderAmount: offer.minimumOrderAmount ?? 0,
+      discount: estimateAutoDiscount(
+        offer,
+        Math.max(subtotal, offer.minimumOrderAmount ?? 0),
+        deliveryFee,
+      ),
+      label: labelFor(offer),
+    }));
+
+    // The first-order (welcome) discount competes as one more candidate. Its presence in
+    // the quote means this customer is a genuine first-order candidate.
+    if (
+      firstOrderMeta &&
+      firstOrderMeta.amount > 0 &&
+      firstOrderMeta.minimumOrderAmount > 0
+    ) {
+      tiers.push({
+        minimumOrderAmount: firstOrderMeta.minimumOrderAmount,
+        discount: firstOrderMeta.amount,
+        label: `${formatCurrency(firstOrderMeta.amount)} off`,
+        context: "on your first order",
+      });
     }
 
-    const target = Math.max(autoAppliedOffer.minimumOrderAmount, 1);
-    const subtotal = displayPricing.subtotal;
-    const remaining = Math.max(0, target - subtotal);
-    const ratio = Math.max(0, Math.min(1, subtotal / target));
-    const unlocked = remaining <= 0;
-
-    return { target, subtotal, remaining, ratio, unlocked };
-  }, [autoAppliedOffer, displayPricing.subtotal]);
+    const progress = computeOfferProgress(tiers, subtotal);
+    return progress ? { ...progress, subtotal } : null;
+  }, [autoOffers, displayPricing.subtotal, pricing?.deliveryFee, firstOrderMeta]);
 
   useEffect(() => {
     if (!shouldUseQuotedPricing || !quoteQuery.data?.items?.length) {
@@ -389,8 +438,9 @@ export default function CartScreen() {
     );
   }, [quoteQuery.data?.items, shouldUseQuotedPricing, syncPricing]);
 
+  const cartOfferActive = Boolean(offerProgress?.hasCurrent);
   useEffect(() => {
-    if (!offerProgress?.unlocked) {
+    if (!cartOfferActive) {
       offerUnlockAnim.setValue(1);
       return;
     }
@@ -407,7 +457,7 @@ export default function CartScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [offerProgress?.unlocked, offerUnlockAnim]);
+  }, [cartOfferActive, offerUnlockAnim]);
 
   useEffect(() => {
     if (!isWaitingForLocationQuote) {
@@ -1049,11 +1099,11 @@ export default function CartScreen() {
               ) : null}
 
               <View style={styles.summaryCard}>
-                {autoAppliedOffer && offerProgress ? (
+                {offerProgress ? (
                   <Animated.View
                     style={[
                       styles.offerProgressCard,
-                      offerProgress.unlocked
+                      offerProgress.hasCurrent
                         ? styles.offerProgressCardUnlocked
                         : null,
                       { transform: [{ scale: offerUnlockAnim }] },
@@ -1063,47 +1113,49 @@ export default function CartScreen() {
                       <View style={styles.offerProgressBadge}>
                         <Ionicons
                           name={
-                            offerProgress.unlocked
+                            offerProgress.hasCurrent
                               ? "checkmark-circle"
                               : "sparkles-outline"
                           }
                           size={15}
                           color={
-                            offerProgress.unlocked
+                            offerProgress.hasCurrent
                               ? palette.successText
                               : palette.secondary
                           }
                         />
                         <Text
+                          numberOfLines={1}
                           style={[
                             styles.offerProgressBadgeText,
-                            offerProgress.unlocked
+                            offerProgress.hasCurrent
                               ? styles.offerProgressBadgeTextUnlocked
                               : null,
                           ]}
                         >
-                          {offerProgress.unlocked
-                            ? "Offer unlocked"
-                            : autoAppliedOffer.name}
+                          {offerProgress.hasCurrent
+                            ? `${offerProgress.currentLabel} applied`
+                            : `Unlock ${offerProgress.nextLabel}`}
                         </Text>
                       </View>
-                      <Text style={styles.offerProgressValue}>
+                      <Text
+                        style={styles.offerProgressValue}
+                        numberOfLines={1}
+                      >
                         {formatCurrency(offerProgress.subtotal)} /{" "}
                         {formatCurrency(offerProgress.target)}
                       </Text>
                     </View>
                     <Text style={styles.offerProgressSubtitle}>
                       {offerProgress.unlocked
-                        ? appliedAutoVoucher
-                          ? `${appliedAutoVoucher.name} is applied to this cart.`
-                          : "This discount will apply automatically at checkout."
-                        : `${formatCurrency(offerProgress.remaining)} more to unlock it.`}
+                        ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
+                        : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
                     </Text>
                     <View style={styles.offerTrack}>
                       <View
                         style={[
                           styles.offerFill,
-                          offerProgress.unlocked
+                          offerProgress.hasCurrent
                             ? styles.offerFillUnlocked
                             : null,
                           { width: `${offerProgress.ratio * 100}%` },
@@ -1146,6 +1198,20 @@ export default function CartScreen() {
                       style={[styles.summaryValue, styles.summaryHighlight]}
                     >
                       -{formatCurrency(displayPricing.discountAmount)}
+                    </Text>
+                  </View>
+                ) : null}
+                {(displayPricing.firstOrderDiscountAmount ?? 0) > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text
+                      style={[styles.summaryLabel, styles.summaryHighlight]}
+                    >
+                      First order discount
+                    </Text>
+                    <Text
+                      style={[styles.summaryValue, styles.summaryHighlight]}
+                    >
+                      -{formatCurrency(displayPricing.firstOrderDiscountAmount ?? 0)}
                     </Text>
                   </View>
                 ) : null}

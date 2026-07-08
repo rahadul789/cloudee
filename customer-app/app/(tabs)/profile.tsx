@@ -395,7 +395,10 @@ export default function ProfileScreen() {
               <View style={styles.heroTopRow}>
                 <Text style={styles.kicker}>Profile</Text>
                 <Pressable
-                  style={styles.heroGhostButton}
+                  style={({ pressed }) => [
+                    styles.heroGhostButton,
+                    pressed ? styles.iconButtonPressed : null,
+                  ]}
                   onPress={openNotifications}
                 >
                   <Ionicons
@@ -435,9 +438,14 @@ export default function ProfileScreen() {
                       {displayName}
                     </Text>
                     <Pressable
-                      style={styles.nameEditButton}
+                      style={({ pressed }) => [
+                        styles.nameEditButton,
+                        pressed ? styles.iconButtonPressed : null,
+                      ]}
                       onPress={openProfileEdit}
-                      hitSlop={8}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit your name"
                     >
                       <Ionicons
                         name="create-outline"
@@ -464,7 +472,13 @@ export default function ProfileScreen() {
           );
         case "offer":
           return (
-            <Pressable style={styles.offerPeekCard} onPress={openOffers}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.offerPeekCard,
+                pressed ? styles.navCardPressed : null,
+              ]}
+              onPress={openOffers}
+            >
               {activeOfferCount > 0 ? (
                 <View style={styles.offerCountBadge}>
                   <Text style={styles.offerCountBadgeText}>
@@ -735,9 +749,12 @@ export default function ProfileScreen() {
               />
               <View style={styles.cardStack}>
                 <Pressable
-                  style={[
+                  style={({ pressed }) => [
                     styles.logoutCard,
                     logoutMutation.isPending ? styles.disabledCard : null,
+                    pressed && !logoutMutation.isPending
+                      ? styles.navCardPressed
+                      : null,
                   ]}
                   disabled={logoutMutation.isPending}
                   onPress={showLogoutConfirm}
@@ -927,7 +944,14 @@ const InfoPill = memo(function InfoPill({
 
   if (onPress) {
     return (
-      <Pressable style={styles.infoPill} onPress={onPress}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.infoPill,
+          pressed ? styles.iconButtonPressed : null,
+        ]}
+        onPress={onPress}
+        accessibilityRole="button"
+      >
         {content}
       </Pressable>
     );
@@ -978,7 +1002,11 @@ const OverviewCard = memo(function OverviewCard({
   }
 
   return (
-    <Pressable style={cardStyle} onPress={onPress} accessibilityRole="button">
+    <Pressable
+      style={({ pressed }) => [cardStyle, pressed ? styles.navCardPressed : null]}
+      onPress={onPress}
+      accessibilityRole="button"
+    >
       <View style={styles.overviewActionCue}>
         <Ionicons name="chevron-forward" size={14} color={palette.foreground} />
       </View>
@@ -1236,13 +1264,16 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: palette.surface,
+    maxWidth: "100%",
+    flexShrink: 1,
   },
   infoPillText: {
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "700",
     color: palette.foreground,
-    maxWidth: 210,
+    flexShrink: 1,
+    minWidth: 0,
   },
   offerPeekCard: {
     position: "relative",
@@ -1591,6 +1622,10 @@ const styles = StyleSheet.create({
   navCardPressed: {
     transform: [{ scale: 0.985 }, { translateY: 1 }],
     opacity: 0.95,
+  },
+  iconButtonPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
   },
   navCardHighlighted: {
     borderWidth: 1,

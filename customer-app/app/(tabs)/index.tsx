@@ -1863,6 +1863,7 @@ export default function HomeScreen() {
                       : null,
                   ]}
                   fallbackIcon="image-outline"
+                  targetWidth={screenWidth}
                   accessibilityLabel={
                     homeCms.modal.title || "Foodbela announcement"
                   }

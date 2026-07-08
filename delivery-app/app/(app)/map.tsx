@@ -266,6 +266,36 @@ function RestaurantMarker({
   );
 }
 
+function RiderMarker({ coordinate }: { coordinate: RiderMapCoordinate | null }) {
+  const signature = isCoordinate(coordinate)
+    ? `${coordinate.latitude},${coordinate.longitude}`
+    : "none";
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => setTracksViewChanges(false), 900);
+    return () => clearTimeout(timer);
+  }, [signature]);
+
+  if (!isCoordinate(coordinate)) return null;
+
+  return (
+    <Marker
+      coordinate={coordinate}
+      anchor={{ x: 0.5, y: 0.5 }}
+      title="You"
+      tracksViewChanges={tracksViewChanges}
+      zIndex={8}
+    >
+      <View style={styles.riderPuckRoot}>
+        <View style={styles.riderPuckHalo} />
+        <View style={styles.riderPuckCore} />
+      </View>
+    </Marker>
+  );
+}
+
 function InfoCard({
   icon,
   label,
@@ -540,7 +570,11 @@ export default function RiderMapScreen() {
       };
     }
     return null;
-  }, [liveMapQuery.data?.rider.location, riderLocationFromProfile?.latitude, riderLocationFromProfile?.longitude]);
+  }, [
+    liveMapQuery.data?.rider.location,
+    riderLocationFromProfile?.latitude,
+    riderLocationFromProfile?.longitude,
+  ]);
   const customerOrders = useMemo(() => {
     if (!selectedRestaurant) return [];
     return selectedRestaurant.orders.filter((order) => isCoordinate(order.customer?.location));
@@ -697,7 +731,6 @@ export default function RiderMapScreen() {
         initialRegion={buildRegion(fitPoints)}
         customMapStyle={resolvedMapStyle}
         showsCompass={false}
-        showsUserLocation
         showsMyLocationButton={false}
         showsPointsOfInterest={false}
         toolbarEnabled={false}
@@ -772,6 +805,7 @@ export default function RiderMapScreen() {
             </Marker>
           ) : null
         )}
+        <RiderMarker coordinate={riderLocation} />
       </MapView>
 
       <SafeAreaView pointerEvents="box-none" edges={["top"]} style={styles.topOverlay}>
@@ -1007,6 +1041,27 @@ const styles = StyleSheet.create({
     color: palette.surface,
     fontSize: 10,
     fontWeight: "900",
+  },
+  riderPuckRoot: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  riderPuckHalo: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(37,99,235,0.18)",
+  },
+  riderPuckCore: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "#2563EB",
+    borderWidth: 2.5,
+    borderColor: "#fff",
   },
   pinRoot: {
     width: 38,

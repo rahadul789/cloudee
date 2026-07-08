@@ -40,6 +40,7 @@ export function MenuItemCard({
         uri={imageUrl}
         style={styles.image}
         fallbackIcon="fast-food-outline"
+        targetWidth={92}
         accessibilityLabel={`${name} food photo`}
       />
     </Pressable>

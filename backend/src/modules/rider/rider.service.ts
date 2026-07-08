@@ -1394,7 +1394,9 @@ export async function updateRiderLastKnownLocation(params: {
   await rider.save()
 
   const profile = mapRiderProfile(rider)
-  emitSocketEvent(`rider:${rider.id}`, "rider.profile.updated", profile)
+  if (hasFocusChanged) {
+    emitSocketEvent(`rider:${rider.id}`, "rider.profile.updated", profile)
+  }
 
   if (pickedUpOrderIds.length > 0 && hasFocusChanged) {
     await OrderModel.updateMany(
@@ -1916,6 +1918,23 @@ export async function deliverRiderOrder(params: { riderId: string; orderId: stri
       StatusCodes.BAD_REQUEST,
       "ORDER_NOT_IN_TRANSIT",
       "This order is not currently in transit"
+    )
+  }
+
+  // Deliver only the order the rider is currently live-delivering. With several
+  // picked-up orders, they must switch to (focus) this one first — keeping the delivery
+  // sequence and the customer's live tracking in sync. A single picked-up order is
+  // implicitly the focused one, so it's always deliverable.
+  const pickedUpCount = await OrderModel.countDocuments({
+    riderId: rider.id,
+    status: "PickedUp"
+  })
+  const focusedOrderId = String(rider.activeTrackingOrderId ?? "").trim()
+  if (pickedUpCount > 1 && focusedOrderId && focusedOrderId !== order.id) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_NOT_LIVE_DELIVERY",
+      "Start this delivery first — you can only complete the order you are currently delivering."
     )
   }
 

@@ -138,6 +138,9 @@ function RestaurantHeroCardComponent({
           fallbackIconSize={28}
           fallbackTint={palette.primary}
           transition={flat ? 80 : 180}
+          // Full-width card cover — resize to a phone-safe logical width so the list
+          // decodes small bitmaps (no full-res images = no scroll jank / RAM spikes).
+          targetWidth={420}
           accessibilityLabel={`${name} restaurant photo`}
         />
 

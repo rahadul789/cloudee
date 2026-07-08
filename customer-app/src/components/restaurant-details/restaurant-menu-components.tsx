@@ -17,6 +17,10 @@ import {
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
 import { RemoteImage } from "@/src/components/remote-image";
 import { formatCurrency } from "@/src/lib/currency";
+import {
+  computeOfferProgress,
+  type OfferTier,
+} from "@/src/lib/offer-progress";
 import { buildStartingPrice, hasCustomizations } from "@/src/lib/restaurant-menu";
 import { useCartStore } from "@/src/store/cart-store";
 import { palette } from "@/src/theme/palette";
@@ -26,6 +30,18 @@ import type {
 } from "@/src/types/restaurant";
 
 import { styles } from "./restaurant-details.styles";
+
+// Rough taka value of an offer for ranking tiers (delivery fee isn't known here, so a
+// free-delivery offer falls back to its configured value as a proxy).
+function estimateOfferDiscount(offer: CustomerVoucherOffer, subtotal: number) {
+  const value = offer.discountValue ?? 0;
+  if (offer.type === "percentage") {
+    const raw = (subtotal * value) / 100;
+    const cap = offer.maximumDiscountAmount ?? 0;
+    return cap > 0 ? Math.min(raw, cap) : raw;
+  }
+  return value;
+}
 
 function stopPress(event: { stopPropagation?: () => void }) {
   event.stopPropagation?.();
@@ -320,6 +336,7 @@ const SearchResultCard = memo(function SearchResultCard({
           fallbackIcon="restaurant-outline"
           fallbackIconSize={18}
           fallbackTint={palette.mutedForeground}
+          targetWidth={120}
           accessibilityLabel={`${item.name} food photo`}
         />
       </View>
@@ -470,11 +487,13 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
   restaurantId,
   restaurantName,
   autoOffers,
+  firstOrderOffer,
   bottomInset,
 }: {
   restaurantId: string;
   restaurantName: string;
   autoOffers: CustomerVoucherOffer[];
+  firstOrderOffer?: { amount: number; minimumOrderAmount: number } | null;
   bottomInset: number;
 }) {
   const router = useRouter();
@@ -500,41 +519,43 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
   const offerProgress = useMemo(() => {
     if (!hasCart) return null;
 
-    // Tiered auto offers (e.g. Tk 40 over 350, Tk 60 over 750): always point the bar at
-    // the NEXT threshold the cart hasn't cleared yet, so it advances tier-by-tier as the
-    // customer adds more. Once every tier is cleared, show the top tier as unlocked.
-    const tiers = autoOffers
-      .filter(
-        (offer) =>
-          typeof offer.minimumOrderAmount === "number" &&
-          offer.minimumOrderAmount > 0,
-      )
-      .sort(
-        (left, right) =>
-          (left.minimumOrderAmount ?? 0) - (right.minimumOrderAmount ?? 0),
-      );
-    if (!tiers.length) return null;
-
-    const nextTier = tiers.find(
-      (offer) => (offer.minimumOrderAmount ?? 0) > subtotal,
-    );
-    const offer = nextTier ?? tiers[tiers.length - 1];
-    const target = Math.max(offer.minimumOrderAmount ?? 0, 1);
-    const remaining = Math.max(0, target - subtotal);
-    const ratio = Math.max(0, Math.min(1, subtotal / target));
-    const unlocked = !nextTier;
-    const discountLabel =
+    const labelFor = (offer: CustomerVoucherOffer) =>
       offer.type === "free_delivery"
         ? "free delivery"
         : offer.type === "percentage"
           ? `${offer.discountValue ?? 0}% off`
           : `${formatCurrency(offer.discountValue ?? 0)} off`;
 
-    return { target, remaining, ratio, unlocked, offer, discountLabel };
-  }, [autoOffers, hasCart, subtotal]);
+    // Every offer the cart could unlock — tiered auto vouchers AND (for eligible new
+    // customers) the first-order welcome discount — compete as candidates. Only one ever
+    // applies, so the bar shows the best active deal + the nearest bigger one to chase.
+    const tiers: OfferTier[] = autoOffers
+      .filter((offer) => (offer.minimumOrderAmount ?? 0) > 0)
+      .map((offer) => ({
+        minimumOrderAmount: offer.minimumOrderAmount ?? 0,
+        discount: estimateOfferDiscount(offer, subtotal),
+        label: labelFor(offer),
+      }));
 
+    if (
+      firstOrderOffer &&
+      firstOrderOffer.amount > 0 &&
+      firstOrderOffer.minimumOrderAmount > 0
+    ) {
+      tiers.push({
+        minimumOrderAmount: firstOrderOffer.minimumOrderAmount,
+        discount: firstOrderOffer.amount,
+        label: `${formatCurrency(firstOrderOffer.amount)} off`,
+        context: "on your first order",
+      });
+    }
+
+    return computeOfferProgress(tiers, subtotal);
+  }, [autoOffers, firstOrderOffer, hasCart, subtotal]);
+
+  const offerActive = Boolean(offerProgress?.hasCurrent);
   useEffect(() => {
-    if (!offerProgress?.unlocked) {
+    if (!offerActive) {
       offerUnlockAnim.setValue(1);
       return;
     }
@@ -551,7 +572,7 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
         useNativeDriver: true,
       }),
     ]).start();
-  }, [offerProgress?.unlocked, offerUnlockAnim]);
+  }, [offerActive, offerUnlockAnim]);
 
   if (!hasCart) {
     return null;
@@ -563,40 +584,43 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
         <Animated.View
           style={[
             styles.offerProgressCard,
-            offerProgress.unlocked ? styles.offerProgressCardUnlocked : null,
+            offerProgress.hasCurrent ? styles.offerProgressCardUnlocked : null,
             { transform: [{ scale: offerUnlockAnim }] },
           ]}
         >
           <View style={styles.offerProgressHeader}>
             <View style={styles.offerProgressBadge}>
               <Ionicons
-                name={offerProgress.unlocked ? "checkmark-circle" : "sparkles-outline"}
+                name={offerProgress.hasCurrent ? "checkmark-circle" : "sparkles-outline"}
                 size={15}
-                color={offerProgress.unlocked ? palette.successText : palette.secondary}
+                color={offerProgress.hasCurrent ? palette.successText : palette.secondary}
               />
               <Text
+                numberOfLines={1}
                 style={[
                   styles.offerProgressBadgeText,
-                  offerProgress.unlocked ? styles.offerProgressBadgeTextUnlocked : null,
+                  offerProgress.hasCurrent ? styles.offerProgressBadgeTextUnlocked : null,
                 ]}
               >
-                {offerProgress.unlocked ? "Applied automatically" : offerProgress.offer?.name}
+                {offerProgress.hasCurrent
+                  ? `${offerProgress.currentLabel} applied`
+                  : `Unlock ${offerProgress.nextLabel}`}
               </Text>
             </View>
-            <Text style={styles.offerProgressValue}>
+            <Text style={styles.offerProgressValue} numberOfLines={1}>
               {formatCurrency(subtotal)} / {formatCurrency(offerProgress.target)}
             </Text>
           </View>
           <Text style={styles.offerProgressSubtitle}>
             {offerProgress.unlocked
-              ? `${offerProgress.discountLabel} applied at checkout.`
-              : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.discountLabel}.`}
+              ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
+              : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
           </Text>
           <View style={styles.offerTrack}>
             <Animated.View
               style={[
                 styles.offerFill,
-                offerProgress.unlocked ? styles.offerFillUnlocked : null,
+                offerProgress.hasCurrent ? styles.offerFillUnlocked : null,
                 { width: `${offerProgress.ratio * 100}%` },
               ]}
             />
@@ -810,6 +834,7 @@ export const ConnectedPopularItemCard = memo(function ConnectedPopularItemCard({
         uri={item.images?.[0]?.url}
         style={styles.popularImage}
         fallbackIcon="fast-food-outline"
+        targetWidth={200}
         accessibilityLabel={`${item.name} popular food photo`}
       />
       <View style={styles.popularMetaBadge}>
@@ -953,6 +978,7 @@ export const MenuCard = memo(function MenuCard({
           uri={item.images?.[0]?.url}
           style={styles.menuImage}
           fallbackIcon="fast-food-outline"
+          targetWidth={96}
           accessibilityLabel={`${item.name} food photo`}
         />
 

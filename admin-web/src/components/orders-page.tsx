@@ -1196,7 +1196,11 @@ function OrderDetailsSheet({
                 <StatCard
                   label="Discount"
                   value={formatCurrency(details.pricing.discount)}
-                  helper={`Owner ${formatCurrency(details.pricing.ownerDiscountCost ?? 0)} / Platform ${formatCurrency(details.pricing.platformDiscountCost ?? 0)}`}
+                  helper={
+                    (details.pricing.firstOrderDiscountAmount ?? 0) > 0
+                      ? `First order ${formatCurrency(details.pricing.firstOrderDiscountAmount ?? 0)} (platform-funded)`
+                      : `Owner ${formatCurrency(details.pricing.ownerDiscountCost ?? 0)} / Platform ${formatCurrency(details.pricing.platformDiscountCost ?? 0)}`
+                  }
                 />
               </div>
 

@@ -104,6 +104,80 @@ function getCustomOfferCopy(
   };
 }
 
+// Remaining time for a pending request, computed once per render (no live timer /
+// setInterval). Uses the admin-response window (expectedReadyAt) the backend sets.
+function formatPendingReadyLabel(expectedReadyAt?: string | null) {
+  if (!expectedReadyAt) return "We’ll notify you when it’s ready";
+  const target = new Date(expectedReadyAt).getTime();
+  if (Number.isNaN(target)) return "We’ll notify you when it’s ready";
+  const diffMs = target - Date.now();
+  if (diffMs <= 0) return "Ready very soon";
+  const hours = Math.ceil(diffMs / (60 * 60 * 1000));
+  if (hours <= 48) {
+    return `Usually ready within ${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const days = Math.ceil(hours / 24);
+  return `Usually ready within ${days} day${days === 1 ? "" : "s"}`;
+}
+
+// Shown while a requested personal voucher is awaiting admin approval. The amount is
+// deliberately hidden (the admin sets it later) — once fulfilled it arrives as a normal
+// voucher in the list and this card disappears (status stops being "requested").
+const PendingOfferCard = memo(function PendingOfferCard({
+  requestedCode,
+  expectedReadyAt,
+}: {
+  requestedCode?: string;
+  expectedReadyAt?: string | null;
+}) {
+  const readyLabel = formatPendingReadyLabel(expectedReadyAt);
+
+  return (
+    <View style={[styles.offerCard, styles.pendingCard]}>
+      <View style={styles.offerCardTop}>
+        <View style={[styles.offerCardIcon, styles.pendingCardIcon]}>
+          <Ionicons name="hourglass-outline" size={18} color={palette.warningText} />
+        </View>
+        <View style={styles.offerCardCopy}>
+          <Text style={styles.offerCardTitle} numberOfLines={1}>
+            Voucher on the way
+          </Text>
+          <Text style={styles.offerCardSentence} numberOfLines={1}>
+            We’re preparing your personal voucher.
+          </Text>
+        </View>
+        <View style={[styles.offerStatusBadge, styles.pendingBadge]}>
+          <Text style={[styles.offerStatusText, styles.pendingBadgeText]}>
+            Pending
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.offerCodeTicket, styles.pendingTicket]}>
+        <Text style={styles.offerCodeTicketLabel}>
+          {requestedCode ? "Requested code" : "Amount"}
+        </Text>
+        <Text style={styles.pendingTicketValue} numberOfLines={1}>
+          {requestedCode ? requestedCode : "Set by our team soon"}
+        </Text>
+      </View>
+
+      <View style={styles.offerMetaRow}>
+        <View style={styles.offerMetaChip}>
+          <Ionicons
+            name="time-outline"
+            size={12}
+            color={palette.mutedForeground}
+          />
+          <Text style={styles.offerMetaText} numberOfLines={1}>
+            {readyLabel}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+});
+
 function OffersScreenSkeleton() {
   return (
     <View style={styles.skeletonList}>
@@ -314,6 +388,13 @@ function OffersHeader(props: {
       <View style={styles.sectionHeading}>
         <Text style={styles.sectionTitle}>Vouchers</Text>
       </View>
+
+      {props.customOfferSummary?.status === "requested" ? (
+        <PendingOfferCard
+          requestedCode={props.customOfferSummary.requestedCode}
+          expectedReadyAt={props.customOfferSummary.expectedReadyAt}
+        />
+      ) : null}
     </View>
   );
 }
@@ -497,14 +578,16 @@ export default function OffersScreen() {
               />
             }
             ListEmptyComponent={
-              <View style={styles.emptyOffersWrap}>
-                <EmptyStateCard
-                  title="No vouchers yet"
-                  description="Complete more orders or request my offer when it unlocks."
-                  actionLabel="Order more"
-                  onPress={() => router.push("/(tabs)/browse" as never)}
-                />
-              </View>
+              customOfferSummary?.status === "requested" ? null : (
+                <View style={styles.emptyOffersWrap}>
+                  <EmptyStateCard
+                    title="No vouchers yet"
+                    description="Complete more orders or request my offer when it unlocks."
+                    actionLabel="Order more"
+                    onPress={() => router.push("/(tabs)/browse" as never)}
+                  />
+                </View>
+              )
             }
             ListFooterComponent={
               offersQuery.isFetchingNextPage ? (
@@ -758,6 +841,32 @@ const styles = StyleSheet.create({
   offerCardDisabled: {
     opacity: 0.72,
     backgroundColor: "#F7F8FA",
+  },
+  pendingCard: {
+    borderColor: "rgba(231, 139, 39, 0.22)",
+    backgroundColor: "#FFFBF3",
+  },
+  pendingCardIcon: {
+    backgroundColor: "#FFF3E0",
+  },
+  pendingBadge: {
+    backgroundColor: "#FFF1DD",
+  },
+  pendingBadgeText: {
+    color: palette.warningText,
+  },
+  pendingTicket: {
+    borderColor: "rgba(231, 139, 39, 0.32)",
+    backgroundColor: "#FFFBF3",
+  },
+  pendingTicketValue: {
+    flex: 1,
+    textAlign: "right",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
+    color: palette.warningText,
+    letterSpacing: 0,
   },
   offerCardIcon: {
     width: 38,

@@ -230,10 +230,16 @@ export default function ReferralsScreen() {
             icon="ticket-outline"
             text={`They enter ${summary.referralCode} in checkout before their first delivered order.`}
           />
+          {summary.refereeRewardAmount ? (
+            <RuleRow
+              icon="sparkles-outline"
+              text={`Your friend instantly gets a Tk ${summary.refereeRewardAmount} welcome voucher when they apply your code.`}
+            />
+          ) : null}
           <RuleRow icon="bicycle-outline" text="Their first order is delivered." />
           <RuleRow
             icon="gift-outline"
-            text={`You get Tk ${summary.rewardAmount} voucher for orders over Tk ${summary.minimumOrderAmount}`}
+            text={`You get a Tk ${summary.rewardAmount} voucher for orders over Tk ${summary.minimumOrderAmount}`}
           />
         </View>
       ) : null}

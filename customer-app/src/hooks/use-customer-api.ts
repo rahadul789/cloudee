@@ -203,6 +203,7 @@ export type CustomerReferralSummary = {
   shareLink?: string;
   shareMessage?: string;
   rewardAmount: number;
+  refereeRewardAmount?: number;
   minimumOrderAmount: number;
   rewardExpiryDays: number;
   monthlyRewardCap: number;
@@ -552,6 +553,9 @@ export function useCustomerRestaurantDetailsQuery(params: {
   longitude?: number;
 }) {
   const queryClient = useQueryClient();
+  // Login state is part of the key so the personalized payload (e.g. the first-order
+  // discount hint, which needs the customer's token) refetches right after sign-in.
+  const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
   const query = buildQueryString(
     compactQueryParams({
       latitude: typeof params.latitude === "number" ? params.latitude : undefined,
@@ -560,7 +564,7 @@ export function useCustomerRestaurantDetailsQuery(params: {
   );
 
   return useQuery({
-    queryKey: ["customer", "restaurant-details", params.restaurantId, query],
+    queryKey: ["customer", "restaurant-details", params.restaurantId, query, isAuthenticated],
     enabled: Boolean(params.restaurantId),
     initialData: () =>
       params.restaurantId
@@ -574,7 +578,10 @@ export function useCustomerRestaurantDetailsQuery(params: {
     staleTime: 60_000,
     gcTime: 10 * 60_000,
     queryFn: async () => {
-      const response = await apiGet<CustomerRestaurantDetails>(
+      // Protected GET so the customer's token is attached when logged in — the backend
+      // uses it to personalize the payload (e.g. the first-order discount hint). It still
+      // works anonymously (no token → public response).
+      const response = await apiProtectedGet<CustomerRestaurantDetails>(
         `/customer/restaurants/${params.restaurantId}${query ? `?${query}` : ""}`
       );
       return response.data;
@@ -842,8 +849,10 @@ export type CartQuoteResponse = {
   }[];
   firstOrderDiscount?: {
     applied: boolean;
+    eligible?: boolean;
     amount: number;
     minimumOrderAmount: number;
+    remaining?: number;
     title: string;
     subtitle: string;
   };
@@ -960,6 +969,7 @@ type CustomerOrderResponse = {
     deliveryFee?: number;
     rainSurcharge?: number;
     discountAmount?: number;
+    firstOrderDiscountAmount?: number;
     total?: number;
   };
   riderSnapshot?: {

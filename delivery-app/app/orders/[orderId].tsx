@@ -18,28 +18,21 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import {
   useAcceptOrderMutation,
+  useActivateTrackingMutation,
   useDeliverOrderMutation,
   useFailDeliveryMutation,
   type RiderDeliveryFailureReason,
   useRiderDeliveryThresholdsQuery,
   useRiderMapStyleQuery,
   usePickupOrderMutation,
-  useRiderLiveTrackingPolicyQuery,
   useRiderOrderDetailsQuery,
   useRiderSupportContactQuery,
-  useUpdateRiderLocationMutation,
   useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 import { isBangla, useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
-import {
-  buildActiveTrackingConfig,
-  normalizeRiderLiveTrackingPolicy,
-} from "@/src/lib/live-tracking-policy";
-import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import { getOrderStatusBadge, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
-import { startRiderBackgroundLocationAsync } from "@/src/lib/rider-background-location";
 import {
   openRiderLocationSettings,
   requestRiderForegroundPermission,
@@ -55,11 +48,8 @@ import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
 type Coordinate = { latitude: number; longitude: number };
-type LiveRider = { latitude: number; longitude: number; heading: number | null };
 
 const HOLD_DURATION_MS = 900;
-const UI_POSITION_THROTTLE_MS = 1600;
-const SERVER_LOCATION_SEND_MIN_MS = 10_000;
 const DEFAULT_DELIVERY_THRESHOLDS = {
   deliveryWatchAfterPickupMinutes: 20,
   deliveryLateAfterPickupMinutes: 25,
@@ -331,6 +321,8 @@ export default function RiderOrderDetailsScreen() {
       address: isBn ? "ঠিকানা" : "Address",
       tapForDetails: isBn ? "বিস্তারিত দেখতে টানুন" : "Pull up for full details",
       minOut: isBn ? "মিনিট হয়েছে" : "min out",
+      collectOnDelivery: isBn ? "নগদ সংগ্রহ করুন" : "Collect on delivery",
+      alreadyPaid: isBn ? "পরিশোধিত" : "Already paid",
     }),
     [isBn],
   );
@@ -345,26 +337,19 @@ export default function RiderOrderDetailsScreen() {
   const [failNote, setFailNote] = useState("");
 
   const liveMapRef = useRef<RiderLiveMapHandle | null>(null);
-  const latestLiveRiderRef = useRef<LiveRider | null>(null);
-  const lastUiPositionAtRef = useRef(0);
-  const lastServerLocationSentAtRef = useRef(0);
-  const serverLocationBackoffUntilRef = useRef(0);
-  const isServerLocationSendPendingRef = useRef(false);
   const routeWarmupOrderRef = useRef<string | null>(null);
   const isCompletingDeliveryRef = useRef(false);
 
   const orderQuery = useRiderOrderDetailsQuery(orderId);
-  const trackingPolicyQuery = useRiderLiveTrackingPolicyQuery();
   const orderDetailsMapStyleQuery = useRiderMapStyleQuery("delivery.order_details");
   const deliveryThresholdsQuery = useRiderDeliveryThresholdsQuery();
   const supportContactQuery = useRiderSupportContactQuery();
-  const trackingPolicy = normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data);
   const acceptMutation = useAcceptOrderMutation();
   const pickupMutation = usePickupOrderMutation();
   const deliverMutation = useDeliverOrderMutation();
+  const activateTrackingMutation = useActivateTrackingMutation();
   const failDeliveryMutation = useFailDeliveryMutation();
   const profileLocationMutation = useUpdateRiderProfileLocationMutation();
-  const orderLocationMutation = useUpdateRiderLocationMutation(orderId);
 
   const order = orderQuery.data;
   const supportPhone = supportContactQuery.data?.phone;
@@ -612,7 +597,7 @@ export default function RiderOrderDetailsScreen() {
       ? customerCoordinate ?? restaurantCoordinate
       : restaurantCoordinate ?? customerCoordinate;
     if (!destination) return;
-    const origin = latestLiveRiderRef.current ?? riderCoordinate;
+    const origin = riderCoordinate;
     const originSegment = origin
       ? `&origin=${origin.latitude},${origin.longitude}`
       : "";
@@ -620,175 +605,11 @@ export default function RiderOrderDetailsScreen() {
     void Linking.openURL(url);
   }, [customerCoordinate, isPickedUp, restaurantCoordinate, riderCoordinate]);
 
-  const orderLastAcceptedFixRef = useRef<AcceptedFix | null>(null);
-  const orderConsecutiveRejectsRef = useRef(0);
-  // Gate raw fixes before they reach the map or the server, so a stationary GPS
-  // teleport / low-accuracy fix never becomes the rider's shown/published position.
-  const acceptOrderFix = useCallback((position: Location.LocationObject) => {
-    const nowMs = Date.now();
-    const ok = shouldAcceptFix({
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      accuracyMeters:
-        typeof position.coords.accuracy === "number"
-          ? position.coords.accuracy
-          : undefined,
-      nowMs,
-      last: orderLastAcceptedFixRef.current,
-      consecutiveRejects: orderConsecutiveRejectsRef.current,
-    });
-    if (!ok) {
-      orderConsecutiveRejectsRef.current += 1;
-      return false;
-    }
-    orderConsecutiveRejectsRef.current = 0;
-    orderLastAcceptedFixRef.current = {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      atMs: nowMs,
-    };
-    return true;
-  }, []);
-
-  const updateLiveRider = useCallback((position: Location.LocationObject) => {
-    const now = Date.now();
-    if (now - lastUiPositionAtRef.current < UI_POSITION_THROTTLE_MS) return;
-    lastUiPositionAtRef.current = now;
-    const nextLiveRider = {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude,
-      heading:
-        typeof position.coords.heading === "number" && position.coords.heading >= 0
-          ? position.coords.heading
-          : null,
-    };
-    latestLiveRiderRef.current = nextLiveRider;
-    liveMapRef.current?.setLiveRider(nextLiveRider);
-  }, []);
-
-  const sendForegroundLocation = useCallback(
-    (position: Location.LocationObject) => {
-      if (!orderId || !isNetworkOnline || isCompletingDeliveryRef.current) return;
-
-      const now = Date.now();
-      const sendIntervalMs = Math.max(
-        SERVER_LOCATION_SEND_MIN_MS,
-        trackingPolicy.updateIntervalSeconds * 1000,
-      );
-      if (
-        isServerLocationSendPendingRef.current ||
-        now < serverLocationBackoffUntilRef.current ||
-        now - lastServerLocationSentAtRef.current < sendIntervalMs
-      ) {
-        return;
-      }
-
-      isServerLocationSendPendingRef.current = true;
-      lastServerLocationSentAtRef.current = now;
-
-      orderLocationMutation
-        .mutateAsync(getRiderLocationPayload(position))
-        .then(() => {
-          serverLocationBackoffUntilRef.current = 0;
-          setTrackingError("");
-        })
-        .catch((error: unknown) => {
-          const status =
-            typeof error === "object" && error !== null && "status" in error
-              ? Number((error as { status?: unknown }).status)
-              : 0;
-          if (status === 429) {
-            serverLocationBackoffUntilRef.current = Date.now() + 60_000;
-          }
-        })
-        .finally(() => {
-          isServerLocationSendPendingRef.current = false;
-        });
-    },
-    [isNetworkOnline, orderId, orderLocationMutation, trackingPolicy.updateIntervalSeconds],
-  );
-
-  useEffect(() => {
-    if (order?.status === "PickedUp") return;
-    latestLiveRiderRef.current = null;
-    liveMapRef.current?.clearLiveRider();
-  }, [order?.status, orderId]);
-
-  useEffect(
-    () => () => {
-      latestLiveRiderRef.current = null;
-      liveMapRef.current?.clearLiveRider();
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (order?.status !== "PickedUp" || !isFocusedLiveTrip || !orderId) return;
-
-    let subscription: Location.LocationSubscription | null = null;
-    let isMounted = true;
-
-    const startWatching = async () => {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") {
-        if (isMounted) setTrackingError(copy.orderDetails.trackingPermissionError);
-        return;
-      }
-
-      try {
-        const currentPosition = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (
-          isMounted &&
-          !isCompletingDeliveryRef.current &&
-          acceptOrderFix(currentPosition)
-        ) {
-          updateLiveRider(currentPosition);
-          sendForegroundLocation(currentPosition);
-          setTrackingError("");
-        }
-      } catch {
-        if (isMounted) setTrackingError(copy.orderDetails.trackingWaitingFirstLocation);
-      }
-
-      subscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: Math.max(1800, Math.min(3200, trackingPolicy.updateIntervalSeconds * 700)),
-          distanceInterval: Math.max(8, Math.min(18, trackingPolicy.distanceIntervalMeters)),
-        },
-        (position) => {
-          if (!isMounted || isCompletingDeliveryRef.current) return;
-          if (!acceptOrderFix(position)) return;
-          setTrackingError("");
-          updateLiveRider(position);
-          sendForegroundLocation(position);
-        },
-      );
-    };
-
-    startWatching().catch(() => {
-      if (isMounted) setTrackingError(copy.orderDetails.trackingStartError);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription?.remove();
-    };
-  }, [
-    copy.orderDetails.trackingPermissionError,
-    copy.orderDetails.trackingStartError,
-    copy.orderDetails.trackingWaitingFirstLocation,
-    isFocusedLiveTrip,
-    order?.status,
-    orderId,
-    trackingPolicy.distanceIntervalMeters,
-    trackingPolicy.updateIntervalSeconds,
-    acceptOrderFix,
-    sendForegroundLocation,
-    updateLiveRider,
-  ]);
+  // The rider's live position + route-trimming are driven entirely inside RiderLiveMap
+  // from the shared location store (fed by the single producer, RiderLocationBridge).
+  // This screen runs NO expo-location watcher and no showsUserLocation of its own — that
+  // combination (a per-screen GPS stream + the native blue dot's own location client) is
+  // what made the marker blink and the app get heavier the longer it ran.
 
   const handleAccept = useCallback(async () => {
     if (!order) return;
@@ -867,12 +688,8 @@ export default function RiderOrderDetailsScreen() {
           setTrackingError(copy.orderDetails.pickupSavedWaiting);
         }
 
-        // Kick off the shared background stream immediately on pickup with the same
-        // config the bridge uses → idempotent, so the bridge won't restart it.
-        void startRiderBackgroundLocationAsync({
-          ...buildActiveTrackingConfig(trackingPolicy),
-          notificationBody: "Foodbela is sharing your live delivery location.",
-        });
+        // Live background streaming is temporarily disabled (clean-slate rebuild) — the
+        // one-time pickup fix above is still saved so the customer sees the pickup point.
       }
     } catch (error) {
       Alert.alert(
@@ -896,8 +713,6 @@ export default function RiderOrderDetailsScreen() {
     pickupMutation,
     profileLocationMutation,
     t.reconnectDelivery,
-    trackingPolicy.distanceIntervalMeters,
-    trackingPolicy.updateIntervalSeconds,
   ]);
 
   const completeDelivery = useCallback(async () => {
@@ -942,6 +757,45 @@ export default function RiderOrderDetailsScreen() {
     }
     await completeDelivery();
   }, [completeDelivery, copy.common.offline, isNetworkOnline, order, t.reconnectDelivery]);
+
+  const handleStartThisDelivery = useCallback(() => {
+    if (!order || activateTrackingMutation.isPending) return;
+    if (!isNetworkOnline) {
+      Alert.alert(copy.common.offline, t.reconnectDelivery);
+      return;
+    }
+    Alert.alert(
+      copy.orderDetails.switchDeliveryTitle,
+      copy.orderDetails.switchDeliveryBody,
+      [
+        { text: copy.orderDetails.switchDeliveryCancel, style: "cancel" },
+        {
+          text: copy.orderDetails.switchDeliveryConfirm,
+          onPress: () => {
+            activateTrackingMutation.mutateAsync(order.id).catch((error: unknown) => {
+              Alert.alert(
+                copy.orderDetails.switchDeliveryFailed,
+                error instanceof Error
+                  ? error.message
+                  : copy.orderDetails.switchDeliveryFailed,
+              );
+            });
+          },
+        },
+      ],
+    );
+  }, [
+    activateTrackingMutation,
+    copy.common.offline,
+    copy.orderDetails.switchDeliveryBody,
+    copy.orderDetails.switchDeliveryCancel,
+    copy.orderDetails.switchDeliveryConfirm,
+    copy.orderDetails.switchDeliveryFailed,
+    copy.orderDetails.switchDeliveryTitle,
+    isNetworkOnline,
+    order,
+    t.reconnectDelivery,
+  ]);
 
   const handleFailDelivery = useCallback(async () => {
     if (!order || !failReason) return;
@@ -1037,6 +891,8 @@ export default function RiderOrderDetailsScreen() {
   const orderTotalLabel = formatMoney(order.pricing?.total);
   const paymentMethodLabel = formatPaymentMethod(order.paymentMethod);
   const paymentBadge = getPaymentMethodBadge(order.paymentMethod);
+  const isCodOrder = `${order.paymentMethod ?? ""}`.toLowerCase().includes("cash") ||
+    `${order.paymentMethod ?? ""}`.toLowerCase().includes("cod");
   const phase = isPickedUp ? "to_customer" : "to_restaurant";
   const showPlannedDeliveryLeg = !isPickedUp && Boolean(restaurantCoordinate && customerCoordinate);
   const collapsedHeight = 238 + Math.max(insets.bottom, 8);
@@ -1054,8 +910,8 @@ export default function RiderOrderDetailsScreen() {
     ? "Preview only"
     : isPickedUp
       ? isFocusedLiveTrip
-        ? "Live tracking shared"
-        : "Not the live trip"
+        ? copy.orderDetails.deliveringNow
+        : copy.orderDetails.inQueue
       : isAssignedPrePickup
         ? "Pickup leg active"
         : isAcceptStep
@@ -1109,6 +965,35 @@ export default function RiderOrderDetailsScreen() {
     }
 
     if (order.status === "PickedUp") {
+      // Queued delivery — another order is the live one. Deliver is locked here; the
+      // rider must switch this order to live first (keeps delivery + tracking in sync).
+      if (!isFocusedLiveTrip && hasAnotherActiveLiveTrip) {
+        const startBusy = activateTrackingMutation.isPending || !isNetworkOnline;
+        return (
+          <View style={styles.deliverActionStack}>
+            <Pressable
+              style={[styles.startDeliveryButton, startBusy && styles.buttonDisabled]}
+              onPress={handleStartThisDelivery}
+              disabled={startBusy}
+            >
+              {activateTrackingMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="navigate-circle" size={20} color="#fff" />
+                  <Text style={styles.startDeliveryText}>
+                    {!isNetworkOnline ? t.reconnect : copy.orderDetails.startThisDelivery}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            <Text style={styles.queuedLockHint}>
+              {copy.orderDetails.queuedDeliverLocked}
+            </Text>
+          </View>
+        );
+      }
+
       return (
         <View style={styles.deliverActionStack}>
           <HoldToConfirmButton
@@ -1340,6 +1225,61 @@ export default function RiderOrderDetailsScreen() {
           </View>
         }
       >
+        {/* Payment, bold, at the very top of the sheet — the one thing a rider must
+            never miss. Amber "collect cash" vs calm green "already paid". */}
+        <View
+          style={[
+            styles.payBanner,
+            isCodOrder ? styles.payBannerCod : styles.payBannerPaid,
+          ]}
+        >
+          <View
+            style={[
+              styles.payBannerIcon,
+              isCodOrder ? styles.payBannerIconCod : styles.payBannerIconPaid,
+            ]}
+          >
+            <Ionicons
+              name={isCodOrder ? "cash" : "checkmark-circle"}
+              size={22}
+              color={isCodOrder ? palette.warningText : palette.successText}
+            />
+          </View>
+          <View style={styles.payBannerCopy}>
+            <Text
+              style={[
+                styles.payBannerLabel,
+                isCodOrder ? styles.payBannerLabelCod : styles.payBannerLabelPaid,
+              ]}
+            >
+              {isCodOrder ? t.collectOnDelivery : t.alreadyPaid}
+            </Text>
+            <Text style={styles.payBannerValue} numberOfLines={1}>
+              {orderTotalLabel}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.payBannerMethod,
+              isCodOrder ? styles.payBannerMethodCod : styles.payBannerMethodPaid,
+            ]}
+          >
+            <Ionicons
+              name={paymentBadge.icon}
+              size={13}
+              color={isCodOrder ? palette.warningText : palette.successText}
+            />
+            <Text
+              style={[
+                styles.payBannerMethodText,
+                isCodOrder ? styles.payBannerLabelCod : styles.payBannerLabelPaid,
+              ]}
+            >
+              {paymentBadge.label}
+            </Text>
+          </View>
+        </View>
+
         {!isNetworkOnline ||
         (!riderCoordinate && !isPickedUp) ||
         (isAssignmentsPaused && order.assignmentState === "unassigned") ? (
@@ -2235,6 +2175,28 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#fff",
   },
+  startDeliveryButton: {
+    minHeight: 56,
+    borderRadius: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: palette.primary,
+  },
+  startDeliveryText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  queuedLockHint: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+    textAlign: "center",
+    paddingHorizontal: 8,
+  },
   holdButton: {
     overflow: "hidden",
     minHeight: 56,
@@ -2288,6 +2250,63 @@ const styles = StyleSheet.create({
     color: palette.primaryStrong,
   },
 
+  payBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  payBannerCod: {
+    backgroundColor: palette.warningSurface,
+    borderColor: "#F2D5A8",
+  },
+  payBannerPaid: {
+    backgroundColor: palette.successSurface,
+    borderColor: "rgba(20,152,91,0.22)",
+  },
+  payBannerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  payBannerIconCod: { backgroundColor: "#FCE7C0" },
+  payBannerIconPaid: { backgroundColor: "#D6F2E3" },
+  payBannerCopy: { flex: 1, minWidth: 0, gap: 1 },
+  payBannerLabel: {
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  payBannerLabelCod: { color: palette.warningText },
+  payBannerLabelPaid: { color: palette.successText },
+  payBannerValue: {
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  payBannerMethod: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: palette.surface,
+  },
+  payBannerMethodCod: {},
+  payBannerMethodPaid: {},
+  payBannerMethodText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
   warningCard: {
     flexDirection: "row",
     alignItems: "flex-start",

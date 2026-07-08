@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  PixelRatio,
   StyleSheet,
   View,
   type ImageStyle,
@@ -17,6 +18,7 @@ import {
 } from "react-native";
 
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
+import { optimizeCloudinaryImage } from "@/src/lib/image";
 import { palette } from "@/src/theme/palette";
 
 const IMAGE_SKELETON_COLOR = "#FFF0F6";
@@ -41,6 +43,8 @@ type Props = {
   transition?: number;
   recyclingKey?: string | null;
   accessibilityLabel?: string;
+  /** Target display width (px). When set, the Cloudinary image is resized to it. */
+  targetWidth?: number;
   children?: ReactNode;
 };
 
@@ -62,10 +66,21 @@ export function RemoteImage({
   transition = 180,
   recyclingKey,
   accessibilityLabel,
+  targetWidth,
   children,
 }: Props) {
   const normalizedUri =
     typeof uri === "string" && uri.trim() ? uri.trim() : null;
+  // Cloudinary-optimized source (WebP/AVIF + auto quality + optional resize). Load/error
+  // tracking + recyclingKey stay keyed on the logical URL so FlashList recycling and the
+  // memory-release logic are unaffected.
+  const pixelWidth =
+    targetWidth && targetWidth > 0
+      ? Math.round(targetWidth * Math.min(PixelRatio.get(), 3))
+      : undefined;
+  const sourceUri = normalizedUri
+    ? optimizeCloudinaryImage(normalizedUri, { width: pixelWidth }) ?? normalizedUri
+    : null;
   const [loadedUri, setLoadedUri] = useState<string | null>(null);
   const [erroredUri, setErroredUri] = useState<string | null>(null);
 
@@ -127,7 +142,7 @@ export function RemoteImage({
         <Image
           key={imageKey}
           accessibilityLabel={accessibilityLabel}
-          source={{ uri: normalizedUri }}
+          source={{ uri: sourceUri ?? normalizedUri }}
           style={[StyleSheet.absoluteFill, imageStyle]}
           contentFit={contentFit}
           cachePolicy="memory-disk"

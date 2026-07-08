@@ -1,179 +1,131 @@
 import * as Location from "expo-location";
-import { PropsWithChildren, useEffect, useRef } from "react";
+import { PropsWithChildren, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
 import {
   useRiderLiveTrackingPolicyQuery,
   useRiderOrdersQuery,
-  useUpdateRiderProfileLocationMutation,
 } from "@/src/hooks/use-rider-api";
 import {
-  accuracyForMode,
   buildActiveTrackingConfig,
   normalizeRiderLiveTrackingPolicy,
 } from "@/src/lib/live-tracking-policy";
-import { shouldAcceptFix, type AcceptedFix } from "@/src/lib/location-quality";
 import {
   setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
   stopRiderBackgroundLocationAsync,
 } from "@/src/lib/rider-background-location";
 import { useRiderAuthStore } from "@/src/store/auth-store";
+import { clearRiderLiveFix } from "@/src/store/rider-live-location";
 
-// Single owner of the rider's live-location lifecycle for the whole app (mounted in
-// app-providers): starts/stops the background foreground-service stream based on
-// whether the rider has an active delivery. No other screen should start/stop it.
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCATION TRACKING — single owner of the rider's live-location lifecycle.
+//
+// During an active (picked-up) delivery we run ONE expo foreground-service, started
+// while the app is foreground and kept running so tracking survives the app being
+// backgrounded / locked / closed. Its task (rider-background-location.ts) is the single
+// producer: it feeds the map marker (shared store), publishes to the server at the admin
+// cadence, and queues+flushes fixes across offline/slow gaps.
+//
+// The slowness after pickup was a REGRESSION, not the service itself: the tracking
+// accuracy had been pushed from Balanced up to High, which makes the OS stream GPS fixes
+// almost continuously and freezes the JS thread. buildActiveTrackingConfig now uses
+// Balanced again (see accuracyForMode), so this is back to the light, fast behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+const NOTIFICATION_BODY = "Foodbela is sharing your live delivery location.";
+
 export function RiderLocationBridge({ children }: PropsWithChildren) {
-  const rider = useRiderAuthStore((state) => state.rider);
+  const riderId = useRiderAuthStore((state) => state.rider?.id ?? "");
+  const isAvailable = useRiderAuthStore(
+    (state) => state.rider?.isAvailableForAssignments !== false,
+  );
   const activeOrdersQuery = useRiderOrdersQuery("active");
-  const trackingPolicyQuery = useRiderLiveTrackingPolicyQuery();
-  const trackingPolicy = normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data);
-  const updateLocationMutation = useUpdateRiderProfileLocationMutation();
-  const mutateProfileLocation = updateLocationMutation.mutate;
   const pickedUpOrderId =
     activeOrdersQuery.data?.find((order) => order.status === "PickedUp")?.id ?? null;
-  const hasPickedUpOrder = Boolean(
-    activeOrdersQuery.data?.some((order) => order.status === "PickedUp"),
+  const hasActiveDelivery = Boolean(pickedUpOrderId);
+
+  const trackingPolicyQuery = useRiderLiveTrackingPolicyQuery();
+  const trackingConfig = useMemo(
+    () =>
+      buildActiveTrackingConfig(
+        normalizeRiderLiveTrackingPolicy(trackingPolicyQuery.data),
+      ),
+    [trackingPolicyQuery.data],
   );
-  const isLocationMutationPendingRef = useRef(false);
-  const lastSentAtRef = useRef(0);
-  const lastAcceptedFixRef = useRef<AcceptedFix | null>(null);
-  const consecutiveRejectsRef = useRef(0);
+  const trackingConfigSignature = useMemo(
+    () =>
+      [
+        trackingConfig.accuracy,
+        trackingConfig.distanceIntervalMeters,
+        trackingConfig.heartbeatMs,
+        trackingConfig.timeIntervalMs,
+      ].join(":"),
+    [trackingConfig],
+  );
 
-  useEffect(() => {
-    isLocationMutationPendingRef.current = updateLocationMutation.isPending;
-  }, [updateLocationMutation.isPending]);
+  // Plain boolean gate — the start/stop effect re-runs ONLY when this flips, never on
+  // every render or query refetch.
+  const shouldTrack = Boolean(riderId) && isAvailable && hasActiveDelivery;
 
+  // Live values for the AppState re-arm, kept in refs so the listener subscribes once.
+  const shouldTrackRef = useRef(shouldTrack);
+  shouldTrackRef.current = shouldTrack;
+  const configRef = useRef(trackingConfig);
+  configRef.current = trackingConfig;
+  const orderIdRef = useRef(pickedUpOrderId);
+  orderIdRef.current = pickedUpOrderId;
+
+  const [permissionReady, setPermissionReady] = useState(false);
   useEffect(() => {
-    if (!rider?.id || rider.isAvailableForAssignments === false) {
-      void stopRiderBackgroundLocationAsync();
+    if (!shouldTrack) {
+      setPermissionReady(false);
       return;
     }
-
-    if (hasPickedUpOrder) {
-      // Active delivery → keep the background foreground-service stream running with
-      // the admin-configured, GPS-grade config. Idempotent: unchanged config won't
-      // restart it, so it survives order-to-order handoffs.
-      void setRiderBackgroundTrackingOrderId(pickedUpOrderId);
-      void startRiderBackgroundLocationAsync({
-        ...buildActiveTrackingConfig(trackingPolicy),
-        notificationBody: "Foodbela is sharing your live delivery location.",
-      });
-      return;
-    }
-
-    void setRiderBackgroundTrackingOrderId(null);
-
-    let subscription: Location.LocationSubscription | null = null;
-    let isMounted = true;
-
-    const start = async () => {
-      const permission = await Location.getForegroundPermissionsAsync();
-      if (permission.status !== "granted") {
-        return;
+    let active = true;
+    void (async () => {
+      const foreground = await Location.requestForegroundPermissionsAsync();
+      if (foreground.status === "granted") {
+        await Location.requestBackgroundPermissionsAsync().catch(() => undefined);
       }
-
-      subscription = await Location.watchPositionAsync(
-        {
-          accuracy: accuracyForMode(trackingPolicy.mode),
-          timeInterval: trackingPolicy.passiveHeartbeatSeconds * 1000,
-          distanceInterval: Math.max(80, trackingPolicy.distanceIntervalMeters),
-        },
-        (position) => {
-          if (!isMounted || isLocationMutationPendingRef.current) {
-            return;
-          }
-
-          const now = Date.now();
-
-          // Drop implausible fixes (bad accuracy / teleport) so a stationary drift
-          // never gets published as the rider's position.
-          const accepted = shouldAcceptFix({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracyMeters:
-              typeof position.coords.accuracy === "number"
-                ? position.coords.accuracy
-                : undefined,
-            nowMs: now,
-            last: lastAcceptedFixRef.current,
-            consecutiveRejects: consecutiveRejectsRef.current,
-          });
-          if (!accepted) {
-            consecutiveRejectsRef.current += 1;
-            return;
-          }
-          consecutiveRejectsRef.current = 0;
-          lastAcceptedFixRef.current = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            atMs: now,
-          };
-
-          if (now - lastSentAtRef.current < trackingPolicy.passiveHeartbeatSeconds * 1000) {
-            return;
-          }
-
-          lastSentAtRef.current = now;
-          mutateProfileLocation({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            heading: typeof position.coords.heading === "number" ? position.coords.heading : undefined,
-            accuracyMeters:
-              typeof position.coords.accuracy === "number" ? position.coords.accuracy : undefined,
-            speedKmph:
-              typeof position.coords.speed === "number" && position.coords.speed > 0
-                ? position.coords.speed * 3.6
-                : undefined,
-          });
-        }
-      );
-    };
-
-    void start();
-
+      if (active) setPermissionReady(foreground.status === "granted");
+    })();
     return () => {
-      isMounted = false;
-      subscription?.remove();
+      active = false;
     };
-  }, [
-    rider?.id,
-    rider?.isAvailableForAssignments,
-    hasPickedUpOrder,
-    pickedUpOrderId,
-    mutateProfileLocation,
-    trackingPolicy.distanceIntervalMeters,
-    trackingPolicy.passiveHeartbeatSeconds,
-    trackingPolicy.updateIntervalSeconds,
-    trackingPolicy.mode,
-  ]);
+  }, [shouldTrack]);
 
-  // Live snapshot for the AppState re-arm below (kept in refs so the listener stays
-  // subscribed once and always reads current values).
-  const shouldTrackRef = useRef(false);
-  const activeConfigRef = useRef(buildActiveTrackingConfig(trackingPolicy));
-  const pickedUpOrderIdRef = useRef(pickedUpOrderId);
-  shouldTrackRef.current = Boolean(
-    rider?.id && rider.isAvailableForAssignments !== false && hasPickedUpOrder,
-  );
-  activeConfigRef.current = buildActiveTrackingConfig(trackingPolicy);
-  pickedUpOrderIdRef.current = pickedUpOrderId;
+  useEffect(() => {
+    if (!shouldTrack || !permissionReady) {
+      void setRiderBackgroundTrackingOrderId(null);
+      void stopRiderBackgroundLocationAsync();
+      clearRiderLiveFix();
+      return;
+    }
 
-  // Re-arm the foreground-service stream when the app returns to the foreground.
-  // Android can't start it while backgrounded, and aggressive OEMs may have killed
-  // it — so on resume we ensure it's running again (idempotent if it already is).
+    void setRiderBackgroundTrackingOrderId(orderIdRef.current);
+    void startRiderBackgroundLocationAsync({
+      ...configRef.current,
+      notificationBody: NOTIFICATION_BODY,
+    });
+    // No stop in cleanup: the effect only re-runs when shouldTrack/permission flips, and
+    // the false branch above performs the stop. startRiderBackgroundLocationAsync is
+    // idempotent, so a re-run with the same config never restarts the stream.
+  }, [shouldTrack, permissionReady, trackingConfigSignature]);
+
+  // An OEM can kill the foreground service while backgrounded; on return to foreground we
+  // re-ensure it's running (idempotent — a no-op if it already is).
   useEffect(() => {
     const handleAppState = (state: AppStateStatus) => {
       if (state !== "active" || !shouldTrackRef.current) return;
-      void setRiderBackgroundTrackingOrderId(pickedUpOrderIdRef.current);
+      void setRiderBackgroundTrackingOrderId(orderIdRef.current);
       void startRiderBackgroundLocationAsync({
-        ...activeConfigRef.current,
-        notificationBody: "Foodbela is sharing your live delivery location.",
+        ...configRef.current,
+        notificationBody: NOTIFICATION_BODY,
       });
     };
     const subscription = AppState.addEventListener("change", handleAppState);
     return () => subscription.remove();
   }, []);
 
-  return children;
+  return <>{children}</>;
 }

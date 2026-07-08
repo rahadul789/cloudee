@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { AppBootstrapGate } from "@/src/components/app-bootstrap-gate";
 import { CustomerAnalyticsBridge } from "@/src/components/customer-analytics-bridge";
 import { DeferredMount } from "@/src/components/deferred-mount";
+import { OtaUpdateGate } from "@/src/components/ota-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
 
 export default function RootLayout() {
@@ -49,6 +50,7 @@ export default function RootLayout() {
             options={{ presentation: "card" }}
           />
         </Stack>
+        <OtaUpdateGate />
       </AppBootstrapGate>
     </AppProviders>
   );

@@ -576,6 +576,18 @@ export const styles = StyleSheet.create({
     fontWeight: "500",
     color: palette.mutedForeground,
   },
+  firstOrderProgressTrack: {
+    marginTop: 8,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#F0DCE7",
+    overflow: "hidden",
+  },
+  firstOrderProgressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: palette.secondary,
+  },
   footerWrap: {
     position: "absolute",
     left: 18,

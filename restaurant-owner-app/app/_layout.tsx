@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
+import { OtaUpdateGate } from "@/src/components/ota-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
 
 export default function RootLayout() {
@@ -20,6 +21,7 @@ export default function RootLayout() {
         <Stack.Screen name="vouchers" />
         <Stack.Screen name="orders/[orderId]" />
       </Stack>
+      <OtaUpdateGate />
     </AppProviders>
   );
 }

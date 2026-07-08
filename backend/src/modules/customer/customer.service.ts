@@ -90,7 +90,10 @@ import {
   VoucherRedemptionModel,
   VoucherUserUsageModel,
 } from "./customer.model";
-import { releaseFirstOrderDiscountForOrder } from "./first-order-discount.service";
+import {
+  evaluateFirstOrderDiscount,
+  releaseFirstOrderDiscountForOrder,
+} from "./first-order-discount.service";
 import {
   attachReferralToNewCustomer,
   createCustomerReferralCode,
@@ -3225,10 +3228,11 @@ export async function getCustomerRestaurantDetails(
   params?: {
     latitude?: number;
     longitude?: number;
+    customerId?: string;
   },
 ): Promise<CustomerRestaurantDetailsResult> {
   await ensureRestaurantDiscoveryBackfill();
-  return customerRestaurantDetailsCache.getOrSet(
+  const baseDetails = await customerRestaurantDetailsCache.getOrSet(
     buildCustomerRestaurantDetailsCacheKey(restaurantId, params),
     async () => {
       const restaurant = await RestaurantModel.findOne({
@@ -3532,6 +3536,29 @@ export async function getCustomerRestaurantDetails(
       };
     },
   );
+
+  return attachFirstOrderDiscountHint(baseDetails, params?.customerId);
+}
+
+// The restaurant-details payload is cached per (restaurant, location) — NOT per customer.
+// The first-order (welcome) discount is per-customer, so we attach a lightweight
+// candidate hint OUTSIDE the cache. It carries only the amount + threshold (no subtotal),
+// letting the cart footer show an "add X more to unlock" progress bar.
+async function attachFirstOrderDiscountHint(
+  baseDetails: CustomerRestaurantDetailsResult,
+  customerId?: string,
+): Promise<CustomerRestaurantDetailsResult> {
+  if (!customerId) return baseDetails;
+  const result = await evaluateFirstOrderDiscount({ customerId, subtotalTaka: 0 });
+  if (!result.candidate) return baseDetails;
+  return {
+    ...(baseDetails as Record<string, any>),
+    firstOrderDiscount: {
+      eligible: true,
+      amount: result.amount,
+      minimumOrderAmount: result.minimumOrderAmount,
+    },
+  } as CustomerRestaurantDetailsResult;
 }
 
 export type CartInputItem = {

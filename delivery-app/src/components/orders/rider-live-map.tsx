@@ -11,12 +11,6 @@ export type RiderMapCoordinate = {
 
 export type RiderLiveMapPhase = "to_restaurant" | "to_customer";
 export type RiderLiveMapHandle = {
-  setLiveRider: (next: {
-    latitude: number;
-    longitude: number;
-    heading: number | null;
-  } | null) => void;
-  clearLiveRider: () => void;
   recenter: () => void;
 };
 
@@ -47,8 +41,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
   useImperativeHandle(
     ref,
     () => ({
-      setLiveRider: () => undefined,
-      clearLiveRider: () => undefined,
       recenter: () => undefined,
     }),
     [],

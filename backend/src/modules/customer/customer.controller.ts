@@ -793,7 +793,10 @@ export const getCustomerRestaurant = asyncHandler(async (req: Request, res: Resp
     latitude: req.query.latitude,
     longitude: req.query.longitude
   })
-  const data = await getCustomerRestaurantDetails(getStringValue(req.params.restaurantId), query)
+  const data = await getCustomerRestaurantDetails(getStringValue(req.params.restaurantId), {
+    ...query,
+    customerId: req.user?.role === "customer" ? req.user.id : undefined,
+  })
   return sendSuccess(res, { data })
 })
 

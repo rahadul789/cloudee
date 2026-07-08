@@ -609,7 +609,7 @@ async function applyFirstOrderDiscountToQuote(
   const pricing = (baseQuote as Record<string, any>).pricing ?? {};
   const voucherDiscount = Number(pricing.discountAmount ?? 0);
 
-  // An explicitly entered coupon always wins; never override it.
+  // An explicitly entered coupon always wins; never override it or advertise first-order.
   if (hasCoupon && voucherDiscount > 0) {
     return baseQuote;
   }
@@ -624,29 +624,39 @@ async function applyFirstOrderDiscountToQuote(
     subtotalTaka: customerSubtotal,
   });
 
-  if (!result.eligible) {
+  // Not a first-order customer at all — nothing to apply or hint.
+  if (!result.candidate) {
     return baseQuote;
+  }
+
+  // Metadata the app uses to drive the "add X more to unlock" progress bar. Attached
+  // whenever the customer is a candidate, even below the threshold. `applied` reflects
+  // whether it actually changed the pricing.
+  const buildMeta = (applied: boolean) => ({
+    applied,
+    eligible: result.eligible,
+    amount: result.amount,
+    minimumOrderAmount: result.minimumOrderAmount,
+    remaining: result.remaining,
+    title: result.settings.bannerTitle.replace("{{amount}}", String(result.amount)),
+    subtitle: result.settings.bannerSubtitle.replace(
+      "{{minimum}}",
+      String(result.minimumOrderAmount),
+    ),
+  });
+
+  // Below threshold, or threshold met but an auto voucher already saves as much/more:
+  // expose the hint but don't change pricing.
+  if (!result.eligible || voucherDiscount >= result.amount) {
+    return {
+      ...(baseQuote as Record<string, any>),
+      firstOrderDiscount: buildMeta(false),
+    } as CustomerCartQuoteResult;
   }
 
   const amount = result.amount;
 
-  // An auto voucher is on the quote and it saves at least as much — keep it.
-  if (voucherDiscount >= amount) {
-    return baseQuote;
-  }
-
-  const firstOrderMeta = {
-    applied: true,
-    amount,
-    minimumOrderAmount: result.settings.minimumOrderAmountTaka,
-    title: result.settings.bannerTitle.replace("{{amount}}", String(amount)),
-    subtitle: result.settings.bannerSubtitle.replace(
-      "{{minimum}}",
-      String(result.settings.minimumOrderAmountTaka),
-    ),
-  };
-
-  // No voucher on the quote — simply add the first-order discount.
+  // First-order wins and there's no voucher — simply add the first-order discount.
   if (voucherDiscount <= 0) {
     return {
       ...(baseQuote as Record<string, any>),
@@ -656,14 +666,13 @@ async function applyFirstOrderDiscountToQuote(
         platformDiscountCost: Number(pricing.platformDiscountCost ?? 0) + amount,
         total: Math.max(0, Number(pricing.total ?? 0) - amount),
       },
-      firstOrderDiscount: firstOrderMeta,
+      firstOrderDiscount: buildMeta(true),
     } as CustomerCartQuoteResult;
   }
 
-  // An auto voucher is on the quote but the first-order discount saves more — drop the
-  // voucher and apply the first-order discount instead (still exactly one discount).
-  // Add the voucher discount back, take the first-order off, and reset the voucher's
-  // owner/platform cost split (markdown, which is platform-funded item pricing, stays).
+  // First-order beats the auto voucher — drop the weaker voucher and apply first-order
+  // instead (still exactly one discount). Add the voucher discount back, take the
+  // first-order off, reset the voucher's owner/platform split (markdown stays).
   return {
     ...(baseQuote as Record<string, any>),
     appliedVouchers: [],
@@ -675,7 +684,7 @@ async function applyFirstOrderDiscountToQuote(
       firstOrderDiscountAmount: amount,
       total: Math.max(0, Number(pricing.total ?? 0) + voucherDiscount - amount),
     },
-    firstOrderDiscount: firstOrderMeta,
+    firstOrderDiscount: buildMeta(true),
   } as CustomerCartQuoteResult;
 }
 

@@ -20,14 +20,16 @@ function clamp(value: unknown, fallback: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.round(numeric)));
 }
 
-// GPS-grade accuracy per admin mode. Even "balanced" maps to High (GPS), NOT the
-// network/coarse tier — a live delivery marker must sit on the road, and coarse
-// network fixes drift by hundreds of metres (the long-distance jitter). High mode
-// uses BestForNavigation; battery-saver drops to Balanced.
+// Accuracy per admin mode. IMPORTANT: the default ("balanced") maps to Balanced, NOT
+// High. A regression that pushed "balanced" up to High made the OS stream GPS fixes
+// almost continuously, and since each fix runs work on the JS thread that froze the whole
+// app after pickup. Balanced still places the marker on the road for delivery but lets
+// the OS deliver on the requested interval instead of firing constantly. Only the
+// explicit "high_accuracy" admin mode opts into the heavier continuous GPS.
 export function accuracyForMode(mode: string | undefined) {
-  if (mode === "high_accuracy") return Location.Accuracy.BestForNavigation;
-  if (mode === "battery_saver") return Location.Accuracy.Balanced;
-  return Location.Accuracy.High;
+  if (mode === "high_accuracy") return Location.Accuracy.High;
+  if (mode === "battery_saver") return Location.Accuracy.Low;
+  return Location.Accuracy.Balanced;
 }
 
 // One canonical config for the active-delivery background stream, so every caller
@@ -39,8 +41,7 @@ export function buildActiveTrackingConfig(
   return {
     timeIntervalMs: policy.updateIntervalSeconds * 1000,
     distanceIntervalMeters: policy.distanceIntervalMeters,
-    heartbeatMs:
-      Math.min(Math.max(policy.updateIntervalSeconds * 2, 30), 90) * 1000,
+    heartbeatMs: policy.passiveHeartbeatSeconds * 1000,
     accuracy: accuracyForMode(policy.mode),
   };
 }

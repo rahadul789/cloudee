@@ -8,6 +8,13 @@
     "scheme": "foodbelaowner",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/5f80fa6c-4794-4fb5-aa5f-c10b7764b564",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
     "ios": {
       "supportsTablet": true
     },

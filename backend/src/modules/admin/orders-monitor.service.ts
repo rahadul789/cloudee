@@ -2860,10 +2860,11 @@ function mapAdminPaymentTransaction(
     amount: numberValue(order.pricing?.total),
     subtotal: numberValue(order.pricing?.subtotal),
     deliveryFee: numberValue(order.pricing?.deliveryFee),
-    discount: numberValue(
-      order.pricing?.discountAmount,
-      numberValue(order.pricing?.discount),
-    ),
+    discount:
+      numberValue(
+        order.pricing?.discountAmount,
+        numberValue(order.pricing?.discount),
+      ) + numberValue(order.pricing?.firstOrderDiscountAmount),
     refundStatus: stringValue(paymentSnapshot.refundStatus, paymentStatus),
     refundNote: stringValue(paymentSnapshot.refundNote),
     refundRequestedAt: serializeDate(paymentSnapshot.refundRequestedAt),
@@ -3246,10 +3247,11 @@ function mapAdminOrderListItem(
     total: numberValue(order.pricing?.total),
     subtotal: numberValue(order.pricing?.subtotal),
     deliveryFee: numberValue(order.pricing?.deliveryFee),
-    discount: numberValue(
-      order.pricing?.discountAmount,
-      numberValue(order.pricing?.discount),
-    ),
+    discount:
+      numberValue(
+        order.pricing?.discountAmount,
+        numberValue(order.pricing?.discount),
+      ) + numberValue(order.pricing?.firstOrderDiscountAmount),
     createdAt: serializeDate(createdAt),
     updatedAt: serializeDate(order.updatedAt),
     acceptedAt: serializeDate(acceptedAt),
@@ -4363,6 +4365,9 @@ export async function getAdminOrderMonitorDetails(
     order.pricing?.discountAmount,
     numberValue(order.pricing?.discount),
   );
+  // First-order (welcome) discount is stored separately and is platform-funded — it is
+  // already inside platformDiscountCost, so only fold it into the displayed `discount`.
+  const firstOrderDiscountAmount = numberValue(order.pricing?.firstOrderDiscountAmount);
 
   return {
     id: String(order._id ?? ""),
@@ -4394,7 +4399,8 @@ export async function getAdminOrderMonitorDetails(
     pricing: {
       subtotal: order.pricing?.subtotal ?? 0,
       deliveryFee: order.pricing?.deliveryFee ?? 0,
-      discount: discountAmount,
+      discount: discountAmount + firstOrderDiscountAmount,
+      firstOrderDiscountAmount,
       ownerDiscountCost: numberValue(
         order.pricing?.ownerDiscountCost,
         voucherDiscountSplit?.ownerDiscountCost ?? discountAmount,

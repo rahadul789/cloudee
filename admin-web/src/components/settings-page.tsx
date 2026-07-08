@@ -4004,8 +4004,8 @@ export function SettingsPage() {
                   />
                 </SettingRow>
                 <SettingRow
-                  title="Reward amount"
-                  description="Voucher value the referrer receives after a successful referral."
+                  title="Referrer reward"
+                  description="Voucher value the referrer receives after their friend's first delivered order."
                 >
                   <Input
                     type="number"
@@ -4020,6 +4020,31 @@ export function SettingsPage() {
                             numberFromInput(
                               event.target.value,
                               referrals.rewardAmountTaka
+                            ),
+                            1,
+                            10000
+                          )
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Referred friend reward"
+                  description="Welcome voucher value the referred friend gets instantly, usable on their first order."
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    step={1}
+                    value={referrals.refereeRewardAmountTaka ?? 50}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        content.operations.referrals.refereeRewardAmountTaka =
+                          clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              referrals.refereeRewardAmountTaka ?? 50
                             ),
                             1,
                             10000

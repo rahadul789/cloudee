@@ -2897,6 +2897,7 @@ export type AdminOrderDetails = {
     subtotal: number
     deliveryFee: number
     discount: number
+    firstOrderDiscountAmount?: number
     ownerDiscountCost?: number
     platformDiscountCost?: number
     total: number
@@ -3760,6 +3761,7 @@ export type PlatformContent = {
     referrals: {
       enabled: boolean
       rewardAmountTaka: number
+      refereeRewardAmountTaka: number
       minimumOrderAmountTaka: number
       voucherExpiryDays: number
       monthlyRewardCapPerCustomer: number

@@ -1,125 +1,142 @@
-import mongoose from "mongoose"
-import { StatusCodes } from "http-status-codes"
+import mongoose from "mongoose";
+import { StatusCodes } from "http-status-codes";
 
-import { AppError } from "../../common/utils/app-error"
-import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
-import { logger } from "../../config/logger"
-import { emitSocketEvent } from "../../config/socket"
-import { AdminNotificationScheduleModel } from "../admin/notification-schedule.model"
-import { OrderModel } from "../owner/operational.model"
-import { ReviewModel } from "../owner/experience.model"
-import { getPlatformContent } from "../public/content.service"
-import { CustomerModel, VoucherModel, VoucherRedemptionModel } from "./customer.model"
+import { AppError } from "../../common/utils/app-error";
+import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout";
+import { logger } from "../../config/logger";
+import { emitSocketEvent } from "../../config/socket";
+import { AdminNotificationScheduleModel } from "../admin/notification-schedule.model";
+import { OrderModel } from "../owner/operational.model";
+import { ReviewModel } from "../owner/experience.model";
+import { getPlatformContent } from "../public/content.service";
+import {
+  CustomerModel,
+  VoucherModel,
+  VoucherRedemptionModel,
+} from "./customer.model";
 
 // content.service also imports sendPushToCustomer from this module. The cycle is
 // safe because both sides only call the imported symbols inside functions (never
 // at module load), so getPlatformContent is resolved by the time it runs.
 async function loadPlatformContent() {
-  return getPlatformContent()
+  return getPlatformContent();
 }
 
 type CustomerPushPayload = {
-  title: string
-  body: string
-  contentType?: "text" | "image" | "image_text"
-  imageUrl?: string
-  data?: Record<string, unknown>
-}
+  title: string;
+  body: string;
+  contentType?: "text" | "image" | "image_text";
+  imageUrl?: string;
+  data?: Record<string, unknown>;
+};
 
 type CustomerNotificationRecord = {
-  id: string
-  type: string
-  title: string
-  description: string
-  path: string
-  campaignId: string
-  campaignVariant: string
-  ctaLabel: string
-  ctaPath: string
-  contentType: string
-  imageUrl: string
-  voucherId: string
-  voucherCode: string
-  voucherLabel: string
-  voucherExpiresAt: string | null
-  voucherMinOrder: number | null
-  voucherUsageStatus: "available" | "used" | "expired" | "info"
-  voucherAppliedAt: string | null
-  voucherOrderId: string
-  isOfferDisabled: boolean
-  personalOffer: boolean
-  zoneId: string
-  districtId: string
-  isRead: boolean
-  readAt: string | null
-  createdAt: string
-}
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  path: string;
+  campaignId: string;
+  campaignVariant: string;
+  ctaLabel: string;
+  ctaPath: string;
+  contentType: string;
+  imageUrl: string;
+  voucherId: string;
+  voucherCode: string;
+  voucherLabel: string;
+  voucherExpiresAt: string | null;
+  voucherMinOrder: number | null;
+  voucherUsageStatus: "available" | "used" | "expired" | "info";
+  voucherAppliedAt: string | null;
+  voucherOrderId: string;
+  isOfferDisabled: boolean;
+  personalOffer: boolean;
+  zoneId: string;
+  districtId: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+};
 
 type ExpoPushMessage = {
-  to: string
-  sound: "default"
-  priority?: "default" | "normal" | "high"
-  channelId?: string
-  title: string
-  body: string
-  mutableContent?: boolean
+  to: string;
+  sound: "default";
+  priority?: "default" | "normal" | "high";
+  channelId?: string;
+  title: string;
+  body: string;
+  mutableContent?: boolean;
   richContent?: {
-    image?: string
-  }
-  data?: Record<string, unknown>
-}
+    image?: string;
+  };
+  data?: Record<string, unknown>;
+};
 
 function isExpoPushToken(token: string) {
-  return /^ExponentPushToken\[[^\]]+\]$/.test(token) || /^ExpoPushToken\[[^\]]+\]$/.test(token)
+  return (
+    /^ExponentPushToken\[[^\]]+\]$/.test(token) ||
+    /^ExpoPushToken\[[^\]]+\]$/.test(token)
+  );
 }
 
 function notificationScopeValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : ""
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function resolveNotificationScope(params: {
-  data?: Record<string, unknown>
-  zoneId?: string
-  districtId?: string
+  data?: Record<string, unknown>;
+  zoneId?: string;
+  districtId?: string;
 }) {
   const explicitZoneId =
-    notificationScopeValue(params.zoneId) || notificationScopeValue(params.data?.zoneId)
+    notificationScopeValue(params.zoneId) ||
+    notificationScopeValue(params.data?.zoneId);
   const explicitDistrictId =
-    notificationScopeValue(params.districtId) || notificationScopeValue(params.data?.districtId)
+    notificationScopeValue(params.districtId) ||
+    notificationScopeValue(params.data?.districtId);
   if (explicitZoneId || explicitDistrictId) {
-    return { zoneId: explicitZoneId, districtId: explicitDistrictId }
+    return { zoneId: explicitZoneId, districtId: explicitDistrictId };
   }
 
-  const orderId = notificationScopeValue(params.data?.orderId)
+  const orderId = notificationScopeValue(params.data?.orderId);
   if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
-    return { zoneId: "", districtId: "" }
+    return { zoneId: "", districtId: "" };
   }
 
-  const order = await OrderModel.findById(orderId, { serviceAreaSnapshot: 1 }).lean()
-  const serviceArea = (order?.serviceAreaSnapshot ?? {}) as Record<string, unknown>
+  const order = await OrderModel.findById(orderId, {
+    serviceAreaSnapshot: 1,
+  }).lean();
+  const serviceArea = (order?.serviceAreaSnapshot ?? {}) as Record<
+    string,
+    unknown
+  >;
   return {
     zoneId: notificationScopeValue(serviceArea.zoneId),
     districtId: notificationScopeValue(serviceArea.districtId),
-  }
+  };
 }
 
 function isNotificationEnabled(
-  settings: {
-    orderUpdates?: boolean
-    restaurantStatus?: boolean
-    reviewReplies?: boolean
-    promotions?: boolean
-  } | null | undefined,
+  settings:
+    | {
+        orderUpdates?: boolean;
+        restaurantStatus?: boolean;
+        reviewReplies?: boolean;
+        promotions?: boolean;
+      }
+    | null
+    | undefined,
   type: string,
-  isPersonalOffer = false
+  isPersonalOffer = false,
 ) {
   switch (type) {
     case "order_status":
-      return settings?.orderUpdates ?? true
+      return settings?.orderUpdates ?? true;
     case "restaurant_status":
-      return settings?.restaurantStatus ?? true
+      return settings?.restaurantStatus ?? true;
     case "review_reply":
-      return settings?.reviewReplies ?? true
+      return settings?.reviewReplies ?? true;
     case "promotion":
     case "voucher":
     case "campaign":
@@ -127,23 +144,25 @@ function isNotificationEnabled(
       // are not marketing broadcasts — always deliver them so they still reach the
       // customer's "My offers", regardless of the promotions opt-out. Only generic
       // broadcast promos honour the toggle.
-      return isPersonalOffer ? true : settings?.promotions ?? true
+      return isPersonalOffer ? true : (settings?.promotions ?? true);
     default:
-      return true
+      return true;
   }
 }
 
 function stringValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : ""
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeOrderTrackingPath(path: string, orderId: string) {
-  if (orderId) return `/orders/${orderId}/tracking`
+  if (orderId) return `/orders/${orderId}/tracking`;
 
-  const match = path.match(/^\/orders\/([A-Za-z0-9_-]+)(?:\/tracking)?(?:[?#].*)?$/)
-  if (match?.[1]) return `/orders/${match[1]}/tracking`
+  const match = path.match(
+    /^\/orders\/([A-Za-z0-9_-]+)(?:\/tracking)?(?:[?#].*)?$/,
+  );
+  if (match?.[1]) return `/orders/${match[1]}/tracking`;
 
-  return path
+  return path;
 }
 
 function stripVisibleOrderReferences(text: string) {
@@ -153,165 +172,187 @@ function stripVisibleOrderReferences(text: string) {
     .replace(/\b#[A-Z0-9][A-Z0-9-]{3,}\b/g, "your order")
     .replace(/\bYour\s+Your\s+order\b/gi, "Your order")
     .replace(/\s+/g, " ")
-    .trim()
+    .trim();
 }
 
 function buildCleanOrderStatusPushMessage(status: string, hint: string) {
-  if (status === "cancelled" || status === "canceled" || hint.includes("cancel")) {
+  if (
+    status === "cancelled" ||
+    status === "canceled" ||
+    hint.includes("cancel")
+  ) {
     return {
       title: "❌ Order cancelled",
-      body: "Your order was cancelled. You can order again anytime."
-    }
+      body: "Your order was cancelled. You can order again anytime.",
+    };
   }
 
-  if (status === "rejected" || hint.includes("reject") || hint.includes("not accepted")) {
+  if (
+    status === "rejected" ||
+    hint.includes("reject") ||
+    hint.includes("not accepted")
+  ) {
     return {
       title: "😕 Order not accepted",
-      body: "The restaurant could not accept your order. Please try another restaurant."
-    }
+      body: "The restaurant could not accept your order. Please try another restaurant.",
+    };
   }
 
   if (hint.includes("accepted") && !hint.includes("not accepted")) {
     return {
       title: "✅ Order accepted",
-      body: "Your order is confirmed. The kitchen will start soon."
-    }
+      body: "Your order is confirmed. The kitchen will start soon.",
+    };
   }
 
   if (hint.includes("preparing") || hint.includes("cooking")) {
     return {
       title: "🍳 Food is preparing",
-      body: "Your food is being prepared now."
-    }
+      body: "Your food is being prepared now.",
+    };
   }
 
   if (hint.includes("ready")) {
     return {
       title: "📦 Ready for pickup",
-      body: "Your order is packed. A rider will pick it up soon."
-    }
+      body: "Your order is packed. A rider will pick it up soon.",
+    };
   }
 
   if (hint.includes("picked up") || hint.includes("on the way")) {
     return {
       title: "🛵 On the way",
-      body: "Your rider picked up the order and is heading to you."
-    }
+      body: "Your rider picked up the order and is heading to you.",
+    };
   }
 
   if (hint.includes("delivered")) {
     return {
       title: "🎉 Delivered",
-      body: "Your food has arrived. Tap to rate your order."
-    }
+      body: "Your food has arrived. Enjoy your food!",
+    };
   }
 
   return {
     title: "🔔 Order update",
-    body: "There is a new update on your order."
-  }
+    body: "There is a new update on your order.",
+  };
 }
 
 function getOrderStatusPushMessage(payload: CustomerPushPayload) {
-  const status = stringValue(payload.data?.status).toLowerCase()
-  const hint = `${stringValue(payload.data?.status)} ${payload.title} ${payload.body}`.toLowerCase()
-  return buildCleanOrderStatusPushMessage(status, hint)
+  const status = stringValue(payload.data?.status).toLowerCase();
+  const hint =
+    `${stringValue(payload.data?.status)} ${payload.title} ${payload.body}`.toLowerCase();
+  return buildCleanOrderStatusPushMessage(status, hint);
 }
 
-function normalizeCustomerPushPayload(payload: CustomerPushPayload): CustomerPushPayload {
-  const data = { ...(payload.data ?? {}) }
-  const type = stringValue(data.type)
-  const orderId = stringValue(data.orderId ?? data.order_id)
-  const path = stringValue(data.path)
+function normalizeCustomerPushPayload(
+  payload: CustomerPushPayload,
+): CustomerPushPayload {
+  const data = { ...(payload.data ?? {}) };
+  const type = stringValue(data.type);
+  const orderId = stringValue(data.orderId ?? data.order_id);
+  const path = stringValue(data.path);
 
   if (type === "review_request") {
     return {
       ...payload,
-      data
-    }
+      data,
+    };
   }
 
   const isOrderRelated =
     Boolean(orderId) ||
     path.startsWith("/orders/") ||
-    ["order_status", "rider_assigned", "rider_near"].includes(type)
+    ["order_status", "rider_assigned", "rider_near"].includes(type);
 
-  if (!isOrderRelated) return payload
+  if (!isOrderRelated) return payload;
 
   if (path || orderId) {
-    data.path = normalizeOrderTrackingPath(path, orderId)
+    data.path = normalizeOrderTrackingPath(path, orderId);
   }
 
   if (type === "order_status") {
     return {
       ...payload,
       ...getOrderStatusPushMessage(payload),
-      data
-    }
+      data,
+    };
   }
 
   if (type === "rider_assigned") {
     return {
       ...payload,
-      title: payload.title.includes("updated") ? "🛵 Rider updated" : "🛵 Rider assigned",
-      body: stripVisibleOrderReferences(payload.body || "A rider has been assigned to your order."),
-      data
-    }
+      title: payload.title.includes("updated")
+        ? "🛵 Rider updated"
+        : "🛵 Rider assigned",
+      body: stripVisibleOrderReferences(
+        payload.body || "A rider has been assigned to your order.",
+      ),
+      data,
+    };
   }
 
   if (type === "rider_near") {
     return {
       ...payload,
       title: "Deliveryman nearby",
-      body: stripVisibleOrderReferences(payload.body || "Your deliveryman is getting close."),
-      data
-    }
+      body: stripVisibleOrderReferences(
+        payload.body || "Your deliveryman is getting close.",
+      ),
+      data,
+    };
   }
 
   return {
     ...payload,
     title: stripVisibleOrderReferences(payload.title),
     body: stripVisibleOrderReferences(payload.body),
-    data
-  }
+    data,
+  };
 }
 
 function mapCustomerNotification(notification: {
-  _id?: mongoose.Types.ObjectId | string
-  type?: string
-  title?: string
-  description?: string
-  path?: string
-  campaignId?: string
-  campaignVariant?: string
-  ctaLabel?: string
-  ctaPath?: string
-  contentType?: string
-  imageUrl?: string
-  voucherId?: string
-  voucherCode?: string
-  voucherLabel?: string
-  voucherExpiresAt?: Date | string | null
-  voucherMinOrder?: number | null
-  voucherUsageStatus?: "available" | "used" | "expired" | "info"
-  voucherAppliedAt?: Date | string | null
-  voucherOrderId?: string
-  isOfferDisabled?: boolean
-  personalOffer?: boolean
-  zoneId?: string
-  districtId?: string
-  isRead?: boolean
-  readAt?: Date | string | null
-  createdAt?: Date | string | null
+  _id?: mongoose.Types.ObjectId | string;
+  type?: string;
+  title?: string;
+  description?: string;
+  path?: string;
+  campaignId?: string;
+  campaignVariant?: string;
+  ctaLabel?: string;
+  ctaPath?: string;
+  contentType?: string;
+  imageUrl?: string;
+  voucherId?: string;
+  voucherCode?: string;
+  voucherLabel?: string;
+  voucherExpiresAt?: Date | string | null;
+  voucherMinOrder?: number | null;
+  voucherUsageStatus?: "available" | "used" | "expired" | "info";
+  voucherAppliedAt?: Date | string | null;
+  voucherOrderId?: string;
+  isOfferDisabled?: boolean;
+  personalOffer?: boolean;
+  zoneId?: string;
+  districtId?: string;
+  isRead?: boolean;
+  readAt?: Date | string | null;
+  createdAt?: Date | string | null;
 }): CustomerNotificationRecord {
   const voucherExpiresAt = notification.voucherExpiresAt
     ? new Date(notification.voucherExpiresAt).toISOString()
-    : null
+    : null;
   const isExpired = voucherExpiresAt
     ? new Date(voucherExpiresAt).getTime() <= Date.now()
-    : false
+    : false;
   const voucherUsageStatus =
-    notification.voucherUsageStatus ?? (isExpired ? "expired" : notification.voucherId || notification.voucherCode ? "available" : "info")
+    notification.voucherUsageStatus ??
+    (isExpired
+      ? "expired"
+      : notification.voucherId || notification.voucherCode
+        ? "available"
+        : "info");
 
   return {
     id: String(notification._id ?? ""),
@@ -330,7 +371,9 @@ function mapCustomerNotification(notification: {
     voucherLabel: notification.voucherLabel ?? "",
     voucherExpiresAt,
     voucherMinOrder:
-      typeof notification.voucherMinOrder === "number" ? notification.voucherMinOrder : null,
+      typeof notification.voucherMinOrder === "number"
+        ? notification.voucherMinOrder
+        : null,
     voucherUsageStatus,
     voucherAppliedAt: notification.voucherAppliedAt
       ? new Date(notification.voucherAppliedAt).toISOString()
@@ -344,11 +387,13 @@ function mapCustomerNotification(notification: {
     zoneId: notification.zoneId ?? "",
     districtId: notification.districtId ?? "",
     isRead: Boolean(notification.isRead),
-    readAt: notification.readAt ? new Date(notification.readAt).toISOString() : null,
+    readAt: notification.readAt
+      ? new Date(notification.readAt).toISOString()
+      : null,
     createdAt: notification.createdAt
       ? new Date(notification.createdAt).toISOString()
-      : new Date().toISOString()
-  }
+      : new Date().toISOString(),
+  };
 }
 
 async function enrichNotificationVoucherUsage(
@@ -357,9 +402,9 @@ async function enrichNotificationVoucherUsage(
 ) {
   const voucherIds = items
     .map((item) => item.voucherId)
-    .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId))
+    .filter((voucherId) => mongoose.Types.ObjectId.isValid(voucherId));
 
-  if (!voucherIds.length) return items
+  if (!voucherIds.length) return items;
 
   const [redemptions, vouchers] = await Promise.all([
     VoucherRedemptionModel.find({
@@ -373,28 +418,30 @@ async function enrichNotificationVoucherUsage(
     VoucherModel.find({ _id: { $in: voucherIds } })
       .select("audienceType selectedCustomerIds")
       .lean(),
-  ])
+  ]);
   const redemptionByVoucherId = new Map(
     redemptions.map((redemption) => [String(redemption.voucherId), redemption]),
-  )
-  const customerIdString = String(customerId)
+  );
+  const customerIdString = String(customerId);
   const selectedUserVoucherIds = new Set(
     vouchers
       .filter((voucher) => voucher.audienceType === "selected_users")
       .filter((voucher) =>
         (voucher.selectedCustomerIds ?? []).some(
-          (selectedCustomerId) => String(selectedCustomerId) === customerIdString,
+          (selectedCustomerId) =>
+            String(selectedCustomerId) === customerIdString,
         ),
       )
       .map((voucher) => String(voucher._id)),
-  )
+  );
 
   return items.map((item) => {
     const isExpired = item.voucherExpiresAt
       ? new Date(item.voucherExpiresAt).getTime() <= Date.now()
-      : false
-    const redemption = redemptionByVoucherId.get(item.voucherId)
-    const personalOffer = item.personalOffer || selectedUserVoucherIds.has(item.voucherId)
+      : false;
+    const redemption = redemptionByVoucherId.get(item.voucherId);
+    const personalOffer =
+      item.personalOffer || selectedUserVoucherIds.has(item.voucherId);
 
     if (isExpired) {
       return {
@@ -402,7 +449,7 @@ async function enrichNotificationVoucherUsage(
         personalOffer,
         voucherUsageStatus: "expired" as const,
         isOfferDisabled: true,
-      }
+      };
     }
 
     if (redemption) {
@@ -415,69 +462,88 @@ async function enrichNotificationVoucherUsage(
           : item.voucherAppliedAt,
         voucherOrderId: String(redemption.orderId ?? ""),
         isOfferDisabled: true,
-      }
+      };
     }
 
     return {
       ...item,
       personalOffer,
       voucherUsageStatus:
-        item.voucherId || item.voucherCode ? ("available" as const) : item.voucherUsageStatus,
+        item.voucherId || item.voucherCode
+          ? ("available" as const)
+          : item.voucherUsageStatus,
       isOfferDisabled: false,
-    }
-  })
+    };
+  });
 }
 
 export async function createCustomerNotification(params: {
-  customerId: string
-  payload: CustomerPushPayload
-  zoneId?: string
-  districtId?: string
+  customerId: string;
+  payload: CustomerPushPayload;
+  zoneId?: string;
+  districtId?: string;
 }) {
-  const payload = normalizeCustomerPushPayload(params.payload)
-  const path =
-    typeof payload.data?.path === "string" ? payload.data.path : ""
+  const payload = normalizeCustomerPushPayload(params.payload);
+  const path = typeof payload.data?.path === "string" ? payload.data.path : "";
   const type =
-    typeof payload.data?.type === "string" ? payload.data.type : "system"
+    typeof payload.data?.type === "string" ? payload.data.type : "system";
   const campaignId =
-    typeof payload.data?.campaignId === "string" ? payload.data.campaignId : ""
+    typeof payload.data?.campaignId === "string" ? payload.data.campaignId : "";
   const campaignVariant =
-    typeof payload.data?.variant === "string" ? payload.data.variant : ""
+    typeof payload.data?.variant === "string" ? payload.data.variant : "";
   const ctaLabel =
-    typeof payload.data?.ctaLabel === "string" ? payload.data.ctaLabel : ""
+    typeof payload.data?.ctaLabel === "string" ? payload.data.ctaLabel : "";
   const ctaPath =
-    typeof payload.data?.ctaPath === "string" ? payload.data.ctaPath : ""
+    typeof payload.data?.ctaPath === "string" ? payload.data.ctaPath : "";
   const voucherCode =
-    typeof payload.data?.voucherCode === "string" ? payload.data.voucherCode.trim().toUpperCase() : ""
+    typeof payload.data?.voucherCode === "string"
+      ? payload.data.voucherCode.trim().toUpperCase()
+      : "";
   const voucherId =
-    typeof payload.data?.voucherId === "string" ? payload.data.voucherId.trim() : ""
+    typeof payload.data?.voucherId === "string"
+      ? payload.data.voucherId.trim()
+      : "";
   const voucherLabel =
-    typeof payload.data?.voucherLabel === "string" ? payload.data.voucherLabel.trim() : ""
+    typeof payload.data?.voucherLabel === "string"
+      ? payload.data.voucherLabel.trim()
+      : "";
   const rawVoucherExpiresAt =
-    typeof payload.data?.voucherExpiresAt === "string" || payload.data?.voucherExpiresAt instanceof Date
+    typeof payload.data?.voucherExpiresAt === "string" ||
+    payload.data?.voucherExpiresAt instanceof Date
       ? new Date(payload.data.voucherExpiresAt)
-      : null
+      : null;
   const voucherExpiresAt =
-    rawVoucherExpiresAt && !Number.isNaN(rawVoucherExpiresAt.getTime()) ? rawVoucherExpiresAt : null
+    rawVoucherExpiresAt && !Number.isNaN(rawVoucherExpiresAt.getTime())
+      ? rawVoucherExpiresAt
+      : null;
   const voucherMinOrder =
-    typeof payload.data?.voucherMinOrder === "number" && Number.isFinite(payload.data.voucherMinOrder)
+    typeof payload.data?.voucherMinOrder === "number" &&
+    Number.isFinite(payload.data.voucherMinOrder)
       ? Math.max(0, payload.data.voucherMinOrder)
-      : null
-  const personalOffer = payload.data?.personalOffer === true
+      : null;
+  const personalOffer = payload.data?.personalOffer === true;
   const { zoneId, districtId } = await resolveNotificationScope({
     data: payload.data,
     zoneId: params.zoneId,
     districtId: params.districtId,
-  })
-  const customer = await CustomerModel.findById(params.customerId).select("notificationSettings")
+  });
+  const customer = await CustomerModel.findById(params.customerId).select(
+    "notificationSettings",
+  );
 
-  const notificationEnabled = isNotificationEnabled(customer?.notificationSettings, type)
+  const notificationEnabled = isNotificationEnabled(
+    customer?.notificationSettings,
+    type,
+  );
   if (!notificationEnabled && !personalOffer) {
-    logger.info({ customerId: params.customerId, type }, "Notification skipped by customer preference")
-    return null
+    logger.info(
+      { customerId: params.customerId, type },
+      "Notification skipped by customer preference",
+    );
+    return null;
   }
 
-  const notificationId = new mongoose.Types.ObjectId()
+  const notificationId = new mongoose.Types.ObjectId();
 
   await CustomerModel.updateOne(
     { _id: params.customerId },
@@ -507,17 +573,17 @@ export async function createCustomerNotification(params: {
               districtId,
               isRead: false,
               readAt: null,
-              createdAt: new Date()
-            }
+              createdAt: new Date(),
+            },
           ],
           $position: 0,
           // Keep only the most recent notifications per customer — older ones are
           // rarely useful and this keeps the stored array (and every read) small.
-          $slice: 30
-        }
-      }
-    }
-  )
+          $slice: 30,
+        },
+      },
+    },
+  );
 
   const notification = mapCustomerNotification({
     _id: notificationId,
@@ -541,67 +607,81 @@ export async function createCustomerNotification(params: {
     districtId,
     isRead: false,
     readAt: null,
-    createdAt: new Date()
-  })
+    createdAt: new Date(),
+  });
 
-  emitSocketEvent(`customer:${params.customerId}`, "customer.notification.created", notification)
+  emitSocketEvent(
+    `customer:${params.customerId}`,
+    "customer.notification.created",
+    notification,
+  );
 
-  return notification
+  return notification;
 }
 
-export async function listCustomerNotifications(customerId: string, params?: {
-  page?: number
-  limit?: number
-  category?: "all" | "orders" | "offers" | "personal_offers"
-}) {
-  const customer = await CustomerModel.findById(customerId).select("notifications")
-  const notifications = [...(customer?.notifications ?? [])]
-    .sort((left, right) => {
-      const leftTime = new Date(left.createdAt ?? 0).getTime()
-      const rightTime = new Date(right.createdAt ?? 0).getTime()
-      return rightTime - leftTime
-    })
-  const category = params?.category ?? "all"
+export async function listCustomerNotifications(
+  customerId: string,
+  params?: {
+    page?: number;
+    limit?: number;
+    category?: "all" | "orders" | "offers" | "personal_offers";
+  },
+) {
+  const customer =
+    await CustomerModel.findById(customerId).select("notifications");
+  const notifications = [...(customer?.notifications ?? [])].sort(
+    (left, right) => {
+      const leftTime = new Date(left.createdAt ?? 0).getTime();
+      const rightTime = new Date(right.createdAt ?? 0).getTime();
+      return rightTime - leftTime;
+    },
+  );
+  const category = params?.category ?? "all";
   const enrichedNotifications = await enrichNotificationVoucherUsage(
     customerId,
-    notifications.map((notification) => mapCustomerNotification(notification.toObject())),
-  )
-  const mappedNotifications = enrichedNotifications
-    .filter((notification) => {
-      if (category === "offers") {
-        return ["promotion", "voucher", "campaign"].includes(notification.type)
-      }
-      if (category === "personal_offers") {
-        return notification.personalOffer === true
-      }
-      if (category === "orders") {
-        return ["order_status", "rider_assigned", "rider_near"].includes(notification.type)
-      }
-      return true
-    })
-  const limit = Math.min(Math.max(params?.limit ?? 20, 1), 50)
-  const page = Math.max(params?.page ?? 1, 1)
-  const start = (page - 1) * limit
-  const items = mappedNotifications.slice(start, start + limit)
-  const total = mappedNotifications.length
+    notifications.map((notification) =>
+      mapCustomerNotification(notification.toObject()),
+    ),
+  );
+  const mappedNotifications = enrichedNotifications.filter((notification) => {
+    if (category === "offers") {
+      return ["promotion", "voucher", "campaign"].includes(notification.type);
+    }
+    if (category === "personal_offers") {
+      return notification.personalOffer === true;
+    }
+    if (category === "orders") {
+      return ["order_status", "rider_assigned", "rider_near"].includes(
+        notification.type,
+      );
+    }
+    return true;
+  });
+  const limit = Math.min(Math.max(params?.limit ?? 20, 1), 50);
+  const page = Math.max(params?.page ?? 1, 1);
+  const start = (page - 1) * limit;
+  const items = mappedNotifications.slice(start, start + limit);
+  const total = mappedNotifications.length;
 
   return {
     items,
     total,
-    unreadCount: mappedNotifications.filter((notification) => !notification.isRead).length,
+    unreadCount: mappedNotifications.filter(
+      (notification) => !notification.isRead,
+    ).length,
     page,
     limit,
     hasMore: start + items.length < total,
-    nextPage: start + items.length < total ? page + 1 : null
-  }
+    nextPage: start + items.length < total ? page + 1 : null,
+  };
 }
 
 export async function getCustomerNotificationByCampaignId(params: {
-  customerId: string
-  campaignId: string
+  customerId: string;
+  campaignId: string;
 }) {
-  const campaignId = params.campaignId.trim()
-  if (!campaignId) return null
+  const campaignId = params.campaignId.trim();
+  if (!campaignId) return null;
 
   const customer = await CustomerModel.findOne(
     {
@@ -612,23 +692,23 @@ export async function getCustomerNotificationByCampaignId(params: {
       notifications: {
         $elemMatch: { campaignId },
       },
-    }
-  ).select("notifications")
+    },
+  ).select("notifications");
 
-  const notification = customer?.notifications?.[0]
-  if (!notification) return null
+  const notification = customer?.notifications?.[0];
+  if (!notification) return null;
   const [item] = await enrichNotificationVoucherUsage(params.customerId, [
     mapCustomerNotification(notification.toObject()),
-  ])
-  return item ?? null
+  ]);
+  return item ?? null;
 }
 
 export async function getCustomerNotificationById(params: {
-  customerId: string
-  notificationId: string
+  customerId: string;
+  notificationId: string;
 }) {
-  const notificationId = params.notificationId.trim()
-  if (!notificationId) return null
+  const notificationId = params.notificationId.trim();
+  if (!notificationId) return null;
 
   const customer = await CustomerModel.findOne(
     {
@@ -640,52 +720,52 @@ export async function getCustomerNotificationById(params: {
         $elemMatch: { _id: notificationId },
       },
     },
-  ).select("notifications")
+  ).select("notifications");
 
-  const notification = customer?.notifications?.[0]
-  if (!notification) return null
+  const notification = customer?.notifications?.[0];
+  if (!notification) return null;
   const [item] = await enrichNotificationVoucherUsage(params.customerId, [
     mapCustomerNotification(notification.toObject()),
-  ])
-  return item ?? null
+  ]);
+  return item ?? null;
 }
 
 export async function markCustomerNotificationAsRead(params: {
-  customerId: string
-  notificationId: string
+  customerId: string;
+  notificationId: string;
 }) {
   await CustomerModel.updateOne(
     {
       _id: params.customerId,
-      "notifications._id": params.notificationId
+      "notifications._id": params.notificationId,
     },
     {
       $set: {
         "notifications.$.isRead": true,
-        "notifications.$.readAt": new Date()
-      }
-    }
-  )
+        "notifications.$.readAt": new Date(),
+      },
+    },
+  );
 
-  return listCustomerNotifications(params.customerId)
+  return listCustomerNotifications(params.customerId);
 }
 
 export async function markCustomerNotificationOpened(params: {
-  customerId: string
-  notificationId?: string
-  campaignId?: string
+  customerId: string;
+  notificationId?: string;
+  campaignId?: string;
 }) {
-  const filters: Record<string, unknown>[] = []
+  const filters: Record<string, unknown>[] = [];
 
   if (params.notificationId) {
-    filters.push({ "notifications._id": params.notificationId })
+    filters.push({ "notifications._id": params.notificationId });
   }
 
   if (params.campaignId) {
-    filters.push({ "notifications.campaignId": params.campaignId })
+    filters.push({ "notifications.campaignId": params.campaignId });
   }
 
-  if (!filters.length) return { recorded: false, matched: 0, modified: 0 }
+  if (!filters.length) return { recorded: false, matched: 0, modified: 0 };
 
   const result = await CustomerModel.updateOne(
     {
@@ -698,7 +778,7 @@ export async function markCustomerNotificationOpened(params: {
         "notifications.$.readAt": new Date(),
       },
     },
-  )
+  );
 
   if (params.campaignId && result.matchedCount > 0) {
     await AdminNotificationScheduleModel.updateOne(
@@ -716,15 +796,15 @@ export async function markCustomerNotificationOpened(params: {
       logger.warn(
         { error, customerId: params.customerId, campaignId: params.campaignId },
         "Failed to update admin notification open analytics",
-      )
-    })
+      );
+    });
   }
 
   return {
     recorded: result.matchedCount > 0,
     matched: result.matchedCount,
     modified: result.modifiedCount,
-  }
+  };
 }
 
 export async function markAllCustomerNotificationsAsRead(customerId: string) {
@@ -733,41 +813,50 @@ export async function markAllCustomerNotificationsAsRead(customerId: string) {
     {
       $set: {
         "notifications.$[notification].isRead": true,
-        "notifications.$[notification].readAt": new Date()
-      }
+        "notifications.$[notification].readAt": new Date(),
+      },
     },
     {
       arrayFilters: [
         {
-          "notification.isRead": false
-        }
-      ]
-    }
-  )
+          "notification.isRead": false,
+        },
+      ],
+    },
+  );
 
-  return listCustomerNotifications(customerId)
+  return listCustomerNotifications(customerId);
 }
 
 export async function sendPushToCustomer(params: {
-  customerId: string
-  payload: CustomerPushPayload
-  excludeExpoTokens?: Set<string>
-  zoneId?: string
-  districtId?: string
+  customerId: string;
+  payload: CustomerPushPayload;
+  excludeExpoTokens?: Set<string>;
+  zoneId?: string;
+  districtId?: string;
 }) {
-  const payload = normalizeCustomerPushPayload(params.payload)
+  const payload = normalizeCustomerPushPayload(params.payload);
   const createdNotification = await createCustomerNotification({
     customerId: params.customerId,
     payload,
     zoneId: params.zoneId,
     districtId: params.districtId,
-  })
+  });
 
   if (!createdNotification) {
-    return { sent: 0, disabled: 0, inAppCreated: 0, skipped: true, sentExpoTokens: [], ticketIds: [] }
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 0,
+      skipped: true,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
   }
 
-  const customer = await CustomerModel.findById(params.customerId).select("pushTokens notificationSettings")
+  const customer = await CustomerModel.findById(params.customerId).select(
+    "pushTokens notificationSettings",
+  );
 
   if (
     !isNotificationEnabled(
@@ -776,33 +865,61 @@ export async function sendPushToCustomer(params: {
       payload.data?.personalOffer === true,
     )
   ) {
-    logger.info({ customerId: params.customerId }, "Push skipped by customer preference after in-app notification")
-    return { sent: 0, disabled: 0, inAppCreated: 1, skipped: true, sentExpoTokens: [], ticketIds: [] }
+    logger.info(
+      { customerId: params.customerId },
+      "Push skipped by customer preference after in-app notification",
+    );
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 1,
+      skipped: true,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
   }
 
   if (!customer?.pushTokens?.length) {
-    logger.info({ customerId: params.customerId }, "Push skipped: no customer push tokens")
-    return { sent: 0, disabled: 0, inAppCreated: 1, sentExpoTokens: [], ticketIds: [] }
+    logger.info(
+      { customerId: params.customerId },
+      "Push skipped: no customer push tokens",
+    );
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 1,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
   }
 
   const activeTokens = customer.pushTokens.filter(
-    (token) => !token.disabledAt && isExpoPushToken(token.expoPushToken)
-  )
+    (token) => !token.disabledAt && isExpoPushToken(token.expoPushToken),
+  );
   const latestActiveToken = [...activeTokens]
     .filter((token) => !params.excludeExpoTokens?.has(token.expoPushToken))
     .sort((left, right) => {
-      const leftTime = new Date(left.lastSeenAt ?? 0).getTime()
-      const rightTime = new Date(right.lastSeenAt ?? 0).getTime()
-      return rightTime - leftTime
-    })[0]
-  const uniqueActiveTokens = latestActiveToken ? [latestActiveToken] : []
+      const leftTime = new Date(left.lastSeenAt ?? 0).getTime();
+      const rightTime = new Date(right.lastSeenAt ?? 0).getTime();
+      return rightTime - leftTime;
+    })[0];
+  const uniqueActiveTokens = latestActiveToken ? [latestActiveToken] : [];
 
   if (!uniqueActiveTokens.length) {
-    logger.info({ customerId: params.customerId }, "Push skipped: no active Expo push tokens")
-    return { sent: 0, disabled: 0, inAppCreated: 1, sentExpoTokens: [], ticketIds: [] }
+    logger.info(
+      { customerId: params.customerId },
+      "Push skipped: no active Expo push tokens",
+    );
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 1,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
   }
 
-  const sentExpoTokens = uniqueActiveTokens.map((token) => token.expoPushToken)
+  const sentExpoTokens = uniqueActiveTokens.map((token) => token.expoPushToken);
   const messages: ExpoPushMessage[] = uniqueActiveTokens.map((token) => ({
     to: token.expoPushToken,
     sound: "default",
@@ -826,61 +943,79 @@ export async function sendPushToCustomer(params: {
     data: {
       ...payload.data,
       notificationId: createdNotification.id,
-    }
-  }))
-
-  const response = await fetchWithTimeout("https://exp.host/--/api/v2/push/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json"
     },
-    body: JSON.stringify(messages),
-    timeoutMs: 3_000,
-  }).catch((error) => {
-    logger.warn({ error, customerId: params.customerId }, "Expo push send timed out or failed")
-    return null
-  })
+  }));
+
+  const response = await fetchWithTimeout(
+    "https://exp.host/--/api/v2/push/send",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(messages),
+      timeoutMs: 3_000,
+    },
+  ).catch((error) => {
+    logger.warn(
+      { error, customerId: params.customerId },
+      "Expo push send timed out or failed",
+    );
+    return null;
+  });
 
   if (!response) {
-    return { sent: 0, disabled: 0, inAppCreated: 1, sentExpoTokens, ticketIds: [] }
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 1,
+      sentExpoTokens,
+      ticketIds: [],
+    };
   }
 
   if (!response.ok) {
     logger.error(
       {
         customerId: params.customerId,
-        status: response.status
+        status: response.status,
       },
-      "Expo push send failed"
-    )
-    return { sent: 0, disabled: 0, inAppCreated: 1, sentExpoTokens: [], ticketIds: [] }
+      "Expo push send failed",
+    );
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 1,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
   }
 
   const expoResponse = (await response.json()) as {
     data?: Array<{
-      status?: string
-      id?: string
+      status?: string;
+      id?: string;
       details?: {
-        error?: string
-      }
-    }>
-  }
+        error?: string;
+      };
+    }>;
+  };
 
-  const invalidIndexes: number[] = []
-  let sent = 0
-  const ticketIds: string[] = []
+  const invalidIndexes: number[] = [];
+  let sent = 0;
+  const ticketIds: string[] = [];
 
   expoResponse.data?.forEach((entry, index) => {
     if (entry.status === "ok") {
-      sent += 1
-      if (entry.id) ticketIds.push(entry.id)
-      return
+      sent += 1;
+      if (entry.id) ticketIds.push(entry.id);
+      return;
     }
 
     if (entry.details?.error === "DeviceNotRegistered") {
-      invalidIndexes.push(index)
-      return
+      invalidIndexes.push(index);
+      return;
     }
 
     // Any other error (bad payload field, message too big, etc.) is silently
@@ -893,30 +1028,30 @@ export async function sendPushToCustomer(params: {
         type: payload.data?.type,
       },
       "Expo push ticket rejected",
-    )
-  })
+    );
+  });
 
   if (invalidIndexes.length) {
     const invalidTokenIds = invalidIndexes
       .map((index) => uniqueActiveTokens[index]?._id)
-      .filter(Boolean)
+      .filter(Boolean);
 
     if (invalidTokenIds.length) {
       await CustomerModel.updateOne(
         { _id: params.customerId },
         {
           $set: {
-            "pushTokens.$[token].disabledAt": new Date()
-          }
+            "pushTokens.$[token].disabledAt": new Date(),
+          },
         },
         {
           arrayFilters: [
             {
-              "token._id": { $in: invalidTokenIds }
-            }
-          ]
-        }
-      )
+              "token._id": { $in: invalidTokenIds },
+            },
+          ],
+        },
+      );
     }
   }
 
@@ -924,12 +1059,18 @@ export async function sendPushToCustomer(params: {
     {
       customerId: params.customerId,
       sent,
-      disabled: invalidIndexes.length
+      disabled: invalidIndexes.length,
     },
-    "Expo push processed"
-  )
+    "Expo push processed",
+  );
 
-  return { sent, disabled: invalidIndexes.length, inAppCreated: 1, sentExpoTokens, ticketIds }
+  return {
+    sent,
+    disabled: invalidIndexes.length,
+    inAppCreated: 1,
+    sentExpoTokens,
+    ticketIds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -937,17 +1078,17 @@ export async function sendPushToCustomer(params: {
 // ---------------------------------------------------------------------------
 
 type ReviewRequestConfig = {
-  autoEnabled: boolean
+  autoEnabled: boolean;
   // Minutes after delivery before the single rating push goes out (admin-set).
-  delayMinutes: number
+  delayMinutes: number;
   // Safety cap: never nudge an order older than this (avoids waking someone about a
   // 3-day-old order if the scheduler was down). Not a "repeat" — still one push only.
-  windowHours: number
-  quietHoursStart: number
-  quietHoursEnd: number
-  pushTitle: string
-  pushBody: string
-}
+  windowHours: number;
+  quietHoursStart: number;
+  quietHoursEnd: number;
+  pushTitle: string;
+  pushBody: string;
+};
 
 const REVIEW_REQUEST_DEFAULTS: ReviewRequestConfig = {
   autoEnabled: true,
@@ -957,31 +1098,38 @@ const REVIEW_REQUEST_DEFAULTS: ReviewRequestConfig = {
   quietHoursEnd: 9,
   pushTitle: "How was your food?",
   pushBody: "Tap to rate your order and help others choose with confidence.",
-}
+};
 
 function cleanReviewRequestText(value: unknown, fallback: string): string {
-  const text = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : ""
-  if (!text) return fallback
-  if (/[�]|[âÃÂ]/.test(text)) return fallback
+  const text =
+    typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  if (!text) return fallback;
+  if (/[�]|[âÃÂ]/.test(text)) return fallback;
   if (/\byour\s+your\b/i.test(text) || /\border\s+user\b/i.test(text)) {
-    return fallback
+    return fallback;
   }
-  return text
+  return text;
 }
 
 async function getReviewRequestConfig(): Promise<ReviewRequestConfig> {
   try {
-    const content = await loadPlatformContent()
-    const config = (content as any)?.operations?.reviewRequests
-    const merged = { ...REVIEW_REQUEST_DEFAULTS, ...(config ?? {}) }
+    const content = await loadPlatformContent();
+    const config = (content as any)?.operations?.reviewRequests;
+    const merged = { ...REVIEW_REQUEST_DEFAULTS, ...(config ?? {}) };
     return {
       ...merged,
-      pushTitle: cleanReviewRequestText(merged.pushTitle, REVIEW_REQUEST_DEFAULTS.pushTitle),
-      pushBody: cleanReviewRequestText(merged.pushBody, REVIEW_REQUEST_DEFAULTS.pushBody),
-    }
+      pushTitle: cleanReviewRequestText(
+        merged.pushTitle,
+        REVIEW_REQUEST_DEFAULTS.pushTitle,
+      ),
+      pushBody: cleanReviewRequestText(
+        merged.pushBody,
+        REVIEW_REQUEST_DEFAULTS.pushBody,
+      ),
+    };
   } catch (error) {
-    logger.error(error, "Failed to load review-request config; using defaults")
-    return REVIEW_REQUEST_DEFAULTS
+    logger.error(error, "Failed to load review-request config; using defaults");
+    return REVIEW_REQUEST_DEFAULTS;
   }
 }
 
@@ -994,15 +1142,15 @@ function getDhakaHour(now = new Date()): number {
     })
       .formatToParts(now)
       .find((part) => part.type === "hour")?.value ?? "0",
-  )
-  return hour === 24 ? 0 : hour
+  );
+  return hour === 24 ? 0 : hour;
 }
 
 function isWithinQuietHours(hour: number, start: number, end: number): boolean {
-  if (start === end) return false
-  if (start < end) return hour >= start && hour < end
+  if (start === end) return false;
+  if (start < end) return hour >= start && hour < end;
   // wraps past midnight (e.g. 22 -> 9)
-  return hour >= start || hour < end
+  return hour >= start || hour < end;
 }
 
 function buildReviewRequestPayload(
@@ -1021,23 +1169,26 @@ function buildReviewRequestPayload(
       ctaPath: `/rate-order?orderId=${orderId}`,
       ctaLabel: "Rate order",
     },
-  }
+  };
 }
 
 function getOrderDeliveredAtMs(order: {
-  get: (path: string) => unknown
-  updatedAt?: Date
+  get: (path: string) => unknown;
+  updatedAt?: Date;
 }): number {
-  const timestamps = (order.get("timestamps") ?? {}) as Record<string, unknown>
-  const reviewRequest = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
+  const timestamps = (order.get("timestamps") ?? {}) as Record<string, unknown>;
+  const reviewRequest = (order.get("reviewRequest") ?? {}) as Record<
+    string,
+    unknown
+  >;
   const delivered =
     timestamps.Delivered ??
     timestamps.deliveredAt ??
     reviewRequest.deliveredAt ??
     order.updatedAt ??
-    null
-  const ms = delivered ? new Date(delivered as string).getTime() : NaN
-  return Number.isFinite(ms) ? ms : NaN
+    null;
+  const ms = delivered ? new Date(delivered as string).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : NaN;
 }
 
 /**
@@ -1046,59 +1197,70 @@ function getOrderDeliveredAtMs(order: {
  * hours, since an admin is explicitly sending it.
  */
 export async function sendReviewRequestForOrder(params: {
-  orderId: string
-  force?: boolean
+  orderId: string;
+  force?: boolean;
 }) {
   if (!mongoose.Types.ObjectId.isValid(params.orderId)) {
-    throw new AppError(StatusCodes.BAD_REQUEST, "INVALID_ORDER", "Invalid order id")
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_ORDER",
+      "Invalid order id",
+    );
   }
 
-  const order = await OrderModel.findById(params.orderId)
+  const order = await OrderModel.findById(params.orderId);
   if (!order) {
-    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "ORDER_NOT_FOUND",
+      "Order not found",
+    );
   }
   if (order.get("status") !== "Delivered") {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "ORDER_NOT_DELIVERED",
       "Review requests can only be sent for delivered orders",
-    )
+    );
   }
 
-  const customerId = String(order.get("customerId") ?? "").trim()
+  const customerId = String(order.get("customerId") ?? "").trim();
   if (!customerId) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "ORDER_HAS_NO_CUSTOMER",
       "This order has no linked customer account to notify",
-    )
+    );
   }
 
-  const existingReview = await ReviewModel.exists({ orderId: order._id })
+  const existingReview = await ReviewModel.exists({ orderId: order._id });
   if (existingReview && !params.force) {
     throw new AppError(
       StatusCodes.CONFLICT,
       "REVIEW_ALREADY_EXISTS",
       "This order already has a review",
-    )
+    );
   }
 
-  const config = await getReviewRequestConfig()
+  const config = await getReviewRequestConfig();
   const result = await sendPushToCustomer({
     customerId,
     payload: buildReviewRequestPayload(String(order._id), config),
-  })
+  });
 
-  const previous = (order.get("reviewRequest") ?? {}) as Record<string, unknown>
+  const previous = (order.get("reviewRequest") ?? {}) as Record<
+    string,
+    unknown
+  >;
   order.set("reviewRequest", {
     ...previous,
     pushCount: Number(previous.pushCount ?? 0) + 1,
     lastPushAt: new Date(),
     lastChannel: "manual",
-  })
-  await order.save()
+  });
+  await order.save();
 
-  return result
+  return result;
 }
 
 /**
@@ -1107,15 +1269,21 @@ export async function sendReviewRequestForOrder(params: {
  * reminder gap, the delivery age window, and Asia/Dhaka quiet hours.
  */
 export async function processDueReviewRequests() {
-  const config = await getReviewRequestConfig()
-  if (!config.autoEnabled) return
+  const config = await getReviewRequestConfig();
+  if (!config.autoEnabled) return;
 
-  if (isWithinQuietHours(getDhakaHour(), config.quietHoursStart, config.quietHoursEnd)) {
-    return
+  if (
+    isWithinQuietHours(
+      getDhakaHour(),
+      config.quietHoursStart,
+      config.quietHoursEnd,
+    )
+  ) {
+    return;
   }
 
-  const now = Date.now()
-  const windowStart = new Date(now - config.windowHours * 3_600_000)
+  const now = Date.now();
+  const windowStart = new Date(now - config.windowHours * 3_600_000);
   const candidates = await OrderModel.find({
     status: "Delivered",
     customerId: { $nin: ["", null] },
@@ -1135,20 +1303,20 @@ export async function processDueReviewRequests() {
       "reviewRequest.deliveredAt": 1,
       updatedAt: 1,
     })
-    .limit(200)
+    .limit(200);
 
   for (const order of candidates) {
     try {
-      const customerId = String(order.get("customerId") ?? "").trim()
-      if (!customerId) continue
+      const customerId = String(order.get("customerId") ?? "").trim();
+      if (!customerId) continue;
 
-      const deliveredAtMs = getOrderDeliveredAtMs(order)
-      if (!Number.isFinite(deliveredAtMs)) continue
-      const ageMs = now - deliveredAtMs
-      if (ageMs < config.delayMinutes * 60_000) continue // not due yet
-      if (ageMs > config.windowHours * 3_600_000) continue // too old to nudge
+      const deliveredAtMs = getOrderDeliveredAtMs(order);
+      if (!Number.isFinite(deliveredAtMs)) continue;
+      const ageMs = now - deliveredAtMs;
+      if (ageMs < config.delayMinutes * 60_000) continue; // not due yet
+      if (ageMs > config.windowHours * 3_600_000) continue; // too old to nudge
 
-      if (await ReviewModel.exists({ orderId: order._id })) continue // already reviewed
+      if (await ReviewModel.exists({ orderId: order._id })) continue; // already reviewed
 
       // Atomically claim the single review push by flipping pushCount 0 -> 1. Only ONE
       // caller can match the "not yet pushed" filter, so even with several backend
@@ -1169,18 +1337,18 @@ export async function processDueReviewRequests() {
             "reviewRequest.lastChannel": "auto",
           },
         },
-      )
-      if (!claimed) continue // another instance/tick already sent it
+      );
+      if (!claimed) continue; // another instance/tick already sent it
 
       await sendPushToCustomer({
         customerId,
         payload: buildReviewRequestPayload(String(order._id), config),
-      })
+      });
     } catch (error) {
       logger.error(
         { error, orderId: String(order._id) },
         "Failed to send automatic review request",
-      )
+      );
     }
   }
 }

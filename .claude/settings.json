@@ -109,7 +109,13 @@
       "Bash(grep -n \"customer:\\\\${\" backend/src/modules/owner/operational.service.ts)",
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('scripts:', JSON.stringify\\(p.scripts\\)\\); console.log\\('deps:', Object.keys\\(p.dependencies||{}\\).join\\(', '\\)\\)\")",
       "Skill(artifact-design)",
-      "Skill(artifact-design:*)"
+      "Skill(artifact-design:*)",
+      "Bash(awk 'NR>=3223 && /^}/ {print NR\": \"$0; c++; if\\(c>=2\\) exit}' src/modules/customer/customer.service.ts)",
+      "Bash(grep -nE \"renderPrimaryAction\\\\\\(\\\\\\)\\\\}|</View>$|warningCard|PersistentBottomSheet$|^      >\" app/orders/\\\\[orderId\\\\].tsx)",
+      "Bash(echo \"EXIT-$?\")",
+      "Bash(echo \"EXIT $?\")",
+      "Bash(npm run *)",
+      "Bash(grep -nE \"setInterval|setTimeout\\\\\\(.*[0-9]{2,4}\\\\\\)|setNowMs|requestAnimationFrame\" app/orders/\\\\[orderId\\\\].tsx)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

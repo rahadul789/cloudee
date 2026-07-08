@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { AppBootstrapGate } from "@/src/components/app-bootstrap-gate";
 import { ErrorBoundary } from "@/src/components/error-boundary";
+import { OtaUpdateGate } from "@/src/components/ota-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
 
 export default function RootLayout() {
@@ -21,6 +22,7 @@ export default function RootLayout() {
             <Stack.Screen name="reviews" />
             <Stack.Screen name="orders/[orderId]" />
           </Stack>
+          <OtaUpdateGate />
         </AppBootstrapGate>
       </AppProviders>
     </ErrorBoundary>

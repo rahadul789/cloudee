@@ -412,10 +412,12 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     [resolvedMapStyle],
   );
 
+  // The custom style is applied as a prop (in place), so the MapView is NOT keyed on it.
+  // Keying it remounted the whole Google map when the admin style resolved after mount —
+  // the visible reload / "doesn't load the chosen default first" flash. On a style change
+  // we only nudge the vector markers to repaint; the map stays ready and keeps following
+  // the rider (so mapReadyRef / camera signature must NOT be reset here).
   useEffect(() => {
-    mapReadyRef.current = false;
-    lastCameraSignatureRef.current = "";
-    // The MapView remounts when the style changes, so markers must repaint.
     setTracksViewChanges(true);
   }, [mapStyleSignature]);
 
@@ -731,7 +733,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     <View style={styles.card}>
       <View style={[styles.mapWrap, { height: mapHeight }]}>
         <MapView
-          key={`${mapStyleSignature}-${TRACKING_MAP_VISUAL_VERSION}`}
+          key={TRACKING_MAP_VISUAL_VERSION}
           ref={mapRef}
           style={styles.map}
           initialRegion={initialViewportRegion}

@@ -94,8 +94,12 @@ export function collectFirstOrderDeviceIds(
 }
 
 export type FirstOrderDiscountEvaluation = {
-  eligible: boolean
+  eligible: boolean // grantable right now (threshold met + all fraud checks pass)
+  candidate: boolean // a genuine first-order customer who WOULD get it on reaching the
+  // threshold — drives the "add X more" progress hint below the minimum
   amount: number
+  minimumOrderAmount: number
+  remaining: number // subtotal still needed to reach the threshold (0 once met)
   reason: string
   settings: FirstOrderDiscountSettings
   fingerprints: {
@@ -118,18 +122,26 @@ export async function evaluateFirstOrderDiscount(params: {
   customer?: Record<string, any> | null
 }): Promise<FirstOrderDiscountEvaluation> {
   const settings = await getFirstOrderDiscountSettings()
+  const minimumOrderAmount = settings.minimumOrderAmountTaka
+  const noFingerprints = {
+    deviceIds: [] as string[],
+    phones: [] as string[],
+    walletNumber: "",
+  }
   const fail = (reason: string): FirstOrderDiscountEvaluation => ({
     eligible: false,
+    candidate: false,
     amount: 0,
+    minimumOrderAmount,
+    remaining: 0,
     reason,
     settings,
-    fingerprints: { deviceIds: [], phones: [], walletNumber: "" },
+    fingerprints: noFingerprints,
   })
 
   if (!settings.enabled) return fail("disabled")
   if (!params.customerId) return fail("no_customer")
   if (!isWithinWindow(settings, new Date())) return fail("outside_window")
-  if (params.subtotalTaka < settings.minimumOrderAmountTaka) return fail("below_minimum")
   if (
     settings.paymentRestriction === "bkash_only" &&
     params.paymentMethod &&
@@ -154,6 +166,22 @@ export async function evaluateFirstOrderDiscount(params: {
     status: "Delivered",
   })
   if (deliveredCount > 0) return fail("not_first_order")
+
+  // Genuine first-order candidate. Below the threshold, return a candidate hint (drives
+  // the "add X more to unlock" progress bar) and skip the heavier fraud gate — nothing
+  // is granted yet, so there's nothing to protect.
+  if (params.subtotalTaka < minimumOrderAmount) {
+    return {
+      eligible: false,
+      candidate: true,
+      amount: settings.discountAmountTaka,
+      minimumOrderAmount,
+      remaining: Math.max(0, minimumOrderAmount - params.subtotalTaka),
+      reason: "below_minimum",
+      settings,
+      fingerprints: noFingerprints,
+    }
+  }
 
   const phones = collectFirstOrderPhones(customer)
   const deviceIds = collectFirstOrderDeviceIds(customer, params.deviceId)
@@ -195,7 +223,10 @@ export async function evaluateFirstOrderDiscount(params: {
 
   return {
     eligible: true,
+    candidate: true,
     amount,
+    minimumOrderAmount,
+    remaining: 0,
     reason: "eligible",
     settings,
     fingerprints: { deviceIds, phones, walletNumber },

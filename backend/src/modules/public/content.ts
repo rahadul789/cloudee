@@ -677,6 +677,7 @@ export const platformContent = {
     referrals: {
       enabled: true,
       rewardAmountTaka: 50,
+      refereeRewardAmountTaka: 50,
       minimumOrderAmountTaka: 250,
       voucherExpiryDays: 30,
       monthlyRewardCapPerCustomer: 5,
