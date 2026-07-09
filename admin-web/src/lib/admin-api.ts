@@ -2699,6 +2699,24 @@ export type AdminCustomerDetails = {
       changedAt: string | null
     }>
   }
+  referrals: {
+    referralCode: string
+    referredBy: null | {
+      id: string
+      name: string
+      phone: string
+      referralCode: string
+    }
+    totalReferred: number
+    rewardedCount: number
+    referred: Array<{
+      id: string
+      name: string
+      phone: string
+      joinedAt: string | null
+      rewardStatus: string
+    }>
+  }
   accountRequest: null | {
     type: "deactivate" | "delete" | null
     status: "pending" | "cancelled" | "reviewed" | "completed" | null

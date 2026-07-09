@@ -235,6 +235,11 @@ const customerSchema = new Schema(
     },
     referralRewardSkippedAt: { type: Date, default: null },
     referralRewardSkippedReason: { type: String, default: "" },
+    // Instant referee welcome voucher granted when this customer applied a friend's code.
+    // Tracked so one physical device can trigger the welcome voucher only once, ever
+    // (device-farming guard) — even across different referrers and fresh phone numbers.
+    refereeRewardVoucherId: { type: Schema.Types.ObjectId, ref: "Voucher", default: null },
+    refereeRewardGrantedAt: { type: Date, default: null },
     // First-order (welcome) instant discount: consumed once per customer, released if
     // the qualifying order is cancelled/rejected before delivery so honest users retry.
     firstOrderDiscountRedeemedAt: { type: Date, default: null },

@@ -1027,6 +1027,7 @@ function CustomerDetailsSheet({
                   <TabsTrigger value="reviews">Reviews</TabsTrigger>
                   <TabsTrigger value="account">Account</TabsTrigger>
                   <TabsTrigger value="offers">Offers</TabsTrigger>
+                  <TabsTrigger value="referrals">Referrals</TabsTrigger>
                   <TabsTrigger value="devices">Devices</TabsTrigger>
                   <TabsTrigger value="audit">Audit</TabsTrigger>
                 </TabsList>
@@ -1269,6 +1270,10 @@ function CustomerDetailsSheet({
                   <CustomerOffersTab details={details} />
                 </TabsContent>
 
+                <TabsContent value="referrals">
+                  <CustomerReferralsTab details={details} />
+                </TabsContent>
+
                 <TabsContent value="devices">
                   <Card>
                     <CardHeader>
@@ -1358,6 +1363,118 @@ function CustomerDetailsSheet({
         </ScrollArea>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function CustomerReferralsTab({ details }: { details: AdminCustomerDetails }) {
+  const referrals = details.referrals
+  const referred = referrals?.referred ?? []
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Referrals</CardTitle>
+          <CardDescription>
+            Who this customer referred, and who referred them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Referral code</p>
+              <p className="mt-1 font-mono text-sm font-medium">
+                {referrals?.referralCode || "—"}
+              </p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Total referred</p>
+              <p className="mt-1 text-lg font-semibold">
+                {referrals?.totalReferred ?? 0}
+              </p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Rewarded</p>
+              <p className="mt-1 text-lg font-semibold">
+                {referrals?.rewardedCount ?? 0}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Referred by</p>
+            {referrals?.referredBy ? (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <UserPlus className="size-4 text-muted-foreground" />
+                <span className="font-medium">{referrals.referredBy.name}</span>
+                <span className="text-sm text-muted-foreground">
+                  {referrals.referredBy.phone}
+                </span>
+                <Badge variant="outline" className="font-mono">
+                  {referrals.referredBy.referralCode}
+                </Badge>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Joined without a referral.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Referred customers ({referred.length})</CardTitle>
+          <CardDescription>People who joined using this code.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {referred.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Joined</TableHead>
+                  <TableHead>Reward</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {referred.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="font-medium">{entry.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {entry.phone}
+                    </TableCell>
+                    <TableCell>{formatDate(entry.joinedAt)}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          entry.rewardStatus === "rewarded"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : entry.rewardStatus === "under_review"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : entry.rewardStatus === "rejected"
+                                ? "border-red-200 bg-red-50 text-red-700"
+                                : undefined
+                        }
+                      >
+                        {entry.rewardStatus}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              No referred customers yet.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 

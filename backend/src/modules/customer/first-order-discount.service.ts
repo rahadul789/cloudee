@@ -167,28 +167,20 @@ export async function evaluateFirstOrderDiscount(params: {
   })
   if (deliveredCount > 0) return fail("not_first_order")
 
-  // Genuine first-order candidate. Below the threshold, return a candidate hint (drives
-  // the "add X more to unlock" progress bar) and skip the heavier fraud gate — nothing
-  // is granted yet, so there's nothing to protect.
-  if (params.subtotalTaka < minimumOrderAmount) {
-    return {
-      eligible: false,
-      candidate: true,
-      amount: settings.discountAmountTaka,
-      minimumOrderAmount,
-      remaining: Math.max(0, minimumOrderAmount - params.subtotalTaka),
-      reason: "below_minimum",
-      settings,
-      fingerprints: noFingerprints,
-    }
-  }
-
   const phones = collectFirstOrderPhones(customer)
   const deviceIds = collectFirstOrderDeviceIds(customer, params.deviceId)
   const walletNumber = String(params.walletNumber ?? "").trim()
 
+  // Fraud gate runs for EVERY genuine first-order candidate — even below the minimum — so
+  // the candidate hint (which drives the restaurant "auto-applied" banner) never promises
+  // a discount that placement would refuse. If this device/phone/wallet has already been
+  // used, or the device is over its cap, we return candidate:false so the banner stays
+  // hidden instead of showing on the menu and then blocking at the cart.
+
   // Cross-account block: any OTHER account with an active claim sharing our device,
   // phone (incl. previous), or wallet means this is the same person on a fresh account.
+  // This is a permanent block (no time window) — one device/phone/wallet = one welcome
+  // discount, ever.
   const fingerprintOr: Record<string, unknown>[] = []
   if (deviceIds.length) fingerprintOr.push({ deviceId: { $in: deviceIds } })
   if (phones.length) fingerprintOr.push({ phone: { $in: phones } })
@@ -204,7 +196,8 @@ export async function evaluateFirstOrderDiscount(params: {
   }
 
   // Per-device/day velocity — counts EVERY claim (including released), so rapid
-  // place-cancel farming across fresh accounts on one device still trips the cap.
+  // place-cancel farming across fresh accounts on one device still trips the cap. This is
+  // the backup throttle behind the permanent fingerprint block above.
   const primaryDevice = deviceIds[0]
   if (primaryDevice && settings.maxRedemptionsPerDevicePerDay > 0) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
@@ -213,6 +206,22 @@ export async function evaluateFirstOrderDiscount(params: {
       createdAt: { $gte: since },
     })
     if (recent >= settings.maxRedemptionsPerDevicePerDay) return fail("velocity_capped")
+  }
+
+  // Genuine first-order candidate who has cleared the fraud gate. Below the threshold,
+  // return a candidate hint (drives the "add X more to unlock" progress bar); nothing is
+  // granted yet, but the customer WOULD get it on reaching the minimum.
+  if (params.subtotalTaka < minimumOrderAmount) {
+    return {
+      eligible: false,
+      candidate: true,
+      amount: settings.discountAmountTaka,
+      minimumOrderAmount,
+      remaining: Math.max(0, minimumOrderAmount - params.subtotalTaka),
+      reason: "below_minimum",
+      settings,
+      fingerprints: { deviceIds, phones, walletNumber },
+    }
   }
 
   const amount = Math.min(

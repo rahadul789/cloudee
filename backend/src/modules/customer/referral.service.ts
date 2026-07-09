@@ -752,11 +752,45 @@ export async function applyReferralCodeToCustomer(params: {
     )
   }
 
+  // Device-farming guard: a single physical device can trigger the instant referee
+  // welcome voucher only once, ever. Without this, one phone + one real friend's code +
+  // endless fresh phone numbers = unlimited platform-funded welcome vouchers. The device
+  // fingerprint here is the same install/hardware id captured at signup, so changing the
+  // phone number does NOT unlock a second voucher on the same device.
+  const refereeDeviceIds = collectCustomerDeviceIds(customer)
+  const signupDeviceId = normalizeDeviceId(params.installId)
+  if (signupDeviceId) refereeDeviceIds.add(signupDeviceId)
+  const deviceIdList = [...refereeDeviceIds]
+
+  const deviceAlreadyRewarded = deviceIdList.length
+    ? await CustomerModel.exists({
+        _id: { $ne: customer._id },
+        refereeRewardGrantedAt: { $ne: null },
+        $or: [
+          { referralSignupDeviceId: { $in: deviceIdList } },
+          { lastKnownDeviceId: { $in: deviceIdList } },
+        ],
+      })
+    : null
+
+  if (deviceAlreadyRewarded) {
+    await createReferralFraudAlert({
+      severity: "warning",
+      title: "Referee welcome voucher blocked (device already rewarded)",
+      description:
+        "A referral code was applied on a device that had already received the instant welcome voucher. The reward was skipped to prevent device farming.",
+      referrerId: referrer.id,
+      referredCustomerId: customer.id,
+      reasonKeys: ["referee_voucher_same_device"],
+      metadata: { deviceIds: deviceIdList },
+    })
+  }
+
   // Give the referred friend their welcome voucher right away so it's usable on their
   // first order. Platform-funded, single-use, auto-applied. Non-fatal on failure so a
   // voucher hiccup never blocks linking the referral.
   let refereeRewardGranted = false
-  if (settings.refereeRewardAmountTaka > 0) {
+  if (settings.refereeRewardAmountTaka > 0 && !deviceAlreadyRewarded) {
     try {
       const refereeVoucherId = new mongoose.Types.ObjectId()
       const refereeVoucherCode = await createReferralRewardVoucherCode()
@@ -823,6 +857,17 @@ export async function applyReferralCodeToCustomer(params: {
           },
         },
       })
+      // Mark the device as having consumed its one-and-only referee welcome voucher so
+      // future fresh accounts on the same device are blocked by the guard above.
+      await CustomerModel.updateOne(
+        { _id: customer._id },
+        {
+          $set: {
+            refereeRewardVoucherId: refereeVoucherId,
+            refereeRewardGrantedAt: new Date(),
+          },
+        },
+      )
       refereeRewardGranted = true
     } catch (error) {
       logger.warn(

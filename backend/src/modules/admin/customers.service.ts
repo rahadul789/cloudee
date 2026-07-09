@@ -1527,6 +1527,21 @@ export async function getAdminCustomerDetails(
   const accountRequestHistory = asRecordArray(customer.accountRequest?.history);
   const customOfferRequestHistory = asRecordArray(customer.customOfferRequest?.history);
 
+  // Referral network for the Referrals tab: everyone THIS customer brought in (with join
+  // date + reward state) plus who referred them, if anyone.
+  const [referredCustomers, referrerCustomer] = await Promise.all([
+    CustomerModel.find({ referredByCustomerId: safeCustomerId })
+      .select("fullName phone createdAt referralRewardedAt referralRewardStatus")
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean(),
+    customer.referredByCustomerId
+      ? CustomerModel.findById(customer.referredByCustomerId)
+          .select("fullName phone referralCode")
+          .lean()
+      : Promise.resolve(null),
+  ]);
+
   return {
     ...mapCustomerSummary({
       ...customer,
@@ -1571,6 +1586,28 @@ export async function getAdminCustomerDetails(
       previousPhones: customerPreviousPhones.map((entry) => ({
         phone: stringValue(entry.phone),
         changedAt: serializeDate(entry.changedAt),
+      })),
+    },
+    referrals: {
+      referralCode: stringValue(customer.referralCode),
+      referredBy: referrerCustomer
+        ? {
+            id: objectIdString(referrerCustomer._id),
+            name: stringValue(referrerCustomer.fullName, "Customer"),
+            phone: stringValue(referrerCustomer.phone),
+            referralCode: stringValue(referrerCustomer.referralCode),
+          }
+        : null,
+      totalReferred: referredCustomers.length,
+      rewardedCount: referredCustomers.filter((entry) => entry.referralRewardedAt).length,
+      referred: referredCustomers.map((entry) => ({
+        id: objectIdString(entry._id),
+        name: stringValue(entry.fullName, "Customer"),
+        phone: stringValue(entry.phone),
+        joinedAt: serializeDate(entry.createdAt),
+        rewardStatus: entry.referralRewardedAt
+          ? "rewarded"
+          : stringValue(entry.referralRewardStatus, "pending"),
       })),
     },
     accountRequest: customer.accountRequest?.type
