@@ -507,6 +507,32 @@ export default function OrderTrackingScreen() {
   };
 
   if (orderQuery.isLoading) {
+    // Just placed (e.g. right after a bKash payment): show a clean, centered loader
+    // instead of the full skeleton — minimal and calm while the first order state syncs.
+    if (isJustPlaced) {
+      return (
+        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+          <View style={styles.justPlacedHeader}>
+            <Pressable style={styles.backButton} onPress={handleBack}>
+              <Ionicons
+                name="chevron-back"
+                size={20}
+                color={palette.foreground}
+              />
+            </Pressable>
+          </View>
+          <View style={styles.justPlacedLoadingWrap}>
+            <View style={styles.justPlacedIconWrap}>
+              <ActivityIndicator size="large" color={palette.secondary} />
+            </View>
+            <Text style={styles.justPlacedTitle}>Opening live tracking</Text>
+            <Text style={styles.justPlacedText}>
+              Syncing the latest restaurant and rider state…
+            </Text>
+          </View>
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <ScrollView
@@ -526,31 +552,13 @@ export default function OrderTrackingScreen() {
             </Pressable>
             <View style={styles.headerCopy}>
               <Text style={styles.kicker}>Order details</Text>
-              <Text style={styles.orderIdText}>
-                {isJustPlaced ? "Opening tracking" : "Loading order"}
-              </Text>
+              <Text style={styles.orderIdText}>Loading order</Text>
             </View>
           </View>
-          {isJustPlaced ? (
-            <View style={styles.justPlacedLoadingWrap}>
-              <View style={styles.justPlacedCard}>
-                <View style={styles.justPlacedIconWrap}>
-                  <ActivityIndicator size="small" color={palette.secondary} />
-                </View>
-                <View style={styles.justPlacedCopy}>
-                  <Text style={styles.justPlacedTitle}>Opening live tracking</Text>
-                  <Text style={styles.justPlacedText}>
-                    We are syncing the latest restaurant and rider state.
-                  </Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View style={styles.trackingSkeletonWrap}>
-              <ShimmerBlock style={styles.trackingSkeletonMap} />
-              <CardListSkeleton count={3} cardHeight={96} />
-            </View>
-          )}
+          <View style={styles.trackingSkeletonWrap}>
+            <ShimmerBlock style={styles.trackingSkeletonMap} />
+            <CardListSkeleton count={3} cardHeight={96} />
+          </View>
         </ScrollView>
       </SafeAreaView>
     );

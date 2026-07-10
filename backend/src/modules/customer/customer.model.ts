@@ -466,6 +466,11 @@ const voucherSchema = new Schema(
       default: "restaurant"
     },
     selectedRestaurantIds: { type: [Schema.Types.ObjectId], ref: "Restaurant", default: [] },
+    // True when an admin created an "all restaurants in this area" offer that had to be
+    // stored as selected_restaurants (the zone's full restaurant list) to limit it to the
+    // zone. It stays area-wide in intent, so it shows only in the offers strip and never
+    // badges an individual restaurant card.
+    areaWide: { type: Boolean, default: false },
     audienceType: {
       type: String,
       enum: ["all_users", "new_users", "returning_users", "selected_users"],

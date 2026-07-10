@@ -581,6 +581,16 @@ export const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+  offerProgressHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 0,
+  },
+  offerProgressPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.995 }],
+  },
   offerProgressBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -609,6 +619,7 @@ export const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   offerProgressSubtitle: {
+    marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
     color: palette.mutedForeground,

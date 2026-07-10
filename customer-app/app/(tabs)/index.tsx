@@ -435,6 +435,13 @@ export default function HomeScreen() {
   );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const isLocationHydrated = useLocationStore((state) => state.isHydrated);
+  const startupStatus = useLocationStore((state) => state.startupStatus);
+  // First run has no saved location while permission/GPS/geocode is still resolving.
+  // Treat that window as "loading" (show a skeleton) instead of the "choose your
+  // location" prompt, so a brand-new user never sees the prompt flash then vanish.
+  const isResolvingLocation =
+    !selectedLocation &&
+    (!isLocationHydrated || startupStatus === "loading_location");
   const locationKey = selectedLocation
     ? `${selectedLocation.id}:${selectedLocation.latitude}:${selectedLocation.longitude}`
     : "";
@@ -533,8 +540,17 @@ export default function HomeScreen() {
     isHomeRestaurantSectionActive(offersSectionConfig);
   const shouldShowNearbyRestaurantSection =
     !isSearching && isHomeRestaurantSectionActive(nearbySectionConfig);
+  // The voucher strip shows ONLY single-restaurant offers (each chip maps to exactly one
+  // restaurant, so tapping it opens that restaurant). Platform/area-wide and multi-
+  // restaurant offers live in the CMS carousel instead.
   const stripOffers = useMemo(
-    () => (shouldShowVoucherStrip ? activeOffers : []),
+    () =>
+      shouldShowVoucherStrip
+        ? activeOffers.filter(
+            (offer) =>
+              offer.scopeType === "restaurant" && Boolean(offer.restaurantId),
+          )
+        : [],
     [activeOffers, shouldShowVoucherStrip],
   );
   const offerLabelByRestaurantId = useMemo(
@@ -1187,13 +1203,25 @@ export default function HomeScreen() {
               {stripOffers.slice(0, 8).map((offer) => (
                 <Pressable
                   key={offer._id}
-                  style={styles.offerChip}
-                  onPress={() => recordHomeCmsEvent("strip_click")}
+                  style={({ pressed }) => [
+                    styles.offerChip,
+                    pressed ? { opacity: 0.7 } : null,
+                  ]}
+                  onPress={() => {
+                    recordHomeCmsEvent("strip_click");
+                    if (offer.restaurantId) {
+                      router.push({
+                        pathname: "/restaurants/[restaurantId]",
+                        params: { restaurantId: offer.restaurantId },
+                      });
+                    }
+                  }}
                 >
                   <Ionicons name="pricetag-outline" size={14} color="#FF5C93" />
                   <Text numberOfLines={1} style={styles.offerChipText}>
                     {getOfferLabel(offer)}
                   </Text>
+                  <Ionicons name="chevron-forward" size={13} color="#FF5C93" />
                 </Pressable>
               ))}
             </ScrollView>
@@ -1223,20 +1251,28 @@ export default function HomeScreen() {
             </View>
 
             {!selectedLocation ? (
-              <EmptyStateCard
-                title={
-                  permissionGranted === false
-                    ? "Location permission is needed"
-                    : "Choose your location first"
-                }
-                description="Set your delivery point so we can show places that deliver to you."
-                actionLabel={
-                  permissionGranted === false
-                    ? "Allow location"
-                    : "Choose location"
-                }
-                onPress={handleMissingLocationPress}
-              />
+              isResolvingLocation ? (
+                <RestaurantListSkeleton
+                  translateX={shimmerTranslateX}
+                  count={3}
+                  variant="nearby"
+                />
+              ) : (
+                <EmptyStateCard
+                  title={
+                    permissionGranted === false
+                      ? "Location permission is needed"
+                      : "Choose your location first"
+                  }
+                  description="Set your delivery point so we can show places that deliver to you."
+                  actionLabel={
+                    permissionGranted === false
+                      ? "Allow location"
+                      : "Choose location"
+                  }
+                  onPress={handleMissingLocationPress}
+                />
+              )
             ) : shouldShowSearchSkeleton ? (
               <RestaurantListSkeleton
                 translateX={shimmerTranslateX}
@@ -1702,20 +1738,28 @@ export default function HomeScreen() {
               </View>
 
               {!selectedLocation ? (
-                <EmptyStateCard
-                  title={
-                    permissionGranted === false
-                      ? "Location permission is needed"
-                      : "Choose your location first"
-                  }
-                  description="Set your delivery point so we can show places that deliver to you."
-                  actionLabel={
-                    permissionGranted === false
-                      ? "Allow location"
-                      : "Choose location"
-                  }
-                  onPress={handleMissingLocationPress}
-                />
+                isResolvingLocation ? (
+                  <RestaurantListSkeleton
+                    translateX={shimmerTranslateX}
+                    count={3}
+                    variant="nearby"
+                  />
+                ) : (
+                  <EmptyStateCard
+                    title={
+                      permissionGranted === false
+                        ? "Location permission is needed"
+                        : "Choose your location first"
+                    }
+                    description="Set your delivery point so we can show places that deliver to you."
+                    actionLabel={
+                      permissionGranted === false
+                        ? "Allow location"
+                        : "Choose location"
+                    }
+                    onPress={handleMissingLocationPress}
+                  />
+                )
               ) : shouldShowNearbySkeleton || isUpdatingLocationResults ? (
                 <RestaurantListSkeleton
                   translateX={shimmerTranslateX}

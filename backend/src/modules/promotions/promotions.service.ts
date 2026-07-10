@@ -93,6 +93,7 @@ type VoucherMutationParams = {
   restaurantId?: string
   scopeType?: "restaurant" | "selected_restaurants" | "all_restaurants"
   selectedRestaurantIds?: string[]
+  areaWide?: boolean
   audienceType?: "all_users" | "new_users" | "returning_users" | "selected_users"
   selectedCustomerIds?: string[]
   customerGroupKey?: string
@@ -940,6 +941,9 @@ function buildVoucherCreatePayload(params: VoucherMutationParams & {
     scopeType,
     selectedRestaurantIds:
       scopeType === "selected_restaurants" ? params.selectedRestaurantIds ?? [] : [],
+    // Only a selected_restaurants offer can be "area-wide in disguise" (an all-restaurants-
+    // in-zone offer stored as the zone's full list). Any other scope is never area-wide here.
+    areaWide: scopeType === "selected_restaurants" ? params.areaWide ?? false : false,
     audienceType: params.audienceType ?? "all_users",
     selectedCustomerIds: params.audienceType === "selected_users" ? params.selectedCustomerIds ?? [] : [],
     customerGroupKey: params.customerGroupKey ?? "",
@@ -1062,6 +1066,7 @@ async function applyVoucherPatch(
   if (params.status !== undefined) voucher.status = params.status
   if (params.scopeType !== undefined) voucher.scopeType = params.scopeType
   if (params.selectedRestaurantIds !== undefined) voucher.selectedRestaurantIds = params.selectedRestaurantIds
+  if (params.areaWide !== undefined) voucher.areaWide = params.areaWide
   if (params.audienceType !== undefined) voucher.audienceType = params.audienceType
   if (params.selectedCustomerIds !== undefined) voucher.selectedCustomerIds = params.selectedCustomerIds
   if (params.customerGroupKey !== undefined) voucher.customerGroupKey = params.customerGroupKey

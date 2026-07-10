@@ -369,11 +369,13 @@ export default function NotificationsScreen() {
               return (
                 <Pressable
                   key={notification.id}
-                  style={[
+                  style={({ pressed }) => [
                     styles.card,
                     !notification.isRead ? styles.cardUnread : null,
                     isPushMatch ? styles.cardFocused : null,
+                    pressed ? styles.cardPressed : null,
                   ]}
+                  android_ripple={{ color: "rgba(0,0,0,0.04)" }}
                   onPress={() => openNotification(notification)}
                 >
                   <View style={[styles.cardIconWrap, { backgroundColor: tone.cardTint }]}>
@@ -673,6 +675,10 @@ const styles = StyleSheet.create({
   cardUnread: {
     borderColor: "#F5D0DF",
     backgroundColor: "#FFF9FC",
+  },
+  cardPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
   cardFocused: {
     borderColor: palette.secondary,

@@ -7,6 +7,7 @@ import {
   Clock,
   Eye,
   Gift,
+  GripVertical,
   Image,
   Loader2,
   MousePointerClick,
@@ -168,6 +169,78 @@ function TargetCheckboxList({
           {emptyText}
         </div>
       )}
+    </div>
+  )
+}
+
+// Draggable horizontal cards for the SELECTED restaurants, so admins control the exact
+// display order (drag to reorder). Dependency-free native HTML5 drag-and-drop.
+function SortableRestaurantCards({
+  options,
+  selectedIds,
+  onReorder,
+  onRemove,
+}: {
+  options: Array<{ id: string; name: string }>
+  selectedIds: string[]
+  onReorder: (nextIds: string[]) => void
+  onRemove?: (id: string) => void
+}) {
+  const [dragIndex, setDragIndex] = React.useState<number | null>(null)
+  const nameById = React.useMemo(
+    () => new Map(options.map((option) => [option.id, option.name])),
+    [options]
+  )
+  const ordered = selectedIds.filter((id) => nameById.has(id))
+  if (!ordered.length) return null
+
+  const move = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0 || to >= ordered.length) return
+    const next = [...ordered]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    onReorder(next)
+  }
+
+  return (
+    <div className="mb-3 space-y-1.5">
+      <Label className="text-xs">Display order — drag to reorder</Label>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {ordered.map((id, index) => (
+          <div
+            key={id}
+            draggable
+            onDragStart={() => setDragIndex(index)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => {
+              if (dragIndex !== null) move(dragIndex, index)
+              setDragIndex(null)
+            }}
+            onDragEnd={() => setDragIndex(null)}
+            className={`flex min-w-[150px] max-w-[190px] shrink-0 cursor-grab items-center gap-2 rounded-lg border bg-background px-2.5 py-2 shadow-sm transition active:cursor-grabbing ${
+              dragIndex === index ? "opacity-50" : ""
+            }`}
+          >
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+              {index + 1}
+            </span>
+            <GripVertical className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {nameById.get(id)}
+            </span>
+            {onRemove ? (
+              <button
+                type="button"
+                onClick={() => onRemove(id)}
+                className="shrink-0 text-muted-foreground transition hover:text-destructive"
+                aria-label="Remove"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -988,6 +1061,7 @@ export function CustomerHomeCmsSection({
   content,
   customers,
   restaurants,
+  offerRestaurants = [],
   isLoading,
   isSaving,
   isSending,
@@ -1008,6 +1082,7 @@ export function CustomerHomeCmsSection({
   content: PlatformContent | null
   customers: AdminCustomerSummary[]
   restaurants: AdminRestaurantSummary[]
+  offerRestaurants?: Array<{ id: string; name: string }>
   isLoading: boolean
   isSaving: boolean
   isSending: boolean
@@ -3055,8 +3130,62 @@ export function CustomerHomeCmsSection({
                         />
                       </div>
                     </div>
-                    {section.source === "manual" ? (
+                    {entry.key === "offers" ? (
+                      <div className="mt-4 space-y-2">
+                        <p className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                          Auto-filled with every restaurant that currently has a
+                          live offer. Drag to set the display order — a restaurant
+                          whose offer expires drops off automatically.
+                        </p>
+                        {offerRestaurants.length ? (
+                          <SortableRestaurantCards
+                            options={offerRestaurants}
+                            selectedIds={[
+                              ...(section.selectedRestaurantIds ?? []).filter(
+                                (id) =>
+                                  offerRestaurants.some(
+                                    (restaurant) => restaurant.id === id
+                                  )
+                              ),
+                              ...offerRestaurants
+                                .filter(
+                                  (restaurant) =>
+                                    !(
+                                      section.selectedRestaurantIds ?? []
+                                    ).includes(restaurant.id)
+                                )
+                                .map((restaurant) => restaurant.id),
+                            ]}
+                            onReorder={(nextIds) =>
+                              updateRestaurantSection(entry.key, {
+                                selectedRestaurantIds: nextIds,
+                              })
+                            }
+                          />
+                        ) : (
+                          <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                            No restaurants have an active offer right now.
+                          </p>
+                        )}
+                      </div>
+                    ) : section.source === "manual" ? (
                       <div className="mt-4">
+                        <SortableRestaurantCards
+                          options={restaurantTargetOptions}
+                          selectedIds={section.selectedRestaurantIds ?? []}
+                          onReorder={(nextIds) =>
+                            updateRestaurantSection(entry.key, {
+                              selectedRestaurantIds: nextIds,
+                            })
+                          }
+                          onRemove={(id) =>
+                            updateRestaurantSection(entry.key, {
+                              selectedRestaurantIds: (
+                                section.selectedRestaurantIds ?? []
+                              ).filter((item) => item !== id),
+                            })
+                          }
+                        />
                         <TargetCheckboxList
                           title={`${entry.label} restaurants`}
                           emptyText="No restaurants available in this admin scope."

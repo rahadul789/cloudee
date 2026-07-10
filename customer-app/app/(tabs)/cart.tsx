@@ -1100,69 +1100,96 @@ export default function CartScreen() {
 
               <View style={styles.summaryCard}>
                 {offerProgress ? (
-                  <Animated.View
-                    style={[
-                      styles.offerProgressCard,
-                      offerProgress.hasCurrent
-                        ? styles.offerProgressCardUnlocked
-                        : null,
-                      { transform: [{ scale: offerUnlockAnim }] },
-                    ]}
-                  >
-                    <View style={styles.offerProgressHeader}>
-                      <View style={styles.offerProgressBadge}>
-                        <Ionicons
-                          name={
-                            offerProgress.hasCurrent
-                              ? "checkmark-circle"
-                              : "sparkles-outline"
-                          }
-                          size={15}
-                          color={
-                            offerProgress.hasCurrent
-                              ? palette.successText
-                              : palette.secondary
-                          }
-                        />
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            styles.offerProgressBadgeText,
-                            offerProgress.hasCurrent
-                              ? styles.offerProgressBadgeTextUnlocked
-                              : null,
-                          ]}
-                        >
-                          {offerProgress.hasCurrent
-                            ? `${offerProgress.currentLabel} applied`
-                            : `Unlock ${offerProgress.nextLabel}`}
-                        </Text>
-                      </View>
-                      <Text
-                        style={styles.offerProgressValue}
-                        numberOfLines={1}
-                      >
-                        {formatCurrency(offerProgress.subtotal)} /{" "}
-                        {formatCurrency(offerProgress.target)}
-                      </Text>
-                    </View>
-                    <Text style={styles.offerProgressSubtitle}>
-                      {offerProgress.unlocked
-                        ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
-                        : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
-                    </Text>
-                    <View style={styles.offerTrack}>
-                      <View
+                  (() => {
+                    // Below the threshold the card doubles as a shortcut: tap to jump back
+                    // to the restaurant and add more items to unlock the offer.
+                    const canAddMore =
+                      !offerProgress.unlocked && Boolean(restaurant?.restaurantId);
+                    return (
+                      <Animated.View
                         style={[
-                          styles.offerFill,
+                          styles.offerProgressCard,
                           offerProgress.hasCurrent
-                            ? styles.offerFillUnlocked
+                            ? styles.offerProgressCardUnlocked
                             : null,
-                          { width: `${offerProgress.ratio * 100}%` },
+                          { transform: [{ scale: offerUnlockAnim }] },
                         ]}
-                      />
-                    </View>
-                  </Animated.View>
+                      >
+                        <Pressable
+                          disabled={!canAddMore}
+                          onPress={() => openRestaurantForItem()}
+                          style={({ pressed }) =>
+                            pressed && canAddMore
+                              ? styles.offerProgressPressed
+                              : null
+                          }
+                        >
+                          <View style={styles.offerProgressHeader}>
+                            <View style={styles.offerProgressBadge}>
+                              <Ionicons
+                                name={
+                                  offerProgress.hasCurrent
+                                    ? "checkmark-circle"
+                                    : "sparkles-outline"
+                                }
+                                size={15}
+                                color={
+                                  offerProgress.hasCurrent
+                                    ? palette.successText
+                                    : palette.secondary
+                                }
+                              />
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.offerProgressBadgeText,
+                                  offerProgress.hasCurrent
+                                    ? styles.offerProgressBadgeTextUnlocked
+                                    : null,
+                                ]}
+                              >
+                                {offerProgress.hasCurrent
+                                  ? `${offerProgress.currentLabel} applied`
+                                  : `Unlock ${offerProgress.nextLabel}`}
+                              </Text>
+                            </View>
+                            <View style={styles.offerProgressHeaderRight}>
+                              <Text
+                                style={styles.offerProgressValue}
+                                numberOfLines={1}
+                              >
+                                {formatCurrency(offerProgress.subtotal)} /{" "}
+                                {formatCurrency(offerProgress.target)}
+                              </Text>
+                              {canAddMore ? (
+                                <Ionicons
+                                  name="chevron-forward"
+                                  size={16}
+                                  color={palette.secondary}
+                                />
+                              ) : null}
+                            </View>
+                          </View>
+                          <Text style={styles.offerProgressSubtitle}>
+                            {offerProgress.unlocked
+                              ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
+                              : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
+                          </Text>
+                          <View style={styles.offerTrack}>
+                            <View
+                              style={[
+                                styles.offerFill,
+                                offerProgress.hasCurrent
+                                  ? styles.offerFillUnlocked
+                                  : null,
+                                { width: `${offerProgress.ratio * 100}%` },
+                              ]}
+                            />
+                          </View>
+                        </Pressable>
+                      </Animated.View>
+                    );
+                  })()
                 ) : null}
                 <Text style={styles.summaryTitle}>Order summary</Text>
                 <View style={styles.summaryRow}>

@@ -602,9 +602,8 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
         style={StyleSheet.absoluteFill}
         initialRegion={initialRegion}
         customMapStyle={resolvedMapStyle}
-        // No showsUserLocation: the native "my location" dot fights the background
-        // location service for the GPS, which blinked the dot and froze the app. The
-        // rider follows the drawn route + the external "Navigate" button instead.
+        // Raw native GPS blue dot for the rider's own position.
+        showsUserLocation
         showsMyLocationButton={false}
         showsCompass
         toolbarEnabled={false}
@@ -658,17 +657,6 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
           </>
         ) : null}
 
-        {offRoadFromRider ? (
-          <Polyline
-            coordinates={offRoadFromRider}
-            strokeColor={ROUTE_PINK}
-            strokeWidth={3}
-            lineDashPattern={[2, 8]}
-            lineCap="round"
-            lineJoin="round"
-            zIndex={3}
-          />
-        ) : null}
         {offRoadToDestination ? (
           <Polyline
             coordinates={offRoadToDestination}
@@ -707,18 +695,8 @@ const RiderLiveMapInner = forwardRef<RiderLiveMapHandle, RiderLiveMapProps>(func
           </Marker>
         ) : null}
 
-        {effectiveRiderLocation ? (
-          <Marker
-            key={`rider-${RIDER_MAP_VISUAL_VERSION}`}
-            coordinate={effectiveRiderLocation}
-            anchor={{ x: 0.5, y: 0.5 }}
-            title="You"
-            tracksViewChanges={riderTracking}
-            zIndex={6}
-          >
-            <RiderPin heading={riderHeading} />
-          </Marker>
-        ) : null}
+        {/* No custom rider marker — the rider's own position is the native GPS blue dot
+            (showsUserLocation), which counts location directly from the device GPS. */}
       </MapView>
 
       <View style={[styles.controls, { bottom: bottomInset + 16 }]} pointerEvents="box-none">

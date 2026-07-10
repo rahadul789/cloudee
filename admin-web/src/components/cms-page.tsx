@@ -17,6 +17,7 @@ import {
   type PlatformContent,
 } from "@/lib/admin-cms-api"
 import { getAdminZoneScope, subscribeAdminZoneScope } from "@/lib/admin-zone-scope"
+import { getAdminRestaurantsWithOffers, listAdminRestaurants } from "@/lib/admin-api"
 
 import { CustomerHomeCmsSection } from "./customer-home-cms-section"
 
@@ -36,6 +37,27 @@ export function CmsPage() {
     enabled: adminZoneScope.type !== "all",
     staleTime: 30_000,
   })
+
+  // Restaurants that populate the manual pickers (Featured, Offers, etc.). Without this
+  // the CMS was passing an empty list, so the manual restaurant chooser showed nothing.
+  const restaurantsQuery = useQuery({
+    queryKey: ["admin-restaurants", "cms-home-sections"],
+    queryFn: () =>
+      listAdminRestaurants({ page: 1, pageSize: 200, sortBy: "newestUpdated" }),
+    enabled: adminZoneScope.type !== "all",
+    staleTime: 60_000,
+  })
+  const restaurants = restaurantsQuery.data?.items ?? []
+
+  // Restaurants that currently have a badge-eligible offer — auto-populates the "Offers
+  // for you" order editor. Refetched on content save so expired offers drop out.
+  const offerRestaurantsQuery = useQuery({
+    queryKey: ["admin-restaurants-with-offers"],
+    queryFn: getAdminRestaurantsWithOffers,
+    enabled: adminZoneScope.type !== "all",
+    staleTime: 30_000,
+  })
+  const offerRestaurants = offerRestaurantsQuery.data ?? []
 
   const updateContentMutation = useMutation({
     mutationFn: updatePlatformContent,
@@ -192,7 +214,8 @@ export function CmsPage() {
         <CustomerHomeCmsSection
           content={platformContentQuery.data?.content ?? null}
           customers={[]}
-          restaurants={[]}
+          restaurants={restaurants}
+          offerRestaurants={offerRestaurants}
           isLoading={platformContentQuery.isLoading}
           isSaving={updateContentMutation.isPending}
           isSending={sendHomePushMutation.isPending}

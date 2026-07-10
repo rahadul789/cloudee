@@ -860,6 +860,9 @@ function VoucherFormSheet({
       payload.selectedRestaurantIds = restaurants.map(
         (restaurant) => restaurant.id
       )
+      // Stored as selected_restaurants (the zone's full list) to keep the offer inside this
+      // area, but it stays area-wide in intent: shown only in the strip, never as a card badge.
+      payload.areaWide = true
     }
     onSubmit(payload)
   }
@@ -966,6 +969,11 @@ function VoucherFormSheet({
                     </SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {form.scopeType === "all_restaurants"
+                    ? "Area-wide: shown only in the top offers strip — NOT badged on individual restaurant cards."
+                    : "Badged on the selected restaurant card(s) and shown in the “Offers for you” section."}
+                </p>
               </div>
 
               {form.scopeType === "restaurant" ? (

@@ -565,6 +565,19 @@ export const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 12,
   },
+  firstOrderBannerPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.995 }],
+  },
+  firstOrderBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  firstOrderBannerCopy: {
+    flex: 1,
+    gap: 2,
+  },
   firstOrderBannerTitle: {
     fontSize: 14,
     fontWeight: "800",

@@ -14,6 +14,10 @@ import {
   sendCustomerHomeCmsTestPush,
   updatePlatformContent,
 } from "../public/content.service"
+import {
+  invalidateCustomerRestaurantAvailabilityCaches,
+  listRestaurantsWithActiveOffers,
+} from "../customer/customer.service"
 
 const rollbackSchema = z.object({
   updatedAt: z.string().trim().min(1),
@@ -39,12 +43,23 @@ export const getAdminPlatformContent = asyncHandler(async (req: Request, res: Re
   return sendSuccess(res, { data })
 })
 
+export const getAdminRestaurantsWithOffers = asyncHandler(
+  async (_req: Request, res: Response) => {
+    const restaurants = await listRestaurantsWithActiveOffers()
+    return sendSuccess(res, { data: { restaurants } })
+  },
+)
+
 export const putAdminPlatformContent = asyncHandler(async (req: Request, res: Response) => {
   const data = await updatePlatformContent({
     adminId: req.user?.id ?? "",
     content: req.body,
     scope: getAreaScope(req),
   })
+
+  // Home-section config (featured, offers, allow-repeat, etc.) feeds the customer home
+  // feed, which is cached per customer/location — flush it so CMS edits show right away.
+  invalidateCustomerRestaurantAvailabilityCaches()
 
   return sendSuccess(res, {
     message: "Platform content updated successfully",
@@ -59,6 +74,8 @@ export const postAdminPlatformContentRollback = asyncHandler(
       adminId: req.user?.id ?? "",
       updatedAt: payload.updatedAt,
     })
+
+    invalidateCustomerRestaurantAvailabilityCaches()
 
     return sendSuccess(res, {
       message: "Platform content rolled back successfully",

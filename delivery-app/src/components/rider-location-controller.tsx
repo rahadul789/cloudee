@@ -79,25 +79,25 @@ export function RiderLocationController({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!shouldTrack || !permissionReady) {
-      void setRiderBackgroundTrackingOrderId(null);
-      void stopRiderBackgroundLocationAsync();
+      setRiderBackgroundTrackingOrderId(null).catch(() => undefined);
+      stopRiderBackgroundLocationAsync().catch(() => undefined);
       return;
     }
-    void setRiderBackgroundTrackingOrderId(orderIdRef.current);
-    void startRiderBackgroundLocationAsync({
+    setRiderBackgroundTrackingOrderId(orderIdRef.current).catch(() => undefined);
+    startRiderBackgroundLocationAsync({
       ...configRef.current,
       notificationBody: NOTIFICATION_BODY,
-    });
+    }).catch(() => undefined);
   }, [shouldTrack, permissionReady, configSignature]);
 
   useEffect(() => {
     const handleAppState = (state: AppStateStatus) => {
       if (state !== "active" || !shouldTrackRef.current) return;
-      void setRiderBackgroundTrackingOrderId(orderIdRef.current);
-      void startRiderBackgroundLocationAsync({
+      setRiderBackgroundTrackingOrderId(orderIdRef.current).catch(() => undefined);
+      startRiderBackgroundLocationAsync({
         ...configRef.current,
         notificationBody: NOTIFICATION_BODY,
-      });
+      }).catch(() => undefined);
     };
     const subscription = AppState.addEventListener("change", handleAppState);
     return () => subscription.remove();

@@ -2332,15 +2332,21 @@ async function getActiveOfferRestaurantIdSet() {
     // everyone else.
     audienceType: { $ne: "selected_users" },
   })
-    .select("restaurantId selectedRestaurantIds scopeType")
+    .select("restaurantId selectedRestaurantIds scopeType areaWide")
     .lean();
   const restaurantIds = new Set<string>();
 
   offers.forEach((offer) => {
+    // Area-wide offers apply everywhere, so they never mark an individual restaurant as
+    // "has offers" — only a restaurant's own offer or an admin specific-restaurant offer.
+    if (isAreaWideOffer(offer as ActiveHomeOffer)) return;
+    const scopeType = String((offer as any).scopeType ?? "restaurant");
     const scopedIds =
-      (offer as any).scopeType === "selected_restaurants"
+      scopeType === "selected_restaurants"
         ? ((offer as any).selectedRestaurantIds ?? [])
-        : [offer.restaurantId];
+        : scopeType === "restaurant"
+          ? [offer.restaurantId]
+          : [];
     scopedIds.forEach((restaurantId: unknown) => {
       const id = restaurantId?.toString?.() ?? "";
       if (id) restaurantIds.add(id);
@@ -2348,6 +2354,28 @@ async function getActiveOfferRestaurantIdSet() {
   });
 
   return restaurantIds;
+}
+
+// Restaurants that currently carry a badge-eligible offer (owner or admin specific-
+// restaurant). Powers the admin CMS "Offers for you" order editor so it auto-populates
+// with exactly the restaurants the customer sees — expired offers drop out on their own.
+export async function listRestaurantsWithActiveOffers(): Promise<
+  Array<{ id: string; name: string }>
+> {
+  const offerRestaurantIds = await getActiveOfferRestaurantIdSet();
+  if (!offerRestaurantIds.size) return [];
+  const objectIds = [...offerRestaurantIds]
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!objectIds.length) return [];
+  const restaurants = await RestaurantModel.find(
+    { _id: { $in: objectIds }, ...getDiscoverableRestaurantQuery() },
+    { name: 1 },
+  ).lean<Array<{ _id: mongoose.Types.ObjectId; name?: string }>>();
+  return restaurants.map((restaurant) => ({
+    id: String(restaurant._id),
+    name: restaurant.name?.trim() || "Restaurant",
+  }));
 }
 
 export async function listDiscoverableRestaurantsPage(params?: {
@@ -2493,7 +2521,26 @@ function filterExcludedRestaurants(
   return restaurants.filter((restaurant) => !excludedIds.has(String(restaurant._id)))
 }
 
+function isOwnerOffer(offer: ActiveHomeOffer | null | undefined) {
+  return String(offer?.createdByType ?? "") === "owner"
+}
+
+function isAreaWideOffer(offer: ActiveHomeOffer | null | undefined) {
+  // Area-wide = a platform-wide (all_restaurants) offer OR an "all restaurants in this area"
+  // offer that had to be stored as selected_restaurants (the zone's full list) but was
+  // flagged areaWide. Either way it belongs ONLY in the shared strip — never a card badge.
+  return (
+    String(offer?.scopeType ?? "") === "all_restaurants" || offer?.areaWide === true
+  )
+}
+
 function getOfferRestaurantIds(offer: ActiveHomeOffer) {
+  // A restaurant's OWN offer (scope "restaurant") and an admin offer targeted at SPECIFIC
+  // restaurants (scope "selected_restaurants") both badge those restaurants' cards and put
+  // them in the "Offers for you" section. An area-wide offer returns NO ids — it belongs
+  // only in the shared voucher strip, never stamped on an individual restaurant's card.
+  if (isAreaWideOffer(offer)) return []
+
   const scopeType = String(offer.scopeType ?? "restaurant")
   const rawIds =
     scopeType === "selected_restaurants"
@@ -2542,7 +2589,17 @@ function compareHomeOffers(left: ActiveHomeOffer, right: ActiveHomeOffer) {
 function buildBestOfferByRestaurantId(offers: ActiveHomeOffer[]) {
   const bestOfferByRestaurantId = new Map<string, ActiveHomeOffer>()
 
-  for (const offer of [...offers].sort(compareHomeOffers)) {
+  // Owner's own offer wins over an admin specific-restaurant offer for the same restaurant,
+  // so the card badge shows the restaurant's own deal. Then fall back to the normal offer
+  // ordering (position/priority/value).
+  const ordered = [...offers].sort((left, right) => {
+    const leftOwner = isOwnerOffer(left)
+    const rightOwner = isOwnerOffer(right)
+    if (leftOwner !== rightOwner) return leftOwner ? -1 : 1
+    return compareHomeOffers(left, right)
+  })
+
+  for (const offer of ordered) {
     for (const restaurantId of getOfferRestaurantIds(offer)) {
       if (!bestOfferByRestaurantId.has(restaurantId)) {
         bestOfferByRestaurantId.set(restaurantId, offer)
@@ -2551,6 +2608,32 @@ function buildBestOfferByRestaurantId(offers: ActiveHomeOffer[]) {
   }
 
   return bestOfferByRestaurantId
+}
+
+// Keeps a section's membership dynamic (e.g. only restaurants with a live offer) while
+// honouring an admin-defined display order: restaurants whose id is in preferredIds lead,
+// in that order; everyone else keeps their existing (ranked) order behind them. An id in
+// preferredIds that is no longer in the list (e.g. its offer expired) simply doesn't appear
+// — there are never stale entries.
+function applyPreferredRestaurantOrder(
+  restaurants: CustomerCacheRecord[],
+  preferredIds: string[],
+) {
+  if (!preferredIds.length) return restaurants
+  const rankById = new Map(preferredIds.map((id, index) => [id, index]))
+  return restaurants
+    .map((restaurant, index) => ({ restaurant, index }))
+    .sort((left, right) => {
+      const leftRank = rankById.has(String(left.restaurant._id))
+        ? (rankById.get(String(left.restaurant._id)) as number)
+        : Number.MAX_SAFE_INTEGER
+      const rightRank = rankById.has(String(right.restaurant._id))
+        ? (rankById.get(String(right.restaurant._id)) as number)
+        : Number.MAX_SAFE_INTEGER
+      if (leftRank !== rightRank) return leftRank - rightRank
+      return left.index - right.index
+    })
+    .map((entry) => entry.restaurant)
 }
 
 function rankOfferRestaurants(
@@ -2562,6 +2645,12 @@ function rankOfferRestaurants(
   return [...restaurants].sort((left, right) => {
     const leftOffer = bestOfferByRestaurantId.get(String(left._id))
     const rightOffer = bestOfferByRestaurantId.get(String(right._id))
+
+    // Restaurants running their OWN offer lead the section, ahead of restaurants that only
+    // carry an admin specific-restaurant offer — self-promoting restaurants get shown first.
+    const leftOwner = isOwnerOffer(leftOffer)
+    const rightOwner = isOwnerOffer(rightOffer)
+    if (leftOwner !== rightOwner) return leftOwner ? -1 : 1
 
     const positionDiff =
       getOfferDisplayPosition(leftOffer ?? {}) - getOfferDisplayPosition(rightOffer ?? {})
@@ -2973,19 +3062,20 @@ export async function getCustomerDiscoveryHome(params?: {
       const autoOfferSourceRestaurants = offerAllowRepeat
         ? autoOfferRestaurants
         : filterExcludedRestaurants(autoOfferRestaurants, featuredShownRestaurantIds);
-      const manualOfferRestaurants = orderRestaurantsByIds(
-        offerAllowRepeat
-          ? discoverableRestaurants
-          : filterExcludedRestaurants(discoverableRestaurants, featuredShownRestaurantIds),
-        getManualHomeRestaurantIds(offersSection),
-      );
       const shouldShowRestaurantOfferSection =
         homePlatformContent.customerApp.homeCms.offerStrip?.showRestaurantOfferSection !== false &&
         offersSection.isActive !== false;
+      // "Offers for you" membership is ALWAYS dynamic — only restaurants with a live offer,
+      // so an expired offer drops its restaurant automatically. The admin's saved order
+      // (offersSection.selectedRestaurantIds, set by dragging in the CMS) only RE-ORDERS the
+      // ones that currently qualify; ids that no longer have an offer are simply ignored.
       const offerRestaurants = shouldShowRestaurantOfferSection
-        ? (offersSection.source === "manual" && manualOfferRestaurants.length
-            ? manualOfferRestaurants
-            : rankOfferRestaurants(autoOfferSourceRestaurants, activeOffers as ActiveHomeOffer[])
+        ? applyPreferredRestaurantOrder(
+            rankOfferRestaurants(
+              autoOfferSourceRestaurants,
+              activeOffers as ActiveHomeOffer[],
+            ),
+            getManualHomeRestaurantIds(offersSection),
           ).slice(0, getHomeRestaurantSectionLimit(offersSection))
         : [];
       const visibleActiveOffers = activeOffers.filter((offer) => {
@@ -3196,18 +3286,15 @@ export async function getCustomerDiscoveryHome(params?: {
         popularNearYouRestaurants,
         nearbyRestaurants,
         campaignPlacements: [],
-        activeOffers: visibleActiveOffers.map((offer) => ({
+        activeOffers: visibleActiveOffers.map((offer) => {
+          // Scope-aware restaurant ids, mirroring getOfferRestaurantIds. A platform
+          // (all_restaurants) offer belongs ONLY in the shared voucher strip — it must
+          // carry NO restaurant ids so it never badges an arbitrary restaurant's card.
+          const offerRestaurantIds = getOfferRestaurantIds(offer as ActiveHomeOffer);
+          return {
               _id: offer._id.toString(),
-              restaurantId: offer.restaurantId?.toString?.() ?? "",
-              restaurantIds:
-                (offer as any).scopeType === "selected_restaurants"
-                  ? ((offer as any).selectedRestaurantIds ?? [])
-                      .map(
-                        (restaurantId: unknown) =>
-                          restaurantId?.toString?.() ?? "",
-                      )
-                      .filter(Boolean)
-                  : [offer.restaurantId?.toString?.() ?? ""].filter(Boolean),
+              restaurantId: offerRestaurantIds[0] ?? "",
+              restaurantIds: offerRestaurantIds,
               scopeType: (offer as any).scopeType,
               audienceType: (offer as any).audienceType,
               name: offer.name,
@@ -3217,7 +3304,8 @@ export async function getCustomerDiscoveryHome(params?: {
               discountValue: offer.discountValue,
               minimumOrderAmount: offer.minimumOrderAmount,
               display: (offer as any).display ?? {},
-            })),
+            };
+          }),
       };
     },
   );

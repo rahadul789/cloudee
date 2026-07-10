@@ -1,12 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -127,9 +121,9 @@ export default function ProfileScreen() {
   // Track the toggle locally so the Switch flips in the same commit as the tap.
   // Relying on the mutation's async isPending caused the knob to snap back to the
   // server value for a frame before re-applying — the "back then switch" glitch.
-  const [optimisticPromotions, setOptimisticPromotions] = useState<boolean | null>(
-    null,
-  );
+  const [optimisticPromotions, setOptimisticPromotions] = useState<
+    boolean | null
+  >(null);
   const promotionsEnabled = optimisticPromotions ?? serverPromotionsEnabled;
   const togglePromotions = useCallback(
     (next: boolean) => {
@@ -219,10 +213,7 @@ export default function ProfileScreen() {
       return getOfferCodeLabel(customOfferSummary);
     }
     return "My offer";
-  }, [
-    customOfferSummary,
-    activeHighlightedOffer,
-  ]);
+  }, [customOfferSummary, activeHighlightedOffer]);
   const customOfferMeta = useMemo(() => {
     if (customOfferSummary?.status === "requested") {
       return "In review";
@@ -745,7 +736,7 @@ export default function ProfileScreen() {
             <View style={styles.section}>
               <SectionHeader
                 title="Account"
-                subtitle="Sign out when you want to return to guest browsing."
+                subtitle="Sign out when from this device."
               />
               <View style={styles.cardStack}>
                 <Pressable
@@ -871,13 +862,19 @@ export default function ProfileScreen() {
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
-                style={styles.confirmSecondaryButton}
+                style={({ pressed }) => [
+                  styles.confirmSecondaryButton,
+                  pressed && styles.confirmButtonPressed,
+                ]}
                 onPress={() => setLogoutConfirmVisible(false)}
               >
                 <Text style={styles.confirmSecondaryText}>Stay signed in</Text>
               </Pressable>
               <Pressable
-                style={styles.confirmPrimaryButton}
+                style={({ pressed }) => [
+                  styles.confirmPrimaryButton,
+                  pressed && styles.confirmButtonPressed,
+                ]}
                 disabled={logoutMutation.isPending}
                 onPress={() => {
                   setLogoutConfirmVisible(false);
@@ -1003,7 +1000,10 @@ const OverviewCard = memo(function OverviewCard({
 
   return (
     <Pressable
-      style={({ pressed }) => [cardStyle, pressed ? styles.navCardPressed : null]}
+      style={({ pressed }) => [
+        cardStyle,
+        pressed ? styles.navCardPressed : null,
+      ]}
       onPress={onPress}
       accessibilityRole="button"
     >
@@ -1839,5 +1839,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "800",
     color: "#fff",
+  },
+  confirmButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
 });

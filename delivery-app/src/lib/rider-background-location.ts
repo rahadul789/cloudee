@@ -614,12 +614,19 @@ export async function startRiderBackgroundLocationAsync({
 
 export async function stopRiderBackgroundLocationAsync() {
   activeStreamSignature = "";
-  const hasStarted = await Location.hasStartedLocationUpdatesAsync(
-    RIDER_BACKGROUND_LOCATION_TASK,
-  );
-
-  if (hasStarted) {
-    await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
+  try {
+    const hasStarted = await Location.hasStartedLocationUpdatesAsync(
+      RIDER_BACKGROUND_LOCATION_TASK,
+    );
+    if (hasStarted) {
+      await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
+    }
+  } catch {
+    // The task may not be registered/running at this moment (app start with no active
+    // delivery, a hot reload, or a stale native service left by a previous launch).
+    // expo throws TaskNotFoundException here — it's harmless (there's nothing to stop),
+    // so we swallow it instead of letting it surface as an uncaught promise rejection
+    // (which showed up as those red "stopLocationUpdatesAsync rejected" crashes).
   }
 
   await setRiderBackgroundTrackingOrderId(null);

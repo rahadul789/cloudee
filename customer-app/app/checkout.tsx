@@ -1384,17 +1384,41 @@ export default function CheckoutScreen() {
                 0,
                 Math.min(1, currentSubtotal / firstOrder.minimumOrderAmount),
               );
+              const canOpenRestaurant = Boolean(restaurant?.restaurantId);
               return (
-                <View style={styles.firstOrderBanner}>
-                  <Text style={styles.firstOrderBannerTitle}>
-                    🎁 Add {formatCurrency(remaining)} more for{" "}
-                    {formatCurrency(firstOrder.amount)} off
-                  </Text>
-                  <Text style={styles.firstOrderBannerSubtitle}>
-                    On your first order over{" "}
-                    {formatCurrency(firstOrder.minimumOrderAmount)}. Auto-applied at
-                    checkout.
-                  </Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.firstOrderBanner,
+                    pressed && canOpenRestaurant && styles.firstOrderBannerPressed,
+                  ]}
+                  disabled={!canOpenRestaurant}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/restaurants/[restaurantId]",
+                      params: { restaurantId: restaurant!.restaurantId },
+                    })
+                  }
+                >
+                  <View style={styles.firstOrderBannerRow}>
+                    <View style={styles.firstOrderBannerCopy}>
+                      <Text style={styles.firstOrderBannerTitle}>
+                        🎁 Add {formatCurrency(remaining)} more for{" "}
+                        {formatCurrency(firstOrder.amount)} off
+                      </Text>
+                      <Text style={styles.firstOrderBannerSubtitle}>
+                        On your first order over{" "}
+                        {formatCurrency(firstOrder.minimumOrderAmount)}. Tap to add
+                        more items.
+                      </Text>
+                    </View>
+                    {canOpenRestaurant ? (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color={palette.secondary}
+                      />
+                    ) : null}
+                  </View>
                   <View style={styles.firstOrderProgressTrack}>
                     <View
                       style={[
@@ -1403,7 +1427,7 @@ export default function CheckoutScreen() {
                       ]}
                     />
                   </View>
-                </View>
+                </Pressable>
               );
             })()}
 

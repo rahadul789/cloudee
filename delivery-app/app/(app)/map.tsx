@@ -731,6 +731,7 @@ export default function RiderMapScreen() {
         initialRegion={buildRegion(fitPoints)}
         customMapStyle={resolvedMapStyle}
         showsCompass={false}
+        showsUserLocation
         showsMyLocationButton={false}
         showsPointsOfInterest={false}
         toolbarEnabled={false}
@@ -805,7 +806,7 @@ export default function RiderMapScreen() {
             </Marker>
           ) : null
         )}
-        <RiderMarker coordinate={riderLocation} />
+        {/* Rider's own position = native GPS blue dot (showsUserLocation). */}
       </MapView>
 
       <SafeAreaView pointerEvents="box-none" edges={["top"]} style={styles.topOverlay}>

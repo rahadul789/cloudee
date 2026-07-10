@@ -3778,30 +3778,40 @@ function RestaurantDetailsContent({
                   <div>
                     <p className="font-medium">Featured</p>
                     <p className="text-xs text-muted-foreground">
-                      Lower order appears first.
+                      Managed from Content / CMS → Home restaurant sections.
                     </p>
                   </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      details.isFeatured
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }
+                  >
+                    {details.isFeatured ? "Featured" : "Not featured"}
+                  </Badge>
+                </div>
+                {/* Read-only here — featured selection + order is controlled from the CMS
+                    Home restaurant sections (drag to reorder). Controls kept mounted but
+                    disabled so the merchandising data flow stays intact. */}
+                <div className="mt-3 hidden gap-2">
                   <Switch
                     checked={details.isFeatured}
-                    disabled={merchandisingPending}
+                    disabled
                     onCheckedChange={onFeatureChange}
                   />
-                </div>
-                <div className="mt-3 flex gap-2">
                   <Input
                     aria-label="Featured display order"
                     type="number"
                     min={1}
                     value={featuredPositionDraft}
+                    disabled
                     onChange={(event) =>
                       setFeaturedPositionDraft(event.target.value)
                     }
                   />
-                  <Button
-                    variant="outline"
-                    disabled={merchandisingPending}
-                    onClick={onFeaturedPositionSave}
-                  >
+                  <Button variant="outline" disabled onClick={onFeaturedPositionSave}>
                     Save order
                   </Button>
                 </div>

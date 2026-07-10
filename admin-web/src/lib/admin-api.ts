@@ -1852,6 +1852,7 @@ export type AdminVoucherPayload = {
   restaurantId?: string
   scopeType?: "restaurant" | "selected_restaurants" | "all_restaurants"
   selectedRestaurantIds?: string[]
+  areaWide?: boolean
   audienceType?: "all_users" | "new_users" | "returning_users" | "selected_users"
   selectedCustomerIds?: string[]
   customerGroupKey?: string
@@ -6664,6 +6665,13 @@ export async function getPlatformContent() {
     `/admin/platform-content${query}`
   )
   return response.data
+}
+
+export async function getAdminRestaurantsWithOffers() {
+  const response = await adminRequest<{
+    restaurants: Array<{ id: string; name: string }>
+  }>(`/admin/platform-content/restaurants-with-offers`)
+  return response.data.restaurants
 }
 
 function getAdminZoneScopeQueryString() {

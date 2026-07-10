@@ -46,6 +46,7 @@ export default function BkashPaymentScreen() {
   const [callbackHandled, setCallbackHandled] = useState(false);
   const [draft, setDraft] = useState<BkashPaymentDraft | null>(null);
   const [isDraftLoading, setIsDraftLoading] = useState(true);
+  const [webviewLoading, setWebviewLoading] = useState(true);
   const [canRetryOrderCreation, setCanRetryOrderCreation] = useState(false);
   const placeOrderMutation = useCustomerPlaceOrderMutation();
   const clearCart = useCartStore((state) => state.clearCart);
@@ -330,7 +331,15 @@ export default function BkashPaymentScreen() {
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
           </Pressable>
           {isDraftLoading ? (
-            <ActivityIndicator size="large" color={palette.secondary} />
+            <>
+              <View style={styles.loaderIconWrap}>
+                <ActivityIndicator size="large" color={palette.secondary} />
+              </View>
+              <Text style={styles.processingTitle}>Opening bKash checkout</Text>
+              <Text style={styles.processingText}>
+                Preparing your secure payment…
+              </Text>
+            </>
           ) : (
             <Text style={styles.errorText}>
               {loadError || "bKash session unavailable."}
@@ -370,7 +379,19 @@ export default function BkashPaymentScreen() {
               onError={() => {
                 setLoadError("Could not load the bKash checkout.");
               }}
+              onLoadEnd={() => setWebviewLoading(false)}
             />
+            {webviewLoading && !loadError ? (
+              <View style={styles.loadingOverlay}>
+                <View style={styles.loaderIconWrap}>
+                  <ActivityIndicator size="large" color={palette.secondary} />
+                </View>
+                <Text style={styles.processingTitle}>Opening bKash checkout</Text>
+                <Text style={styles.processingText}>
+                  Preparing your secure payment…
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -462,6 +483,15 @@ const styles = StyleSheet.create({
     zIndex: 1,
     paddingHorizontal: 28,
     gap: 8,
+  },
+  loaderIconWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+    marginBottom: 8,
   },
   processingTitle: {
     marginTop: 6,

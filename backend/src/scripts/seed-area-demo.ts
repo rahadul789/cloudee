@@ -110,6 +110,16 @@ const zones: DemoZone[] = [
     maxRestaurantDistanceKm: 4,
     baseFeeTaka: 60,
   },
+  {
+    districtName: "Kushtia",
+    districtSlug: "kushtia",
+    zoneName: "Kushtia Sadar",
+    zoneSlug: "kushtia-sadar",
+    center: { latitude: 23.7222, longitude: 89.1519 },
+    radiusKm: 7,
+    maxRestaurantDistanceKm: 4.5,
+    baseFeeTaka: 55,
+  },
 ]
 
 const NETRAKONA_SADAR_RESTAURANT_NAMES = [
@@ -293,6 +303,104 @@ const restaurants: DemoRestaurant[] = [
     cuisines: ["Grill", "Chicken", "Fast Food"],
     imageUrl: FOOD_IMAGES[6],
   },
+  {
+    name: "Kushtia Lalon Kitchen",
+    ownerName: "Aminul Islam",
+    ownerPhone: "01730000001",
+    ownerEmail: "kushtia.owner01@foodbela.demo",
+    phone: "01731000001",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 1.2,
+    bearingDeg: 20,
+    cuisines: ["Bangla", "Rice", "Fish"],
+    imageUrl: FOOD_IMAGES[0],
+    featured: true,
+  },
+  {
+    name: "Gorai Grill House",
+    ownerName: "Hasan Mahmud",
+    ownerPhone: "01730000002",
+    ownerEmail: "kushtia.owner02@foodbela.demo",
+    phone: "01731000002",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 1.8,
+    bearingDeg: 75,
+    cuisines: ["Grill", "BBQ", "Chicken"],
+    imageUrl: FOOD_IMAGES[1],
+    featured: true,
+  },
+  {
+    name: "Kushtia Kacchi & Tehari",
+    ownerName: "Mizanur Rahman",
+    ownerPhone: "01730000003",
+    ownerEmail: "kushtia.owner03@foodbela.demo",
+    phone: "01731000003",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 2.1,
+    bearingDeg: 130,
+    cuisines: ["Kacchi", "Biryani", "Tehari"],
+    imageUrl: FOOD_IMAGES[3],
+  },
+  {
+    name: "Court Station Cafe",
+    ownerName: "Farhana Akter",
+    ownerPhone: "01730000004",
+    ownerEmail: "kushtia.owner04@foodbela.demo",
+    phone: "01731000004",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 2.4,
+    bearingDeg: 185,
+    cuisines: ["Cafe", "Snacks", "Sandwich"],
+    imageUrl: FOOD_IMAGES[7],
+  },
+  {
+    name: "Mozompur Food Corner",
+    ownerName: "Rakib Hossain",
+    ownerPhone: "01730000005",
+    ownerEmail: "kushtia.owner05@foodbela.demo",
+    phone: "01731000005",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 2.9,
+    bearingDeg: 235,
+    cuisines: ["Fast Food", "Burger", "Fries"],
+    imageUrl: FOOD_IMAGES[4],
+  },
+  {
+    name: "Milpara Chinese",
+    ownerName: "Sharmin Sultana",
+    ownerPhone: "01730000006",
+    ownerEmail: "kushtia.owner06@foodbela.demo",
+    phone: "01731000006",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 3.2,
+    bearingDeg: 290,
+    cuisines: ["Chinese", "Noodles", "Thai Soup"],
+    imageUrl: FOOD_IMAGES[6],
+  },
+  {
+    name: "Lalon Shah Dining",
+    ownerName: "Shahriar Kabir",
+    ownerPhone: "01730000007",
+    ownerEmail: "kushtia.owner07@foodbela.demo",
+    phone: "01731000007",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 3.7,
+    bearingDeg: 330,
+    cuisines: ["Family Meals", "Bangla", "Curry"],
+    imageUrl: FOOD_IMAGES[2],
+  },
+  {
+    name: "Kushtia Sweets & Snacks",
+    ownerName: "Sabina Yasmin",
+    ownerPhone: "01730000008",
+    ownerEmail: "kushtia.owner08@foodbela.demo",
+    phone: "01731000008",
+    zoneSlug: "kushtia-sadar",
+    distanceKm: 4.1,
+    bearingDeg: 255,
+    cuisines: ["Sweets", "Dessert", "Snacks"],
+    imageUrl: FOOD_IMAGES[5],
+  },
 ]
 
 function toRadians(value: number) {
@@ -343,6 +451,7 @@ function districtDisplayOrder(slug: string) {
   if (slug === "netrakona") return 1
   if (slug === "dinajpur") return 2
   if (slug === "dhaka") return 3
+  if (slug === "kushtia") return 4
   return 99
 }
 
@@ -351,6 +460,7 @@ function zoneDisplayOrder(slug: string) {
   if (slug === "kendua") return 2
   if (slug === "dinajpur-sadar") return 3
   if (slug === "khilgaon") return 4
+  if (slug === "kushtia-sadar") return 5
   return 99
 }
 
@@ -375,6 +485,18 @@ async function cleanupRetiredDemoData() {
           "runtime.isOnline": false,
           "runtime.isVisible": false,
           "runtime.currentOperationalStatus": "closed",
+        },
+      },
+    ),
+    RiderModel.updateMany(
+      {
+        phone: /^0181000000\d{2}$/,
+        "verification.reviewedByAdminId": "area-demo-seed",
+      },
+      {
+        $set: {
+          status: "inactive",
+          isAvailableForAssignments: false,
         },
       },
     ),
@@ -818,11 +940,13 @@ async function upsertRider(
   index: number,
 ) {
   const serviceArea = buildServiceAreaSnapshot(zone, null)
+  const riderPhone = `01810${String(index + 1).padStart(6, "0")}`
+  const riderNumber = (index % 3) + 1
   return RiderModel.findOneAndUpdate(
-    { phone: `0181000000${index + 1}` },
+    { phone: riderPhone },
     {
-      fullName: `${serviceArea.zoneName} Rider ${index + 1}`,
-      phone: `0181000000${index + 1}`,
+      fullName: `${serviceArea.zoneName} Rider ${riderNumber}`,
+      phone: riderPhone,
       passwordHash,
       isPhoneVerified: true,
       status: "active",
@@ -958,6 +1082,9 @@ async function upsertCollectionsAndVouchers(
   )
   const khilgaonRestaurants = seededRestaurants.filter(
     (entry) => entry.serviceArea.zoneSlug === "khilgaon",
+  )
+  const kushtiaRestaurants = seededRestaurants.filter(
+    (entry) => entry.serviceArea.zoneSlug === "kushtia-sadar",
   )
   await VoucherModel.findOneAndUpdate(
     { restaurantId: null, code: "NETRA15" },
@@ -1121,6 +1248,49 @@ async function upsertCollectionsAndVouchers(
         position: 4,
         title: "Tk 60 off in Khilgaon",
         subtitle: "Use KHILGAON60",
+        ctaLabel: "Order now",
+        ctaPath: "/offers",
+      },
+      startsAt: now,
+      endsAt,
+      archivedAt: null,
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  )
+
+  await VoucherModel.findOneAndUpdate(
+    { restaurantId: null, code: "KUSHTIA40" },
+    {
+      restaurantId: null,
+      scopeType: "selected_restaurants",
+      selectedRestaurantIds: kushtiaRestaurants.map((entry) => entry.restaurant._id),
+      audienceType: "all_users",
+      createdByType: "admin",
+      createdById: adminId,
+      fundedBy: "platform",
+      ownerSharePercent: 0,
+      platformSharePercent: 100,
+      stackingRule: "exclusive",
+      priority: 6,
+      mode: "coupon",
+      type: "flat",
+      name: "Kushtia Tk 40 off",
+      code: "KUSHTIA40",
+      discountValue: 40,
+      maxDiscountAmount: 40,
+      minimumOrderAmount: 250,
+      maxTotalUses: 500,
+      maxUsesPerUser: 1,
+      allowRepeatUsage: false,
+      status: "Active",
+      display: {
+        showOnHome: true,
+        showInOfferStrip: true,
+        placement: "offers_row",
+        variant: "chip",
+        position: 5,
+        title: "Tk 40 off in Kushtia",
+        subtitle: "Use KUSHTIA40",
         ctaLabel: "Order now",
         ctaPath: "/offers",
       },

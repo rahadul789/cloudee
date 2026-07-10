@@ -19,3 +19,7 @@ logs
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# Debug crash dumps (never commit)
+customer-app/ota-crash.txt
+*ota-crash*.txt

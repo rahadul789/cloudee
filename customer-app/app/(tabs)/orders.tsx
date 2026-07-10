@@ -395,7 +395,7 @@ export default function OrdersScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.kicker}>Orders</Text>
-          <Text style={styles.title}>Track your orders here ✅</Text>
+          <Text style={styles.title}>Track your orders </Text>
           {!isOnline ? (
             <OfflineNoticeCard description="Showing your last synced orders. Live delivery updates will resume when you're back online." />
           ) : null}

@@ -23,6 +23,7 @@ const voucherSchema = z.object({
   restaurantId: z.string().optional(),
   scopeType: z.enum(["restaurant", "selected_restaurants", "all_restaurants"]).optional(),
   selectedRestaurantIds: z.array(z.string()).optional(),
+  areaWide: z.boolean().optional(),
   audienceType: z.enum(["all_users", "new_users", "returning_users", "selected_users"]).optional(),
   selectedCustomerIds: z.array(z.string()).optional(),
   customerGroupKey: z.string().optional(),

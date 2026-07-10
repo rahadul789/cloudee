@@ -13,6 +13,7 @@ import {
   Animated,
   BackHandler,
   FlatList,
+  InteractionManager,
   Keyboard,
   Modal,
   Pressable,
@@ -945,7 +946,30 @@ export default function RestaurantDetailsScreen() {
     },
   );
 
-  if (detailsQuery.isLoading) {
+  const [contentReady, setContentReady] = useState(false);
+  useEffect(() => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      setContentReady(true);
+    };
+    // Mount the heavy content once the navigation transition/interactions settle, with a
+    // 400ms safety net so it can never stay hidden even if interactions never quiesce.
+    const interaction = InteractionManager.runAfterInteractions(finish);
+    const timer = setTimeout(finish, 400);
+    return () => {
+      interaction.cancel();
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // The cart pre-fetches this restaurant's details, so on arrival the data is warm and the
+  // full (heavy) menu list would otherwise mount ON the navigation animation frames — the
+  // janky cart→details transition. Hold the skeleton until the transition settles (or a
+  // 400ms safety net), then mount the real content. The skeleton always renders in the
+  // meantime, so there is never a blank screen and it can never get stuck.
+  if (detailsQuery.isLoading || !contentReady) {
     return (
       <Screen>
         <RestaurantDetailsSkeleton />
@@ -974,7 +998,7 @@ export default function RestaurantDetailsScreen() {
         ref={listRef}
         data={rows.length ? rows : []}
         keyExtractor={(item: Row) => item.id}
-        initialNumToRender={8}
+        initialNumToRender={4}
         maxToRenderPerBatch={8}
         windowSize={8}
         removeClippedSubviews
