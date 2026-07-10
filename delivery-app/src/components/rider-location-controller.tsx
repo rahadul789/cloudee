@@ -11,6 +11,7 @@ import {
   normalizeRiderLiveTrackingPolicy,
 } from "@/src/lib/live-tracking-policy";
 import {
+  getRiderBackgroundTrackingOrderId,
   setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
   stopRiderBackgroundLocationAsync,
@@ -41,7 +42,33 @@ export function RiderLocationController({ children }: PropsWithChildren) {
   const activeOrdersQuery = useRiderOrdersQuery("active");
   const pickedUpOrderId =
     activeOrdersQuery.data?.find((order) => order.status === "PickedUp")?.id ?? null;
-  const hasActiveDelivery = Boolean(pickedUpOrderId);
+
+  // On reopen (especially after the app was killed mid-delivery) the orders query briefly
+  // has no data. Dropping the foreground service for that window is what showed up as
+  // "reopened but tracking/notification gone". So while the query has not yet given a
+  // definitive first answer, we keep tracking alive using the last order id we were
+  // tracking, then reconcile the moment real data arrives.
+  const [persistedTrackingOrderId, setPersistedTrackingOrderId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    let active = true;
+    getRiderBackgroundTrackingOrderId()
+      .then((id) => {
+        if (active) setPersistedTrackingOrderId(id);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // isPending is true ONLY on the very first load with no data (not on later refetches),
+  // so this sticky window closes as soon as the query resolves once.
+  const ordersResolved = !activeOrdersQuery.isPending;
+  const activeTrackingOrderId =
+    pickedUpOrderId ?? (!ordersResolved ? persistedTrackingOrderId : null);
+  const hasActiveDelivery = Boolean(activeTrackingOrderId);
   const shouldTrack = Boolean(riderId) && isAvailable && hasActiveDelivery;
 
   // Admin settings — read once (long staleTime). NO manual refetch.
@@ -55,8 +82,8 @@ export function RiderLocationController({ children }: PropsWithChildren) {
   shouldTrackRef.current = shouldTrack;
   const configRef = useRef(config);
   configRef.current = config;
-  const orderIdRef = useRef(pickedUpOrderId);
-  orderIdRef.current = pickedUpOrderId;
+  const orderIdRef = useRef(activeTrackingOrderId);
+  orderIdRef.current = activeTrackingOrderId;
 
   const [permissionReady, setPermissionReady] = useState(false);
   useEffect(() => {

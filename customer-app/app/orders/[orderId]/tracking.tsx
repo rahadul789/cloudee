@@ -154,8 +154,13 @@ function formatRefundEta(minutes?: number) {
     return `${safeMinutes} minute${safeMinutes === 1 ? "" : "s"}`;
   }
 
-  const hours = Math.max(1, Math.round(safeMinutes / 60));
-  return `${hours} hour${hours === 1 ? "" : "s"}`;
+  // Show the exact hours + remaining minutes (e.g. "1 hour 30 minutes") instead of
+  // rounding, so the promised refund time is never overstated.
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  const hourText = `${hours} hour${hours === 1 ? "" : "s"}`;
+  if (mins === 0) return hourText;
+  return `${hourText} ${mins} minute${mins === 1 ? "" : "s"}`;
 }
 
 function formatCountdownClock(seconds?: number | null) {

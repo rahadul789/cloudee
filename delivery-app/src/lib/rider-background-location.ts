@@ -520,6 +520,18 @@ export async function setRiderBackgroundTrackingOrderId(orderId: string | null) 
   await secureStateStorage.removeItem(BACKGROUND_TRACKING_ORDER_KEY);
 }
 
+// The order we were actively tracking when the app was last alive. Present ⇒ a delivery
+// was in progress and we did not cleanly stop, so on reopen we can keep the foreground
+// service alive immediately instead of dropping it while the orders query reloads.
+export async function getRiderBackgroundTrackingOrderId(): Promise<string | null> {
+  try {
+    const stored = await secureStateStorage.getItem(BACKGROUND_TRACKING_ORDER_KEY);
+    return stored && stored.trim() ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
 async function hasBackgroundPermission() {
   if (Platform.OS === "web") {
     return false;
