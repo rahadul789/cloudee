@@ -36,9 +36,6 @@ const NOTIFICATION_BODY = "Foodbela is sharing your live delivery location.";
 
 export function RiderLocationController({ children }: PropsWithChildren) {
   const riderId = useRiderAuthStore((state) => state.rider?.id ?? "");
-  const isAvailable = useRiderAuthStore(
-    (state) => state.rider?.isAvailableForAssignments !== false,
-  );
   const activeOrdersQuery = useRiderOrdersQuery("active");
   const pickedUpOrderId =
     activeOrdersQuery.data?.find((order) => order.status === "PickedUp")?.id ?? null;
@@ -69,7 +66,12 @@ export function RiderLocationController({ children }: PropsWithChildren) {
   const activeTrackingOrderId =
     pickedUpOrderId ?? (!ordersResolved ? persistedTrackingOrderId : null);
   const hasActiveDelivery = Boolean(activeTrackingOrderId);
-  const shouldTrack = Boolean(riderId) && isAvailable && hasActiveDelivery;
+  // Track whenever a delivery is actually in progress (an order is picked up) — even if the
+  // rider has toggled themselves "offline" for NEW assignments. A rider going unavailable to
+  // stop new orders must NOT stop sharing location for food they're already carrying, or the
+  // waiting customer's live map freezes mid-delivery. `hasActiveDelivery` is the only gate we
+  // need: no picked-up order ⇒ no tracking regardless of availability.
+  const shouldTrack = Boolean(riderId) && hasActiveDelivery;
 
   // Admin settings — read once (long staleTime). NO manual refetch.
   const policyQuery = useRiderLiveTrackingPolicyQuery();

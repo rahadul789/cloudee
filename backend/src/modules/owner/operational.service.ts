@@ -2465,10 +2465,28 @@ export async function updateOrderRiderLocation(params: {
     "order.updated",
     ownerFacingOrder,
   );
+  // Ship the freshly-computed delivery-leg route WITH the location update. Without
+  // this, the socket payload only carries the rider's new position while the road
+  // polyline stays whatever the customer last fetched (screen open / pull-to-refresh),
+  // so the marker drifts off a stale route and only realigns on a manual refresh.
+  // routeMetrics is the same cached "delivery_leg" route the customer detail builds, so
+  // this is free — we just forward its polyline. `mergeOrderPayload` on the client
+  // prefers this incoming route over the stale cached one.
+  const liveRouteToCustomer =
+    routeMetrics && routeMetrics.polyline
+      ? {
+          distanceKm: routeMetrics.distanceKm,
+          durationMinutes: routeMetrics.durationMinutes,
+          polyline: routeMetrics.polyline,
+          provider: routeMetrics.provider,
+          trafficAware: routeMetrics.trafficAware,
+        }
+      : null;
+
   emitSocketEvent(
     `customer:${order.customerId}`,
     "customer.order.updated",
-    order.toObject(),
+    { ...order.toObject(), routeToCustomer: liveRouteToCustomer },
   );
   // NOTE: we intentionally do NOT echo this live-location update back to the rider.
   // The rider is the source of the location, and their own app shows their position via

@@ -15,31 +15,20 @@ import {
   Text,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline, type LatLng, type Region } from "react-native-maps";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   useRiderDeliveryThresholdsQuery,
   useRiderLiveMapQuery,
-  useRiderMapStyleQuery,
   type RiderLiveMapOrder,
   type RiderLiveMapRestaurant,
   type RiderMapCoordinate,
 } from "@/src/hooks/use-rider-api";
 import { useDeliveryCopy } from "@/src/lib/copy";
-import { getMapStyleSignature } from "@/src/lib/map-style";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
-const FALLBACK_REGION: Region = {
-  latitude: 24.8765267,
-  longitude: 90.7249078,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
-
 const SHEET_HEIGHT = Math.min(Dimensions.get("window").height * 0.72, 620);
-const MAX_MAP_DELTA = 0.12;
 
 const STATUS_COLORS: Record<string, string> = {
   Accepted: palette.info,
@@ -136,56 +125,6 @@ function getStatusLabel(status: string | undefined, mapCopy: MapCopy) {
   return status || mapCopy.statusFallback;
 }
 
-function buildCurvedPolyline(start: RiderMapCoordinate, end: RiderMapCoordinate): LatLng[] {
-  const midLatitude = (start.latitude + end.latitude) / 2;
-  const midLongitude = (start.longitude + end.longitude) / 2;
-  const dx = end.longitude - start.longitude;
-  const dy = end.latitude - start.latitude;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  const curveStrength = Math.min(0.015, Math.max(0.003, distance * 0.25));
-  const controlPoint = {
-    latitude: midLatitude - dx * curveStrength,
-    longitude: midLongitude + dy * curveStrength,
-  };
-  const points: LatLng[] = [];
-
-  for (let index = 0; index <= 24; index += 1) {
-    const t = index / 24;
-    const oneMinusT = 1 - t;
-    points.push({
-      latitude:
-        oneMinusT * oneMinusT * start.latitude +
-        2 * oneMinusT * t * controlPoint.latitude +
-        t * t * end.latitude,
-      longitude:
-        oneMinusT * oneMinusT * start.longitude +
-        2 * oneMinusT * t * controlPoint.longitude +
-        t * t * end.longitude,
-    });
-  }
-
-  return points;
-}
-
-function buildRegion(points: RiderMapCoordinate[]) {
-  const validPoints = points.filter(isCoordinate);
-  if (!validPoints.length) return FALLBACK_REGION;
-
-  const minLat = Math.min(...validPoints.map((point) => point.latitude));
-  const maxLat = Math.max(...validPoints.map((point) => point.latitude));
-  const minLng = Math.min(...validPoints.map((point) => point.longitude));
-  const maxLng = Math.max(...validPoints.map((point) => point.longitude));
-  const latitudeDelta = Math.min(MAX_MAP_DELTA, Math.max(0.012, (maxLat - minLat) * 1.8 || 0.018));
-  const longitudeDelta = Math.min(MAX_MAP_DELTA, Math.max(0.012, (maxLng - minLng) * 1.8 || 0.018));
-
-  return {
-    latitude: (minLat + maxLat) / 2,
-    longitude: (minLng + maxLng) / 2,
-    latitudeDelta,
-    longitudeDelta,
-  };
-}
-
 function StatusPill({ label, tone }: { label: string; tone: string }) {
   return (
     <View style={[styles.statusPill, { backgroundColor: `${tone}18`, borderColor: `${tone}40` }]}>
@@ -219,80 +158,6 @@ function MapActionButton({
     >
       <Ionicons name={icon} size={18} color={active ? palette.secondary : palette.foreground} />
     </Pressable>
-  );
-}
-
-function RestaurantMarker({
-  restaurant,
-  selected,
-  onPress,
-}: {
-  restaurant: RiderLiveMapRestaurant;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const state = getRestaurantState(restaurant);
-  const tone = STATUS_COLORS[state] ?? palette.foreground;
-
-  if (!isCoordinate(restaurant.location)) return null;
-
-  // Teardrop pin matching the order-details map, tinted by the restaurant's most
-  // urgent order status so the rider can read the map at a glance.
-  return (
-    <Marker
-      coordinate={restaurant.location}
-      onPress={onPress}
-      zIndex={selected ? 10 : 5}
-      anchor={{ x: 0.5, y: 0.78 }}
-    >
-      <View style={styles.pinRoot}>
-        <View style={styles.pinLiftShadow} />
-        <View style={[styles.pinPointer, { backgroundColor: tone }]} />
-        <View
-          style={[
-            styles.pin,
-            { backgroundColor: tone, borderColor: selected ? palette.foreground : palette.surface },
-          ]}
-        >
-          <Ionicons name="restaurant" size={14} color={palette.surface} />
-        </View>
-        {restaurant.orderCount > 1 ? (
-          <View style={styles.markerCountBadge}>
-            <Text style={styles.markerCountText}>{restaurant.orderCount}</Text>
-          </View>
-        ) : null}
-      </View>
-    </Marker>
-  );
-}
-
-function RiderMarker({ coordinate }: { coordinate: RiderMapCoordinate | null }) {
-  const signature = isCoordinate(coordinate)
-    ? `${coordinate.latitude},${coordinate.longitude}`
-    : "none";
-  const [tracksViewChanges, setTracksViewChanges] = useState(true);
-
-  useEffect(() => {
-    setTracksViewChanges(true);
-    const timer = setTimeout(() => setTracksViewChanges(false), 900);
-    return () => clearTimeout(timer);
-  }, [signature]);
-
-  if (!isCoordinate(coordinate)) return null;
-
-  return (
-    <Marker
-      coordinate={coordinate}
-      anchor={{ x: 0.5, y: 0.5 }}
-      title="You"
-      tracksViewChanges={tracksViewChanges}
-      zIndex={8}
-    >
-      <View style={styles.riderPuckRoot}>
-        <View style={styles.riderPuckHalo} />
-        <View style={styles.riderPuckCore} />
-      </View>
-    </Marker>
   );
 }
 
@@ -529,25 +394,16 @@ function RestaurantMapSheet({
 }
 
 export default function RiderMapScreen() {
-  const mapRef = useRef<MapView | null>(null);
-  const didInitialFitRef = useRef(false);
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { copy } = useDeliveryCopy();
   const mapCopy = copy.map;
   const rider = useRiderAuthStore((state) => state.rider);
   const liveMapQuery = useRiderLiveMapQuery(isFocused);
-  const mapStyleQuery = useRiderMapStyleQuery("delivery.map_tab");
   const thresholdsQuery = useRiderDeliveryThresholdsQuery();
-  const resolvedMapStyle = mapStyleQuery.data ?? undefined;
-  const mapStyleSignature = useMemo(
-    () => getMapStyleSignature(resolvedMapStyle),
-    [resolvedMapStyle]
-  );
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [readyOnly, setReadyOnly] = useState(false);
-  const [currentRegion, setCurrentRegion] = useState<Region>(FALLBACK_REGION);
   const restaurants = useMemo(() => {
     const list = liveMapQuery.data?.restaurants ?? [];
     return readyOnly ? list.filter((restaurant) => restaurant.readyCount > 0) : list;
@@ -575,42 +431,9 @@ export default function RiderMapScreen() {
     riderLocationFromProfile?.latitude,
     riderLocationFromProfile?.longitude,
   ]);
-  const customerOrders = useMemo(() => {
-    if (!selectedRestaurant) return [];
-    return selectedRestaurant.orders.filter((order) => isCoordinate(order.customer?.location));
-  }, [selectedRestaurant]);
-  const routeLines = useMemo(() => {
-    if (!selectedRestaurant || !isCoordinate(selectedRestaurant.location)) return [];
-    return selectedRestaurant.orders
-      .filter((order) => isCoordinate(order.customer?.location))
-      .map((order) => ({
-        id: order.id,
-        points: buildCurvedPolyline(
-          order.status === "PickedUp" && isCoordinate(riderLocation)
-            ? riderLocation
-            : selectedRestaurant.location as RiderMapCoordinate,
-          order.customer?.location as RiderMapCoordinate
-        ),
-      }));
-  }, [riderLocation, selectedRestaurant]);
-  const hasPickedUpSelectedRoute = useMemo(
-    () => Boolean(selectedRestaurant?.orders.some((order) => order.status === "PickedUp")),
-    [selectedRestaurant]
-  );
-  const fitPoints = useMemo(() => {
-    const points: RiderMapCoordinate[] = [];
-    if (isCoordinate(riderLocation)) points.push(riderLocation);
-    restaurants.forEach((restaurant) => {
-      if (isCoordinate(restaurant.location)) points.push(restaurant.location);
-    });
-    if (selectedRestaurant) {
-      selectedRestaurant.orders.forEach((order) => {
-        if (isCoordinate(order.customer?.location)) points.push(order.customer.location);
-      });
-    }
-    return points;
-  }, [restaurants, riderLocation, selectedRestaurant]);
-  const suggestedRestaurant = useMemo(() => {
+  // Restaurants ordered by "where to head next": picked-up drop-offs first, then priority /
+  // ready / late count, closer wins. Drives both the list order and the suggested strip.
+  const sortedRestaurants = useMemo(() => {
     return [...restaurants].sort((left, right) => {
       const leftPickedUpOrder = left.orders.find((order) => order.status === "PickedUp" && isCoordinate(order.customer?.location));
       const rightPickedUpOrder = right.orders.find((order) => order.status === "PickedUp" && isCoordinate(order.customer?.location));
@@ -632,8 +455,9 @@ export default function RiderMapScreen() {
         rightDistance * 2;
 
       return rightScore - leftScore;
-    })[0] ?? null;
+    });
   }, [restaurants, riderLocation]);
+  const suggestedRestaurant = sortedRestaurants[0] ?? null;
   const speedKmph = thresholdsQuery.data?.riderEtaSpeedKmph ?? 24;
   const routeFactor = thresholdsQuery.data?.riderEtaRouteFactor ?? 1.1;
   const stripRestaurant = suggestedRestaurant;
@@ -658,48 +482,6 @@ export default function RiderMapScreen() {
     }
   }, [restaurants, selectedRestaurantId]);
 
-  const animateToRegion = (region: Region) => {
-    setCurrentRegion(region);
-    mapRef.current?.animateToRegion(region, 320);
-  };
-
-  const fitMap = () => {
-    animateToRegion(buildRegion(fitPoints));
-  };
-
-  const zoomMap = (factor: number) => {
-    animateToRegion({
-      ...currentRegion,
-      latitudeDelta: Math.min(MAX_MAP_DELTA, Math.max(0.003, currentRegion.latitudeDelta * factor)),
-      longitudeDelta: Math.min(MAX_MAP_DELTA, Math.max(0.003, currentRegion.longitudeDelta * factor)),
-    });
-  };
-
-  const handleRegionChangeComplete = (region: Region) => {
-    const cappedRegion = {
-      ...region,
-      latitudeDelta: Math.min(MAX_MAP_DELTA, Math.max(0.003, region.latitudeDelta)),
-      longitudeDelta: Math.min(MAX_MAP_DELTA, Math.max(0.003, region.longitudeDelta)),
-    };
-    setCurrentRegion(cappedRegion);
-    if (
-      Math.abs(cappedRegion.latitudeDelta - region.latitudeDelta) > 0.0001 ||
-      Math.abs(cappedRegion.longitudeDelta - region.longitudeDelta) > 0.0001
-    ) {
-      mapRef.current?.animateToRegion(cappedRegion, 140);
-    }
-  };
-
-  const focusRider = () => {
-    if (!isCoordinate(riderLocation)) return;
-    animateToRegion({
-      latitude: riderLocation.latitude,
-      longitude: riderLocation.longitude,
-      latitudeDelta: 0.018,
-      longitudeDelta: 0.018,
-    });
-  };
-
   const openRestaurantSheet = (restaurant: RiderLiveMapRestaurant) => {
     setSelectedRestaurantId(restaurant.id);
     setIsSheetVisible(true);
@@ -710,104 +492,72 @@ export default function RiderMapScreen() {
     setSelectedRestaurantId("");
   };
 
-  useEffect(() => {
-    if (!isFocused || didInitialFitRef.current || !fitPoints.length) return;
-    didInitialFitRef.current = true;
-    const nextRegion = buildRegion(fitPoints);
-    const timer = setTimeout(() => {
-      setCurrentRegion(nextRegion);
-      mapRef.current?.animateToRegion(nextRegion, 320);
-    }, 240);
-
-    return () => clearTimeout(timer);
-  }, [fitPoints, isFocused]);
-
   return (
     <View style={styles.screen}>
-      <MapView
-        key={mapStyleSignature}
-        ref={mapRef}
+      {/* No in-app map here. A native map (with its user-location dot) ran a second GPS
+          client that fought the background tracking service and made the app heavy. This
+          list gives the rider the same "where to head next + status" at a glance, and the
+          restaurant sheet's "Open Directions" hands turn-by-turn to Google Maps. */}
+      <ScrollView
         style={StyleSheet.absoluteFill}
-        initialRegion={buildRegion(fitPoints)}
-        customMapStyle={resolvedMapStyle}
-        showsCompass={false}
-        showsUserLocation
-        showsMyLocationButton={false}
-        showsPointsOfInterest={false}
-        toolbarEnabled={false}
-        onMapReady={fitMap}
-        onRegionChangeComplete={handleRegionChangeComplete}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingTop: insets.top + 96, paddingBottom: Math.max(insets.bottom, 12) + 150 },
+        ]}
+        showsVerticalScrollIndicator={false}
       >
-        {routeLines.map((route) => (
-          <Polyline
-            key={route.id}
-            coordinates={route.points}
-            strokeColor={palette.secondary}
-            strokeWidth={2.5}
-            lineDashPattern={[4, 8]}
-            lineCap="round"
-            lineJoin="round"
-          />
-        ))}
-        {selectedRestaurant &&
-        !hasPickedUpSelectedRoute &&
-        isCoordinate(riderLocation) &&
-        isCoordinate(selectedRestaurant.location) ? (
-          <Polyline
-            coordinates={buildCurvedPolyline(riderLocation, selectedRestaurant.location)}
-            strokeColor={palette.info}
-            strokeWidth={2.75}
-            lineDashPattern={[6, 8]}
-            lineCap="round"
-          />
-        ) : null}
-        {restaurants.map((restaurant) => (
-          <RestaurantMarker
-            key={restaurant.id}
-            restaurant={restaurant}
-            selected={restaurant.id === selectedRestaurant?.id}
-            onPress={() => openRestaurantSheet(restaurant)}
-          />
-        ))}
-        {customerOrders.map((order) =>
-          isCoordinate(order.customer?.location) ? (
-            <Marker
-              key={`customer-${order.id}`}
-              coordinate={order.customer.location}
-              anchor={{ x: 0.5, y: 0.78 }}
-              zIndex={4}
-              onPress={() => {
-                const parent = restaurants.find((restaurant) =>
-                  restaurant.orders.some((item) => item.id === order.id)
-                );
-                if (parent) openRestaurantSheet(parent);
-              }}
+        {sortedRestaurants.map((restaurant) => {
+          const state = getRestaurantState(restaurant);
+          const tone = STATUS_COLORS[state] ?? palette.foreground;
+          const pickedUpOrder = restaurant.orders.find(
+            (order) => order.status === "PickedUp" && isCoordinate(order.customer?.location),
+          );
+          const isPicked = Boolean(pickedUpOrder);
+          const destination = pickedUpOrder?.customer?.location ?? restaurant.location;
+          const distance = calculateDistanceKm(riderLocation, destination);
+          const leadOrder = restaurant.orders[0] ?? null;
+          return (
+            <Pressable
+              key={restaurant.id}
+              onPress={() => openRestaurantSheet(restaurant)}
+              style={({ pressed }) => [
+                styles.listCard,
+                { borderColor: `${tone}40` },
+                pressed ? styles.mapButtonPressed : null,
+              ]}
             >
-              <View style={styles.pinRoot}>
-                <View style={styles.pinLiftShadow} />
-                <View
-                  style={[
-                    styles.pinPointer,
-                    { backgroundColor: STATUS_COLORS[order.status] ?? palette.foreground },
-                  ]}
+              <View style={[styles.listIcon, { backgroundColor: tone }]}>
+                <Ionicons
+                  name={isPicked ? "home" : "restaurant"}
+                  size={18}
+                  color={palette.surface}
                 />
-                <View
-                  style={[
-                    styles.pin,
-                    {
-                      backgroundColor: STATUS_COLORS[order.status] ?? palette.foreground,
-                      borderColor: palette.surface,
-                    },
-                  ]}
-                >
-                  <Ionicons name="home" size={13} color={palette.surface} />
+              </View>
+              <View style={styles.listBody}>
+                <Text style={styles.listTitle} numberOfLines={1}>
+                  {restaurant.name}
+                </Text>
+                <Text style={styles.listMeta} numberOfLines={1}>
+                  {isPicked ? mapCopy.dropOffFirst(restaurant.name) : formatRemaining(leadOrder, mapCopy)}
+                </Text>
+                <View style={styles.listBadgeRow}>
+                  <StatusPill label={getStatusLabel(state, mapCopy)} tone={tone} />
+                  {restaurant.orderCount > 1 ? (
+                    <Text style={styles.listOrderCount}>
+                      {restaurant.orderCount} orders
+                    </Text>
+                  ) : null}
                 </View>
               </View>
-            </Marker>
-          ) : null
-        )}
-        {/* Rider's own position = native GPS blue dot (showsUserLocation). */}
-      </MapView>
+              <View style={styles.listRight}>
+                <Text style={styles.listDistance}>{formatDistance(distance, mapCopy)}</Text>
+                <Text style={styles.listGo}>{isPicked ? mapCopy.reachCustomer : mapCopy.reachRestaurant}</Text>
+                <Ionicons name="chevron-forward" size={16} color={palette.mutedForeground} />
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       <SafeAreaView pointerEvents="box-none" edges={["top"]} style={styles.topOverlay}>
         <View style={styles.headerCard}>
@@ -832,9 +582,6 @@ export default function RiderMapScreen() {
       </SafeAreaView>
 
       <View style={[styles.controls, { top: insets.top + 94 }]}>
-        <MapActionButton icon="add" label={mapCopy.zoomIn} onPress={() => zoomMap(0.55)} />
-        <MapActionButton icon="remove" label={mapCopy.zoomOut} onPress={() => zoomMap(1.65)} />
-        <MapActionButton icon="locate" label={mapCopy.focusRider} onPress={focusRider} active={isCoordinate(riderLocation)} />
         <MapActionButton
           icon="checkmark-done"
           label={mapCopy.readyOnly}
@@ -918,6 +665,75 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: palette.background,
+  },
+  listContent: {
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  listCard: {
+    minHeight: 78,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.7,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  listIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  listTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  listMeta: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  listBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  listOrderCount: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  listRight: {
+    alignItems: "flex-end",
+    gap: 2,
+    minWidth: 64,
+  },
+  listDistance: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  listGo: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: palette.secondary,
+    textTransform: "uppercase",
   },
   topOverlay: {
     position: "absolute",

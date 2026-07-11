@@ -10,8 +10,14 @@ export type RiderLiveTrackingPolicy = {
 export const DEFAULT_RIDER_LIVE_TRACKING_POLICY = {
   mode: "balanced" as const,
   updateIntervalSeconds: 15,
-  distanceIntervalMeters: 60,
-  passiveHeartbeatSeconds: 60,
+  // Tighter last-mile cadence. A 60m move threshold + 60s heartbeat made a slow /
+  // near-stationary rider (walking the last block, waiting at a gate) update the
+  // customer only once a minute — that was the "location shares but is slow" report.
+  // 30m/25s keeps the customer marker + ETA fresh without touching accuracy (still
+  // Balanced), so the documented "High accuracy froze the JS thread" regression stays
+  // fixed.
+  distanceIntervalMeters: 30,
+  passiveHeartbeatSeconds: 25,
 };
 
 function clamp(value: unknown, fallback: number, min: number, max: number) {
@@ -60,13 +66,13 @@ export function normalizeRiderLiveTrackingPolicy(
     distanceIntervalMeters: clamp(
       policy?.distanceIntervalMeters,
       DEFAULT_RIDER_LIVE_TRACKING_POLICY.distanceIntervalMeters,
-      30,
+      20,
       100,
     ),
     passiveHeartbeatSeconds: clamp(
       policy?.passiveHeartbeatSeconds,
       DEFAULT_RIDER_LIVE_TRACKING_POLICY.passiveHeartbeatSeconds,
-      30,
+      15,
       180,
     ),
   };

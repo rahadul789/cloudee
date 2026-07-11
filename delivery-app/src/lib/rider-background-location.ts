@@ -29,10 +29,12 @@ const BACKGROUND_SEND_POLICY_KEY =
 const BACKGROUND_LAST_SENT_KEY = "foodbela-rider-background-last-sent";
 const AUTH_STORAGE_KEY = "delivery-rider-auth";
 
-const DEFAULT_MOVE_THRESHOLD_METERS = 60;
+const DEFAULT_MOVE_THRESHOLD_METERS = 30;
 // Even when the rider is stationary (traffic, waiting at a gate), send at least this
-// often so the customer's marker and ETA never freeze.
-const DEFAULT_HEARTBEAT_MS = 35_000;
+// often so the customer's marker and ETA never freeze. Kept in sync with the admin
+// policy's passiveHeartbeat default (25s) so a slow last-mile still refreshes the
+// customer roughly every ~25s instead of once a minute.
+const DEFAULT_HEARTBEAT_MS = 25_000;
 // Cap a single location PATCH so a slow/2G network can't leave the task hanging.
 const LOCATION_SEND_TIMEOUT_MS = 9_000;
 // Refresh the access token this long before it actually expires, so a valid token is
@@ -537,18 +539,24 @@ async function hasBackgroundPermission() {
     return false;
   }
 
-  const foreground = await Location.requestForegroundPermissionsAsync();
+  // CHECK the current grant, never REQUEST here. startRiderBackgroundLocationAsync runs
+  // on every app-resume (AppState "active"), and requesting permission pops the system
+  // GrantPermissionsActivity dialog — which itself backgrounds our activity, then resuming
+  // fires "active" again, which starts again, which requests again… a pause↔resume storm
+  // (~15×/sec) that pinned the CPU and got the app killed after pickup. The one-time
+  // REQUEST lives solely in RiderLocationController's permission effect; here we only read.
+  const foreground = await Location.getForegroundPermissionsAsync();
   if (foreground.status !== "granted") {
     return false;
   }
 
-  const background = await Location.requestBackgroundPermissionsAsync();
+  const background = await Location.getBackgroundPermissionsAsync();
   return background.status === "granted";
 }
 
 export async function startRiderBackgroundLocationAsync({
   timeIntervalMs = 30000,
-  distanceIntervalMeters = 60,
+  distanceIntervalMeters = DEFAULT_MOVE_THRESHOLD_METERS,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   accuracy = Location.Accuracy.Balanced,
   notificationBody = "Foodbela is sharing rider location for live delivery tracking.",
@@ -604,8 +612,10 @@ export async function startRiderBackgroundLocationAsync({
       // Movement-based delivery: the OS only wakes the task after the rider actually
       // moves this far. With distanceInterval:0 it streamed fixes constantly and every
       // one hit the JS thread, which is what kept the app heavy while sharing location.
-      // A stopped rider simply sends nothing (their position hasn't changed).
-      distanceInterval: Math.max(25, distanceIntervalMeters),
+      // A stopped rider simply sends nothing (their position hasn't changed). Floor of
+      // 20m keeps the OS from firing on pure GPS noise while still waking often enough
+      // for a smooth last-mile.
+      distanceInterval: Math.max(20, distanceIntervalMeters),
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
       foregroundService: {

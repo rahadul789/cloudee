@@ -120,6 +120,26 @@ const zones: DemoZone[] = [
     maxRestaurantDistanceKm: 4.5,
     baseFeeTaka: 55,
   },
+  {
+    districtName: "Mymensingh",
+    districtSlug: "mymensing",
+    zoneName: "Golgonda",
+    zoneSlug: "golgonda",
+    center: { latitude: 24.772865, longitude: 90.377873 },
+    radiusKm: 10,
+    maxRestaurantDistanceKm: 10,
+    baseFeeTaka: 50,
+  },
+  {
+    districtName: "Mymensingh",
+    districtSlug: "mymensing",
+    zoneName: "Charpara",
+    zoneSlug: "charpara",
+    center: { latitude: 24.739249, longitude: 90.407332 },
+    radiusKm: 10,
+    maxRestaurantDistanceKm: 10,
+    baseFeeTaka: 50,
+  },
 ]
 
 const NETRAKONA_SADAR_RESTAURANT_NAMES = [
@@ -214,8 +234,115 @@ function makeNetrakonaSadarRestaurants(): DemoRestaurant[] {
   })
 }
 
+const GOLGONDA_RESTAURANT_NAMES = [
+  "Golgonda Bangla Kitchen",
+  "Brahmaputra Rice Bowl",
+  "Town Hall Kacchi",
+  "Golgonda Grill Stop",
+  "Station Road Cafe",
+  "Mymensingh Burger Yard",
+  "Charpara Link Chinese",
+  "Golgonda Fish Meals",
+  "Nawab Tehari House",
+  "College Gate Snacks",
+  "Family Feast Golgonda",
+  "Sweet & Spice Golgonda",
+]
+
+const CHARPARA_RESTAURANT_NAMES = [
+  "Charpara Food Court",
+  "Medical Gate Kitchen",
+  "Charpara Kacchi House",
+  "Mymensingh Grill Hub",
+  "Boro Bazar Rice Plate",
+  "Charpara Burger Lab",
+  "Jubilee Road Cafe",
+  "Green Chili Charpara",
+  "Thai Soup Corner",
+  "Noodles & Wonton Charpara",
+  "Family Dine Charpara",
+  "Sweet Station Charpara",
+]
+
+const MYMENSINGH_OWNER_NAMES = [
+  "Mahfuz Rahman",
+  "Rasel Ahmed",
+  "Sanjida Akter",
+  "Touhid Hasan",
+  "Nabila Islam",
+  "Foysal Karim",
+  "Morshed Alam",
+  "Sabrina Noor",
+  "Anik Chowdhury",
+  "Mim Sultana",
+  "Shuvo Paul",
+  "Rumi Akter",
+]
+
+const MYMENSINGH_CUISINE_SETS = [
+  ["Bangla", "Rice", "Fish"],
+  ["Kacchi", "Biryani", "Tehari"],
+  ["Grill", "BBQ", "Chicken"],
+  ["Cafe", "Tea", "Sandwich"],
+  ["Fast Food", "Burger", "Fries"],
+  ["Chinese", "Noodles", "Thai Soup"],
+  ["Snacks", "Fuchka", "Chotpoti"],
+  ["Sweets", "Dessert", "Drinks"],
+  ["Family Meals", "Curry", "Rice"],
+]
+
+function makeMymensinghRestaurants({
+  zoneSlug,
+  names,
+  ownerPhonePrefix,
+  restaurantPhonePrefix,
+  emailPrefix,
+  bearingStart,
+}: {
+  zoneSlug: string
+  names: string[]
+  ownerPhonePrefix: string
+  restaurantPhonePrefix: string
+  emailPrefix: string
+  bearingStart: number
+}): DemoRestaurant[] {
+  return names.map((name, index) => {
+    const paddedIndex = String(index + 1).padStart(6, "0")
+
+    return {
+      name,
+      ownerName: MYMENSINGH_OWNER_NAMES[index % MYMENSINGH_OWNER_NAMES.length],
+      ownerPhone: `${ownerPhonePrefix}${paddedIndex}`,
+      ownerEmail: `${emailPrefix}.owner${String(index + 1).padStart(2, "0")}@foodbela.demo`,
+      phone: `${restaurantPhonePrefix}${paddedIndex}`,
+      zoneSlug,
+      distanceKm: Number((1.2 + index * 0.55).toFixed(2)),
+      bearingDeg: (bearingStart + index * 31) % 360,
+      cuisines: MYMENSINGH_CUISINE_SETS[index % MYMENSINGH_CUISINE_SETS.length],
+      imageUrl: FOOD_IMAGES[index % FOOD_IMAGES.length],
+      featured: index < 4,
+    }
+  })
+}
+
 const restaurants: DemoRestaurant[] = [
   ...makeNetrakonaSadarRestaurants(),
+  ...makeMymensinghRestaurants({
+    zoneSlug: "golgonda",
+    names: GOLGONDA_RESTAURANT_NAMES,
+    ownerPhonePrefix: "01740",
+    restaurantPhonePrefix: "01741",
+    emailPrefix: "golgonda",
+    bearingStart: 18,
+  }),
+  ...makeMymensinghRestaurants({
+    zoneSlug: "charpara",
+    names: CHARPARA_RESTAURANT_NAMES,
+    ownerPhonePrefix: "01742",
+    restaurantPhonePrefix: "01743",
+    emailPrefix: "charpara",
+    bearingStart: 42,
+  }),
   {
     name: "Kendua Ruti Ghar",
     ownerName: "Mehedi Karim",
@@ -452,6 +579,7 @@ function districtDisplayOrder(slug: string) {
   if (slug === "dinajpur") return 2
   if (slug === "dhaka") return 3
   if (slug === "kushtia") return 4
+  if (slug === "mymensing") return 5
   return 99
 }
 
@@ -461,6 +589,8 @@ function zoneDisplayOrder(slug: string) {
   if (slug === "dinajpur-sadar") return 3
   if (slug === "khilgaon") return 4
   if (slug === "kushtia-sadar") return 5
+  if (slug === "golgonda") return 6
+  if (slug === "charpara") return 7
   return 99
 }
 

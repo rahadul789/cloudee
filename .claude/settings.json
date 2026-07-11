@@ -120,11 +120,26 @@
       "Read(//d/cloudee/app/\\\\\\(app\\\\\\)/**)",
       "Bash(git commit -m ' *)",
       "Bash(ls customer/ promotions/)",
-      "Bash(wc -l customer/customer-cart.service.ts customer/customer.service.ts promotions/menu-markdown.ts)"
+      "Bash(wc -l customer/customer-cart.service.ts customer/customer.service.ts promotions/menu-markdown.ts)",
+      "WebFetch(domain:chatgpt.com)",
+      "PowerShell($app = \"com.haqrahadul.deliveryapp\"; $installed = adb shell pm list packages $app; if \\($installed\\) { Write-Output \"INSTALLED: $installed\" } else { Write-Output \"NOT INSTALLED - check package name\" }; Write-Output \"--- current PID \\(if running\\) ---\"; adb shell pidof $app)",
+      "PowerShell($out = \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--cloudee\\\\ec4dbe83-5dc4-4e31-9664-1af7d279fd74\\\\scratchpad\\\\deliveryapp-logcat.txt\"; Start-Sleep -Seconds 2; if \\(Test-Path $out\\) { $size = \\(Get-Item $out\\).Length; Write-Output \"file exists, size=$size bytes\" } else { Write-Output \"file NOT created yet\" })",
+      "PowerShell($out = \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--cloudee\\\\ec4dbe83-5dc4-4e31-9664-1af7d279fd74\\\\scratchpad\\\\deliveryapp-logcat.txt\"; if \\(Test-Path $out\\) { $size = \\(Get-Item $out\\).Length; $lines = \\(Get-Content $out | Measure-Object -Line\\).Lines; Write-Output \"size=$size bytes, lines=$lines\" } else { Write-Output \"no file\" })",
+      "PowerShell(adb devices)",
+      "PowerShell($f = \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--cloudee\\\\ec4dbe83-5dc4-4e31-9664-1af7d279fd74\\\\scratchpad\\\\crash-buffer.txt\"; adb logcat -b crash -d -v time | Out-File -FilePath $f -Encoding utf8; if \\(Test-Path $f\\) { $n = \\(Get-Content $f | Measure-Object -Line\\).Lines; Write-Output \"crash buffer lines: $n\" })",
+      "PowerShell($out = \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--cloudee\\\\ec4dbe83-5dc4-4e31-9664-1af7d279fd74\\\\scratchpad\\\\perf-log.txt\"; $size=\\(Get-Item $out\\).Length; $lines=\\(Get-Content $out|Measure-Object -Line\\).Lines; Write-Output \"size=$size lines=$lines\"; Write-Output \"===== SKIPPED FRAMES =====\"; Get-Content $out | Select-String -Pattern \"Skipped \\\\d+ frames|frames!\" | Select-Object -Last 20)",
+      "PowerShell($out = \"C:\\\\Users\\\\DELL\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--cloudee\\\\ec4dbe83-5dc4-4e31-9664-1af7d279fd74\\\\scratchpad\\\\perf-log.txt\"; Write-Output \"===== current app PID =====\"; adb shell pidof com.haqrahadul.deliveryapp; Write-Output \"===== GC activity \\(art\\) count =====\"; \\(Get-Content $out | Select-String -Pattern \"art     \\\\\\(|GC \"\\).Count; Write-Output \"===== sample GC lines =====\"; Get-Content $out | Select-String -Pattern \"GC freed|concurrent copying GC|Clamp|Waiting for a blocking GC|large object\" | Select-Object -Last 15)",
+      "PowerShell(adb shell top -H -b -n 1 -p 9951 2>$null)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(npx eslint *)",
+      "Bash(echo \"ESLINT_EXIT=$?\")",
+      "PowerShell($pid_ = \\(adb shell pidof com.haqrahadul.deliveryapp\\).Trim\\(\\); Write-Output \"PID=$pid_\"; Write-Output \"=== process CPU/MEM ===\"; adb shell top -b -n 1 | Select-String -Pattern \"deliveryapp|800%cpu|PID USER\"; Write-Output \"=== per-THREAD top consumers ===\"; adb shell top -H -b -n 1 -p $pid_ 2>$null | Select-Object -First 16)",
+      "Bash(npm ls *)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",
-      "D:\\cloudee\\customer-app\\app\\orders\\[orderId]"
+      "D:\\cloudee\\customer-app\\app\\orders\\[orderId]",
+      "D:\\cloudee"
     ]
   }
 }

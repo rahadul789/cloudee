@@ -23,7 +23,6 @@ import {
   useFailDeliveryMutation,
   type RiderDeliveryFailureReason,
   useRiderDeliveryThresholdsQuery,
-  useRiderMapStyleQuery,
   usePickupOrderMutation,
   useRiderOrderDetailsQuery,
   useRiderSupportContactQuery,
@@ -39,10 +38,6 @@ import {
   getRiderLocationPayload,
   type RiderLocationPayload,
 } from "@/src/lib/rider-location-permissions";
-import {
-  RiderLiveMap,
-  type RiderLiveMapHandle,
-} from "@/src/components/orders/rider-live-map";
 import { PersistentBottomSheet } from "@/src/components/persistent-bottom-sheet";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
@@ -336,12 +331,10 @@ export default function RiderOrderDetailsScreen() {
   const [failReason, setFailReason] = useState<RiderDeliveryFailureReason | null>(null);
   const [failNote, setFailNote] = useState("");
 
-  const liveMapRef = useRef<RiderLiveMapHandle | null>(null);
   const routeWarmupOrderRef = useRef<string | null>(null);
   const isCompletingDeliveryRef = useRef(false);
 
   const orderQuery = useRiderOrderDetailsQuery(orderId);
-  const orderDetailsMapStyleQuery = useRiderMapStyleQuery("delivery.order_details");
   const deliveryThresholdsQuery = useRiderDeliveryThresholdsQuery();
   const supportContactQuery = useRiderSupportContactQuery();
   const acceptMutation = useAcceptOrderMutation();
@@ -395,7 +388,6 @@ export default function RiderOrderDetailsScreen() {
     () => serverRiderCoordinate,
     [serverRiderCoordinate],
   );
-  const riderHeading = trackingLocation?.heading ?? lastKnownRiderLocation?.heading ?? null;
 
   const isPickedUp = order?.status === "PickedUp";
   const deliveryThresholds = deliveryThresholdsQuery.data ?? DEFAULT_DELIVERY_THRESHOLDS;
@@ -456,9 +448,6 @@ export default function RiderOrderDetailsScreen() {
     Boolean(rider?.activeTrackingOrderId) && rider?.activeTrackingOrderId !== order?.id;
   const isPreviewOnlyRoute =
     isAssignedPrePickup && !order?.isTrackingActiveForRider && hasAnotherActiveLiveTrip;
-  const shouldShowCurrentApproachLeg = isPickedUp
-    ? true
-    : isAssignedPrePickup && !isPreviewOnlyRoute;
 
   const isAcceptDisabled = !isNetworkOnline || isAssignmentsPaused || acceptMutation.isPending;
   const isPickupBusy = isPickupPreparing || pickupMutation.isPending || profileLocationMutation.isPending;
@@ -893,8 +882,6 @@ export default function RiderOrderDetailsScreen() {
   const paymentBadge = getPaymentMethodBadge(order.paymentMethod);
   const isCodOrder = `${order.paymentMethod ?? ""}`.toLowerCase().includes("cash") ||
     `${order.paymentMethod ?? ""}`.toLowerCase().includes("cod");
-  const phase = isPickedUp ? "to_customer" : "to_restaurant";
-  const showPlannedDeliveryLeg = !isPickedUp && Boolean(restaurantCoordinate && customerCoordinate);
   const collapsedHeight = 238 + Math.max(insets.bottom, 8);
   const expandedHeight = Math.max(
     collapsedHeight + 240,
@@ -1022,24 +1009,40 @@ export default function RiderOrderDetailsScreen() {
 
   return (
     <View style={styles.root}>
-      <RiderLiveMap
-        ref={liveMapRef}
-        phase={phase}
-        restaurantLocation={restaurantCoordinate}
-        customerLocation={customerCoordinate}
-        riderLocation={riderCoordinate}
-        riderHeading={riderHeading}
-        routePolyline={order.routeToNext?.polyline}
-        routeProvider={order.routeToNext?.provider}
-        showActiveApproachLeg={shouldShowCurrentApproachLeg}
-        showPlannedDeliveryLeg={showPlannedDeliveryLeg}
-        restaurantName={order.restaurant?.name ?? copy.common.restaurant}
-        customerName={order.customer?.name ?? copy.common.customer}
-        topInset={insets.top}
-        bottomInset={collapsedHeight}
-        onOpenExternalNavigation={openInNativeMaps}
-        mapStyle={orderDetailsMapStyleQuery.data}
-      />
+      {/* Turn-by-turn is handed off to Google Maps (real voice nav + traffic). We do NOT
+          render an in-app live MapView here: a second native GPS client (the map's
+          user-location dot) fought the background tracking foreground-service for the
+          sensor and made the whole app heavy after pickup. Live location keeps sharing via
+          the background service (RiderLocationController) — this screen is now lightweight. */}
+      <View style={styles.navArea}>
+        <View style={styles.navCard}>
+          <View style={styles.navIconCircle}>
+            <Ionicons
+              name={isPickedUp ? "home" : "storefront"}
+              size={30}
+              color={palette.surface}
+            />
+          </View>
+          <Text style={styles.navLegLabel}>{activeLegLabel}</Text>
+          <Text style={styles.navDestName} numberOfLines={2}>
+            {destinationName}
+          </Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.navMapsButton,
+              pressed ? styles.navMapsButtonPressed : null,
+            ]}
+            onPress={openInNativeMaps}
+          >
+            <Ionicons name="navigate" size={19} color={palette.surface} />
+            <Text style={styles.navMapsButtonText}>{copy.orderDetails.openInMaps}</Text>
+          </Pressable>
+          <View style={styles.navShareRow}>
+            <View style={styles.navShareDot} />
+            <Text style={styles.navShareText}>{copy.orderDetails.sharingLive}</Text>
+          </View>
+        </View>
+      </View>
 
       {customerPhone || restaurantPhone ? (
         <View style={[styles.mapContactCard, { top: insets.top + 64 }]} pointerEvents="box-none">
@@ -1759,6 +1762,89 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: palette.background,
+  },
+  navArea: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: palette.surfaceMuted,
+  },
+  navCard: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 26,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+  navIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.secondary,
+  },
+  navLegLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: palette.secondary,
+  },
+  navDestName: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: palette.foreground,
+    textAlign: "center",
+  },
+  navMapsButton: {
+    marginTop: 8,
+    minHeight: 52,
+    alignSelf: "stretch",
+    borderRadius: 16,
+    backgroundColor: palette.foreground,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+  },
+  navMapsButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
+  },
+  navMapsButtonText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: palette.surface,
+  },
+  navShareRow: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  navShareDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: palette.success,
+  },
+  navShareText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: palette.mutedForeground,
   },
   safeArea: {
     flex: 1,
