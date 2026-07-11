@@ -93,6 +93,28 @@ export function collectFirstOrderDeviceIds(
   return [...ids]
 }
 
+// Has THIS device already consumed the first-order welcome perk — an active claim
+// (reserved/confirmed) or a redeemed discount on any account on this device? The referral
+// service calls this so ONE physical device gets ONE welcome perk total across BOTH
+// programs (first-order OR referral welcome), never one of each via two phone numbers.
+export async function deviceHasFirstOrderWelcome(deviceIds: string[]) {
+  if (!deviceIds.length) return false
+  const [claim, redeemed] = await Promise.all([
+    FirstOrderDiscountClaimModel.exists({
+      status: { $in: ["reserved", "confirmed"] },
+      deviceId: { $in: deviceIds },
+    }),
+    CustomerModel.exists({
+      firstOrderDiscountRedeemedAt: { $ne: null },
+      $or: [
+        { lastKnownDeviceId: { $in: deviceIds } },
+        { referralSignupDeviceId: { $in: deviceIds } },
+      ],
+    }),
+  ])
+  return Boolean(claim || redeemed)
+}
+
 export type FirstOrderDiscountEvaluation = {
   eligible: boolean // grantable right now (threshold met + all fraud checks pass)
   candidate: boolean // a genuine first-order customer who WOULD get it on reaching the
@@ -193,6 +215,20 @@ export async function evaluateFirstOrderDiscount(params: {
       $or: fingerprintOr,
     })
     if (conflict) return fail("fingerprint_conflict")
+  }
+
+  // Cross-perk block: this device already consumed the OTHER welcome perk — the referral
+  // welcome voucher. One physical device gets ONE welcome perk total, so a device that
+  // referral-welcomed on one phone number cannot also first-order on another.
+  if (deviceIds.length) {
+    const referralWelcomeOnDevice = await CustomerModel.exists({
+      refereeRewardGrantedAt: { $ne: null },
+      $or: [
+        { referralSignupDeviceId: { $in: deviceIds } },
+        { lastKnownDeviceId: { $in: deviceIds } },
+      ],
+    })
+    if (referralWelcomeOnDevice) return fail("fingerprint_conflict")
   }
 
   // Per-device/day velocity — counts EVERY claim (including released), so rapid

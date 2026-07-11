@@ -25,10 +25,7 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
-import {
-  computeOfferProgress,
-  type OfferTier,
-} from "@/src/lib/offer-progress";
+import { computeOfferProgress, type OfferTier } from "@/src/lib/offer-progress";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import {
   buildStartingPrice,
@@ -416,7 +413,12 @@ export default function CartScreen() {
 
     const progress = computeOfferProgress(tiers, subtotal);
     return progress ? { ...progress, subtotal } : null;
-  }, [autoOffers, displayPricing.subtotal, pricing?.deliveryFee, firstOrderMeta]);
+  }, [
+    autoOffers,
+    displayPricing.subtotal,
+    pricing?.deliveryFee,
+    firstOrderMeta,
+  ]);
 
   useEffect(() => {
     if (!shouldUseQuotedPricing || !quoteQuery.data?.items?.length) {
@@ -884,7 +886,10 @@ export default function CartScreen() {
                             <View style={styles.itemMain}>
                               <View style={styles.itemHeaderRow}>
                                 <View style={styles.itemTitleBlock}>
-                                  <Text style={styles.itemName} numberOfLines={2}>
+                                  <Text
+                                    style={styles.itemName}
+                                    numberOfLines={2}
+                                  >
                                     {item.name}
                                   </Text>
                                 </View>
@@ -892,7 +897,10 @@ export default function CartScreen() {
                                 <View style={styles.quantityControl}>
                                   <Pressable
                                     onPressIn={() =>
-                                      updateQuantity(item.key, item.quantity - 1)
+                                      updateQuantity(
+                                        item.key,
+                                        item.quantity - 1,
+                                      )
                                     }
                                     style={({ pressed }) => [
                                       styles.quantityButton,
@@ -919,7 +927,10 @@ export default function CartScreen() {
                                   </Text>
                                   <CartQuantityPlusButton
                                     onPress={() =>
-                                      updateQuantity(item.key, item.quantity + 1)
+                                      updateQuantity(
+                                        item.key,
+                                        item.quantity + 1,
+                                      )
                                     }
                                   />
                                 </View>
@@ -928,12 +939,18 @@ export default function CartScreen() {
                               {variantSummary || addOnSummary ? (
                                 <View style={styles.itemMetaBlock}>
                                   {variantSummary ? (
-                                    <Text style={styles.itemMeta} numberOfLines={2}>
+                                    <Text
+                                      style={styles.itemMeta}
+                                      numberOfLines={2}
+                                    >
                                       {variantSummary}
                                     </Text>
                                   ) : null}
                                   {addOnSummary ? (
-                                    <Text style={styles.itemMeta} numberOfLines={2}>
+                                    <Text
+                                      style={styles.itemMeta}
+                                      numberOfLines={2}
+                                    >
                                       {addOnSummary}
                                     </Text>
                                   ) : null}
@@ -1001,11 +1018,7 @@ export default function CartScreen() {
                     onPress={() => openRestaurantForItem()}
                     accessibilityRole="button"
                   >
-                    <Ionicons
-                      name="add"
-                      size={15}
-                      color={palette.secondary}
-                    />
+                    <Ionicons name="add" size={15} color={palette.secondary} />
                     <Text style={styles.addMoreButtonText}>Add more</Text>
                   </Pressable>
                 ) : null}
@@ -1023,14 +1036,6 @@ export default function CartScreen() {
                         {cartRecommendationConfig?.subtitle ||
                           "Small extras that go well with this cart."}
                       </Text>
-                    </View>
-                    <View style={styles.recommendationHint}>
-                      <Text style={styles.recommendationHintText}>Swipe</Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={12}
-                        color={palette.secondary}
-                      />
                     </View>
                   </View>
                   <ScrollView
@@ -1099,98 +1104,99 @@ export default function CartScreen() {
               ) : null}
 
               <View style={styles.summaryCard}>
-                {offerProgress ? (
-                  (() => {
-                    // Below the threshold the card doubles as a shortcut: tap to jump back
-                    // to the restaurant and add more items to unlock the offer.
-                    const canAddMore =
-                      !offerProgress.unlocked && Boolean(restaurant?.restaurantId);
-                    return (
-                      <Animated.View
-                        style={[
-                          styles.offerProgressCard,
-                          offerProgress.hasCurrent
-                            ? styles.offerProgressCardUnlocked
-                            : null,
-                          { transform: [{ scale: offerUnlockAnim }] },
-                        ]}
-                      >
-                        <Pressable
-                          disabled={!canAddMore}
-                          onPress={() => openRestaurantForItem()}
-                          style={({ pressed }) =>
-                            pressed && canAddMore
-                              ? styles.offerProgressPressed
-                              : null
-                          }
+                {offerProgress
+                  ? (() => {
+                      // Below the threshold the card doubles as a shortcut: tap to jump back
+                      // to the restaurant and add more items to unlock the offer.
+                      const canAddMore =
+                        !offerProgress.unlocked &&
+                        Boolean(restaurant?.restaurantId);
+                      return (
+                        <Animated.View
+                          style={[
+                            styles.offerProgressCard,
+                            offerProgress.hasCurrent
+                              ? styles.offerProgressCardUnlocked
+                              : null,
+                            { transform: [{ scale: offerUnlockAnim }] },
+                          ]}
                         >
-                          <View style={styles.offerProgressHeader}>
-                            <View style={styles.offerProgressBadge}>
-                              <Ionicons
-                                name={
-                                  offerProgress.hasCurrent
-                                    ? "checkmark-circle"
-                                    : "sparkles-outline"
-                                }
-                                size={15}
-                                color={
-                                  offerProgress.hasCurrent
-                                    ? palette.successText
-                                    : palette.secondary
-                                }
-                              />
-                              <Text
-                                numberOfLines={1}
-                                style={[
-                                  styles.offerProgressBadgeText,
-                                  offerProgress.hasCurrent
-                                    ? styles.offerProgressBadgeTextUnlocked
-                                    : null,
-                                ]}
-                              >
-                                {offerProgress.hasCurrent
-                                  ? `${offerProgress.currentLabel} applied`
-                                  : `Unlock ${offerProgress.nextLabel}`}
-                              </Text>
-                            </View>
-                            <View style={styles.offerProgressHeaderRight}>
-                              <Text
-                                style={styles.offerProgressValue}
-                                numberOfLines={1}
-                              >
-                                {formatCurrency(offerProgress.subtotal)} /{" "}
-                                {formatCurrency(offerProgress.target)}
-                              </Text>
-                              {canAddMore ? (
+                          <Pressable
+                            disabled={!canAddMore}
+                            onPress={() => openRestaurantForItem()}
+                            style={({ pressed }) =>
+                              pressed && canAddMore
+                                ? styles.offerProgressPressed
+                                : null
+                            }
+                          >
+                            <View style={styles.offerProgressHeader}>
+                              <View style={styles.offerProgressBadge}>
                                 <Ionicons
-                                  name="chevron-forward"
-                                  size={16}
-                                  color={palette.secondary}
+                                  name={
+                                    offerProgress.hasCurrent
+                                      ? "checkmark-circle"
+                                      : "sparkles-outline"
+                                  }
+                                  size={15}
+                                  color={
+                                    offerProgress.hasCurrent
+                                      ? palette.successText
+                                      : palette.secondary
+                                  }
                                 />
-                              ) : null}
+                                <Text
+                                  numberOfLines={1}
+                                  style={[
+                                    styles.offerProgressBadgeText,
+                                    offerProgress.hasCurrent
+                                      ? styles.offerProgressBadgeTextUnlocked
+                                      : null,
+                                  ]}
+                                >
+                                  {offerProgress.hasCurrent
+                                    ? `${offerProgress.currentLabel} applied`
+                                    : `Unlock ${offerProgress.nextLabel}`}
+                                </Text>
+                              </View>
+                              <View style={styles.offerProgressHeaderRight}>
+                                <Text
+                                  style={styles.offerProgressValue}
+                                  numberOfLines={1}
+                                >
+                                  {formatCurrency(offerProgress.subtotal)} /{" "}
+                                  {formatCurrency(offerProgress.target)}
+                                </Text>
+                                {canAddMore ? (
+                                  <Ionicons
+                                    name="chevron-forward"
+                                    size={16}
+                                    color={palette.secondary}
+                                  />
+                                ) : null}
+                              </View>
                             </View>
-                          </View>
-                          <Text style={styles.offerProgressSubtitle}>
-                            {offerProgress.unlocked
-                              ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
-                              : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
-                          </Text>
-                          <View style={styles.offerTrack}>
-                            <View
-                              style={[
-                                styles.offerFill,
-                                offerProgress.hasCurrent
-                                  ? styles.offerFillUnlocked
-                                  : null,
-                                { width: `${offerProgress.ratio * 100}%` },
-                              ]}
-                            />
-                          </View>
-                        </Pressable>
-                      </Animated.View>
-                    );
-                  })()
-                ) : null}
+                            <Text style={styles.offerProgressSubtitle}>
+                              {offerProgress.unlocked
+                                ? `${offerProgress.currentLabel} applied${offerProgress.currentContext ? ` ${offerProgress.currentContext}` : " at checkout"}.`
+                                : `Add ${formatCurrency(offerProgress.remaining)} more for ${offerProgress.nextLabel}${offerProgress.nextContext ? ` ${offerProgress.nextContext}` : ""}.`}
+                            </Text>
+                            <View style={styles.offerTrack}>
+                              <View
+                                style={[
+                                  styles.offerFill,
+                                  offerProgress.hasCurrent
+                                    ? styles.offerFillUnlocked
+                                    : null,
+                                  { width: `${offerProgress.ratio * 100}%` },
+                                ]}
+                              />
+                            </View>
+                          </Pressable>
+                        </Animated.View>
+                      );
+                    })()
+                  : null}
                 <Text style={styles.summaryTitle}>Order summary</Text>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Items subtotal</Text>
@@ -1238,7 +1244,10 @@ export default function CartScreen() {
                     <Text
                       style={[styles.summaryValue, styles.summaryHighlight]}
                     >
-                      -{formatCurrency(displayPricing.firstOrderDiscountAmount ?? 0)}
+                      -
+                      {formatCurrency(
+                        displayPricing.firstOrderDiscountAmount ?? 0,
+                      )}
                     </Text>
                   </View>
                 ) : null}

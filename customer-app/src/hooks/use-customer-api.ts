@@ -200,6 +200,7 @@ export type CustomerReferralSummary = {
   referralCode: string;
   canApplyReferralCode?: boolean;
   referralCodeIneligibleReason?: string;
+  deviceWelcomeEligible?: boolean;
   shareLink?: string;
   shareMessage?: string;
   rewardAmount: number;
@@ -240,15 +241,20 @@ export function useCustomerProfileQuery(enabled = true) {
   return query;
 }
 
-export function useCustomerReferralSummaryQuery(enabled = true) {
+export function useCustomerReferralSummaryQuery(
+  enabled = true,
+  installId?: string,
+) {
   const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
 
   return useQuery({
-    queryKey: ["customer", "referrals", "summary"],
+    queryKey: ["customer", "referrals", "summary", installId ?? ""],
     enabled: enabled && isAuthenticated,
     queryFn: async () => {
       const response = await apiProtectedGet<CustomerReferralSummary>(
-        "/customer/referrals/summary"
+        installId
+          ? `/customer/referrals/summary?installId=${encodeURIComponent(installId)}`
+          : "/customer/referrals/summary"
       );
       return response.data;
     },
@@ -264,6 +270,8 @@ export function useCustomerApplyReferralCodeMutation() {
         applied: boolean;
         referralCode: string;
         referrerName: string;
+        welcomeVoucherGranted?: boolean;
+        welcomeVoucherAmount?: number;
         message: string;
       }>("/customer/referrals/apply", body);
       return response.data;

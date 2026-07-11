@@ -2702,6 +2702,7 @@ export type AdminCustomerDetails = {
   }
   referrals: {
     referralCode: string
+    referralDisabledByAdmin?: boolean
     referredBy: null | {
       id: string
       name: string
@@ -5677,6 +5678,60 @@ export async function updateAdminCustomerStatus(params: {
       }),
     }
   )
+  return response.data
+}
+
+export type AdminCustomerDeviceIntel = {
+  hasDevice: boolean
+  deviceCount: number
+  accountCount: number
+  distinctPhoneCount: number
+  referralAppliedCount: number
+  refereeVoucherCount: number
+  firstOrderRedeemedCount: number
+  firstOrderClaimCount: number
+  suspicious: boolean
+  reasons: string[]
+  accounts: Array<{
+    id: string
+    name: string
+    phone: string
+    joinedAt: string | null
+    appliedReferral: boolean
+    gotRefereeVoucher: boolean
+    redeemedFirstOrder: boolean
+    referralDisabledByAdmin: boolean
+    isCurrent: boolean
+  }>
+}
+
+export async function getAdminCustomerDeviceIntel(customerId: string) {
+  const response = await adminRequest<AdminCustomerDeviceIntel>(
+    `/admin/customers/${customerId}/device-intel`,
+  )
+  return response.data
+}
+
+export async function updateAdminCustomerReferralAccess(params: {
+  customerId: string
+  disabled: boolean
+  note?: string
+}) {
+  const response = await adminRequest<{
+    id: string
+    fullName: string
+    referralDisabledByAdmin: boolean
+    updatedAt: string | null
+  }>(`/admin/customers/${params.customerId}/referral-access`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      disabled: params.disabled,
+      note: params.note,
+    }),
+  })
   return response.data
 }
 

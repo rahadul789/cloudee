@@ -14,6 +14,7 @@ import {
   VoucherModel,
   VoucherRedemptionModel,
 } from "./customer.model"
+import { deviceHasFirstOrderWelcome } from "./first-order-discount.service"
 import { createCustomerNotification, sendPushToCustomer } from "./push.service"
 
 export const REFERRAL_REWARD_AMOUNT = 50
@@ -285,6 +286,13 @@ async function getReferralApplyEligibility(params: {
     }
   }
 
+  if (params.customer.referralDisabledByAdmin) {
+    return {
+      canApply: false,
+      reason: "Referrals are turned off for this account.",
+    }
+  }
+
   if (params.customer.referredByCustomerId) {
     return {
       canApply: false,
@@ -495,7 +503,37 @@ function formatReferralRewardExpiry(date?: Date | string | null) {
   return date ? new Date(date).toISOString() : null
 }
 
-export async function getCustomerReferralSummary(customerId: string) {
+// Would applying a referral code on THIS device actually grant a welcome voucher? False
+// once this physical device has consumed any welcome perk (a prior referee voucher OR the
+// first-order discount). Drives the client hint so we never invite a referral on a device
+// that can't benefit from one.
+async function isDeviceWelcomeEligible(params: {
+  customer: Record<string, any>
+  installId?: string
+}) {
+  const deviceIds = collectCustomerDeviceIds(params.customer)
+  const installDeviceId = normalizeDeviceId(params.installId)
+  if (installDeviceId) deviceIds.add(installDeviceId)
+  const deviceIdList = [...deviceIds]
+  if (!deviceIdList.length) return true
+  const [referralWelcome, firstOrder] = await Promise.all([
+    CustomerModel.exists({
+      _id: { $ne: params.customer._id },
+      refereeRewardGrantedAt: { $ne: null },
+      $or: [
+        { referralSignupDeviceId: { $in: deviceIdList } },
+        { lastKnownDeviceId: { $in: deviceIdList } },
+      ],
+    }),
+    deviceHasFirstOrderWelcome(deviceIdList),
+  ])
+  return !referralWelcome && !firstOrder
+}
+
+export async function getCustomerReferralSummary(
+  customerId: string,
+  installId?: string
+) {
   const customer = await CustomerModel.findById(customerId)
 
   if (!customer) {
@@ -511,6 +549,10 @@ export async function getCustomerReferralSummary(customerId: string) {
   const applyEligibility = await getReferralApplyEligibility({
     customer,
     settings,
+  })
+  const deviceWelcomeEligible = await isDeviceWelcomeEligible({
+    customer,
+    installId,
   })
   const shareContent = buildReferralShareContent({ referralCode, settings })
   const monthRange = getCurrentUtcMonthRange()
@@ -560,8 +602,10 @@ export async function getCustomerReferralSummary(customerId: string) {
   return {
     enabled: settings.enabled,
     referralCode,
+    referralDisabledByAdmin: Boolean(customer.referralDisabledByAdmin),
     canApplyReferralCode: applyEligibility.canApply,
     referralCodeIneligibleReason: applyEligibility.reason,
+    deviceWelcomeEligible,
     shareLink: shareContent.shareLink,
     shareMessage: shareContent.shareMessage,
     rewardAmount: settings.rewardAmountTaka,
@@ -694,7 +738,7 @@ export async function applyReferralCodeToCustomer(params: {
   const referrer = await CustomerModel.findOne({
     referralCode,
     status: "active",
-  }).select("_id fullName")
+  }).select("_id fullName referralDisabledByAdmin")
 
   if (!referrer) {
     throw new AppError(
@@ -712,6 +756,15 @@ export async function applyReferralCodeToCustomer(params: {
     )
   }
 
+  // Admin has turned off referrals for the code owner — treat their code as inactive.
+  if (referrer.referralDisabledByAdmin) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "REFERRAL_CODE_NOT_ACTIVE",
+      "This referral code isn't active right now."
+    )
+  }
+
   // The referrer must have completed at least one delivered order before their code
   // works — this stops brand-new accounts from farming referrals in a chain.
   const referrerDeliveredOrders = await OrderModel.countDocuments({
@@ -723,6 +776,51 @@ export async function applyReferralCodeToCustomer(params: {
       StatusCodes.BAD_REQUEST,
       "REFERRAL_CODE_NOT_ACTIVE",
       "This referral code isn't active yet. The person who shared it needs to complete at least one order first."
+    )
+  }
+
+  // One physical device gets ONE welcome perk total. If this device has ALREADY used a
+  // welcome perk — a prior referee voucher (another fresh account here) OR the first-order
+  // welcome discount — REJECT the referral outright (symmetric with the first-order block),
+  // BEFORE linking. This is what stops "same device + new phone number" from re-running the
+  // referral flow. (Doing it after linking only skipped the voucher but still showed the
+  // referral as "applied", which read as "allowed on the same device".)
+  const refereeDeviceIds = collectCustomerDeviceIds(customer)
+  const signupDeviceId = normalizeDeviceId(params.installId)
+  if (signupDeviceId) refereeDeviceIds.add(signupDeviceId)
+  const deviceIdList = [...refereeDeviceIds]
+  const [referralWelcomeOnDevice, firstOrderWelcomeOnDevice] = deviceIdList.length
+    ? await Promise.all([
+        CustomerModel.exists({
+          _id: { $ne: customer._id },
+          refereeRewardGrantedAt: { $ne: null },
+          $or: [
+            { referralSignupDeviceId: { $in: deviceIdList } },
+            { lastKnownDeviceId: { $in: deviceIdList } },
+          ],
+        }),
+        deviceHasFirstOrderWelcome(deviceIdList),
+      ])
+    : [null, false]
+  if (referralWelcomeOnDevice || firstOrderWelcomeOnDevice) {
+    await createReferralFraudAlert({
+      severity: "warning",
+      title: "Referral blocked (device already used a welcome offer)",
+      description:
+        "A referral code was applied on a device that had already received a welcome perk (referral or first-order). It was rejected to prevent same-device farming.",
+      referrerId: referrer.id,
+      referredCustomerId: customer.id,
+      reasonKeys: [
+        referralWelcomeOnDevice
+          ? "referral_same_device"
+          : "referral_device_used_first_order",
+      ],
+      metadata: { deviceIds: deviceIdList },
+    })
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "REFERRAL_DEVICE_ALREADY_REWARDED",
+      "This device has already used a welcome offer, so a referral can't be applied here."
     )
   }
 
@@ -752,45 +850,12 @@ export async function applyReferralCodeToCustomer(params: {
     )
   }
 
-  // Device-farming guard: a single physical device can trigger the instant referee
-  // welcome voucher only once, ever. Without this, one phone + one real friend's code +
-  // endless fresh phone numbers = unlimited platform-funded welcome vouchers. The device
-  // fingerprint here is the same install/hardware id captured at signup, so changing the
-  // phone number does NOT unlock a second voucher on the same device.
-  const refereeDeviceIds = collectCustomerDeviceIds(customer)
-  const signupDeviceId = normalizeDeviceId(params.installId)
-  if (signupDeviceId) refereeDeviceIds.add(signupDeviceId)
-  const deviceIdList = [...refereeDeviceIds]
-
-  const deviceAlreadyRewarded = deviceIdList.length
-    ? await CustomerModel.exists({
-        _id: { $ne: customer._id },
-        refereeRewardGrantedAt: { $ne: null },
-        $or: [
-          { referralSignupDeviceId: { $in: deviceIdList } },
-          { lastKnownDeviceId: { $in: deviceIdList } },
-        ],
-      })
-    : null
-
-  if (deviceAlreadyRewarded) {
-    await createReferralFraudAlert({
-      severity: "warning",
-      title: "Referee welcome voucher blocked (device already rewarded)",
-      description:
-        "A referral code was applied on a device that had already received the instant welcome voucher. The reward was skipped to prevent device farming.",
-      referrerId: referrer.id,
-      referredCustomerId: customer.id,
-      reasonKeys: ["referee_voucher_same_device"],
-      metadata: { deviceIds: deviceIdList },
-    })
-  }
-
-  // Give the referred friend their welcome voucher right away so it's usable on their
-  // first order. Platform-funded, single-use, auto-applied. Non-fatal on failure so a
-  // voucher hiccup never blocks linking the referral.
+  // The one-welcome-perk-per-device gate ran BEFORE linking (above) and would have thrown,
+  // so reaching here means this device is clear. Give the referred friend their welcome
+  // voucher right away — platform-funded, single-use, auto-applied. Non-fatal on failure so
+  // a voucher hiccup never blocks the (already-linked) referral.
   let refereeRewardGranted = false
-  if (settings.refereeRewardAmountTaka > 0 && !deviceAlreadyRewarded) {
+  if (settings.refereeRewardAmountTaka > 0) {
     try {
       const refereeVoucherId = new mongoose.Types.ObjectId()
       const refereeVoucherCode = await createReferralRewardVoucherCode()
@@ -881,6 +946,8 @@ export async function applyReferralCodeToCustomer(params: {
     applied: true,
     referralCode,
     referrerName: result.referrerName || referrer.fullName || "Foodbela friend",
+    welcomeVoucherGranted: refereeRewardGranted,
+    welcomeVoucherAmount: refereeRewardGranted ? settings.refereeRewardAmountTaka : 0,
     message: refereeRewardGranted
       ? `Referral applied! Tk ${settings.refereeRewardAmountTaka} welcome reward added to your offers.`
       : "Referral code saved. The reward unlocks after your first delivered order.",
@@ -1094,11 +1161,22 @@ export async function grantReferralRewardForDeliveredOrder(params: {
   const referrer = await CustomerModel.findById(
     referredCustomer.referredByCustomerId
   ).select(
-    "_id fullName status phone previousPhones pushTokens lastKnownDeviceId referralSignupDeviceId"
+    "_id fullName status phone previousPhones pushTokens lastKnownDeviceId referralSignupDeviceId referralDisabledByAdmin"
   )
 
   if (!referrer || referrer.status !== "active") {
     return { rewarded: false, reason: "referrer_inactive" as const }
+  }
+
+  if (referrer.referralDisabledByAdmin) {
+    return markReferralRewardSkipped({
+      referredCustomer,
+      referrer,
+      order,
+      status: "disabled",
+      skippedReason: "Referrals are turned off for the referrer's account.",
+      reasonKey: "referrer_referral_disabled",
+    })
   }
 
   if (referrer.id === referredCustomer.id) {

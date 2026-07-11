@@ -10,13 +10,20 @@ import {
   createAdminCustomerGroup,
   deleteAdminCustomerPersonalOffer,
   getAdminCustomerDetails,
+  getAdminCustomerDeviceIntel,
   listAdminCustomerGroups,
   listAdminCustomerOrders,
   listAdminCustomers,
   removeAdminCustomerGroupMember,
   updateAdminCustomerGroup,
+  updateAdminCustomerReferralAccess,
   updateAdminCustomerStatus,
 } from "./customers.service";
+
+const referralAccessSchema = z.object({
+  disabled: z.boolean(),
+  note: z.string().trim().max(240).optional(),
+});
 
 const listCustomersQuerySchema = z.object({
   search: z.string().optional(),
@@ -237,6 +244,40 @@ export const patchAdminCustomerStatus = asyncHandler(
 
     return sendSuccess(res, {
       message: "Customer status updated",
+      data,
+    });
+  },
+);
+
+export const getAdminCustomerDeviceIntelController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    await assertCustomerInAdminArea(req);
+    const data = await getAdminCustomerDeviceIntel(
+      getStringParam(req.params.customerId),
+    );
+
+    return sendSuccess(res, {
+      message: "Customer device intel loaded",
+      data,
+    });
+  },
+);
+
+export const patchAdminCustomerReferralAccess = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = referralAccessSchema.parse(req.body);
+    await assertCustomerInAdminArea(req);
+    const data = await updateAdminCustomerReferralAccess({
+      customerId: getStringParam(req.params.customerId),
+      disabled: payload.disabled,
+      note: payload.note,
+      adminId: getAdminId(req),
+    });
+
+    return sendSuccess(res, {
+      message: payload.disabled
+        ? "Referral disabled for customer"
+        : "Referral enabled for customer",
       data,
     });
   },

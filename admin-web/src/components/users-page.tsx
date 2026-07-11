@@ -48,6 +48,8 @@ import {
   restoreAdminRestaurantReview,
   removeAdminCustomerGroupMember,
   updateAdminCustomerGroup,
+  getAdminCustomerDeviceIntel,
+  updateAdminCustomerReferralAccess,
   updateAdminCustomerStatus,
   type AdminCustomerDetails,
   type AdminCustomerBehaviorSummary,
@@ -1029,6 +1031,7 @@ function CustomerDetailsSheet({
                   <TabsTrigger value="offers">Offers</TabsTrigger>
                   <TabsTrigger value="referrals">Referrals</TabsTrigger>
                   <TabsTrigger value="devices">Devices</TabsTrigger>
+                  <TabsTrigger value="suspicious">Suspicious</TabsTrigger>
                   <TabsTrigger value="audit">Audit</TabsTrigger>
                 </TabsList>
 
@@ -1274,6 +1277,10 @@ function CustomerDetailsSheet({
                   <CustomerReferralsTab details={details} />
                 </TabsContent>
 
+                <TabsContent value="suspicious">
+                  <CustomerSuspiciousTab customerId={details.id} />
+                </TabsContent>
+
                 <TabsContent value="devices">
                   <Card>
                     <CardHeader>
@@ -1366,9 +1373,120 @@ function CustomerDetailsSheet({
   )
 }
 
+function DeviceIntelStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold">{value}</p>
+    </div>
+  )
+}
+
+function CustomerSuspiciousTab({ customerId }: { customerId: string }) {
+  const intelQuery = useQuery({
+    queryKey: ["admin-customer-device-intel", customerId],
+    queryFn: () => getAdminCustomerDeviceIntel(customerId),
+  })
+  const intel = intelQuery.data
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Suspicious activity</CardTitle>
+        <CardDescription>
+          Accounts, phone numbers and welcome-perk redemptions traced to the same
+          physical device as this customer.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {intelQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">
+            Checking device fingerprint…
+          </p>
+        ) : !intel?.hasDevice ? (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            No device fingerprint recorded for this customer yet.
+          </div>
+        ) : (
+          <>
+            {intel.suspicious ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                  ⚠ Suspicious device activity
+                </p>
+                <ul className="mt-1 list-disc pl-5 text-xs text-amber-700 dark:text-amber-400">
+                  {intel.reasons.map((reason, index) => (
+                    <li key={index}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400">
+                No abnormal device activity detected.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <DeviceIntelStat label="Accounts on device" value={intel.accountCount} />
+              <DeviceIntelStat label="Phone numbers" value={intel.distinctPhoneCount} />
+              <DeviceIntelStat label="Referrals applied" value={intel.referralAppliedCount} />
+              <DeviceIntelStat label="Referee vouchers" value={intel.refereeVoucherCount} />
+              <DeviceIntelStat label="First-order redeemed" value={intel.firstOrderRedeemedCount} />
+              <DeviceIntelStat label="First-order attempts" value={intel.firstOrderClaimCount} />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Accounts sharing this device</p>
+              {intel.accounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{account.name}</span>
+                    <span className="text-muted-foreground">{account.phone}</span>
+                    {account.isCurrent ? (
+                      <Badge variant="outline">This customer</Badge>
+                    ) : null}
+                    {account.referralDisabledByAdmin ? (
+                      <Badge variant="destructive">Referral off</Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {account.appliedReferral ? (
+                      <Badge variant="secondary">Referral</Badge>
+                    ) : null}
+                    {account.gotRefereeVoucher ? (
+                      <Badge variant="secondary">Welcome voucher</Badge>
+                    ) : null}
+                    {account.redeemedFirstOrder ? (
+                      <Badge variant="secondary">First-order</Badge>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function CustomerReferralsTab({ details }: { details: AdminCustomerDetails }) {
   const referrals = details.referrals
   const referred = referrals?.referred ?? []
+  const queryClient = useQueryClient()
+  const referralDisabled = Boolean(referrals?.referralDisabledByAdmin)
+  const referralAccessMutation = useMutation({
+    mutationFn: (disabled: boolean) =>
+      updateAdminCustomerReferralAccess({ customerId: details.id, disabled }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-details", details.id],
+      })
+    },
+  })
 
   return (
     <div className="space-y-4">
@@ -1380,6 +1498,29 @@ function CustomerReferralsTab({ details }: { details: AdminCustomerDetails }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+            <div>
+              <p className="text-sm font-medium">Referral participation</p>
+              <p className="text-xs text-muted-foreground">
+                {referralDisabled
+                  ? "Turned OFF — this customer can't apply or earn referrals."
+                  : "Active — this customer can apply and earn referrals."}
+              </p>
+            </div>
+            <Button
+              variant={referralDisabled ? "outline" : "destructive"}
+              size="sm"
+              disabled={referralAccessMutation.isPending}
+              onClick={() => referralAccessMutation.mutate(!referralDisabled)}
+            >
+              {referralAccessMutation.isPending
+                ? "Saving…"
+                : referralDisabled
+                  ? "Enable referrals"
+                  : "Disable referrals"}
+            </Button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Referral code</p>

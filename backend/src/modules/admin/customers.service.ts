@@ -5,6 +5,7 @@ import { AppError } from "../../common/utils/app-error";
 import {
   CustomerModel,
   CustomerRefreshTokenSessionModel,
+  FirstOrderDiscountClaimModel,
   VoucherRedemptionModel,
 } from "../customer/customer.model";
 import {
@@ -1590,6 +1591,7 @@ export async function getAdminCustomerDetails(
     },
     referrals: {
       referralCode: stringValue(customer.referralCode),
+      referralDisabledByAdmin: Boolean(customer.referralDisabledByAdmin),
       referredBy: referrerCustomer
         ? {
             id: objectIdString(referrerCustomer._id),
@@ -1876,6 +1878,147 @@ export async function updateAdminCustomerStatus(params: {
     fullName: customer.fullName || "Customer",
     status: customer.status,
     updatedAt: serializeDate(customer.updatedAt),
+  };
+}
+
+// Admin kill-switch for a single customer's referral participation (apply + earn), without
+// suspending the whole account or pausing the program. Used to shut down a flagged farmer.
+export async function updateAdminCustomerReferralAccess(params: {
+  customerId: string;
+  disabled: boolean;
+  note?: string;
+  adminId?: string;
+}) {
+  const customer = await getCustomerOrThrow(params.customerId);
+  const previous = Boolean(customer.referralDisabledByAdmin);
+  customer.referralDisabledByAdmin = params.disabled;
+  await customer.save();
+
+  await createAdminAuditLog({
+    adminId: params.adminId,
+    customerId: customer.id,
+    action: "referral.access.updated",
+    title: params.disabled
+      ? "Referral disabled for customer"
+      : "Referral enabled for customer",
+    description: `${customer.fullName || customer.phone || "Customer"} referral ${
+      params.disabled ? "disabled" : "enabled"
+    } by admin.`,
+    metadata: {
+      previous,
+      disabled: params.disabled,
+      note: params.note?.trim() ?? "",
+    },
+  });
+
+  return {
+    id: customer.id,
+    fullName: customer.fullName || "Customer",
+    referralDisabledByAdmin: Boolean(customer.referralDisabledByAdmin),
+    updatedAt: serializeDate(customer.updatedAt),
+  };
+}
+
+// Device-fingerprint intelligence for the admin "Suspicious" tab: how many accounts, phone
+// numbers, referrals, referee vouchers and first-order redemptions trace back to the SAME
+// physical device as this customer. High counts = someone farming welcome perks by changing
+// phone numbers on one device (now blocked at grant time, but surfaced here for review).
+export async function getAdminCustomerDeviceIntel(customerId: string) {
+  const customer = await getCustomerOrThrow(customerId);
+  const deviceIdSet = new Set<string>();
+  for (const value of [
+    customer.lastKnownDeviceId,
+    customer.referralSignupDeviceId,
+  ]) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) deviceIdSet.add(normalized);
+  }
+  for (const token of customer.pushTokens ?? []) {
+    const normalized = String((token as { deviceId?: unknown })?.deviceId ?? "").trim();
+    if (normalized) deviceIdSet.add(normalized);
+  }
+  const deviceIds = [...deviceIdSet];
+
+  if (!deviceIds.length) {
+    return {
+      hasDevice: false,
+      deviceCount: 0,
+      accountCount: 0,
+      distinctPhoneCount: 0,
+      referralAppliedCount: 0,
+      refereeVoucherCount: 0,
+      firstOrderRedeemedCount: 0,
+      firstOrderClaimCount: 0,
+      suspicious: false,
+      reasons: [] as string[],
+      accounts: [] as Array<Record<string, unknown>>,
+    };
+  }
+
+  const [accounts, firstOrderClaimCount] = await Promise.all([
+    CustomerModel.find({
+      $or: [
+        { lastKnownDeviceId: { $in: deviceIds } },
+        { referralSignupDeviceId: { $in: deviceIds } },
+      ],
+    })
+      .select(
+        "_id fullName phone createdAt referredByCustomerId refereeRewardGrantedAt firstOrderDiscountRedeemedAt referralDisabledByAdmin",
+      )
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean<Record<string, any>[]>(),
+    FirstOrderDiscountClaimModel.countDocuments({ deviceId: { $in: deviceIds } }),
+  ]);
+
+  const distinctPhones = new Set(
+    accounts.map((a) => String(a.phone ?? "").replace(/\D/g, "")).filter(Boolean),
+  );
+  const referralAppliedCount = accounts.filter((a) => a.referredByCustomerId).length;
+  const refereeVoucherCount = accounts.filter((a) => a.refereeRewardGrantedAt).length;
+  const firstOrderRedeemedCount = accounts.filter(
+    (a) => a.firstOrderDiscountRedeemedAt,
+  ).length;
+
+  const reasons: string[] = [];
+  if (accounts.length >= 3) {
+    reasons.push(`${accounts.length} accounts share this device`);
+  }
+  if (distinctPhones.size >= 3) {
+    reasons.push(`${distinctPhones.size} different phone numbers used on this device`);
+  }
+  if (referralAppliedCount >= 2) {
+    reasons.push(`${referralAppliedCount} referral codes applied from this device`);
+  }
+  if (firstOrderRedeemedCount >= 2) {
+    reasons.push(`${firstOrderRedeemedCount} first-order discounts redeemed on this device`);
+  }
+  if (firstOrderClaimCount >= 3) {
+    reasons.push(`${firstOrderClaimCount} first-order claim attempts from this device`);
+  }
+
+  return {
+    hasDevice: true,
+    deviceCount: deviceIds.length,
+    accountCount: accounts.length,
+    distinctPhoneCount: distinctPhones.size,
+    referralAppliedCount,
+    refereeVoucherCount,
+    firstOrderRedeemedCount,
+    firstOrderClaimCount,
+    suspicious: reasons.length > 0,
+    reasons,
+    accounts: accounts.map((a) => ({
+      id: objectIdString(a._id),
+      name: stringValue(a.fullName, "Customer"),
+      phone: stringValue(a.phone),
+      joinedAt: serializeDate(a.createdAt),
+      appliedReferral: Boolean(a.referredByCustomerId),
+      gotRefereeVoucher: Boolean(a.refereeRewardGrantedAt),
+      redeemedFirstOrder: Boolean(a.firstOrderDiscountRedeemedAt),
+      referralDisabledByAdmin: Boolean(a.referralDisabledByAdmin),
+      isCurrent: objectIdString(a._id) === customer.id,
+    })),
   };
 }
 

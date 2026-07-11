@@ -311,6 +311,9 @@ export const styles = StyleSheet.create({
   voucherFeedbackTextError: {
     color: "#C62828",
   },
+  voucherFeedbackTextInfo: {
+    color: palette.mutedForeground,
+  },
   voucherAppliedRow: {
     flexDirection: "row",
     alignItems: "center",

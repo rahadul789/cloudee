@@ -1346,16 +1346,6 @@ export default function OrderTrackingScreen() {
                         />
                       ) : null}
                     </View>
-                    <Text
-                      style={[
-                        styles.journeyStepLabel,
-                        isCompleted || isCurrent
-                          ? styles.journeyStepLabelActive
-                          : null,
-                      ]}
-                    >
-                      {step.label}
-                    </Text>
                   </View>
                 );
               })}
@@ -1540,7 +1530,7 @@ export default function OrderTrackingScreen() {
                             {step.label}
                           </Text>
                           <Text style={styles.detailsTimelineTime}>
-                            {statusTime ? formatTimeAmPm(statusTime) : "Pending"}
+                            {statusTime ? formatTimeAmPm(statusTime) : ""}
                           </Text>
                         </View>
                       );

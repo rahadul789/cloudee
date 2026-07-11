@@ -26,9 +26,9 @@ import { palette } from "@/src/theme/palette";
 type ReferralTab = "how" | "conditions" | "rewards";
 
 const REFERRAL_TABS: { key: ReferralTab; label: string }[] = [
-  { key: "how", label: "How it works" },
-  { key: "conditions", label: "Conditions" },
   { key: "rewards", label: "Rewards" },
+  { key: "conditions", label: "Conditions" },
+  { key: "how", label: "How it works" },
 ];
 
 const REWARDS_PAGE_STEP = 12;
@@ -43,7 +43,7 @@ export default function ReferralsScreen() {
   const customer = useCustomerAuthStore((state) => state.customer);
   const summaryQuery = useCustomerReferralSummaryQuery(Boolean(customer));
   const summary = summaryQuery.data;
-  const [activeTab, setActiveTab] = useState<ReferralTab>("how");
+  const [activeTab, setActiveTab] = useState<ReferralTab>("rewards");
   const [visibleCount, setVisibleCount] = useState(REWARDS_PAGE_STEP);
   const [isRefreshing, setIsRefreshing] = useState(false);
 

@@ -423,7 +423,11 @@ export const verifyCustomerPhoneAuth = asyncHandler(async (req: Request, res: Re
 })
 
 export const getCustomerReferralSummaryController = asyncHandler(async (req: Request, res: Response) => {
-  const data = await getCustomerReferralSummary(req.user?.id ?? "")
+  const installId =
+    typeof req.query.installId === "string"
+      ? req.query.installId.trim().slice(0, 160)
+      : undefined
+  const data = await getCustomerReferralSummary(req.user?.id ?? "", installId)
 
   return sendSuccess(res, {
     message: "Customer referral summary loaded successfully",

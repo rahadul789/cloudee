@@ -17,6 +17,7 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -1006,6 +1007,13 @@ export default function RestaurantDetailsScreen() {
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={detailsQuery.isFetching && !detailsQuery.isLoading}
+            onRefresh={() => detailsQuery.refetch()}
+            tintColor={palette.secondary}
+          />
+        }
         viewabilityConfig={{ itemVisiblePercentThreshold: 40 }}
         onViewableItemsChanged={onViewableItemsChanged.current}
         scrollEventThrottle={16}

@@ -9,6 +9,8 @@ import {
   getAdminCustomerGroups,
   getAdminCustomerOrders,
   getAdminCustomers,
+  getAdminCustomerDeviceIntelController,
+  patchAdminCustomerReferralAccess,
   patchAdminCustomerStatus,
   patchAdminCustomerGroup,
   postAdminCustomerGroup,
@@ -34,8 +36,16 @@ adminCustomersRouter.delete(
 );
 adminCustomersRouter.get("/customers/:customerId", getAdminCustomer);
 adminCustomersRouter.get("/customers/:customerId/orders", getAdminCustomerOrders);
+adminCustomersRouter.get(
+  "/customers/:customerId/device-intel",
+  getAdminCustomerDeviceIntelController,
+);
 adminCustomersRouter.delete(
   "/customers/:customerId/offers/:notificationId",
   deleteAdminCustomerOffer,
 );
 adminCustomersRouter.patch("/customers/:customerId/status", patchAdminCustomerStatus);
+adminCustomersRouter.patch(
+  "/customers/:customerId/referral-access",
+  patchAdminCustomerReferralAccess,
+);

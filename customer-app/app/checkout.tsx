@@ -108,7 +108,7 @@ export default function CheckoutScreen() {
   const [appliedReferralName, setAppliedReferralName] = useState("");
   const [restaurantOrderNote, setRestaurantOrderNote] = useState("");
   const [voucherFeedback, setVoucherFeedback] = useState<{
-    type: "success" | "error";
+    type: "success" | "error" | "info";
     message: string;
   } | null>(null);
   const [isApplyingVoucher, setIsApplyingVoucher] = useState(false);
@@ -170,11 +170,28 @@ export default function CheckoutScreen() {
   const applyReferralMutation = useCustomerApplyReferralCodeMutation();
   const bkashInitiateMutation = useBkashInitiateMutation();
   const paymentSettingsQuery = useCustomerPaymentSettingsQuery();
+  const [installId, setInstallId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    getStableCustomerInstallId()
+      .then((id) => {
+        if (active) setInstallId(id);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const referralSummaryQuery = useCustomerReferralSummaryQuery(
     Boolean(customer),
+    installId,
   );
   const referralSummary = referralSummaryQuery.data;
   const canApplyReferralCode = Boolean(referralSummary?.canApplyReferralCode);
+  // Would a referral actually grant a welcome voucher on THIS device? False once the
+  // device has already used a welcome perk (referral or first-order) — hide the "new to
+  // Foodbela" nudge so we never invite a referral that can't add a discount here.
+  const deviceWelcomeEligible = referralSummary?.deviceWelcomeEligible !== false;
   const shouldAttemptReferralCode =
     canApplyReferralCode || referralSummaryQuery.isLoading;
   const codeInputTitle = canApplyReferralCode
@@ -183,9 +200,10 @@ export default function CheckoutScreen() {
   const codeInputPlaceholder = canApplyReferralCode
     ? "Enter voucher or referral code"
     : "Enter voucher code";
-  const codeInputHint = canApplyReferralCode
-    ? "New to Foodbela? You can also use a referral code here."
-    : "";
+  const codeInputHint =
+    canApplyReferralCode && deviceWelcomeEligible
+      ? "New to Foodbela? You can also use a referral code here."
+      : "";
   const incomingReferralCode = useMemo(
     () => sanitizeCheckoutCode(String(params.ref ?? params.referralCode ?? "")),
     [params.ref, params.referralCode],
@@ -338,7 +356,6 @@ export default function CheckoutScreen() {
       !isOnline ||
       paymentSettingsQuery.isLoading));
   const isApplyingCode = isApplyingVoucher || applyReferralMutation.isPending;
-  const hasAppliedCode = Boolean(appliedVoucherCode || appliedReferralCode);
 
   const itemPayload = useMemo(
     () =>
@@ -584,15 +601,29 @@ export default function CheckoutScreen() {
       try {
         const referral = await applyReferralMutation.mutateAsync({
           referralCode: code,
-          installId: await getStableCustomerInstallId(),
+          installId: installId ?? (await getStableCustomerInstallId()),
         });
         setAppliedReferralCode(referral.referralCode);
         setAppliedReferralName(referral.referrerName);
-        setVoucherCodeInput(referral.referralCode);
-        setVoucherFeedback({
-          type: "success",
-          message: referral.message,
-        });
+        // Clear the field so the customer can still enter a coupon on top of the referral —
+        // the referral itself stays applied as a permanent, earned badge below.
+        setVoucherCodeInput("");
+        // The referral welcome voucher is auto-applied by pricing, so re-quote now to
+        // reflect the discount in the order summary immediately (it previously only showed
+        // after a manual pull-to-refresh, because the quote didn't depend on referral
+        // state). "Applied/saved" is then derived from what actually got granted — never a
+        // green "applied" when no voucher was added.
+        await quoteQuery.refetch();
+        setVoucherFeedback(
+          referral.welcomeVoucherGranted
+            ? {
+                type: "success",
+                message: referral.welcomeVoucherAmount
+                  ? `Referral applied! Tk ${referral.welcomeVoucherAmount} welcome reward added to your offers.`
+                  : referral.message,
+              }
+            : { type: "info", message: referral.message },
+        );
       } catch (referralError) {
         setVoucherFeedback({
           type: "error",
@@ -1135,19 +1166,17 @@ export default function CheckoutScreen() {
                   if (appliedVoucherCode && nextCode !== appliedVoucherCode) {
                     setAppliedVoucherCode("");
                   }
-                  if (appliedReferralCode && nextCode !== appliedReferralCode) {
-                    setAppliedReferralCode("");
-                    setAppliedReferralName("");
-                  }
+                  // The referral is permanent once applied (linked + welcome reward earned),
+                  // so editing the code field to enter a coupon never un-applies it.
                 }}
                 placeholder={codeInputPlaceholder}
                 placeholderTextColor={palette.mutedForeground}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                editable={!hasAppliedCode}
+                editable={!appliedVoucherCode}
                 style={styles.voucherInput}
               />
-              {hasAppliedCode ? null : (
+              {appliedVoucherCode ? null : (
                 <Pressable
                   style={[
                     styles.voucherButton,
@@ -1171,12 +1200,14 @@ export default function CheckoutScreen() {
                     styles.voucherFeedbackText,
                     voucherFeedback.type === "error"
                       ? styles.voucherFeedbackTextError
-                      : styles.voucherFeedbackTextSuccess,
+                      : voucherFeedback.type === "info"
+                        ? styles.voucherFeedbackTextInfo
+                        : styles.voucherFeedbackTextSuccess,
                   ]}
                 >
                   {voucherFeedback.message}
                 </Text>
-                {hasAppliedCode ? (
+                {appliedVoucherCode ? (
                   <Pressable
                     onPress={handleRemoveVoucher}
                     style={styles.voucherRemoveButton}
@@ -1200,12 +1231,9 @@ export default function CheckoutScreen() {
             {appliedReferralCode ? (
               <View style={styles.voucherAppliedRow}>
                 <Text style={styles.voucherAppliedText}>
-                  Referral saved: {appliedReferralCode}
-                  {appliedReferralName ? ` from ${appliedReferralName}` : ""}
+                  Referral{appliedReferralName ? ` from ${appliedReferralName}` : ""}{" "}
+                  applied ✓ · welcome reward saved to your offers
                 </Text>
-                <Pressable onPress={handleRemoveVoucher}>
-                  <Text style={styles.voucherRemoveText}>Remove</Text>
-                </Pressable>
               </View>
             ) : null}
           </View>

@@ -240,6 +240,11 @@ const customerSchema = new Schema(
     // (device-farming guard) — even across different referrers and fresh phone numbers.
     refereeRewardVoucherId: { type: Schema.Types.ObjectId, ref: "Voucher", default: null },
     refereeRewardGrantedAt: { type: Date, default: null },
+    // Admin kill-switch for THIS customer's referral participation. When true they cannot
+    // apply a referral code (as a referee) and cannot earn referral rewards (as a referrer,
+    // their code is treated as inactive). Used to shut down a flagged farmer without
+    // disabling the whole program or suspending the account.
+    referralDisabledByAdmin: { type: Boolean, default: false },
     // First-order (welcome) instant discount: consumed once per customer, released if
     // the qualifying order is cancelled/rejected before delivery so honest users retry.
     firstOrderDiscountRedeemedAt: { type: Date, default: null },
