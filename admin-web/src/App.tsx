@@ -336,6 +336,11 @@ const RateLimitsPage = React.lazy(() =>
     default: module.RateLimitsPage,
   }))
 )
+const OtpMonitorPage = React.lazy(() =>
+  import("@/components/otp-monitor-page").then((module) => ({
+    default: module.OtpMonitorPage,
+  }))
+)
 const TestPage = React.lazy(() =>
   import("@/components/test-page").then((module) => ({
     default: module.TestPage,
@@ -3533,6 +3538,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <RateLimitsPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "otp-monitor",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <OtpMonitorPage />
           </React.Suspense>
         ),
       },

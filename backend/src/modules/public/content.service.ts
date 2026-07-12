@@ -920,6 +920,11 @@ const platformContentSchema = z.object({
         .refine((value) => value.includes("{{code}}"), {
           message: "OTP message template must include {{code}}",
         }),
+      telegramFallbackEnabled: z.boolean().optional().default(false),
+      callButtonAfterResends: z.number().int().min(1).max(5).optional().default(2),
+      supportCallNumber: z.string().trim().max(20).optional().default(""),
+      whatsappOtpEnabled: z.boolean().optional().default(false),
+      whatsappAfterResends: z.number().int().min(0).max(5).optional().default(1),
     }),
     rateLimits: z
       .object({

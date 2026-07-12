@@ -6,6 +6,7 @@ import {
   BackHandler,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -23,6 +24,8 @@ import {
 } from "@/src/components/customer-otp-field";
 import {
   type CustomerAuthLocationSnapshot,
+  useCustomerOtpCallRequestMutation,
+  useCustomerOtpWhatsappMutation,
   useCustomerPhoneOtpVerifyMutation,
   useCustomerPhoneStartMutation,
   useCustomerPhoneVerifyMutation,
@@ -53,7 +56,7 @@ import type { SavedLocation } from "@/src/types/location";
 const CUSTOMER_AUTH_OTP_CODE_LENGTH = 4;
 
 function buildAuthLocationSnapshot(
-  location?: SavedLocation | null
+  location?: SavedLocation | null,
 ): CustomerAuthLocationSnapshot | undefined {
   if (
     !location ||
@@ -79,11 +82,18 @@ export default function VerifyScreen() {
   const insets = useSafeAreaInsets();
   const customer = useCustomerAuthStore((state) => state.customer);
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
-  const pendingPhoneAuth = useCustomerAuthStore((state) => state.pendingPhoneAuth);
-  const setPendingPhoneAuth = useCustomerAuthStore((state) => state.setPendingPhoneAuth);
+  const pendingPhoneAuth = useCustomerAuthStore(
+    (state) => state.pendingPhoneAuth,
+  );
+  const setPendingPhoneAuth = useCustomerAuthStore(
+    (state) => state.setPendingPhoneAuth,
+  );
   const verifyOtpMutation = useCustomerPhoneOtpVerifyMutation();
   const resendMutation = useCustomerPhoneStartMutation();
+  const callRequestMutation = useCustomerOtpCallRequestMutation();
+  const whatsappMutation = useCustomerOtpWhatsappMutation();
   const registerMutation = useCustomerPhoneVerifyMutation();
+  const [resendCount, setResendCount] = useState(0);
   const [otpCode, setOtpCode] = useState("");
   const [fullName, setFullName] = useState(pendingPhoneAuth?.fullName ?? "");
   const [password, setPassword] = useState("");
@@ -92,7 +102,7 @@ export default function VerifyScreen() {
   const [confirmPasswordVisible, setConfirmPasswordVisible] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [resendCountdown, setResendCountdown] = useState(() =>
-    resolveOtpResendSeconds(pendingPhoneAuth?.resendAvailableInSeconds)
+    resolveOtpResendSeconds(pendingPhoneAuth?.resendAvailableInSeconds),
   );
   const [otpLockCountdown, setOtpLockCountdown] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -126,7 +136,7 @@ export default function VerifyScreen() {
   useEffect(() => {
     if (customer) {
       router.replace(
-        resolvePostAuthRedirect(pendingPhoneAuth?.redirectTo) as never
+        resolvePostAuthRedirect(pendingPhoneAuth?.redirectTo) as never,
       );
     }
   }, [customer, pendingPhoneAuth?.redirectTo, router]);
@@ -164,13 +174,19 @@ export default function VerifyScreen() {
   }, [otpLockCountdown]);
 
   useEffect(() => {
-    if (otpLockCountdown === 0 && isCustomerOtpVerificationLockMessage(errorText)) {
+    if (
+      otpLockCountdown === 0 &&
+      isCustomerOtpVerificationLockMessage(errorText)
+    ) {
       setErrorText("");
     }
   }, [errorText, otpLockCountdown]);
 
   useEffect(() => {
-    if (resendCountdown === 0 && isCustomerOtpRequestRateLimitMessage(errorText)) {
+    if (
+      resendCountdown === 0 &&
+      isCustomerOtpRequestRateLimitMessage(errorText)
+    ) {
       setErrorText("");
     }
   }, [errorText, resendCountdown]);
@@ -194,11 +210,11 @@ export default function VerifyScreen() {
 
   const isOtpStep = useMemo(
     () => Boolean(pendingPhoneAuth),
-    [pendingPhoneAuth]
+    [pendingPhoneAuth],
   );
   const otpIsLocked = otpLockCountdown > 0;
   const otpHasError = Boolean(
-    errorText && isOtpStep && !isCustomerRateLimitMessage(errorText)
+    errorText && isOtpStep && !isCustomerRateLimitMessage(errorText),
   );
   const verifyOtpDisabled =
     isAuthSubmitting ||
@@ -208,16 +224,17 @@ export default function VerifyScreen() {
     otpCode.length !== CUSTOMER_AUTH_OTP_CODE_LENGTH;
   const passwordIsStrongEnough = password.trim().length >= 6;
   const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const createAccountDisabled =
-    isAuthSubmitting ||
-    registerMutation.isPending;
+  const createAccountDisabled = isAuthSubmitting || registerMutation.isPending;
 
   useEffect(() => {
     if (isOtpStep) {
       return;
     }
 
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+    const subscription = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => true,
+    );
     return () => subscription.remove();
   }, [isOtpStep]);
 
@@ -226,7 +243,11 @@ export default function VerifyScreen() {
       lastAutoSubmittedOtpRef.current = "";
       return;
     }
-    if (!isOtpStep || verifyOtpDisabled || otpCode.length !== CUSTOMER_AUTH_OTP_CODE_LENGTH) {
+    if (
+      !isOtpStep ||
+      verifyOtpDisabled ||
+      otpCode.length !== CUSTOMER_AUTH_OTP_CODE_LENGTH
+    ) {
       return;
     }
     if (lastAutoSubmittedOtpRef.current === otpCode) {
@@ -245,7 +266,11 @@ export default function VerifyScreen() {
       <Screen>
         <View style={styles.transitionContainer}>
           <View style={styles.transitionIcon}>
-            <Ionicons name="checkmark-circle" size={30} color={palette.surface} />
+            <Ionicons
+              name="checkmark-circle"
+              size={30}
+              color={palette.surface}
+            />
           </View>
           <Text style={styles.transitionTitle}>Taking you to Foodbela</Text>
           <View style={styles.transitionLoader}>
@@ -350,26 +375,35 @@ export default function VerifyScreen() {
       });
 
       if (data.flow !== "otp" || !data.verificationSessionId) {
-        setErrorText("This number is ready for password sign-in. Please go back and sign in.");
+        setErrorText(
+          "This number is ready for password sign-in. Please go back and sign in.",
+        );
         return;
       }
 
       setPendingPhoneAuth({
         ...currentPendingAuth,
         verificationSessionId: data.verificationSessionId,
-        fullName: data.customer?.fullName?.trim() || currentPendingAuth.fullName,
+        fullName:
+          data.customer?.fullName?.trim() || currentPendingAuth.fullName,
         email: data.customer?.email?.trim() || currentPendingAuth.email,
         otpVerified: false,
         expiresInSeconds: data.expiresInSeconds,
-        resendAvailableInSeconds: resolveOtpResendSeconds(data.resendAvailableInSeconds),
+        resendAvailableInSeconds: resolveOtpResendSeconds(
+          data.resendAvailableInSeconds,
+        ),
+        otpFallback: data.otpFallback ?? currentPendingAuth.otpFallback,
       });
-      setResendCountdown(resolveOtpResendSeconds(data.resendAvailableInSeconds));
+      setResendCount((current) => current + 1);
+      setResendCountdown(
+        resolveOtpResendSeconds(data.resendAvailableInSeconds),
+      );
       setOtpLockCountdown(0);
       setErrorText("");
     } catch (error) {
       const message = getCustomerAuthErrorMessage(
         error,
-        "Could not resend the OTP right now."
+        "Could not resend the OTP right now.",
       );
       setErrorText(message);
       if (isCustomerOtpVerificationLockMessage(message)) {
@@ -379,8 +413,53 @@ export default function VerifyScreen() {
       } else if (isCustomerOtpRequestRateLimitMessage(message)) {
         setResendCountdown(OTP_REQUEST_RATE_LIMIT_SECONDS);
       } else if (isCustomerRateLimitMessage(message)) {
-        setResendCountdown((current) => Math.max(current, DEFAULT_OTP_RESEND_SECONDS));
+        setResendCountdown((current) =>
+          Math.max(current, DEFAULT_OTP_RESEND_SECONDS),
+        );
       }
+    }
+  }
+
+  const otpFallback = currentPendingAuth.otpFallback;
+  const showWhatsapp = Boolean(
+    otpFallback?.whatsappOtpEnabled &&
+    resendCount >= (otpFallback?.whatsappAfterResends ?? 1),
+  );
+  const showCallForOtp = Boolean(
+    otpFallback?.telegramFallbackEnabled &&
+    otpFallback?.supportCallNumber &&
+    resendCount >= (otpFallback?.callButtonAfterResends ?? 2),
+  );
+
+  function handleCallForOtp() {
+    const number = otpFallback?.supportCallNumber?.trim();
+    if (!number) return;
+    // Fire the Telegram heads-up (fire-and-forget — no "calling" state) and dial straight
+    // away using the number we already have, so the button feels instant.
+    callRequestMutation.mutate({
+      verificationSessionId: currentPendingAuth.verificationSessionId,
+    });
+    void Linking.openURL(`tel:${number.replace(/[^\d+]/g, "")}`).catch(
+      () => undefined,
+    );
+  }
+
+  async function handleWhatsapp() {
+    if (whatsappMutation.isPending) return;
+    setErrorText("");
+    try {
+      const data = await whatsappMutation.mutateAsync({
+        verificationSessionId: currentPendingAuth.verificationSessionId,
+      });
+      if (!data.sent) {
+        setErrorText(
+          "Couldn't send the code on WhatsApp right now. Try SMS or call.",
+        );
+      }
+    } catch {
+      setErrorText(
+        "Couldn't send the code on WhatsApp right now. Try SMS or call.",
+      );
     }
   }
 
@@ -424,14 +503,17 @@ export default function VerifyScreen() {
           redirectTo: currentPendingAuth.redirectTo ?? "",
         },
       });
-      const redirectTo = resolvePostAuthRedirect(
-        currentPendingAuth.redirectTo
-      );
+      const redirectTo = resolvePostAuthRedirect(currentPendingAuth.redirectTo);
       setPendingPhoneAuth(null);
       router.replace(redirectTo as never);
     } catch (error) {
       setIsAuthSubmitting(false);
-      setErrorText(getCustomerAuthErrorMessage(error, "Could not finish creating the account."));
+      setErrorText(
+        getCustomerAuthErrorMessage(
+          error,
+          "Could not finish creating the account.",
+        ),
+      );
     }
   }
 
@@ -475,11 +557,18 @@ export default function VerifyScreen() {
 
                 router.back();
               }}
-              style={[styles.backButton, !isOtpStep ? styles.backButtonDisabled : null]}
+              style={[
+                styles.backButton,
+                !isOtpStep ? styles.backButtonDisabled : null,
+              ]}
               disabled={!isOtpStep}
               android_ripple={{ color: "#F7E1EA" }}
             >
-              <Ionicons name="chevron-back" size={21} color={palette.foreground} />
+              <Ionicons
+                name="chevron-back"
+                size={21}
+                color={palette.foreground}
+              />
             </Pressable>
           </View>
 
@@ -514,7 +603,11 @@ export default function VerifyScreen() {
                     onPress={() => router.back()}
                     style={styles.phoneEditButton}
                   >
-                    <Ionicons name="create-outline" size={15} color={palette.foreground} />
+                    <Ionicons
+                      name="create-outline"
+                      size={15}
+                      color={palette.foreground}
+                    />
                   </Pressable>
                 </View>
 
@@ -532,7 +625,9 @@ export default function VerifyScreen() {
                   <View
                     style={[
                       styles.errorCard,
-                      isCustomerRateLimitMessage(errorText) ? styles.warningCard : null,
+                      isCustomerRateLimitMessage(errorText)
+                        ? styles.warningCard
+                        : null,
                     ]}
                   >
                     <Ionicons
@@ -547,7 +642,9 @@ export default function VerifyScreen() {
                     <Text
                       style={[
                         styles.errorText,
-                        isCustomerRateLimitMessage(errorText) ? styles.warningText : null,
+                        isCustomerRateLimitMessage(errorText)
+                          ? styles.warningText
+                          : null,
                       ]}
                     >
                       {errorText}
@@ -563,7 +660,9 @@ export default function VerifyScreen() {
                   onPress={handleVerifyOtp}
                   disabled={verifyOtpDisabled}
                 >
-                  {isAuthSubmitting || verifyOtpMutation.isPending || registerMutation.isPending ? (
+                  {isAuthSubmitting ||
+                  verifyOtpMutation.isPending ||
+                  registerMutation.isPending ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <View style={styles.primaryButtonContent}>
@@ -580,15 +679,29 @@ export default function VerifyScreen() {
                 </Pressable>
 
                 <Pressable
-                  style={[
+                  style={({ pressed }) => [
                     styles.secondaryButton,
-                    isAuthSubmitting || otpIsLocked || resendCountdown > 0 || resendMutation.isPending ? styles.secondaryButtonDisabled : null,
+                    isAuthSubmitting ||
+                    otpIsLocked ||
+                    resendCountdown > 0 ||
+                    resendMutation.isPending
+                      ? styles.secondaryButtonDisabled
+                      : null,
+                    pressed ? styles.secondaryButtonPressed : null,
                   ]}
                   onPress={handleResend}
-                  disabled={isAuthSubmitting || otpIsLocked || resendCountdown > 0 || resendMutation.isPending}
+                  disabled={
+                    isAuthSubmitting ||
+                    otpIsLocked ||
+                    resendCountdown > 0 ||
+                    resendMutation.isPending
+                  }
                 >
                   {resendMutation.isPending ? (
-                    <ActivityIndicator size="small" color={palette.foreground} />
+                    <ActivityIndicator
+                      size="small"
+                      color={palette.foreground}
+                    />
                   ) : (
                     <Text style={styles.secondaryButtonText}>
                       {otpIsLocked
@@ -599,21 +712,80 @@ export default function VerifyScreen() {
                     </Text>
                   )}
                 </Pressable>
+
+                {showWhatsapp ? (
+                  <Pressable
+                    onPress={handleWhatsapp}
+                    disabled={whatsappMutation.isPending}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 14,
+                      marginTop: 8,
+                      borderRadius: 14,
+                      backgroundColor: "#25D366",
+                      opacity: pressed || whatsappMutation.isPending ? 0.85 : 1,
+                    })}
+                  >
+                    {whatsappMutation.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontWeight: "800",
+                            fontSize: 15,
+                          }}
+                        >
+                          Get code on WhatsApp
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                ) : null}
+
+                {showCallForOtp ? (
+                  <Pressable
+                    onPress={handleCallForOtp}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 14,
+                      marginTop: 8,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: palette.secondary,
+                      backgroundColor: `${palette.secondary}14`,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Ionicons name="call" size={17} color={palette.secondary} />
+                    <Text
+                      style={{
+                        color: palette.secondary,
+                        fontWeight: "800",
+                        fontSize: 15,
+                      }}
+                    >
+                      Instant OTP
+                    </Text>
+                  </Pressable>
+                ) : null}
               </>
             ) : (
               <>
                 <View style={styles.profileIntro}>
                   <View style={styles.profileIntroIcon}>
-                    <Ionicons
-                      name="checkmark"
-                      size={17}
-                      color="#FFFFFF"
-                    />
+                    <Ionicons name="checkmark" size={17} color="#FFFFFF" />
                   </View>
                   <View style={styles.profileIntroCopy}>
-                    <Text style={styles.profileIntroTitle}>
-                      Phone verified
-                    </Text>
+                    <Text style={styles.profileIntroTitle}>Phone verified</Text>
                     <Text style={styles.profileIntroText}>
                       {pendingPhoneDisplay}
                     </Text>
@@ -812,7 +984,9 @@ export default function VerifyScreen() {
                   <View
                     style={[
                       styles.errorCard,
-                      isCustomerRateLimitMessage(errorText) ? styles.warningCard : null,
+                      isCustomerRateLimitMessage(errorText)
+                        ? styles.warningCard
+                        : null,
                     ]}
                   >
                     <Ionicons
@@ -827,7 +1001,9 @@ export default function VerifyScreen() {
                     <Text
                       style={[
                         styles.errorText,
-                        isCustomerRateLimitMessage(errorText) ? styles.warningText : null,
+                        isCustomerRateLimitMessage(errorText)
+                          ? styles.warningText
+                          : null,
                       ]}
                     >
                       {errorText}
@@ -838,9 +1014,7 @@ export default function VerifyScreen() {
                 <Pressable
                   style={[
                     styles.primaryButton,
-                    createAccountDisabled
-                      ? styles.primaryButtonDisabled
-                      : null,
+                    createAccountDisabled ? styles.primaryButtonDisabled : null,
                   ]}
                   onPress={handleCreateAccount}
                   disabled={createAccountDisabled}
@@ -849,7 +1023,9 @@ export default function VerifyScreen() {
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
                     <View style={styles.primaryButtonContent}>
-                      <Text style={styles.primaryButtonText}>Create account</Text>
+                      <Text style={styles.primaryButtonText}>
+                        Create account
+                      </Text>
                       <Ionicons name="arrow-forward" size={17} color="#fff" />
                     </View>
                   )}
@@ -1203,6 +1379,9 @@ const styles = StyleSheet.create({
   },
   secondaryButtonDisabled: {
     opacity: 0.72,
+  },
+  secondaryButtonPressed: {
+    opacity: 0.6,
   },
   secondaryButtonText: {
     fontSize: 14,

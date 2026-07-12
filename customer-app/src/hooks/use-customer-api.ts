@@ -1116,12 +1116,21 @@ function upsertCustomerLiveOrderList(
   return upsertCustomerOrderList(current, nextOrder);
 }
 
+export type CustomerOtpFallbackConfig = {
+  telegramFallbackEnabled: boolean;
+  callButtonAfterResends: number;
+  supportCallNumber: string;
+  whatsappOtpEnabled?: boolean;
+  whatsappAfterResends?: number;
+};
+
 type CustomerPhoneStartResponse = {
   flow: "password" | "otp";
   phone: string;
   verificationSessionId?: string;
   expiresInSeconds?: number;
   resendAvailableInSeconds?: number;
+  otpFallback?: CustomerOtpFallbackConfig;
   customer?: {
     fullName?: string;
     email?: string;
@@ -1143,6 +1152,30 @@ export function useCustomerPhoneStartMutation() {
     mutationFn: async (params: { phone: string; useOtp?: boolean }) => {
       const response = await apiPost<CustomerPhoneStartResponse>(
         "/customer/auth/phone/start",
+        params
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useCustomerOtpCallRequestMutation() {
+  return useMutation({
+    mutationFn: async (params: { verificationSessionId: string }) => {
+      const response = await apiPost<{ supportCallNumber: string }>(
+        "/customer/auth/phone/otp/call-request",
+        params
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useCustomerOtpWhatsappMutation() {
+  return useMutation({
+    mutationFn: async (params: { verificationSessionId: string }) => {
+      const response = await apiPost<{ sent: boolean; reason: string }>(
+        "/customer/auth/phone/otp/whatsapp",
         params
       );
       return response.data;
@@ -1181,6 +1214,7 @@ type CustomerPasswordResetStartResponse = {
   phone: string;
   expiresInSeconds?: number;
   resendAvailableInSeconds?: number;
+  otpFallback?: CustomerOtpFallbackConfig;
 };
 
 export function useCustomerPasswordResetStartMutation() {

@@ -20,6 +20,11 @@ export type OtpDeliveryConfig = {
   expiresInSeconds: number;
   resendCooldownSeconds: number;
   messageTemplate: string;
+  telegramFallbackEnabled: boolean;
+  callButtonAfterResends: number;
+  supportCallNumber: string;
+  whatsappOtpEnabled: boolean;
+  whatsappAfterResends: number;
 };
 
 const DEFAULT_OTP_MESSAGE_TEMPLATE =
@@ -80,6 +85,11 @@ export function getFallbackOtpDeliveryConfig(): OtpDeliveryConfig {
       300,
     ),
     messageTemplate: DEFAULT_OTP_MESSAGE_TEMPLATE,
+    telegramFallbackEnabled: false,
+    callButtonAfterResends: 2,
+    supportCallNumber: "",
+    whatsappOtpEnabled: false,
+    whatsappAfterResends: 1,
   };
 }
 
@@ -106,6 +116,24 @@ export async function getOtpDeliveryConfig(): Promise<OtpDeliveryConfig> {
       messageTemplate: otpSettings?.messageTemplate?.includes("{{code}}")
         ? otpSettings.messageTemplate
         : fallback.messageTemplate,
+      telegramFallbackEnabled: otpSettings?.telegramFallbackEnabled === true,
+      callButtonAfterResends: clampInteger(
+        otpSettings?.callButtonAfterResends,
+        fallback.callButtonAfterResends,
+        1,
+        5,
+      ),
+      supportCallNumber:
+        typeof otpSettings?.supportCallNumber === "string"
+          ? otpSettings.supportCallNumber.trim().slice(0, 20)
+          : fallback.supportCallNumber,
+      whatsappOtpEnabled: otpSettings?.whatsappOtpEnabled === true,
+      whatsappAfterResends: clampInteger(
+        otpSettings?.whatsappAfterResends,
+        fallback.whatsappAfterResends,
+        0,
+        5,
+      ),
     };
   } catch (error) {
     logger.warn({ error }, "Using fallback OTP config");

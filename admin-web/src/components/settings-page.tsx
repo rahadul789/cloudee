@@ -4643,6 +4643,112 @@ export function SettingsPage() {
                     </p>
                   ) : null}
                 </div>
+
+                <div className="space-y-3 rounded-lg border bg-background p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Label>Telegram OTP fallback</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        When SMS is slow: on resend, relay the code to the
+                        &quot;Foodbela OTP&quot; Telegram bot and show a
+                        &quot;Call for instant OTP&quot; button in the app. Needs
+                        TELEGRAM_OTP_BOT_TOKEN + TELEGRAM_OTP_CHAT_ID in the
+                        server env.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(otp.telegramFallbackEnabled)}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.auth.otp.telegramFallbackEnabled = checked
+                        })
+                      }
+                    />
+                  </div>
+                  <SettingRow
+                    title="Show call button after"
+                    description="Resends before the 'Call for instant OTP' button appears (1-5)."
+                  >
+                    <Input
+                      type="number"
+                      min={1}
+                      max={5}
+                      step={1}
+                      value={otp.callButtonAfterResends ?? 2}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          content.auth.otp.callButtonAfterResends = clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              otp.callButtonAfterResends ?? 2
+                            ),
+                            1,
+                            5
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Support call number"
+                    description="The number the 'Call for instant OTP' button dials."
+                  >
+                    <Input
+                      value={otp.supportCallNumber ?? ""}
+                      placeholder="017XXXXXXXX"
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          content.auth.otp.supportCallNumber = event.target.value
+                        })
+                      }
+                    />
+                  </SettingRow>
+
+                  <div className="flex items-start justify-between gap-3 border-t pt-3">
+                    <div>
+                      <Label>WhatsApp OTP</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Show a &quot;Get code on WhatsApp&quot; button (appears
+                        before the call button). Needs
+                        WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_NUMBER_ID +
+                        WHATSAPP_OTP_TEMPLATE in the server env and an approved
+                        Meta template. Keep off until tested.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(otp.whatsappOtpEnabled)}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.auth.otp.whatsappOtpEnabled = checked
+                        })
+                      }
+                    />
+                  </div>
+                  <SettingRow
+                    title="Show WhatsApp after"
+                    description="Resends before the WhatsApp button appears (0 = immediately)."
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={5}
+                      step={1}
+                      value={otp.whatsappAfterResends ?? 1}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          content.auth.otp.whatsappAfterResends = clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              otp.whatsappAfterResends ?? 1
+                            ),
+                            0,
+                            5
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                </div>
               </CardContent>
             </Card>
 

@@ -35,6 +35,10 @@ import {
   sendOtpSms,
   type OtpDeliveryConfig
 } from "./otp-sms.service"
+import { OtpAttemptModel } from "./otp-monitor.model"
+import { sendOtpToTelegram } from "./otp-telegram.service"
+import { sendOtpWhatsApp } from "./otp-whatsapp.service"
+import { maybeAlertOtpDeliveryDegraded } from "../admin/otp-monitor.service"
 import { createAdminOperationalAlert } from "../admin/admin-alert.service"
 import {
   defaultAuthRateLimitSettings,
@@ -518,6 +522,78 @@ export function getOtpSessionTiming(otpSession: OtpSessionTimingSource) {
   }
 }
 
+// What the client needs to decide whether to show "Call for instant OTP" after N resends.
+export function buildOtpFallbackClientConfig(config: OtpDeliveryConfig) {
+  return {
+    telegramFallbackEnabled: config.telegramFallbackEnabled,
+    callButtonAfterResends: config.callButtonAfterResends,
+    supportCallNumber: config.telegramFallbackEnabled ? config.supportCallNumber : "",
+    whatsappOtpEnabled: config.whatsappOtpEnabled,
+    whatsappAfterResends: config.whatsappAfterResends
+  }
+}
+
+export async function getOtpFallbackClientConfig() {
+  return buildOtpFallbackClientConfig(await getOtpDeliveryConfig())
+}
+
+// "Call for instant OTP": flag the attempt + fire a high-priority Telegram heads-up (with the
+// live code) so support is primed to answer, then hand the support number back to dial.
+export async function requestOtpSupportCall(params: {
+  verificationSessionId: string
+}) {
+  const config = await getOtpDeliveryConfig()
+  const attempt = await OtpAttemptModel.findOneAndUpdate(
+    { verificationSessionId: params.verificationSessionId },
+    { $set: { callRequestedAt: new Date() } },
+    { new: true }
+  ).lean<{ phone?: string; plainCode?: string; resendCount?: number }>()
+
+  if (attempt?.phone && config.telegramFallbackEnabled) {
+    void sendOtpToTelegram({
+      phone: attempt.phone,
+      code: attempt.plainCode ?? "",
+      kind: "call_request",
+      resendCount: attempt.resendCount
+    })
+  }
+
+  return { supportCallNumber: config.supportCallNumber }
+}
+
+// "Get code on WhatsApp": re-send the CURRENT valid OTP through WhatsApp (reads the live
+// plaintext from the monitor row). Gated by the admin flag; inert until credentials are set.
+export async function requestOtpWhatsApp(params: {
+  verificationSessionId: string
+}) {
+  const config = await getOtpDeliveryConfig()
+  if (!config.whatsappOtpEnabled) {
+    return { sent: false, reason: "disabled" as const }
+  }
+
+  const attempt = await OtpAttemptModel.findOne({
+    verificationSessionId: params.verificationSessionId
+  }).lean<{ phone?: string; plainCode?: string }>()
+
+  if (!attempt?.phone || !attempt.plainCode) {
+    return { sent: false, reason: "no_active_code" as const }
+  }
+
+  const result = await sendOtpWhatsApp({
+    phone: attempt.phone,
+    code: attempt.plainCode
+  })
+
+  if (result.sent) {
+    await OtpAttemptModel.updateOne(
+      { verificationSessionId: params.verificationSessionId },
+      { $set: { channel: "whatsapp" } }
+    ).catch(() => undefined)
+  }
+
+  return { sent: result.sent, reason: result.sent ? "sent" : result.reason }
+}
+
 export async function assertOtpVerificationAllowed(
   otpSession: InstanceType<typeof OtpSessionModel>,
   context?: OtpSecurityContext
@@ -620,6 +696,11 @@ export async function recordOtpVerificationSuccess(
     event: "verify_success",
     context
   })
+  // Close the OTP-monitor funnel row (verify == login for OTP sign-in). Non-fatal.
+  await OtpAttemptModel.updateOne(
+    { verificationSessionId: otpSession.id },
+    { $set: { verifiedAt: new Date(), loggedInAt: new Date(), plainCode: "" } }
+  ).catch(() => undefined)
 }
 
 async function saveOtpSessionWithCode(
@@ -686,6 +767,43 @@ async function saveOtpSessionWithCode(
       resendCooldownSeconds: params.config.resendCooldownSeconds
     }
   })
+
+  // OTP monitor + Telegram relay (non-fatal — never breaks login). Keeps a plaintext-code
+  // funnel row for the admin "OTP Monitor", and on RESEND relays the code to the "Foodbela
+  // OTP" bot so support can read it out when SMS is slow.
+  try {
+    const attempt = await OtpAttemptModel.findOneAndUpdate(
+      { verificationSessionId: otpSession.id },
+      {
+        $set: {
+          phone: otpSession.phone,
+          purpose: otpSession.purpose,
+          plainCode: params.otpCode,
+          lastSentAt: now,
+          ipAddress: params.context?.ipAddress ?? ""
+        },
+        ...(params.isNewSession
+          ? { $setOnInsert: { requestedAt: now, resendCount: 0 } }
+          : { $inc: { resendCount: 1 } })
+      },
+      { new: true, upsert: true }
+    ).lean<{ resendCount?: number }>()
+
+    if (!params.isNewSession) {
+      if (params.config.telegramFallbackEnabled) {
+        void sendOtpToTelegram({
+          phone: otpSession.phone,
+          code: params.otpCode,
+          kind: "resend",
+          resendCount: attempt?.resendCount ?? 1
+        })
+      }
+      // A resend is a "SMS didn't arrive" signal — watch for a degraded-delivery burst.
+      void maybeAlertOtpDeliveryDegraded()
+    }
+  } catch (error) {
+    logger.warn({ error }, "OTP attempt logging failed")
+  }
 
   return attachOtpDeliveryMeta(otpSession, true, params.config)
 }

@@ -228,6 +228,11 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         icon: Gauge,
       },
       {
+        title: "OTP Monitor",
+        to: "/otp-monitor",
+        icon: KeyRound,
+      },
+      {
         title: "Operations Health",
         to: "/operations",
         icon: HeartPulse,

@@ -29,6 +29,7 @@ import {
 import {
   assertOtpVerificationAllowed,
   createOtpSession,
+  getOtpFallbackClientConfig,
   getOtpSessionTiming,
   recordOtpVerificationSuccess,
   rejectInvalidOtpAttempt,
@@ -749,6 +750,7 @@ export async function startCustomerPhoneSignin(
     phone,
     verificationSessionId: otpSession.id,
     ...getOtpSessionTiming(otpSession),
+    otpFallback: await getOtpFallbackClientConfig(),
     customer: customer
       ? {
           fullName: customer.fullName ?? "",
@@ -852,6 +854,7 @@ export async function requestCustomerPasswordReset(params: {
     verificationSessionId: otpSession.id,
     phone: otpSession.phone,
     ...getOtpSessionTiming(otpSession),
+    otpFallback: await getOtpFallbackClientConfig(),
   };
 }
 

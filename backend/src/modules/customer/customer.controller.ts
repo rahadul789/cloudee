@@ -47,6 +47,7 @@ import {
   verifyCustomerPhoneSignin,
   verifyCustomerPasswordResetOtp
 } from "./customer.service"
+import { requestOtpSupportCall, requestOtpWhatsApp } from "../auth/auth.service"
 import {
   getCustomerCustomOfferSummary,
   requestCustomerCustomOffer,
@@ -401,6 +402,34 @@ export const startCustomerPhoneAuth = asyncHandler(async (req: Request, res: Res
   return sendSuccess(res, {
     statusCode: StatusCodes.ACCEPTED,
     message: "Customer OTP sent successfully",
+    data
+  })
+})
+
+const otpCallRequestSchema = z.object({
+  verificationSessionId: z.string().trim().min(1).max(64)
+})
+
+export const requestCustomerOtpCall = asyncHandler(async (req: Request, res: Response) => {
+  const payload = otpCallRequestSchema.parse(req.body)
+  const data = await requestOtpSupportCall({
+    verificationSessionId: payload.verificationSessionId
+  })
+
+  return sendSuccess(res, {
+    message: "Support call requested",
+    data
+  })
+})
+
+export const requestCustomerOtpWhatsApp = asyncHandler(async (req: Request, res: Response) => {
+  const payload = otpCallRequestSchema.parse(req.body)
+  const data = await requestOtpWhatsApp({
+    verificationSessionId: payload.verificationSessionId
+  })
+
+  return sendSuccess(res, {
+    message: "WhatsApp OTP requested",
     data
   })
 })

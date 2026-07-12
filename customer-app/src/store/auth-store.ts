@@ -36,6 +36,13 @@ type PendingPhoneAuth = {
   otpVerified?: boolean;
   expiresInSeconds?: number;
   resendAvailableInSeconds?: number;
+  otpFallback?: {
+    telegramFallbackEnabled: boolean;
+    callButtonAfterResends: number;
+    supportCallNumber: string;
+    whatsappOtpEnabled?: boolean;
+    whatsappAfterResends?: number;
+  };
 };
 
 type AuthStore = {

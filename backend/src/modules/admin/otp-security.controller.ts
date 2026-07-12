@@ -9,6 +9,37 @@ import {
   unblockOtpAbuseBlock,
   upsertOtpAbuseBlock,
 } from "./otp-security.service"
+import { getAdminOtpMonitor, markOtpAttemptHandled } from "./otp-monitor.service"
+
+const otpMonitorQuerySchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  phone: z.string().optional(),
+  status: z.enum(["all", "stuck", "verified", "call_requested"]).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(10).max(100).optional(),
+})
+
+export const getAdminOtpMonitorController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const query = otpMonitorQuerySchema.parse(req.query)
+    const data = await getAdminOtpMonitor(query)
+    return sendSuccess(res, { message: "OTP monitor loaded", data })
+  },
+)
+
+const otpHandledSchema = z.object({ id: z.string().trim().min(1).max(64) })
+
+export const postAdminOtpHandledController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = otpHandledSchema.parse(req.body)
+    const data = await markOtpAttemptHandled({
+      id: payload.id,
+      adminId: req.user?.id,
+    })
+    return sendSuccess(res, { message: "OTP attempt marked handled", data })
+  },
+)
 
 const otpSecurityQuerySchema = z.object({
   phone: z.string().regex(/^01\d{9}$/).optional(),

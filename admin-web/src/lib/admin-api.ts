@@ -3844,6 +3844,11 @@ export type PlatformContent = {
       expiresInSeconds: number
       resendCooldownSeconds: number
       messageTemplate: string
+      telegramFallbackEnabled?: boolean
+      callButtonAfterResends?: number
+      supportCallNumber?: string
+      whatsappOtpEnabled?: boolean
+      whatsappAfterResends?: number
     }
     rateLimits: {
       signinAttemptsPerWindow: number
@@ -5708,6 +5713,74 @@ export type AdminCustomerDeviceIntel = {
 export async function getAdminCustomerDeviceIntel(customerId: string) {
   const response = await adminRequest<AdminCustomerDeviceIntel>(
     `/admin/customers/${customerId}/device-intel`,
+  )
+  return response.data
+}
+
+export type AdminOtpMonitor = {
+  funnel: {
+    requested: number
+    resent: number
+    callRequested: number
+    verified: number
+    loggedIn: number
+    stuck: number
+  }
+  trend: Array<{ hour: string | null; requested: number; verified: number }>
+  smsBalance: { balance: number | null; checkedAt: string } | null
+  page: number
+  pageSize: number
+  total: number
+  items: Array<{
+    id: string
+    phone: string
+    code: string
+    purpose: string
+    channel: string
+    ipAddress: string
+    resendCount: number
+    requestedAt: string | null
+    lastSentAt: string | null
+    verifiedAt: string | null
+    loggedInAt: string | null
+    callRequestedAt: string | null
+    handledAt: string | null
+    status: string
+  }>
+}
+
+export type AdminOtpMonitorItem = AdminOtpMonitor["items"][number]
+
+export async function markAdminOtpHandled(id: string) {
+  const response = await adminRequest<{ handled: boolean }>(
+    `/admin/otp-monitor/handled`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    },
+  )
+  return response.data
+}
+
+export async function getAdminOtpMonitor(params: {
+  from?: string
+  to?: string
+  phone?: string
+  status?: "all" | "stuck" | "verified" | "call_requested"
+  page?: number
+  pageSize?: number
+}) {
+  const query = new URLSearchParams()
+  if (params.from) query.set("from", params.from)
+  if (params.to) query.set("to", params.to)
+  if (params.phone) query.set("phone", params.phone)
+  if (params.status && params.status !== "all") query.set("status", params.status)
+  if (params.page) query.set("page", String(params.page))
+  if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  const qs = query.toString()
+  const response = await adminRequest<AdminOtpMonitor>(
+    `/admin/otp-monitor${qs ? `?${qs}` : ""}`,
   )
   return response.data
 }

@@ -750,6 +750,16 @@ export const platformContent = {
       resendCooldownSeconds: 60,
       messageTemplate:
         "Your {{platformName}} verification code is {{code}}. It expires in {{expiryMinutes}} minutes.",
+      // When SMS is unreliable: on resend, relay the code to the "Foodbela OTP" Telegram
+      // bot so support can read it out, and surface a "Call for instant OTP" button in the
+      // app after this many resends. All admin-controlled; off by default.
+      telegramFallbackEnabled: false,
+      callButtonAfterResends: 2,
+      supportCallNumber: "",
+      // WhatsApp OTP alternative — shown one step before the call button. Off until the
+      // WhatsApp Business API (credentials + approved template) is wired on the server.
+      whatsappOtpEnabled: false,
+      whatsappAfterResends: 1,
     },
     rateLimits: {
       signinAttemptsPerWindow: 10,

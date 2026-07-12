@@ -6,6 +6,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -23,6 +24,9 @@ import {
 import { Screen } from "@/src/components/screen";
 import {
   type CustomerAuthLocationSnapshot,
+  type CustomerOtpFallbackConfig,
+  useCustomerOtpCallRequestMutation,
+  useCustomerOtpWhatsappMutation,
   useCustomerPasswordResetMutation,
   useCustomerPasswordResetOtpVerifyMutation,
   useCustomerPasswordResetStartMutation,
@@ -107,6 +111,8 @@ export default function SignInScreen() {
   const passwordResetOtpVerifyMutation =
     useCustomerPasswordResetOtpVerifyMutation();
   const passwordResetMutation = useCustomerPasswordResetMutation();
+  const resetOtpCallRequestMutation = useCustomerOtpCallRequestMutation();
+  const resetOtpWhatsappMutation = useCustomerOtpWhatsappMutation();
   const [step, setStep] = useState<AuthStep>("phone");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -119,6 +125,9 @@ export default function SignInScreen() {
   const [passwordResetSessionId, setPasswordResetSessionId] = useState("");
   const [passwordResetResendCountdown, setPasswordResetResendCountdown] =
     useState(0);
+  const [resetResendCount, setResetResendCount] = useState(0);
+  const [resetOtpFallback, setResetOtpFallback] =
+    useState<CustomerOtpFallbackConfig | null>(null);
   const [errorText, setErrorText] = useState("");
   const [successText, setSuccessText] = useState("");
   const [existingCustomerName, setExistingCustomerName] = useState("");
@@ -206,6 +215,15 @@ export default function SignInScreen() {
     step === "resetOtp" || step === "resetPassword";
   const resetOtpHasError = Boolean(
     errorText && step === "resetOtp" && !isCustomerRateLimitMessage(errorText)
+  );
+  const showResetWhatsapp = Boolean(
+    resetOtpFallback?.whatsappOtpEnabled &&
+    resetResendCount >= (resetOtpFallback?.whatsappAfterResends ?? 1),
+  );
+  const showResetCallForOtp = Boolean(
+    resetOtpFallback?.telegramFallbackEnabled &&
+    resetOtpFallback?.supportCallNumber &&
+    resetResendCount >= (resetOtpFallback?.callButtonAfterResends ?? 2),
   );
 
   useEffect(() => {
@@ -482,7 +500,8 @@ export default function SignInScreen() {
   }
 
   async function handleForgotPassword() {
-    if (step === "resetOtp" && resetOtpIsLocked) {
+    const isResend = step === "resetOtp";
+    if (isResend && resetOtpIsLocked) {
       return;
     }
 
@@ -505,6 +524,12 @@ export default function SignInScreen() {
       setPasswordResetResendCountdown(
         resolveOtpResendSeconds(data.resendAvailableInSeconds),
       );
+      if (data.otpFallback) {
+        setResetOtpFallback(data.otpFallback);
+      }
+      // Each resend on the reset-OTP screen advances the escalation ladder
+      // (WhatsApp → Call), exactly like the registration OTP screen.
+      setResetResendCount((current) => (isResend ? current + 1 : 0));
       setResetOtpLockCountdown(0);
       setResetOtpCode("");
       setResetPassword("");
@@ -524,6 +549,38 @@ export default function SignInScreen() {
       } else if (isCustomerOtpRequestRateLimitMessage(message)) {
         setPasswordResetResendCountdown(OTP_REQUEST_RATE_LIMIT_SECONDS);
       }
+    }
+  }
+
+  function handleResetCallForOtp() {
+    const number = resetOtpFallback?.supportCallNumber?.trim();
+    if (!number) return;
+    // Fire the Telegram heads-up (fire-and-forget — no "calling" state) and dial
+    // straight away using the number we already have, so the button feels instant.
+    resetOtpCallRequestMutation.mutate({
+      verificationSessionId: passwordResetSessionId,
+    });
+    void Linking.openURL(`tel:${number.replace(/[^\d+]/g, "")}`).catch(
+      () => undefined,
+    );
+  }
+
+  async function handleResetWhatsapp() {
+    if (resetOtpWhatsappMutation.isPending) return;
+    setErrorText("");
+    try {
+      const data = await resetOtpWhatsappMutation.mutateAsync({
+        verificationSessionId: passwordResetSessionId,
+      });
+      if (!data.sent) {
+        setErrorText(
+          "Couldn't send the code on WhatsApp right now. Try SMS or call.",
+        );
+      }
+    } catch {
+      setErrorText(
+        "Couldn't send the code on WhatsApp right now. Try SMS or call.",
+      );
     }
   }
 
@@ -1034,13 +1091,14 @@ export default function SignInScreen() {
                   </View>
                 ) : null}
                 <Pressable
-                  style={[
+                  style={({ pressed }) => [
                     styles.resendButton,
                     resetOtpIsLocked ||
                     passwordResetResendCountdown > 0 ||
                     passwordResetStartMutation.isPending
                       ? styles.resendButtonDisabled
                       : null,
+                    pressed ? styles.resendButtonPressed : null,
                   ]}
                   onPress={handleForgotPassword}
                   disabled={
@@ -1057,6 +1115,72 @@ export default function SignInScreen() {
                         : "Resend code"}
                   </Text>
                 </Pressable>
+
+                {showResetWhatsapp ? (
+                  <Pressable
+                    onPress={handleResetWhatsapp}
+                    disabled={resetOtpWhatsappMutation.isPending}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 14,
+                      marginTop: 8,
+                      borderRadius: 14,
+                      backgroundColor: "#25D366",
+                      opacity:
+                        pressed || resetOtpWhatsappMutation.isPending ? 0.85 : 1,
+                    })}
+                  >
+                    {resetOtpWhatsappMutation.isPending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-whatsapp" size={18} color="#fff" />
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontWeight: "800",
+                            fontSize: 15,
+                          }}
+                        >
+                          Get code on WhatsApp
+                        </Text>
+                      </>
+                    )}
+                  </Pressable>
+                ) : null}
+
+                {showResetCallForOtp ? (
+                  <Pressable
+                    onPress={handleResetCallForOtp}
+                    style={({ pressed }) => ({
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      paddingVertical: 14,
+                      marginTop: 8,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor: palette.secondary,
+                      backgroundColor: `${palette.secondary}14`,
+                      opacity: pressed ? 0.85 : 1,
+                    })}
+                  >
+                    <Ionicons name="call" size={17} color={palette.secondary} />
+                    <Text
+                      style={{
+                        color: palette.secondary,
+                        fontWeight: "800",
+                        fontSize: 15,
+                      }}
+                    >
+                      Instant OTP
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : (
               <View style={styles.resetSection}>
@@ -1531,6 +1655,9 @@ const styles = StyleSheet.create({
   },
   resendButtonDisabled: {
     opacity: 0.72,
+  },
+  resendButtonPressed: {
+    opacity: 0.6,
   },
   resendButtonText: {
     fontSize: 13,

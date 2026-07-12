@@ -69,6 +69,8 @@ import {
   signinCustomerWithPasswordController,
   startCustomerPasswordReset,
   startCustomerPhoneAuth,
+  requestCustomerOtpCall,
+  requestCustomerOtpWhatsApp,
   verifyCustomerPhoneOtpCode,
   verifyCustomerPhoneChangeOtp,
   verifyCustomerPhoneAuth,
@@ -102,6 +104,8 @@ customerRouter.post(
 )
 customerRouter.post("/auth/password/otp/verify", customerOtpVerifyLimiter, verifyCustomerPasswordResetOtpCode)
 customerRouter.post("/auth/password/reset", customerPasswordRecoveryLimiter, resetCustomerPasswordController)
+customerRouter.post("/auth/phone/otp/call-request", customerAuthStartLimiter, requestCustomerOtpCall)
+customerRouter.post("/auth/phone/otp/whatsapp", customerAuthStartLimiter, requestCustomerOtpWhatsApp)
 customerRouter.post("/auth/phone/otp/verify", customerOtpVerifyLimiter, verifyCustomerPhoneOtpCode)
 customerRouter.post("/auth/phone/verify", customerOtpVerifyLimiter, verifyCustomerPhoneAuth)
 customerRouter.post(
