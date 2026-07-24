@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ErrorBoundaryProps } from "expo-router";
+import { useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Sentry } from "@/src/lib/sentry";
 import { palette } from "@/src/theme/palette";
 
 /**
@@ -12,6 +14,12 @@ import { palette } from "@/src/theme/palette";
  */
 export function AppErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   const insets = useSafeAreaInsets();
+
+  // Report the caught render error — Expo Router's boundary shows this fallback but does not
+  // send the crash anywhere on its own. No-op when Sentry has no DSN configured.
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>

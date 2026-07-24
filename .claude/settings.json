@@ -168,7 +168,13 @@
       "Bash(npm test *)",
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('linear-gradient:', p.dependencies['expo-linear-gradient']||'NO'\\); console.log\\('reanimated:', p.dependencies['react-native-reanimated']||'NO'\\);\")",
       "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,1\\)\\)\")",
-      "Bash(node \"C:/Users/DELL/AppData/Local/Temp/claude/d--cloudee/da8225b3-7339-422f-ab05-1fb78b5f5084/scratchpad/splice-browse.js\")"
+      "Bash(node \"C:/Users/DELL/AppData/Local/Temp/claude/d--cloudee/da8225b3-7339-422f-ab05-1fb78b5f5084/scratchpad/splice-browse.js\")",
+      "Bash(npx eas *)",
+      "Bash(EAS_NO_VCS=1 npx eas whoami)",
+      "Bash(curl -s -H \"Authorization: Bearer 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\" \"https://us.sentry.io/api/0/organizations/bela-5w/projects/\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{try{const a=JSON.parse\\(d\\);if\\(Array.isArray\\(a\\)\\){console.log\\(a.map\\(p=>p.slug+'  \\(id='+p.id+', platform='+p.platform+'\\)'\\).join\\('\\\\n'\\)\\)}else{console.log\\(JSON.stringify\\(a\\)\\)}}catch\\(e\\){console.log\\('parse-fail:',d.slice\\(0,300\\)\\)}}\\)\")",
+      "Bash(node -e \"const c=require\\('./app.json'\\); const p=c.expo.plugins.find\\(x=>Array.isArray\\(x\\)&&x[0]==='@sentry/react-native'\\); console.log\\('app.json valid JSON ✓'\\); console.log\\('sentry plugin:', JSON.stringify\\(p\\)\\);\")",
+      "Bash(EAS_NO_VCS=1 npx eas build:version:get --platform android)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

@@ -20,7 +20,8 @@
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "preview",
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.foodbela.com/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.foodbela.com/api/v1",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://82deffd3ad6ef51fced81dfbc028d5b3@o4511789372080128.ingest.us.sentry.io/4511789403144192"
       }
     },
     "production": {
@@ -28,7 +29,8 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_API_BASE_URL": "https://api.foodbela.com/api/v1"
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.foodbela.com/api/v1",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://82deffd3ad6ef51fced81dfbc028d5b3@o4511789372080128.ingest.us.sentry.io/4511789403144192"
       }
     }
   },

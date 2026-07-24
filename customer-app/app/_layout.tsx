@@ -6,8 +6,13 @@ import { CustomerAnalyticsBridge } from "@/src/components/customer-analytics-bri
 import { DeferredMount } from "@/src/components/deferred-mount";
 import { OtaUpdateGate } from "@/src/components/ota-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
+import { Sentry, initSentry } from "@/src/lib/sentry";
 
-export default function RootLayout() {
+// Wire crash reporting before the first render, so even a startup crash is captured.
+// No-op unless EXPO_PUBLIC_SENTRY_DSN is configured (preview/production builds).
+initSentry();
+
+function RootLayout() {
   return (
     <AppProviders>
       <StatusBar style="dark" />
@@ -55,3 +60,7 @@ export default function RootLayout() {
     </AppProviders>
   );
 }
+
+// Sentry.wrap adds the error/touch context provider. It is a harmless pass-through when
+// Sentry is not initialised (no DSN), so it is always safe to keep.
+export default Sentry.wrap(RootLayout);
