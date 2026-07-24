@@ -43,6 +43,24 @@ export function formatTime(value?: string | null) {
   return formatted;
 }
 
+// "12 Jul, 4:30 PM" — used where a date alone is ambiguous (e.g. an enforcement
+// window that ends later today vs next week).
+export function formatDateTime(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+
+  return localizeDigits(formatted);
+}
+
 export function getOrderPlacedAt(order: {
   timestamps?: Record<string, string | undefined>;
   createdAt?: string | null;

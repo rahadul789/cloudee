@@ -53,6 +53,7 @@ import {
   requestCustomerCustomOffer,
 } from "./custom-offer.service"
 import { quoteCustomerCart } from "./customer-cart.service"
+import { submitPollVote } from "./poll.service"
 import { recordVoucherDisplayEvent, recordVoucherPushOpenEvent } from "../promotions/promotions.service"
 import { recordCustomerHomePushOpen } from "../public/content.service"
 import { invalidateAdminNotificationsCache } from "../admin/notifications.service"
@@ -201,7 +202,10 @@ const discoverySearchQuerySchema = discoveryListQuerySchema.extend({
   filter: z.enum(["all", "open", "offers", "featured"]).optional(),
   sortBy: z.enum(["nearest", "fastest", "topRated"]).optional(),
   minimumRating: z.coerce.number().min(0).max(5).optional(),
-  maximumLowestPrice: z.coerce.number().min(0).optional()
+  maximumLowestPrice: z.coerce.number().min(0).optional(),
+  // Capability flag from newer apps: "1" = give me the true open-now list + areaHasRestaurants
+  // instead of the legacy closed-cards fallback. Coerced leniently so a stray value never 400s.
+  openStrict: z.coerce.number().int().optional().catch(undefined)
 })
 
 const restaurantDetailsQuerySchema = z.object({
@@ -234,6 +238,7 @@ const cartQuoteSchema = z.object({
   restaurantId: z.string().min(1),
   items: z.array(cartItemSchema).min(1).max(50),
   voucherCode: z.string().optional(),
+  installId: z.string().trim().max(160).optional(),
   latitude: z.number().optional(),
   longitude: z.number().optional(),
 })
@@ -243,6 +248,7 @@ const placeOrderSchema = z.object({
   clientOrderId: z.string().trim().min(8).max(120).optional(),
   items: z.array(cartItemSchema).min(1).max(50),
   voucherCode: z.string().optional(),
+  installId: z.string().trim().max(160).optional(),
   paymentMethod: z.enum(["Cash", "Bkash"]),
   paymentReference: z
     .object({
@@ -266,6 +272,7 @@ const bkashInitiateSchema = z.object({
   clientOrderId: z.string().trim().min(8).max(120).optional(),
   items: z.array(cartItemSchema).min(1).max(50),
   voucherCode: z.string().optional(),
+  installId: z.string().trim().max(160).optional(),
   note: z.string().trim().max(240).optional(),
   walletNumber: z.string().regex(/^01\d{9}$/),
   deliveryAddress: z.object({
@@ -759,6 +766,7 @@ export const getCustomerDiscoverySearch = asyncHandler(async (req: Request, res:
     sortBy: getStringValue(req.query.sortBy) || undefined,
     minimumRating: req.query.minimumRating,
     maximumLowestPrice: req.query.maximumLowestPrice,
+    openStrict: req.query.openStrict,
   })
   const data = await listDiscoverableRestaurantsPage(query)
 
@@ -817,6 +825,27 @@ export const postCustomerVoucherDisplayEvent = asyncHandler(
   async (req: Request, res: Response) => {
     const payload = voucherDisplayEventSchema.parse(req.body)
     const data = await recordVoucherDisplayEvent(payload)
+    return sendSuccess(res, { data })
+  }
+)
+
+const pollVoteSchema = z.object({
+  pollId: z.string().trim().min(1).max(200),
+  optionId: z.string().trim().min(1).max(200),
+  deviceId: z.string().trim().min(1).max(200),
+  feedback: z.string().trim().max(500).optional(),
+})
+
+export const postCustomerPollVote = asyncHandler(
+  async (req: Request, res: Response) => {
+    const payload = pollVoteSchema.parse(req.body)
+    // Anonymous endpoint: one vote is enforced per device (voterKey = deviceId).
+    const data = await submitPollVote({
+      pollId: payload.pollId,
+      optionId: payload.optionId,
+      feedback: payload.feedback,
+      deviceId: payload.deviceId,
+    })
     return sendSuccess(res, { data })
   }
 )

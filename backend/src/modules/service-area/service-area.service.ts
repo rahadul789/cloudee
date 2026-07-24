@@ -8,6 +8,7 @@ import { BkashPaymentAttemptModel, CustomerModel } from "../customer/customer.mo
 import { LedgerEntryModel } from "../owner/finance.model"
 import { OrderModel } from "../owner/operational.model"
 import { ServiceZoneModel } from "./service-area.model"
+import type { ServiceHoursOverride } from "./service-hours"
 
 type ServiceZoneRecord = Record<string, any>
 
@@ -779,4 +780,36 @@ export async function getServiceAreaDispatchOverrides(
     .select({ dispatch: 1 })
     .lean<ServiceZoneRecord | null>()
   return zone?.dispatch ?? null
+}
+
+/**
+ * Per-zone service-hours override (null = inherit platform default). Read from the
+ * cached active-zone list, so listing paths can resolve N restaurants without N
+ * queries. Returns null when zone mode is off or the zone has no override.
+ */
+export async function getServiceHoursOverrideForZone(
+  zoneId?: string | null
+): Promise<ServiceHoursOverride | null> {
+  if (!isServiceAreaModeEnabled()) return null
+  const id = normalizeScopeId(zoneId)
+  if (!id) return null
+  const zones = await listActiveServiceZones()
+  const zone = zones.find((candidate) => String(candidate._id ?? "") === id)
+  return (zone?.serviceHours as ServiceHoursOverride | undefined) ?? null
+}
+
+/** zoneId → serviceHours override map (cached zones) for batch listing evaluation. */
+export async function buildZoneServiceHoursMap(): Promise<
+  Map<string, ServiceHoursOverride>
+> {
+  const map = new Map<string, ServiceHoursOverride>()
+  if (!isServiceAreaModeEnabled()) return map
+  const zones = await listActiveServiceZones()
+  for (const zone of zones) {
+    const id = String(zone._id ?? "")
+    if (id && zone.serviceHours) {
+      map.set(id, zone.serviceHours as ServiceHoursOverride)
+    }
+  }
+  return map
 }

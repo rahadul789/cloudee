@@ -519,11 +519,11 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.secondary,
   },
   journeyStepLabel: {
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 9.5,
+    lineHeight: 12.5,
     color: palette.mutedForeground,
     fontWeight: "700",
-    maxWidth: 58,
+    maxWidth: 56,
   },
   journeyStepLabelActive: {
     color: palette.foreground,

@@ -57,6 +57,11 @@ const payoutListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(500).optional()
 })
 
+const payoutTransactionListQuerySchema = payoutListQuerySchema.extend({
+  payoutId: z.string().optional(),
+  pageSize: z.coerce.number().int().min(1).max(2000).optional()
+})
+
 function getOwnerId(req: AuthenticatedRequest) {
   return req.user?.id ?? ""
 }
@@ -97,8 +102,9 @@ export const getOwnerPayoutHistory = asyncHandler(
 
 export const getOwnerPayoutTransactions = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
-    const query = payoutListQuerySchema.parse({
+    const query = payoutTransactionListQuerySchema.parse({
       search: getStringQuery(req.query.search),
+      payoutId: getStringQuery(req.query.payoutId),
       type: getStringQuery(req.query.type),
       sortBy: getStringQuery(req.query.sortBy),
       preset: getStringQuery(req.query.preset),
@@ -108,7 +114,7 @@ export const getOwnerPayoutTransactions = asyncHandler(
       pageSize: getStringQuery(req.query.pageSize)
     })
     const data =
-      query.search || query.type || query.sortBy || query.preset || query.from || query.to || query.page || query.pageSize
+      query.search || query.payoutId || query.type || query.sortBy || query.preset || query.from || query.to || query.page || query.pageSize
         ? await listPayoutTransactionsWithFilters({
             ownerId: getOwnerId(req),
             ...query

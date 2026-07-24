@@ -513,6 +513,22 @@ export function createCartQuoteLimiter(): RequestHandler {
   });
 }
 
+// Lenient per-customer BURST limiter for the favourite heart toggle. Deliberately short
+// (60s) and high (40) so a real person tapping hearts never hits it — it only trips on
+// automated/rapid-fire abuse, and any trip clears within a minute. The app swallows the
+// 429 silently (favourite is low-stakes), so a normal user never sees a message.
+export function createFavoriteToggleLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "favorite.toggle",
+    label: "Favourite toggles",
+    windowMs: 60 * 1000,
+    limit: 40,
+    keyStrategy: "user",
+    message: "You're updating favourites very quickly. Please wait a few seconds.",
+    event: "favorite.toggle.rate_limited",
+  });
+}
+
 export function createCouponAttemptLimiter(): RequestHandler {
   return buildLimiter({
     id: "coupon.attempt",

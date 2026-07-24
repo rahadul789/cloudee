@@ -18,6 +18,7 @@ export default function RootLayout() {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="payout-method" />
         <Stack.Screen name="payout-method-verify" />
+        <Stack.Screen name="sales" />
         <Stack.Screen name="vouchers" />
         <Stack.Screen name="orders/[orderId]" />
       </Stack>

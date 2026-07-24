@@ -68,6 +68,19 @@ const serviceZoneSchema = new Schema(
       ),
       default: () => ({})
     },
+    // Per-zone service-window override. null = inherit the platform default
+    // (operations.serviceHours). Minutes-from-midnight in Asia/Dhaka (0–1440).
+    serviceHours: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: null },
+          openMinute: { type: Number, default: null, min: 0, max: 1440 },
+          closeMinute: { type: Number, default: null, min: 0, max: 1440 }
+        },
+        { _id: false }
+      ),
+      default: () => ({})
+    },
     dispatch: {
       type: new Schema(
         {

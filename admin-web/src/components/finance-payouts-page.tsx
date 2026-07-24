@@ -20,7 +20,9 @@ import { toast } from "sonner"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import {
   createAdminFinancePayout,
+  getAdminFinancePayoutBatchStatement,
   getAdminFinancePayoutDetails,
+  getAdminFinancePayoutStatementPreview,
   getAdminServiceAreas,
   listAdminPayoutMethodApprovals,
   listAdminFinancePayouts,
@@ -33,8 +35,13 @@ import {
   type AdminFinancePayoutDetails,
   type AdminFinancePayoutEligibility,
   type AdminFinancePayoutRow,
+  type AdminFinancePayoutStatement,
 } from "@/lib/admin-api"
-import { downloadCsv, escapeHtml, printReport } from "@/lib/export-utils"
+import { downloadCsv, escapeHtml, printReport, printReportInFrame } from "@/lib/export-utils"
+import {
+  buildAdminPayoutStatementHtml,
+  getAdminPayoutStatementTitle,
+} from "@/lib/payout-statement-export"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -189,14 +196,51 @@ function PayoutStatusDialog({
   const [reference, setReference] = React.useState("")
   const [note, setNote] = React.useState("")
   const [notifyOwnerSms, setNotifyOwnerSms] = React.useState(false)
+  const [statement, setStatement] =
+    React.useState<AdminFinancePayoutStatement | null>(null)
+  const [statementReviewed, setStatementReviewed] = React.useState(false)
+  const [statementError, setStatementError] = React.useState("")
 
   React.useEffect(() => {
     if (target) {
       setReference("")
       setNote("")
       setNotifyOwnerSms(false)
+      setStatement(null)
+      setStatementReviewed(false)
+      setStatementError("")
     }
   }, [target])
+
+  const statementMutation = useMutation({
+    mutationFn: async () => {
+      if (!target) throw new Error("Payout is missing")
+      return getAdminFinancePayoutBatchStatement(target.payout.id)
+    },
+    onSuccess: (data) => {
+      const printed = printReportInFrame(
+        getAdminPayoutStatementTitle(data),
+        buildAdminPayoutStatementHtml(data)
+      )
+      if (!printed) toast.error("Unable to prepare payout statement.")
+      setStatement(data)
+      setStatementReviewed(false)
+      setStatementError("")
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Payout statement could not be loaded."
+      )
+    },
+  })
+
+  function submitStatusUpdate() {
+    if (target?.status === "completed" && (!statement || !statementReviewed)) {
+      setStatementError("Download and check the payout statement before completing payout.")
+      return
+    }
+    mutation.mutate()
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -211,6 +255,9 @@ function PayoutStatusDialog({
         providerTransactionId: reference,
         failureReason: target.status === "failed" ? note : undefined,
         processingNote: note,
+        statementReviewed: target.status === "completed" ? statementReviewed : undefined,
+        statementChecksum:
+          target.status === "completed" ? statement?.statementChecksum : undefined,
         notifyOwnerSms: target.status === "completed" ? notifyOwnerSms : false,
       })
     },
@@ -275,18 +322,65 @@ function PayoutStatusDialog({
           />
         </div>
         {target?.status === "completed" ? (
-          <label className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
-            <Checkbox
-              checked={notifyOwnerSms}
-              onCheckedChange={(checked) => setNotifyOwnerSms(checked === true)}
-            />
-            <span>
-              <span className="block font-medium">Also send SMS to owner</span>
-              <span className="text-muted-foreground">
-                App push is sent automatically. Enable SMS only when this payout needs a phone message.
+          <>
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="font-medium">Transaction statement</div>
+                  <div className="text-muted-foreground">
+                    Download the order breakdown before completing payout.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={statementMutation.isPending}
+                  onClick={() => statementMutation.mutate()}
+                >
+                  {statementMutation.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Printer className="size-4" />
+                  )}
+                  Download PDF
+                </Button>
+              </div>
+              <label className="mt-3 flex items-start gap-3">
+                <Checkbox
+                  checked={statementReviewed}
+                  disabled={!statement}
+                  onCheckedChange={(checked) => {
+                    setStatementReviewed(checked === true)
+                    setStatementError("")
+                  }}
+                />
+                <span>
+                  <span className="block font-medium">I checked this statement</span>
+                  <span className="text-muted-foreground">
+                    {statement
+                      ? `Checksum ${statement.statementChecksum.slice(0, 16)}`
+                      : "Download first to unlock this confirmation."}
+                  </span>
+                </span>
+              </label>
+              {statementError ? (
+                <p className="mt-2 text-xs font-medium text-destructive">{statementError}</p>
+              ) : null}
+            </div>
+            <label className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+              <Checkbox
+                checked={notifyOwnerSms}
+                onCheckedChange={(checked) => setNotifyOwnerSms(checked === true)}
+              />
+              <span>
+                <span className="block font-medium">Also send SMS to owner</span>
+                <span className="text-muted-foreground">
+                  App push is sent automatically. Enable SMS only when this payout needs a phone message.
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          </>
         ) : null}
         <DialogFooter>
           <Button
@@ -298,7 +392,7 @@ function PayoutStatusDialog({
           </Button>
           <Button
             type="button"
-            onClick={() => mutation.mutate()}
+            onClick={submitStatusUpdate}
             disabled={
               mutation.isPending ||
               (target?.status === "completed" && !reference.trim())
@@ -329,6 +423,10 @@ function CreateAdminPayoutDialog({
   const [reference, setReference] = React.useState("")
   const [note, setNote] = React.useState("")
   const [notifyOwnerSms, setNotifyOwnerSms] = React.useState(false)
+  const [statement, setStatement] =
+    React.useState<AdminFinancePayoutStatement | null>(null)
+  const [statementReviewed, setStatementReviewed] = React.useState(false)
+  const [statementError, setStatementError] = React.useState("")
 
   React.useEffect(() => {
     if (!target) return
@@ -338,7 +436,54 @@ function CreateAdminPayoutDialog({
     setReference("")
     setNote("")
     setNotifyOwnerSms(false)
+    setStatement(null)
+    setStatementReviewed(false)
+    setStatementError("")
   }, [target])
+
+  React.useEffect(() => {
+    setStatement(null)
+    setStatementReviewed(false)
+    setStatementError("")
+  }, [amount, ledgerSource])
+
+  const statementMutation = useMutation({
+    mutationFn: async () => {
+      if (!target) throw new Error("Restaurant is missing")
+      const numericAmount = Number(amount)
+      if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+        throw new Error("Enter a valid payout amount before downloading statement.")
+      }
+      return getAdminFinancePayoutStatementPreview({
+        restaurantId: target.restaurant.id,
+        amount: numericAmount,
+        includePending: ledgerSource === "include_pending",
+      })
+    },
+    onSuccess: (data) => {
+      const printed = printReportInFrame(
+        getAdminPayoutStatementTitle(data),
+        buildAdminPayoutStatementHtml(data)
+      )
+      if (!printed) toast.error("Unable to prepare payout statement.")
+      setStatement(data)
+      setStatementReviewed(false)
+      setStatementError("")
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Payout statement could not be loaded."
+      )
+    },
+  })
+
+  function submitCreatePayout() {
+    if (!statement || !statementReviewed) {
+      setStatementError("Download and check the payout statement before creating payout.")
+      return
+    }
+    mutation.mutate()
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -351,6 +496,8 @@ function CreateAdminPayoutDialog({
         providerPayoutId: reference,
         providerTransactionId: reference,
         includePending: ledgerSource === "include_pending",
+        statementReviewed,
+        statementChecksum: statement?.statementChecksum,
         note,
         notifyOwnerSms,
       })
@@ -374,11 +521,13 @@ function CreateAdminPayoutDialog({
     (target?.finance.availableBalance ?? 0) +
     (ledgerSource === "include_pending" ? target?.finance.pendingBalance ?? 0 : 0)
   const requiresReference = status === "completed"
-  const isInvalid =
+  const isAmountInvalid =
     !target ||
     !Number.isFinite(numericAmount) ||
     numericAmount <= 0 ||
-    numericAmount > maxPayoutAmount ||
+    numericAmount > maxPayoutAmount
+  const isInvalid =
+    isAmountInvalid ||
     (requiresReference && !reference.trim()) ||
     (ledgerSource === "include_pending" && !note.trim())
 
@@ -433,6 +582,51 @@ function CreateAdminPayoutDialog({
               </SelectContent>
             </Select>
           </div>
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="font-medium">Transaction statement</div>
+                <div className="text-muted-foreground">
+                  Download the exact ledger breakdown before creating payout.
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={statementMutation.isPending || isAmountInvalid}
+                onClick={() => statementMutation.mutate()}
+              >
+                {statementMutation.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Printer className="size-4" />
+                )}
+                Download PDF
+              </Button>
+            </div>
+            <label className="mt-3 flex items-start gap-3">
+              <Checkbox
+                checked={statementReviewed}
+                disabled={!statement}
+                onCheckedChange={(checked) => {
+                  setStatementReviewed(checked === true)
+                  setStatementError("")
+                }}
+              />
+              <span>
+                <span className="block font-medium">I checked this statement</span>
+                <span className="text-muted-foreground">
+                  {statement
+                    ? `Checksum ${statement.statementChecksum.slice(0, 16)}`
+                    : "Download first to unlock this confirmation."}
+                </span>
+              </span>
+            </label>
+            {statementError ? (
+              <p className="mt-2 text-xs font-medium text-destructive">{statementError}</p>
+            ) : null}
+          </div>
           <div className="space-y-2">
             <Label>Status</Label>
             <Select value={status} onValueChange={(value) => setStatus(value as "processing" | "completed")}>
@@ -482,7 +676,7 @@ function CreateAdminPayoutDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" disabled={isInvalid || mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button type="button" disabled={isInvalid || mutation.isPending} onClick={submitCreatePayout}>
             {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <WalletCards className="size-4" />}
             Create payout
           </Button>

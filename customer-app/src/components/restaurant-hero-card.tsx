@@ -12,13 +12,16 @@ import {
 import { RemoteImage } from "@/src/components/remote-image";
 import { formatDurationMinutes } from "@/src/lib/date-time";
 import { formatDistanceValue } from "@/src/lib/distance";
+import { getClosedCopy } from "@/src/lib/restaurant-availability";
 import { palette } from "@/src/theme/palette";
+import type { RestaurantAvailability } from "@/src/types/restaurant";
 
 type Props = {
   name: string;
   subtitle?: string;
   imageUrl?: string | null;
   isOpen?: boolean;
+  availability?: RestaurantAvailability | null;
   offerLabel?: string | null;
   distanceKm?: number | null;
   avgRating?: number | null;
@@ -41,6 +44,7 @@ function RestaurantHeroCardComponent({
   subtitle,
   imageUrl,
   isOpen = true,
+  availability,
   offerLabel,
   distanceKm,
   avgRating,
@@ -76,6 +80,9 @@ function RestaurantHeroCardComponent({
   const hasOffer = Boolean(offerLabel?.trim());
   const hasLowestPrice =
     typeof lowestMenuPrice === "number" && Number.isFinite(lowestMenuPrice);
+  // Closed overlay copy: "Opens 11:00 AM" when the reopen time is known, else the
+  // generic "Temporarily unavailable". Cards show the static label (no live timer).
+  const closedCopy = getClosedCopy(availability);
   const sectionBadge =
     badgeType === "featured"
       ? {
@@ -156,9 +163,18 @@ function RestaurantHeroCardComponent({
 
         {!isOpen ? (
           <View style={styles.closedOverlayContent}>
-            <View style={styles.closedOverlayBadge}>
-              <Ionicons name="time-outline" size={15} color={palette.surface} />
-              <Text style={styles.closedOverlayText}>Temporarily unavailable</Text>
+            <View
+              style={[
+                styles.closedOverlayBadge,
+                closedCopy.hasReopen ? styles.closedOverlayBadgeOpens : null,
+              ]}
+            >
+              <Ionicons
+                name={closedCopy.hasReopen ? "time" : "time-outline"}
+                size={15}
+                color={palette.surface}
+              />
+              <Text style={styles.closedOverlayText}>{closedCopy.title}</Text>
             </View>
           </View>
         ) : null}
@@ -180,6 +196,12 @@ function RestaurantHeroCardComponent({
             onPress={handleFavoritePress}
             onPressIn={(event) => event.stopPropagation()}
             onPressOut={(event) => event.stopPropagation()}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isFavorite
+                ? `Remove ${name} from favourites`
+                : `Add ${name} to favourites`
+            }
             accessibilityState={{ disabled: favoriteDisabled, selected: isFavorite }}
             hitSlop={8}
           >
@@ -289,7 +311,6 @@ function RestaurantHeroCardComponent({
           ) : null}
           {hasDistance ? <Metric icon="navigate-outline" value={distanceLabel} compact={compact} /> : null}
         </View>
-        {!isOpen ? <View style={styles.closedContentVeil} /> : null}
       </View>
     </Pressable>
   );
@@ -307,6 +328,8 @@ function arePropsEqual(prev: Props, next: Props) {
     prev.subtitle === next.subtitle &&
     prev.imageUrl === next.imageUrl &&
     prev.isOpen === next.isOpen &&
+    prev.availability?.opensAtLabel === next.availability?.opensAtLabel &&
+    prev.availability?.closedReason === next.availability?.closedReason &&
     prev.offerLabel === next.offerLabel &&
     prev.distanceKm === next.distanceKm &&
     prev.avgRating === next.avgRating &&
@@ -438,7 +461,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(31, 36, 48, 0.10)",
   },
   closedImageOverlay: {
-    backgroundColor: "rgba(20, 24, 35, 0.68)",
+    backgroundColor: "rgba(20, 24, 35, 0.52)",
   },
   closedOverlayContent: {
     ...StyleSheet.absoluteFillObject,
@@ -454,6 +477,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: "rgba(20, 24, 35, 0.72)",
+  },
+  // "Opens 11:00 AM" reads as inviting (brand coral) rather than a dead grey badge.
+  closedOverlayBadgeOpens: {
+    backgroundColor: "rgba(255, 122, 89, 0.94)",
   },
   closedOverlayText: {
     fontSize: 12,
@@ -655,7 +682,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   titleClosed: {
-    color: "#6D5747",
+    color: palette.mutedForeground,
   },
   description: {
     fontSize: 13,
@@ -672,7 +699,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   descriptionClosed: {
-    color: "#8E7B6C",
+    color: palette.mutedForeground,
   },
   priceBlock: {
     minWidth: 86,
@@ -728,9 +755,5 @@ const styles = StyleSheet.create({
   metricTextCompact: {
     fontSize: 11,
     lineHeight: 15,
-  },
-  closedContentVeil: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 249, 245, 0.38)",
   },
 });

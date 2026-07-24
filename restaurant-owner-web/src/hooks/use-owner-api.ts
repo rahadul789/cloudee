@@ -12,7 +12,9 @@ import type {
   ReviewStatusResponse,
   OwnerStoreSettingsResponse,
   OwnerCategoryResponse,
+  OwnerMenuApprovalSummary,
   OwnerMenuItemResponse,
+  OwnerMenuMutationResponse,
   OwnerVoucherResponse,
   OwnerPayoutMethodResponse,
   OwnerPayoutSummaryResponse,
@@ -23,6 +25,7 @@ import type {
   OwnerReviewResponse,
   OwnerOpeningHoursResponse,
   OwnerSupportCaseResponse,
+  OwnerSidebarSummaryResponse,
   PlatformContentResponse,
 } from "@/lib/backend-mappers"
 
@@ -237,7 +240,10 @@ export function useUpdateOwnerStoreSettingsMutation() {
 export function useUpdateOwnerRestaurantStatusMutation() {
   return useMutation({
     mutationFn: (payload: { isOnline: boolean }) =>
-      api.patch<OwnerStoreSettingsResponse>("/owner/restaurant-status", payload),
+      api.patch<OwnerStoreSettingsResponse>("/owner/restaurant-status", {
+        ...payload,
+        source: "owner_web",
+      }),
   })
 }
 
@@ -327,6 +333,33 @@ export function useOwnerMenuItemsQuery(
   })
 }
 
+export function useOwnerMenuApprovalRequestsQuery(
+  enabled: boolean,
+  status: "active" | "pending" | "approved" | "rejected" = "active"
+) {
+  const queryString = buildQueryString({ status })
+  const path = queryString
+    ? `/owner/menu-approval-requests?${queryString}`
+    : "/owner/menu-approval-requests"
+
+  return useQuery({
+    queryKey: ["owner", "menu-approval-requests", status],
+    enabled,
+    queryFn: ({ signal }) =>
+      api.get<OwnerListResponse<OwnerMenuApprovalSummary>>(path, signal),
+  })
+}
+
+export function useOwnerSidebarSummaryQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: ["owner", "sidebar-summary"],
+    enabled,
+    staleTime: 1000 * 10,
+    queryFn: ({ signal }) =>
+      api.get<OwnerSidebarSummaryResponse>("/owner/sidebar-summary", signal),
+  })
+}
+
 export function useOwnerVouchersQuery(
   enabled: boolean,
   params?: {
@@ -413,6 +446,7 @@ export function useOwnerPayoutTransactionsQuery(
   enabled: boolean,
   params?: {
     search?: string
+    payoutId?: string
     type?: string
     sortBy?: string
     preset?: string
@@ -582,17 +616,36 @@ export function useOwnerReviewReplyMutation() {
   })
 }
 
+export function useOwnerReviewHideRequestMutation() {
+  return useMutation({
+    mutationFn: (payload: {
+      reviewId: string
+      reasonCategory:
+        | "fake_spam"
+        | "abusive_language"
+        | "wrong_restaurant_or_order"
+        | "unfair_misleading"
+        | "other"
+      note?: string
+    }) =>
+      api.post<OwnerReviewResponse>(`/owner/reviews/${payload.reviewId}/hide-request`, {
+        reasonCategory: payload.reasonCategory,
+        note: payload.note ?? "",
+      }),
+  })
+}
+
 export function useCreateOwnerMenuItemMutation() {
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
-      api.post<OwnerMenuItemResponse>("/owner/menu-items", payload),
+      api.post<OwnerMenuMutationResponse>("/owner/menu-items", payload),
   })
 }
 
 export function useUpdateOwnerMenuItemMutation() {
   return useMutation({
     mutationFn: (payload: { id: string } & Record<string, unknown>) =>
-      api.patch<OwnerMenuItemResponse>(`/owner/menu-items/${payload.id}`, (() => {
+      api.patch<OwnerMenuMutationResponse>(`/owner/menu-items/${payload.id}`, (() => {
         const { id: _id, ...rest } = payload
         return rest
       })()),

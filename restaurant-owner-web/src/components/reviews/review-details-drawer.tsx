@@ -1,6 +1,7 @@
 import { format } from "date-fns"
 import {
   CalendarClock,
+  EyeOff,
   LoaderCircle,
   MessageSquareText,
   PencilLine,
@@ -43,6 +44,13 @@ function ReviewStars({ rating }: { rating: number }) {
 }
 
 function getStatusBadge(status: Review["status"]) {
+  if (status === "hidden") {
+    return (
+      <Badge variant="destructive">
+        Hidden
+      </Badge>
+    )
+  }
   if (status === "new") {
     return (
       <Badge className="bg-sky-600 text-white hover:bg-sky-600">New</Badge>
@@ -68,6 +76,37 @@ function getStatusBadge(status: Review["status"]) {
   )
 }
 
+function getHideRequestBadge(review: Review) {
+  const status = review.ownerHideRequest?.status ?? "none"
+  if (review.isHidden || review.moderationStatus === "hidden") {
+    return (
+      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+        Hidden from customers
+      </Badge>
+    )
+  }
+  if (status === "pending") {
+    return (
+      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+        Hide request pending
+      </Badge>
+    )
+  }
+  if (status === "rejected") {
+    return (
+      <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+        Hide request rejected
+      </Badge>
+    )
+  }
+  return null
+}
+
+function canRequestReviewHide(review: Review) {
+  const status = review.ownerHideRequest?.status ?? "none"
+  return !review.isHidden && review.moderationStatus !== "hidden" && status !== "pending"
+}
+
 export function ReviewDetailsDrawer({
   review,
   open,
@@ -78,8 +117,10 @@ export function ReviewDetailsDrawer({
   onSaveReply,
   onDeleteReply,
   onMarkAsRead,
+  onRequestHide,
   isSavingReply = false,
   isDeletingReply = false,
+  isRequestingHide = false,
 }: {
   review: Review | null
   open: boolean
@@ -90,8 +131,10 @@ export function ReviewDetailsDrawer({
   onSaveReply: (reviewId: string, reply: string) => void
   onDeleteReply: (reviewId: string) => void
   onMarkAsRead: (reviewId: string) => void
+  onRequestHide: (review: Review) => void
   isSavingReply?: boolean
   isDeletingReply?: boolean
+  isRequestingHide?: boolean
 }) {
   if (!review) return null
 
@@ -118,6 +161,7 @@ export function ReviewDetailsDrawer({
                   Review Details
                 </SheetTitle>
                 {getStatusBadge(review.status)}
+                {getHideRequestBadge(review)}
               </div>
               <SheetDescription>
                 Review received on {format(new Date(review.createdAt), "dd MMM yyyy, hh:mm a")}
@@ -209,6 +253,33 @@ export function ReviewDetailsDrawer({
               </CardContent>
             </Card>
 
+            {(review.isHidden || (review.ownerHideRequest?.status ?? "none") !== "none") ? (
+              <Card className="rounded-2xl shadow-none">
+                <CardHeader>
+                  <CardTitle className="text-base">Visibility</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  {review.isHidden ? (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-emerald-900">
+                      This review is hidden from customers and does not affect public ratings.
+                    </div>
+                  ) : review.ownerHideRequest?.status === "pending" ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-amber-900">
+                      Admin is reviewing your hide request. Customers can still see this review until approval.
+                    </div>
+                  ) : review.ownerHideRequest?.status === "rejected" ? (
+                    <div className="rounded-xl border bg-muted/40 px-4 py-3 text-muted-foreground">
+                      Admin rejected the last hide request.
+                      {review.ownerHideRequest.adminNote ? ` ${review.ownerHideRequest.adminNote}` : ""}
+                    </div>
+                  ) : null}
+                  {review.hiddenReason ? (
+                    <p className="text-muted-foreground">Admin note: {review.hiddenReason}</p>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card className="rounded-2xl shadow-none">
               <CardHeader>
                 <CardTitle className="text-base">Owner Reply</CardTitle>
@@ -278,21 +349,43 @@ export function ReviewDetailsDrawer({
                         </Button>
                       ) : null}
                     </div>
-                    <Button
-                      onClick={() => onSaveReply(review.id, replyDraft)}
-                      disabled={!replyDraft.trim() || isSavingReply || isDeletingReply}
-                    >
-                      {isSavingReply ? (
-                        <>
-                          <LoaderCircle className="size-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : hasReply ? (
-                        "Save Reply"
-                      ) : (
-                        "Reply to Review"
-                      )}
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {canRequestReviewHide(review) ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => onRequestHide(review)}
+                          disabled={isRequestingHide}
+                        >
+                          {isRequestingHide ? (
+                            <>
+                              <LoaderCircle className="size-4 animate-spin" />
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="size-4" />
+                              Request Hide
+                            </>
+                          )}
+                        </Button>
+                      ) : null}
+                      <Button
+                        onClick={() => onSaveReply(review.id, replyDraft)}
+                        disabled={!replyDraft.trim() || isSavingReply || isDeletingReply}
+                      >
+                        {isSavingReply ? (
+                          <>
+                            <LoaderCircle className="size-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : hasReply ? (
+                          "Save Reply"
+                        ) : (
+                          "Reply to Review"
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardContent>

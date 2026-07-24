@@ -114,27 +114,6 @@ export default function AccountScreen() {
 
         <View style={styles.section}>
           <SectionHeader
-            title={t("account.languageTitle")}
-            subtitle={t("account.languageSubtitle")}
-          />
-          <View style={styles.languageGrid}>
-            <LanguageOption
-              active={language === "bn"}
-              title={t("account.languageBangla")}
-              caption={t("account.languageBanglaCaption")}
-              onPress={() => setLanguage("bn")}
-            />
-            <LanguageOption
-              active={language === "en"}
-              title={t("account.languageEnglish")}
-              caption={t("account.languageEnglishCaption")}
-              onPress={() => setLanguage("en")}
-            />
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <SectionHeader
             title={t("account.overview")}
             subtitle={t("account.overviewSubtitle")}
           />
@@ -211,6 +190,13 @@ export default function AccountScreen() {
               onPress={() => router.push("/vouchers" as never)}
             />
             <AccountNavCard
+              icon="stats-chart-outline"
+              tint="#EEF8F2"
+              title={t("account.manage.salesTitle")}
+              caption={t("account.manage.salesCaption")}
+              onPress={() => router.push("/sales" as never)}
+            />
+            <AccountNavCard
               icon="notifications-outline"
               tint="#EAF0FF"
               title={t("account.manage.notificationsTitle")}
@@ -232,6 +218,24 @@ export default function AccountScreen() {
               onPress={() => router.push("/owner-web-link" as never)}
             />
           </View>
+
+          {/* Language lives under Manage rather than as its own top-level section —
+              it is a setting, not a destination. */}
+          <Text style={styles.subSectionTitle}>{t("account.languageTitle")}</Text>
+          <View style={styles.languageGrid}>
+            <LanguageOption
+              active={language === "bn"}
+              title={t("account.languageBangla")}
+              caption={t("account.languageBanglaCaption")}
+              onPress={() => setLanguage("bn")}
+            />
+            <LanguageOption
+              active={language === "en"}
+              title={t("account.languageEnglish")}
+              caption={t("account.languageEnglishCaption")}
+              onPress={() => setLanguage("en")}
+            />
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -243,7 +247,11 @@ export default function AccountScreen() {
             <Pressable
               accessibilityRole="button"
               disabled={logoutMutation.isPending}
-              style={[styles.logoutCard, logoutMutation.isPending ? styles.disabledCard : null]}
+              style={({ pressed }) => [
+                styles.logoutCard,
+                logoutMutation.isPending ? styles.disabledCard : null,
+                pressed && !logoutMutation.isPending ? styles.cardPressed : null,
+              ]}
               onPress={() => setLogoutConfirmVisible(true)}
             >
               <View style={styles.logoutIconWrap}>
@@ -284,13 +292,21 @@ export default function AccountScreen() {
             </Text>
             <View style={styles.confirmActions}>
               <Pressable
-                style={styles.confirmSecondaryButton}
+                style={({ pressed }) => [
+                  styles.confirmSecondaryButton,
+                  pressed ? styles.confirmButtonPressed : null,
+                ]}
                 onPress={() => setLogoutConfirmVisible(false)}
               >
                 <Text style={styles.confirmSecondaryText}>{t("account.staySignedIn")}</Text>
               </Pressable>
               <Pressable
-                style={styles.confirmPrimaryButton}
+                style={({ pressed }) => [
+                  styles.confirmPrimaryButton,
+                  pressed && !logoutMutation.isPending
+                    ? styles.confirmButtonPressed
+                    : null,
+                ]}
                 disabled={logoutMutation.isPending}
                 onPress={() => {
                   setLogoutConfirmVisible(false);
@@ -406,7 +422,11 @@ function OverviewCard({
   return (
     <Pressable
       accessibilityRole="button"
-      style={[styles.overviewCard, { backgroundColor: tint }]}
+      style={({ pressed }) => [
+        styles.overviewCard,
+        { backgroundColor: tint },
+        pressed ? styles.cardPressed : null,
+      ]}
       onPress={onPress}
     >
       {content}
@@ -428,7 +448,11 @@ function LanguageOption({
   return (
     <Pressable
       accessibilityRole="button"
-      style={[styles.languageOption, active ? styles.languageOptionActive : null]}
+      style={({ pressed }) => [
+        styles.languageOption,
+        active ? styles.languageOptionActive : null,
+        pressed ? styles.cardPressed : null,
+      ]}
       onPress={onPress}
     >
       <View style={styles.languageCopy}>
@@ -462,7 +486,11 @@ function AccountNavCard({
   return (
     <Pressable
       accessibilityRole="button"
-      style={[styles.navCard, highlight ? styles.navCardHighlighted : null]}
+      style={({ pressed }) => [
+        styles.navCard,
+        highlight ? styles.navCardHighlighted : null,
+        pressed ? styles.cardPressed : null,
+      ]}
       onPress={onPress}
     >
       <View style={[styles.navIconWrap, { backgroundColor: tint }]}>
@@ -601,8 +629,6 @@ const styles = StyleSheet.create({
     minHeight: 86,
     borderRadius: 20,
     backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
     padding: 13,
     flexDirection: "row",
     alignItems: "flex-start",
@@ -613,8 +639,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     elevation: 2,
   },
+  // With the card border gone, the active language is carried by the tinted fill and
+  // the filled check circle.
   languageOptionActive: {
-    borderColor: "rgba(255, 77, 139, 0.38)",
     backgroundColor: "#FFF7FB",
   },
   languageCopy: {
@@ -716,8 +743,6 @@ const styles = StyleSheet.create({
     minHeight: 70,
     borderRadius: 20,
     backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
     padding: 13,
     flexDirection: "row",
     alignItems: "center",
@@ -729,8 +754,19 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   navCardHighlighted: {
-    borderColor: "#F7B7CB",
     backgroundColor: "#FFFCFD",
+  },
+  // Matches the customer app's press feedback: a small scale/lift, not a heavy fade.
+  cardPressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
+  },
+  subSectionTitle: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+    color: palette.foreground,
   },
   navIconWrap: {
     width: 42,
@@ -759,12 +795,15 @@ const styles = StyleSheet.create({
     minHeight: 70,
     borderRadius: 20,
     backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.dangerSoft,
     padding: 13,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
   logoutIconWrap: {
     width: 42,
@@ -858,5 +897,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "900",
     color: "#FFFFFF",
+  },
+  confirmButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
 });

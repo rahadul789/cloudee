@@ -14,6 +14,7 @@ import {
 import { OwnerOtpField } from "@/src/components/owner-otp-field";
 import { Screen } from "@/src/components/screen";
 import { useOwnerOtpVerifyMutation } from "@/src/hooks/use-owner-api";
+import { useOwnerTranslation } from "@/src/i18n/translations";
 import { palette } from "@/src/theme/palette";
 
 const OTP_LENGTH = 4;
@@ -24,6 +25,7 @@ function readParam(value: string | string[] | undefined) {
 }
 
 export default function PayoutMethodVerifyScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const params = useLocalSearchParams();
   const queryClient = useQueryClient();
@@ -42,7 +44,7 @@ export default function PayoutMethodVerifyScreen() {
     if (!hasSession) return;
 
     if (otpCode.length !== OTP_LENGTH) {
-      setErrorText("Enter the 4-digit verification code sent to your bKash number.");
+      setErrorText(t("payoutVerify.errEnterCode"));
       return;
     }
 
@@ -57,7 +59,7 @@ export default function PayoutMethodVerifyScreen() {
       await queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
       router.replace("/(tabs)/payouts" as never);
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Verification failed. Please try again.");
+      setErrorText(error instanceof Error ? error.message : t("payoutVerify.errFailed"));
     }
   }
 
@@ -65,7 +67,7 @@ export default function PayoutMethodVerifyScreen() {
     <Screen>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Header
-          title="Verify bKash"
+          title={t("payoutVerify.headerTitle")}
           onBack={() => router.replace("/payout-method" as never)}
         />
 
@@ -74,7 +76,7 @@ export default function PayoutMethodVerifyScreen() {
             <View style={styles.missingIcon}>
               <Ionicons name="warning-outline" size={28} color={palette.warning} />
             </View>
-            <Text style={styles.missingTitle}>Verification session expired</Text>
+            <Text style={styles.missingTitle}>{t("payoutVerify.expired")}</Text>
             <Text style={styles.missingText}>
               Start the bKash number update again to receive a fresh OTP.
             </Text>
@@ -94,10 +96,9 @@ export default function PayoutMethodVerifyScreen() {
                 <Ionicons name="shield-checkmark-outline" size={24} color="#FFFFFF" />
               </View>
               <View style={styles.heroCopy}>
-                <Text style={styles.heroTitle}>Enter verification code</Text>
+                <Text style={styles.heroTitle}>{t("payoutVerify.enterCode")}</Text>
                 <Text style={styles.heroText}>
-                  We sent a 4-digit OTP to {phone}. Admin will approve this
-                  number after successful verification.
+                  {t("payoutVerify.heroText").replace("{phone}", phone)}
                 </Text>
               </View>
             </View>
@@ -115,8 +116,7 @@ export default function PayoutMethodVerifyScreen() {
               />
               {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
               <Text style={styles.helperText}>
-                If you leave this screen without verifying, your current payout
-                number will stay active. You can start again anytime.
+                {t("payoutVerify.leaveNote")}
               </Text>
             </View>
 
@@ -130,7 +130,7 @@ export default function PayoutMethodVerifyScreen() {
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <>
-                  <Text style={styles.primaryText}>Verify and continue</Text>
+                  <Text style={styles.primaryText}>{t("payoutVerify.verifyContinue")}</Text>
                   <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
                 </>
               )}

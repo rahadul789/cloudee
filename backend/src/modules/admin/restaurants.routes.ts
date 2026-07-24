@@ -5,15 +5,18 @@ import {
   deleteAdminRestaurantController,
   deleteAdminRestaurantReviewController,
   getAdminRestaurant,
+  getAdminRestaurantIntelligenceController,
   getAdminRestaurantOrders,
   getAdminRestaurantPromotionTargets,
   getAdminRestaurants,
   patchAdminRestaurantCommission,
+  patchAdminRestaurantMinimumOrder,
   patchAdminRestaurantDeliveryPricing,
   patchAdminRestaurantEnforcement,
   patchAdminRestaurantMerchandising,
   patchAdminRestaurantPayoutStatus,
   patchAdminRestaurantVisibility,
+  postAdminImpersonateOwner,
   postAdminRestaurantFinanceReconcile,
   postAdminRestaurant,
   restoreAdminRestaurantReviewController,
@@ -25,6 +28,10 @@ adminRestaurantsRouter.use(requireAuth, requireRole("admin"));
 
 adminRestaurantsRouter.get("/restaurants", getAdminRestaurants);
 adminRestaurantsRouter.post("/restaurants", postAdminRestaurant);
+adminRestaurantsRouter.get(
+  "/restaurants/:restaurantId/intelligence",
+  getAdminRestaurantIntelligenceController,
+);
 adminRestaurantsRouter.get("/restaurants/:restaurantId", getAdminRestaurant);
 adminRestaurantsRouter.delete(
   "/restaurants/:restaurantId",
@@ -58,6 +65,10 @@ adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/visibility",
   patchAdminRestaurantVisibility,
 );
+adminRestaurantsRouter.post(
+  "/restaurants/:restaurantId/impersonate-owner",
+  postAdminImpersonateOwner,
+);
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/enforcement",
   patchAdminRestaurantEnforcement,
@@ -69,6 +80,10 @@ adminRestaurantsRouter.patch(
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/commission",
   patchAdminRestaurantCommission,
+);
+adminRestaurantsRouter.patch(
+  "/restaurants/:restaurantId/minimum-order",
+  patchAdminRestaurantMinimumOrder,
 );
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/delivery-pricing",

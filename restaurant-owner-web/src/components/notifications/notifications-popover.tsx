@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Bell, LoaderCircle } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 
@@ -16,9 +17,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import type { OwnerSidebarSummaryResponse } from "@/lib/backend-mappers"
 
 export function NotificationsPopover() {
   const { notifications, setNotifications } = useNotifications()
+  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [isOpen, setIsOpen] = React.useState(false)
   const markReadMutation = useOwnerNotificationReadMutation()
@@ -39,6 +42,11 @@ export function NotificationsPopover() {
 
     try {
       await markAllReadMutation.mutateAsync()
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current ? { ...current, unreadNotifications: 0 } : current
+      )
     } catch {
       setNotifications(previous)
     }
@@ -60,6 +68,19 @@ export function NotificationsPopover() {
 
     try {
       await markReadMutation.mutateAsync(id)
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current
+            ? {
+                ...current,
+                unreadNotifications: Math.max(
+                  0,
+                  current.unreadNotifications - 1
+                ),
+              }
+            : current
+      )
     } catch {
       setNotifications(previous)
     } finally {

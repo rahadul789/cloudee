@@ -4,8 +4,10 @@ import { requireAuth, requireRole } from "../../common/middleware/auth";
 import {
   getAdminCodReconciliationController,
   getAdminFinanceLedgerController,
+  getAdminFinancePayoutBatchStatementController,
   getAdminFinancePayoutDetailsController,
   getAdminFinancePayoutsController,
+  getAdminFinancePayoutStatementPreviewController,
   getAdminFinanceRefundsController,
   getAdminPayoutMethodApprovalsController,
   getAdminMoneyTransactionsController,
@@ -44,6 +46,14 @@ adminFinanceRouter.patch(
   patchAdminPayoutMethodApprovalController,
 );
 adminFinanceRouter.get("/finance/payouts", getAdminFinancePayoutsController);
+adminFinanceRouter.get(
+  "/finance/payout-batches/:payoutId/statement",
+  getAdminFinancePayoutBatchStatementController,
+);
+adminFinanceRouter.get(
+  "/finance/payouts/:restaurantId/statement-preview",
+  getAdminFinancePayoutStatementPreviewController,
+);
 adminFinanceRouter.post(
   "/finance/payouts/:restaurantId",
   postAdminFinancePayoutController,

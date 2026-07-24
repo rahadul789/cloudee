@@ -43,6 +43,9 @@ export type EarningTransaction = {
   type: TransactionType
   payoutId?: string | null
   ledgerGroupId?: string
+  orderStatus?: string
+  paymentMethod?: string
+  paymentStatus?: string
   grossAmount: number
   commission: number
   discountCost: number
@@ -51,6 +54,7 @@ export type EarningTransaction = {
   status: TransactionSettlementStatus
   adjustmentType?: "earning" | "refund" | "payout"
   createdAt: string
+  deliveredAt?: string | null
   settlementAvailableAt: string
 }
 

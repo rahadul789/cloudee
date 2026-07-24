@@ -45,6 +45,16 @@ export type MenuItem = {
   variants: MenuVariant[]
   addOnGroups: AddOnGroup[]
   recommendedItemIds?: string[]
+  approval?: {
+    id: string
+    type: "new_item" | "price_update"
+    status: "pending" | "approved" | "rejected" | "cancelled" | "superseded"
+    menuItemId: string | null
+    proposedName: string
+    currentName: string
+    priceDiffCount: number
+    ownerReason?: string
+  } | null
   updatedAt: string
 }
 

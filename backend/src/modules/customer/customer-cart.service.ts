@@ -2,7 +2,10 @@ import { StatusCodes } from "http-status-codes";
 
 import { AppError } from "../../common/utils/app-error";
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
-import { getPlatformContent } from "../public/content.service";
+import {
+  getPlatformContent,
+  getPlatformServiceHours,
+} from "../public/content.service";
 import { RestaurantModel } from "../auth/auth.model";
 import { CategoryModel, MenuItemModel } from "../owner/operational.model";
 import { VoucherModel } from "./customer.model";
@@ -18,9 +21,11 @@ import {
   assertLocationInsideServiceArea,
   assertRestaurantMatchesDeliveryServiceArea,
   getServiceAreaRestaurantDistanceKm,
+  getServiceHoursOverrideForZone,
   isServiceAreaModeEnabled,
   resolveRestaurantServiceAreaSnapshot,
 } from "../service-area/service-area.service";
+import { evaluateServiceWindowForOverride } from "../service-area/service-hours";
 import {
   buildCacheKey,
   calculateDistanceKm,
@@ -127,6 +132,52 @@ function calculateConfiguredDeliveryFee(params: {
     additionalMeters / Math.max(params.surchargeStepMeters, 1),
   );
   return baseFee + steps * roundCurrencyAmount(params.surchargeAmountTaka);
+}
+
+function roundDistanceKm(distanceKm?: number | null) {
+  if (typeof distanceKm !== "number" || !Number.isFinite(distanceKm)) return null;
+  return Math.round(Math.max(0, distanceKm) * 10) / 10;
+}
+
+// Customer-facing breakdown of HOW the delivery fee was reached, so the cart can show
+// why the fee is what it is (fee transparency = trust). The base fee covers up to
+// `baseCoversKm`; anything beyond is the distance surcharge (`extraDistanceFee`, which is
+// 0 while `distanceSurchargeEnabled` is off — the current setup). Derived purely from the
+// already-computed `deliveryFee`, so it can never disagree with the amount charged.
+function buildDeliveryFeeBreakdown(params: {
+  config: {
+    baseFeeTaka: number;
+    distanceSurchargeEnabled: boolean;
+    surchargeStartsAfterKm: number;
+    surchargeStepMeters: number;
+    surchargeAmountTaka: number;
+  };
+  distanceKm?: number | null;
+  deliveryFee: number;
+}) {
+  const baseFee = roundCurrencyAmount(params.config.baseFeeTaka);
+  const totalFee = roundCurrencyAmount(params.deliveryFee);
+  const extraDistanceFee = Math.max(0, roundCurrencyAmount(totalFee - baseFee));
+  const distanceKm = roundDistanceKm(params.distanceKm);
+  const baseCoversKm = Math.max(0, params.config.surchargeStartsAfterKm);
+  const surchargeActive =
+    params.config.distanceSurchargeEnabled === true && extraDistanceFee > 0;
+  const extraDistanceKm =
+    surchargeActive && distanceKm !== null
+      ? Math.round(Math.max(0, distanceKm - baseCoversKm) * 10) / 10
+      : 0;
+
+  return {
+    distanceKm,
+    baseFee,
+    baseCoversKm,
+    distanceSurchargeEnabled: params.config.distanceSurchargeEnabled === true,
+    extraDistanceKm,
+    extraDistanceFee,
+    surchargeStepMeters: Math.max(1, params.config.surchargeStepMeters ?? 0),
+    surchargeAmountTaka: roundCurrencyAmount(params.config.surchargeAmountTaka ?? 0),
+    totalFee,
+  };
 }
 
 function resolveDeliveryPricingConfig(params: {
@@ -260,11 +311,32 @@ export const customerCartQuoteCache = createInMemoryAsyncCache<CustomerCartQuote
   maxEntries: CUSTOMER_READ_CACHE_MAX_ENTRIES,
 })
 
+/**
+ * THE single source of truth for a restaurant's effective minimum order amount. Both
+ * the cart quote (display) and the place-order gate (enforcement) call this, so they can
+ * never disagree. null/undefined override → inherit the platform default; a number
+ * overrides it (0 = no minimum for that restaurant).
+ */
+export function resolveMinimumOrderAmount(
+  override: unknown,
+  platformDefault: unknown,
+): number {
+  const base =
+    typeof platformDefault === "number" && Number.isFinite(platformDefault)
+      ? Math.max(0, platformDefault)
+      : 0;
+  if (typeof override === "number" && Number.isFinite(override)) {
+    return Math.max(0, override);
+  }
+  return base;
+}
+
 export async function quoteCustomerCart(params: {
   restaurantId: string;
   items: CartInputItem[];
   voucherCode?: string;
   customerId?: string;
+  installId?: string;
   latitude?: number;
   longitude?: number;
 }): Promise<CustomerCartQuoteResult> {
@@ -294,6 +366,23 @@ export async function quoteCustomerCart(params: {
           StatusCodes.NOT_FOUND,
           "RESTAURANT_NOT_FOUND",
           "Restaurant not found",
+        );
+      }
+
+      // Service-window write gate. The visible-restaurant query above already
+      // enforces the owner's online toggle; the platform/zone service window is
+      // time-based (not query-able), so it is checked here. This covers both the
+      // cart quote and order placement (placement re-quotes through this function).
+      // Behaves like the owner-offline path the app already handles.
+      const cartServiceWindow = evaluateServiceWindowForOverride(
+        await getServiceHoursOverrideForZone(restaurant.serviceArea?.zoneId),
+        await getPlatformServiceHours(),
+      );
+      if (!cartServiceWindow.isOpen) {
+        throw new AppError(
+          StatusCodes.CONFLICT,
+          "RESTAURANT_OUTSIDE_SERVICE_HOURS",
+          "This restaurant is closed right now. Please order during service hours.",
         );
       }
 
@@ -547,6 +636,11 @@ export async function quoteCustomerCart(params: {
           );
         }, 0) + menuMarkdownAmount;
 
+      const minimumOrderAmount = resolveMinimumOrderAmount(
+        restaurant.commercial?.minimumOrderAmount,
+        platformContent.operations.minimumOrderAmount,
+      );
+
       return {
         restaurant: {
           id: String(restaurant._id),
@@ -555,6 +649,15 @@ export async function quoteCustomerCart(params: {
         },
         serviceArea: serviceAreaSnapshot,
         items: resolvedItems,
+        // Minimum-order gate on the customer item value (after menu markdown, before
+        // delivery + checkout voucher). Same object powers the cart UI and the
+        // place-order block, so they can never drift apart.
+        minimumOrder: {
+          amount: minimumOrderAmount,
+          subtotal: customerSubtotal,
+          isMet: minimumOrderAmount <= 0 || customerSubtotal >= minimumOrderAmount,
+          amountShort: Math.max(0, minimumOrderAmount - customerSubtotal),
+        },
         pricing: {
           subtotal,
           menuMarkdownAmount,
@@ -565,6 +668,12 @@ export async function quoteCustomerCart(params: {
           platformDiscountCost,
           total,
         },
+        // Transparency: how the delivery fee splits (base vs distance surcharge) + distance.
+        deliveryBreakdown: buildDeliveryFeeBreakdown({
+          config: deliveryPricingConfig,
+          distanceKm: deliveryDistanceKm,
+          deliveryFee,
+        }),
         appliedVouchers: summarizeAppliedVouchers(
           vouchers.map((voucher) => ({
             id: String(voucher._id),
@@ -587,6 +696,7 @@ export async function quoteCustomerCart(params: {
   return applyFirstOrderDiscountToQuote(
     baseQuote,
     params.customerId,
+    params.installId,
     Boolean(params.voucherCode?.trim()),
   );
 }
@@ -602,6 +712,7 @@ export async function quoteCustomerCart(params: {
 async function applyFirstOrderDiscountToQuote(
   baseQuote: CustomerCartQuoteResult,
   customerId?: string,
+  installId?: string,
   hasCoupon = false,
 ): Promise<CustomerCartQuoteResult> {
   if (!customerId) return baseQuote;
@@ -622,6 +733,7 @@ async function applyFirstOrderDiscountToQuote(
   const result = await evaluateFirstOrderDiscount({
     customerId,
     subtotalTaka: customerSubtotal,
+    deviceId: installId,
   });
 
   // Not a first-order customer at all — nothing to apply or hint.

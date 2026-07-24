@@ -38,14 +38,21 @@ import {
 import {
   useCreateOwnerMenuItemMutation,
   useDeleteOwnerMenuItemMutation,
+  useOwnerMenuApprovalRequestsQuery,
   useOwnerMenuItemsQuery,
+  usePublicPlatformContentQuery,
   useUpdateOwnerMenuItemMutation,
 } from "@/hooks/use-owner-api"
 import {
   mapOwnerMenuItem,
   type OwnerListResponse,
+  type OwnerMenuApprovalSummary,
   type OwnerMenuItemResponse,
 } from "@/lib/backend-mappers"
+import {
+  clampCatalogDescription,
+  resolveCatalogDescriptionLimits,
+} from "@/lib/catalog-description-limits"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,6 +113,14 @@ type PopularFilter = "all" | "popular" | "regular"
 
 const pageSizeOptions = [5, 10, 20, 30]
 
+function normalizeId(value: unknown) {
+  if (typeof value === "string") return value
+  if (value && typeof value === "object" && "_id" in value) {
+    return String((value as { _id?: unknown })._id ?? "")
+  }
+  return value == null ? "" : String(value)
+}
+
 function getStatusBadge(status: MenuItemStatus) {
   if (status === "Active") {
     return (
@@ -155,6 +170,98 @@ function MenuTableSkeleton() {
       <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
         {Array.from({ length: 8 }).map((_, index) => (
           <Skeleton key={index} className="h-14 w-full" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function isApprovalRequiredResponse(
+  response: unknown
+): response is {
+  approvalRequired: true
+  approvalRequest: OwnerMenuApprovalSummary
+} {
+  return Boolean(
+    response &&
+      typeof response === "object" &&
+      "approvalRequired" in response &&
+      (response as { approvalRequired?: unknown }).approvalRequired === true
+  )
+}
+
+function getApprovalBadge(approval: MenuItem["approval"]) {
+  if (!approval) return null
+  if (approval.status === "pending") {
+    return (
+      <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-amber-700">
+        Pending approval
+      </Badge>
+    )
+  }
+  if (approval.status === "rejected") {
+    return (
+      <Badge variant="destructive" className="shrink-0">
+        Rejected
+      </Badge>
+    )
+  }
+  return null
+}
+
+function MenuApprovalPanel({
+  approvals,
+}: {
+  approvals: OwnerMenuApprovalSummary[]
+}) {
+  if (!approvals.length) return null
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-amber-900">
+            Admin approval waiting
+          </div>
+          <p className="text-sm text-amber-800/80">
+            Price changes and new items go live only after admin approval.
+          </p>
+        </div>
+        <Badge variant="outline" className="border-amber-300 bg-white text-amber-800">
+          {approvals.length} request{approvals.length === 1 ? "" : "s"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+        {approvals.slice(0, 4).map((approval) => (
+          <div key={approval.id} className="rounded-lg border bg-background px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">
+                  {approval.proposedName || approval.currentName || "Menu item"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {approval.type === "new_item" ? "New item" : "Price update"} ·{" "}
+                  {approval.priceDiffCount} price change
+                  {approval.priceDiffCount === 1 ? "" : "s"}
+                </div>
+              </div>
+              <Badge
+                variant={approval.status === "rejected" ? "destructive" : "outline"}
+                className={
+                  approval.status === "pending"
+                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                    : ""
+                }
+              >
+                {approval.status === "pending" ? "Pending" : "Rejected"}
+              </Badge>
+            </div>
+            {approval.status === "rejected" && approval.ownerReason ? (
+              <div className="mt-2 line-clamp-2 text-xs text-destructive">
+                {approval.ownerReason}
+              </div>
+            ) : null}
+          </div>
         ))}
       </div>
     </div>
@@ -283,15 +390,15 @@ function MenuRow({
           aria-label="Select row"
         />
       </TableCell>
-      <TableCell>
-        <div className="flex min-w-64 items-center gap-3">
+      <TableCell className="w-[18rem] max-w-[18rem]">
+        <div className="flex min-w-0 max-w-[16rem] items-center gap-3">
           <img
             src={item.imageUrl}
             alt={item.name}
-            className="size-12 rounded-xl border object-cover"
+            className="size-12 shrink-0 rounded-xl border object-cover"
           />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
               <div className="truncate font-medium">{item.name}</div>
               {item.isPopular ? (
                 <Badge className="h-5 shrink-0 gap-1 bg-orange-500 px-2 text-[10px] text-white hover:bg-orange-500">
@@ -299,15 +406,23 @@ function MenuRow({
                   Popular
                 </Badge>
               ) : null}
+              {getApprovalBadge(item.approval)}
             </div>
-            <div className="truncate text-xs text-muted-foreground">
+            <div
+              className="truncate text-xs text-muted-foreground"
+              title={item.description || item.slug}
+            >
               {item.description || item.slug}
             </div>
           </div>
         </div>
       </TableCell>
       {columnVisibility.category ? (
-        <TableCell>{item.categoryName}</TableCell>
+        <TableCell className="max-w-[10rem]">
+          <div className="truncate" title={item.categoryName}>
+            {item.categoryName}
+          </div>
+        </TableCell>
       ) : null}
       {columnVisibility.type ? (
         <TableCell>{getKindBadge(item.kind)}</TableCell>
@@ -361,6 +476,9 @@ export function MenuPage() {
   const createMenuItemMutation = useCreateOwnerMenuItemMutation()
   const updateMenuItemMutation = useUpdateOwnerMenuItemMutation()
   const deleteMenuItemMutation = useDeleteOwnerMenuItemMutation()
+  const menuApprovalsQuery = useOwnerMenuApprovalRequestsQuery(
+    ownerAccount.isAuthenticated
+  )
   const isFetchingMenuItems = useIsFetching({
     queryKey: ["owner", "menu-items"],
   })
@@ -416,6 +534,13 @@ export function MenuPage() {
       pageSize: 100,
     }
   )
+  const platformContentQuery = usePublicPlatformContentQuery(
+    ownerAccount.isAuthenticated
+  )
+  const descriptionLimits = React.useMemo(
+    () => resolveCatalogDescriptionLimits(platformContentQuery.data),
+    [platformContentQuery.data]
+  )
 
   React.useEffect(() => {
     setData((current) => {
@@ -455,13 +580,35 @@ export function MenuPage() {
       })),
     [categories]
   )
+  const categoryNameById = React.useMemo(() => {
+    const result = new Map<string, string>()
+    categories.forEach((category) => result.set(category.id, category.name))
+    return result
+  }, [categories])
+
+  const withCategoryNames = React.useCallback(
+    (items: MenuItem[]) =>
+      items.map((item) => {
+        const categoryId = normalizeId(item.categoryId)
+        return {
+          ...item,
+          categoryId,
+          categoryName:
+            categoryNameById.get(categoryId) ||
+            item.categoryName ||
+            "Uncategorized",
+        }
+      }),
+    [categoryNameById]
+  )
 
   const filteredAndSorted = React.useMemo(() => {
-    if (!menuItemsQuery.data) return data
-    return (
+    if (!menuItemsQuery.data) return withCategoryNames(data)
+    const mapped = (
       menuItemsQuery.data as OwnerListResponse<OwnerMenuItemResponse>
     ).items.map(mapOwnerMenuItem)
-  }, [data, menuItemsQuery.data])
+    return withCategoryNames(mapped)
+  }, [data, menuItemsQuery.data, withCategoryNames])
 
   const totalRows =
     (menuItemsQuery.data as OwnerListResponse<OwnerMenuItemResponse> | undefined)
@@ -472,13 +619,14 @@ export function MenuPage() {
   const paginatedRows = filteredAndSorted
   const recommendationSourceItems = React.useMemo(() => {
     if (recommendationItemsQuery.data) {
-      return (
+      const mapped = (
         recommendationItemsQuery.data as OwnerListResponse<OwnerMenuItemResponse>
       ).items.map(mapOwnerMenuItem)
+      return withCategoryNames(mapped)
     }
 
-    return data.filter((item) => item.status === "Active")
-  }, [data, recommendationItemsQuery.data])
+    return withCategoryNames(data.filter((item) => item.status === "Active"))
+  }, [data, recommendationItemsQuery.data, withCategoryNames])
 
   React.useEffect(() => {
     setPageIndex(0)
@@ -528,7 +676,10 @@ export function MenuPage() {
     return {
       categoryId: payload.categoryId,
       name: payload.name,
-      description: payload.description,
+      description: clampCatalogDescription(
+        payload.description,
+        descriptionLimits.menuItem
+      ),
       status: "active",
       availability: payload.status === "Active" ? "available" : "unavailable",
       kind: hasVariants ? "variant" : "simple",
@@ -539,6 +690,13 @@ export function MenuPage() {
       recommendedItemIds: payload.recommendedItemIds ?? [],
       images: payload.imageUrl ? [{ url: payload.imageUrl }] : [],
     }
+  }
+
+  function refreshMenuData() {
+    queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+    queryClient.invalidateQueries({ queryKey: ["owner", "menu-approval-requests"] })
+    queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
+    queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
   }
 
   function createOrUpdateItem(payload: MenuItemSubmitPayload, id?: string) {
@@ -552,8 +710,14 @@ export function MenuPage() {
           ...apiPayload,
         },
         {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+          onSuccess: (response) => {
+            refreshMenuData()
+            if (isApprovalRequiredResponse(response)) {
+              toast.success("Price change sent for admin approval.", {
+                description: "Current live price will stay unchanged until approval.",
+              })
+              return
+            }
             toast.success("Menu item updated.")
           },
           onError: (error) => {
@@ -569,8 +733,14 @@ export function MenuPage() {
     }
 
     createMenuItemMutation.mutate(apiPayload, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+      onSuccess: (response) => {
+        refreshMenuData()
+        if (isApprovalRequiredResponse(response)) {
+          toast.success("Menu item sent for admin approval.", {
+            description: "It will go live after approval.",
+          })
+          return
+        }
         toast.success("Menu item created.")
       },
       onError: (error) => {
@@ -587,7 +757,7 @@ export function MenuPage() {
     setPendingMenuAction({ type: "delete", id })
     deleteMenuItemMutation.mutate(id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+        refreshMenuData()
         setSelectedIds((current) => current.filter((item) => item !== id))
         toast.success("Menu item deleted.")
       },
@@ -609,8 +779,7 @@ export function MenuPage() {
         availability: checked ? "available" : "unavailable",
       },
       {
-        onSuccess: () =>
-          queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] }),
+        onSuccess: refreshMenuData,
         onError: (error) => {
           toast.error("Unable to update item status", {
             description:
@@ -627,8 +796,7 @@ export function MenuPage() {
     if (action === "delete") {
       selectedIds.forEach((id) => {
         deleteMenuItemMutation.mutate(id, {
-          onSuccess: () =>
-            queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] }),
+          onSuccess: refreshMenuData,
           onError: (error) => {
             toast.error("Unable to delete item", {
               description:
@@ -645,8 +813,7 @@ export function MenuPage() {
             availability: action === "activate" ? "available" : "unavailable",
           },
           {
-            onSuccess: () =>
-              queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] }),
+            onSuccess: refreshMenuData,
             onError: (error) => {
               toast.error("Unable to update item status", {
                 description:
@@ -691,6 +858,7 @@ export function MenuPage() {
   if (isFetchingMenuItems > 0 && !menuItemsQuery.data) {
     return <MenuTableSkeleton />
   }
+  const activeMenuApprovals = menuApprovalsQuery.data?.items ?? []
 
   return (
     <div className="space-y-4 px-4 lg:px-6">
@@ -711,6 +879,7 @@ export function MenuPage() {
                 ?.name ?? "",
           }))}
         existingSlugs={existingSlugs}
+        descriptionMaxLength={descriptionLimits.menuItem}
         onSubmitItem={(payload) => createOrUpdateItem(payload)}
         isSubmitting={pendingMenuAction?.type === "submit" && !pendingMenuAction.id}
       />
@@ -740,6 +909,7 @@ export function MenuPage() {
         existingSlugs={data
           .filter((item) => item.id !== editingItem?.id)
           .map((item) => item.slug)}
+        descriptionMaxLength={descriptionLimits.menuItem}
         onSubmitItem={(payload) => {
           if (!editingItem) return
           createOrUpdateItem(payload, editingItem.id)
@@ -759,6 +929,8 @@ export function MenuPage() {
           setEditingItem(item)
         }}
       />
+
+      <MenuApprovalPanel approvals={activeMenuApprovals} />
 
       <div className="rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

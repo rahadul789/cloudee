@@ -9,7 +9,7 @@ import {
   useRegisterCustomerPushTokenMutation,
   useUnregisterCustomerPushTokenMutation,
 } from "@/src/hooks/use-customer-api";
-import { apiPost } from "@/src/lib/api";
+import { apiProtectedPost } from "@/src/lib/api";
 import {
   clearRegisteredCustomerPushToken,
   saveRegisteredCustomerPushToken,
@@ -157,6 +157,11 @@ export function CustomerPushBridge({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
+    // Wait until auth has hydrated before wiring the open tracker: a cold launch straight
+    // from a notification tap must have the access token ready, otherwise the auth-required
+    // open event 401s and the open never reaches admin analytics.
+    if (!isHydrated) return;
+
     const recordOpen = (data?: Record<string, unknown>) => {
       if (!data) return;
       const pushTarget = resolveCustomerPushRoute(data);
@@ -167,7 +172,10 @@ export function CustomerPushBridge({ children }: PropsWithChildren) {
         void queryClient.invalidateQueries({ queryKey: ["customer", "orders"] });
       }
 
-      void apiPost("/customer/push-events/open", {
+      // Must be an AUTHENTICATED post: the backend route is requireAuth + role customer and
+      // attributes the open to req.user. Sending it anonymously (apiPost) always 401'd, so
+      // opens/conversions never landed in admin analytics.
+      void apiProtectedPost("/customer/push-events/open", {
         source: data.source,
         notificationId: data.notificationId,
         campaignId: data.campaignId,
@@ -256,7 +264,7 @@ export function CustomerPushBridge({ children }: PropsWithChildren) {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [router]);
+  }, [router, isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) {

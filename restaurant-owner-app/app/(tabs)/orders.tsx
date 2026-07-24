@@ -1,20 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Pressable,
+  type PressableStateCallbackType,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  type StyleProp,
   Text,
   View,
+  type ViewStyle,
 } from "react-native";
 
 import { OwnerStatusBadge } from "@/src/components/owner-status-badge";
+import { EnforcementNotice } from "@/src/components/enforcement-notice";
 import { OwnerHeaderActions } from "@/src/components/owner-header-actions";
 import { Screen } from "@/src/components/screen";
 import { StatusPill } from "@/src/components/status-pill";
@@ -50,15 +54,29 @@ import {
 } from "@/src/lib/order-status";
 import { palette } from "@/src/theme/palette";
 
-const filters: { labelKey: TranslationKey; status: OwnerOrderStatus | "" }[] = [
-  { labelKey: "orders.filters.live", status: "" },
-  { labelKey: "orders.filters.new", status: "New" },
-  { labelKey: "orders.filters.preparing", status: "Preparing" },
-  { labelKey: "orders.filters.ready", status: "ReadyForPickup" },
-  { labelKey: "orders.filters.done", status: "Delivered" },
-  { labelKey: "orders.filters.cancelled", status: "Cancelled" },
+const filters: {
+  labelKey: TranslationKey;
+  status: OwnerOrderStatus | "";
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { labelKey: "orders.filters.live", status: "", icon: "pulse" },
+  { labelKey: "orders.filters.new", status: "New", icon: "sparkles" },
+  { labelKey: "orders.filters.preparing", status: "Preparing", icon: "restaurant" },
+  { labelKey: "orders.filters.ready", status: "ReadyForPickup", icon: "bag-check" },
+  { labelKey: "orders.filters.done", status: "Delivered", icon: "checkmark-done" },
+  { labelKey: "orders.filters.cancelled", status: "Cancelled", icon: "close-circle" },
 ];
 const OWNER_ORDER_PAGE_STEP = 20;
+
+// Shared press feedback for every action button on an order card, so Accept/Reject/
+// Cancel/View all respond identically to touch.
+function pressableAction(variant: StyleProp<ViewStyle>) {
+  return ({ pressed }: PressableStateCallbackType) => [
+    styles.actionButton,
+    variant,
+    pressed ? styles.actionButtonPressed : null,
+  ];
+}
 
 type OrderListItem =
   | { type: "date"; key: string; label: string; count: number }
@@ -113,6 +131,10 @@ function formatHistoryDateLabel(key: string) {
 export default function OrdersScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
+  // Today's "View all" deep-links here with status=live. It also sends a changing
+  // `ts` so a repeat press re-applies the Live chip even if the owner has since
+  // switched to another filter (the status value alone would not change).
+  const searchParams = useLocalSearchParams<{ status?: string; ts?: string }>();
   const [selectedStatus, setSelectedStatus] = useState<OwnerOrderStatus | "">("");
   const [pendingAction, setPendingAction] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -126,6 +148,16 @@ export default function OrdersScreen() {
     pageSize: isHistoryStatus ? orderPageSize : 80,
   });
   const transitionMutation = useOwnerOrderTransitionMutation();
+  // The counts come back with every orders response and cover all statuses (not just
+  // the selected one), so the chips stay accurate whichever filter is active.
+  const statusCounts = ordersQuery.data?.statusCounts ?? {};
+
+  useEffect(() => {
+    if (searchParams.status === "live") {
+      setSelectedStatus("");
+      setOrderPageSize(OWNER_ORDER_PAGE_STEP);
+    }
+  }, [searchParams.status, searchParams.ts]);
   const orders = useMemo(
     () =>
       Array.isArray(ordersQuery.data?.items)
@@ -142,7 +174,21 @@ export default function OrdersScreen() {
       }));
     }
 
-    const counts = orders.reduce<Record<string, number>>((result, order) => {
+    // Grouping keys off the *status* date (deliveredAt / cancelledAt), but the server
+    // sorts history by its own field. When those two disagree the same day shows up in
+    // two non-adjacent runs, and the "new group" check below then emits a second header
+    // with an identical key — React's "two children with the same key" error. Sorting by
+    // the value we actually group on guarantees each day is one contiguous run.
+    const sortedOrders = [...orders].sort((left, right) => {
+      const leftTime = new Date(getOrderHistoryDateValue(left) ?? 0).getTime();
+      const rightTime = new Date(getOrderHistoryDateValue(right) ?? 0).getTime();
+      return (
+        (Number.isNaN(rightTime) ? 0 : rightTime) -
+        (Number.isNaN(leftTime) ? 0 : leftTime)
+      );
+    });
+
+    const counts = sortedOrders.reduce<Record<string, number>>((result, order) => {
       const key = getHistoryDateKey(order);
       result[key] = (result[key] ?? 0) + 1;
       return result;
@@ -150,7 +196,7 @@ export default function OrdersScreen() {
     const items: OrderListItem[] = [];
     let currentDateKey = "";
 
-    for (const order of orders) {
+    for (const order of sortedOrders) {
       const dateKey = getHistoryDateKey(order);
       if (dateKey !== currentDateKey) {
         currentDateKey = dateKey;
@@ -277,7 +323,11 @@ export default function OrdersScreen() {
 
     return (
       <Pressable
-        style={[styles.orderCard, isLate ? styles.orderCardLate : null]}
+        style={({ pressed }) => [
+          styles.orderCard,
+          isLate ? styles.orderCardLate : null,
+          pressed ? styles.orderCardPressed : null,
+        ]}
         onPress={() => openOrderDetails(order._id)}
       >
         <View style={styles.orderTop}>
@@ -342,7 +392,8 @@ export default function OrdersScreen() {
 
         {order.itemsSnapshot?.slice(0, 3).map((orderItem, index) => (
           <Text key={`${orderItem.itemId ?? orderItem.name}-${index}`} style={styles.itemText}>
-            {orderItem.quantity ?? 1}x {orderItem.name ?? t("today.items")}
+            {localizeDigits(String(orderItem.quantity ?? 1))}x{" "}
+            {orderItem.name ?? t("today.items")}
           </Text>
         ))}
 
@@ -350,7 +401,7 @@ export default function OrdersScreen() {
           {order.status === "New" ? (
             <>
               <Pressable
-                style={[styles.actionButton, styles.rejectButton]}
+                style={pressableAction(styles.rejectButton)}
                 disabled={isCardPending}
                 onPress={() => confirmReject(order)}
               >
@@ -361,7 +412,7 @@ export default function OrdersScreen() {
                 )}
               </Pressable>
               <Pressable
-                style={[styles.actionButton, styles.acceptButton]}
+                style={pressableAction(styles.acceptButton)}
                 disabled={isCardPending}
                 onPress={() => transitionOrder(order, "Accepted")}
               >
@@ -376,7 +427,7 @@ export default function OrdersScreen() {
             <>
               {canOwnerCancelOrder(order.status) ? (
                 <Pressable
-                  style={[styles.actionButton, styles.rejectButton]}
+                  style={pressableAction(styles.rejectButton)}
                   disabled={isCardPending}
                   onPress={() => confirmCancel(order)}
                 >
@@ -388,7 +439,7 @@ export default function OrdersScreen() {
                 </Pressable>
               ) : null}
               <Pressable
-                style={[styles.actionButton, styles.acceptButton]}
+                style={pressableAction(styles.acceptButton)}
                 disabled={isCardPending}
                 onPress={() => transitionOrder(order, "Preparing")}
               >
@@ -403,7 +454,7 @@ export default function OrdersScreen() {
             <>
               {canOwnerCancelOrder(order.status) ? (
                 <Pressable
-                  style={[styles.actionButton, styles.rejectButton]}
+                  style={pressableAction(styles.rejectButton)}
                   disabled={isCardPending}
                   onPress={() => confirmCancel(order)}
                 >
@@ -415,7 +466,7 @@ export default function OrdersScreen() {
                 </Pressable>
               ) : null}
               <Pressable
-                style={[styles.actionButton, styles.acceptButton]}
+                style={pressableAction(styles.acceptButton)}
                 disabled={isCardPending}
                 onPress={() => transitionOrder(order, "ReadyForPickup")}
               >
@@ -428,7 +479,7 @@ export default function OrdersScreen() {
             </>
           ) : (
             <Pressable
-              style={[styles.actionButton, styles.viewButton]}
+              style={pressableAction(styles.viewButton)}
               onPress={() => openOrderDetails(order._id)}
             >
               <Text style={styles.viewButtonText}>{t("orders.openDetails")}</Text>
@@ -449,6 +500,10 @@ export default function OrdersScreen() {
         <OwnerHeaderActions />
       </View>
 
+      <View style={styles.enforcementStripWrap}>
+        <EnforcementNotice variant="strip" enabled={isFocused} />
+      </View>
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -457,15 +512,25 @@ export default function OrdersScreen() {
       >
         {filters.map((filter) => {
           const isActive = selectedStatus === filter.status;
+          const count = statusCounts[filter.status || "live"] ?? 0;
           return (
             <Pressable
               key={filter.labelKey}
-              style={[styles.filterChip, isActive ? styles.filterChipActive : null]}
+              style={({ pressed }) => [
+                styles.filterChip,
+                isActive ? styles.filterChipActive : null,
+                pressed ? styles.filterChipPressed : null,
+              ]}
               onPress={() => {
                 setSelectedStatus(filter.status);
                 setOrderPageSize(OWNER_ORDER_PAGE_STEP);
               }}
             >
+              <Ionicons
+                name={filter.icon}
+                size={14}
+                color={isActive ? "#FFFFFF" : palette.mutedForeground}
+              />
               <Text
                 style={[
                   styles.filterChipText,
@@ -474,6 +539,23 @@ export default function OrdersScreen() {
               >
                 {t(filter.labelKey)}
               </Text>
+              {count > 0 ? (
+                <View
+                  style={[
+                    styles.filterChipCount,
+                    isActive ? styles.filterChipCountActive : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipCountText,
+                      isActive ? styles.filterChipCountTextActive : null,
+                    ]}
+                  >
+                    {localizeDigits(String(count))}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
           );
         })}
@@ -555,6 +637,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: palette.foreground,
   },
+  // Collapses to zero height when there is no enforcement notice to show.
+  enforcementStripWrap: {
+    paddingHorizontal: 18,
+  },
   filterScroller: {
     flexGrow: 0,
     height: 54,
@@ -569,18 +655,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   filterChip: {
-    minHeight: 36,
+    minHeight: 38,
     borderRadius: 999,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    gap: 6,
+    paddingHorizontal: 13,
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   filterChipActive: {
     backgroundColor: palette.foreground,
     borderColor: palette.foreground,
+  },
+  filterChipPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
   },
   filterChipText: {
     fontSize: 12,
@@ -589,6 +686,27 @@ const styles = StyleSheet.create({
     color: palette.foreground,
   },
   filterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  filterChipCount: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    backgroundColor: palette.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterChipCountActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+  },
+  filterChipCountText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  filterChipCountTextActive: {
     color: "#FFFFFF",
   },
   listContent: {
@@ -626,6 +744,12 @@ const styles = StyleSheet.create({
   orderCardLate: {
     borderColor: "rgba(239, 68, 68, 0.32)",
     backgroundColor: "#FFF7F8",
+  },
+  // Matches the customer app's press feedback: a small scale/lift rather than a
+  // heavy fade, which washed the card out.
+  orderCardPressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
   },
   orderTop: {
     flexDirection: "row",
@@ -727,6 +851,10 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   acceptButton: {
     backgroundColor: palette.foreground,

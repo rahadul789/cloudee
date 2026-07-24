@@ -19,6 +19,9 @@ export type OtpDeliveryConfig = {
   platformName: string;
   expiresInSeconds: number;
   resendCooldownSeconds: number;
+  // Cooldown used from the FIRST manual resend onward (longer, so support can hand-deliver
+  // the code). resendCooldownSeconds still governs the wait after the initial auto-send.
+  manualResendCooldownSeconds: number;
   messageTemplate: string;
   telegramFallbackEnabled: boolean;
   callButtonAfterResends: number;
@@ -84,6 +87,7 @@ export function getFallbackOtpDeliveryConfig(): OtpDeliveryConfig {
       15,
       300,
     ),
+    manualResendCooldownSeconds: 90,
     messageTemplate: DEFAULT_OTP_MESSAGE_TEMPLATE,
     telegramFallbackEnabled: false,
     callButtonAfterResends: 2,
@@ -112,6 +116,12 @@ export async function getOtpDeliveryConfig(): Promise<OtpDeliveryConfig> {
         fallback.resendCooldownSeconds,
         15,
         300,
+      ),
+      manualResendCooldownSeconds: clampInteger(
+        otpSettings?.manualResendCooldownSeconds,
+        fallback.manualResendCooldownSeconds,
+        15,
+        600,
       ),
       messageTemplate: otpSettings?.messageTemplate?.includes("{{code}}")
         ? otpSettings.messageTemplate

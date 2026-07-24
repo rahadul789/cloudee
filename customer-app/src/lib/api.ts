@@ -380,6 +380,23 @@ export async function apiPost<T>(
   }, { auth: "none" });
 }
 
+// POST that attaches the customer's auth token WHEN signed in, but still succeeds for
+// guests (no session refresh, no 401). Use for fire-and-forget analytics / promo events so
+// the global attachAuthUser middleware can attribute them to the real customer instead of
+// logging every event — even a logged-in customer's — as an anonymous guest.
+export async function apiPostWithOptionalAuth<T>(
+  path: string,
+  body?: unknown,
+  init?: RequestInit,
+) {
+  const { accessToken } = useCustomerAuthStore.getState();
+  const headers = new Headers(init?.headers ?? {});
+  if (accessToken) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+  return apiPost<T>(path, body, { ...init, headers });
+}
+
 export async function apiProtectedGet<T>(path: string) {
   return apiRequest<T>(path, { method: "GET" }, { auth: "required" });
 }

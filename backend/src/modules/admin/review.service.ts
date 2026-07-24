@@ -1,8 +1,10 @@
 import { StatusCodes } from "http-status-codes";
 import mongoose from "mongoose";
 
+import { emitSocketEvent } from "../../config/socket";
 import { AppError } from "../../common/utils/app-error";
 import { slugify } from "../../common/utils/slugify";
+import { resolveAdminOperationalAlertByDedupeKey } from "./admin-alert.service";
 import { AdminAuditLogModel, AdminModel } from "./admin.model";
 import {
   OnboardingDraftModel,
@@ -20,8 +22,17 @@ import {
   resolveServiceZoneForCoordinates,
   serviceAreaSnapshotMatchesScope,
 } from "../service-area/service-area.service";
+import { createOwnerNotification } from "../owner/operational.service";
 
 type AdminReviewModerationStatus = "visible" | "hidden" | "flagged";
+type OwnerHideRequestStatus = "none" | "pending" | "approved" | "rejected" | "cancelled";
+type OwnerHideReasonCategory =
+  | ""
+  | "fake_spam"
+  | "abusive_language"
+  | "wrong_restaurant_or_order"
+  | "unfair_misleading"
+  | "other";
 
 type ListAdminReviewsParams = {
   search?: string;
@@ -29,6 +40,7 @@ type ListAdminReviewsParams = {
   zoneId?: string;
   districtId?: string;
   status?: "all" | AdminReviewModerationStatus;
+  hideRequest?: "all" | OwnerHideRequestStatus;
   rating?: "all" | "1" | "2" | "3" | "4" | "5";
   reply?: "all" | "replied" | "not_replied";
   comment?: "all" | "with_comment" | "without_comment";
@@ -62,6 +74,56 @@ function serializeDate(value: unknown) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function reviewHideRequestDedupeKey(reviewId: string) {
+  return `review:${reviewId}:owner_hide_request`;
+}
+
+function ownerHideRequestStatus(value: unknown): OwnerHideRequestStatus {
+  if (
+    value === "pending" ||
+    value === "approved" ||
+    value === "rejected" ||
+    value === "cancelled"
+  ) {
+    return value;
+  }
+  return "none";
+}
+
+function ownerHideReasonCategory(value: unknown): OwnerHideReasonCategory {
+  if (
+    value === "fake_spam" ||
+    value === "abusive_language" ||
+    value === "wrong_restaurant_or_order" ||
+    value === "unfair_misleading" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  return "";
+}
+
+function mapOwnerHideRequest(value: unknown) {
+  const request = value && typeof value === "object" ? (value as Record<string, any>) : {};
+  return {
+    status: ownerHideRequestStatus(request.status),
+    reasonCategory: ownerHideReasonCategory(request.reasonCategory),
+    note: stringValue(request.note),
+    requestedAt: serializeDate(request.requestedAt),
+    reviewedAt: serializeDate(request.reviewedAt),
+    reviewedByAdminId: stringValue(request.reviewedByAdminId),
+    adminNote: stringValue(request.adminNote),
+  };
+}
+
+function labelReviewHideReason(reasonCategory: string) {
+  if (reasonCategory === "fake_spam") return "Fake or spam review";
+  if (reasonCategory === "abusive_language") return "Abusive language";
+  if (reasonCategory === "wrong_restaurant_or_order") return "Wrong restaurant or order";
+  if (reasonCategory === "unfair_misleading") return "Unfair or misleading review";
+  return "Other review concern";
 }
 
 function clampPage(value?: number) {
@@ -128,6 +190,23 @@ async function buildReviewQuery(params: ListAdminReviewsParams) {
     if (params.status === "hidden") query.isHidden = true;
     if (params.status === "visible") query.isHidden = { $ne: true };
   }
+  if (params.hideRequest && params.hideRequest !== "all") {
+    if (params.hideRequest === "none") {
+      query.$and = [
+        ...(query.$and ?? []),
+        {
+          $or: [
+            { ownerHideRequest: { $exists: false } },
+            { "ownerHideRequest.status": { $exists: false } },
+            { "ownerHideRequest.status": "none" },
+            { "ownerHideRequest.status": "" },
+          ],
+        },
+      ];
+    } else {
+      query["ownerHideRequest.status"] = params.hideRequest;
+    }
+  }
   if (params.rating && params.rating !== "all")
     query.rating = Number(params.rating);
   if (params.reply === "replied") {
@@ -157,6 +236,8 @@ async function buildReviewQuery(params: ListAdminReviewsParams) {
           { comment: { $regex: search, $options: "i" } },
           { hiddenReason: { $regex: search, $options: "i" } },
           { flaggedReason: { $regex: search, $options: "i" } },
+          { "ownerHideRequest.note": { $regex: search, $options: "i" } },
+          { "ownerHideRequest.adminNote": { $regex: search, $options: "i" } },
           { customerId: { $regex: search, $options: "i" } },
         ],
       },
@@ -224,6 +305,7 @@ function mapReview(params: {
     flaggedAt: serializeDate(review.flaggedAt),
     flaggedByAdminId: stringValue(review.flaggedByAdminId),
     flaggedReason: stringValue(review.flaggedReason),
+    ownerHideRequest: mapOwnerHideRequest(review.ownerHideRequest),
     createdAt: serializeDate(review.createdAt),
     updatedAt: serializeDate(review.updatedAt),
   };
@@ -429,6 +511,11 @@ export async function listAdminReviews(params: ListAdminReviewsParams) {
           flagged: {
             $sum: { $cond: [{ $eq: ["$moderationStatus", "flagged"] }, 1, 0] },
           },
+          hideRequestsPending: {
+            $sum: {
+              $cond: [{ $eq: ["$ownerHideRequest.status", "pending"] }, 1, 0],
+            },
+          },
           withComments: {
             $sum: {
               $cond: [
@@ -504,6 +591,7 @@ export async function listAdminReviews(params: ListAdminReviewsParams) {
       visible: numberValue(summary.visible),
       hidden: numberValue(summary.hidden),
       flagged: numberValue(summary.flagged),
+      hideRequestsPending: numberValue(summary.hideRequestsPending),
       withComments: numberValue(summary.withComments),
       unanswered: numberValue(summary.unanswered),
       averageVisibleRating:
@@ -697,6 +785,229 @@ export async function updateAdminReviewModeration(params: {
       rating: numberValue(review.rating),
     },
   });
+
+  const restaurant = await RestaurantModel.findById(review.restaurantId, {
+    ownerId: 1,
+  }).lean();
+  const ownerId = objectIdString(restaurant?.ownerId);
+  if (ownerId) {
+    emitSocketEvent(`owner:${ownerId}`, "review.updated", {
+      reviewId: review.id,
+      status: params.status,
+    });
+  }
+  emitSocketEvent("admin:ops", "admin.review.updated", {
+    reviewId: review.id,
+    status: params.status,
+  });
+
+  const [item] = await hydrateReviewRows([review.toObject()]);
+  return item;
+}
+
+export async function approveReviewHideRequest(params: {
+  reviewId: string;
+  adminNote?: string;
+  adminId?: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  if (!mongoose.Types.ObjectId.isValid(params.reviewId)) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "REVIEW_NOT_FOUND",
+      "Review not found",
+    );
+  }
+  const review = await ReviewModel.findById(params.reviewId);
+  if (!review) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "REVIEW_NOT_FOUND",
+      "Review not found",
+    );
+  }
+  await assertReviewInAdminScope(review, params);
+
+  const request = mapOwnerHideRequest(review.ownerHideRequest);
+  if (request.status !== "pending") {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "REVIEW_HIDE_REQUEST_NOT_PENDING",
+      "This review does not have a pending hide request",
+    );
+  }
+
+  const now = new Date();
+  const adminNote = String(params.adminNote ?? "").trim();
+  const reason = adminNote || request.note || labelReviewHideReason(request.reasonCategory);
+  const previousStatus = stringValue(review.moderationStatus, "visible");
+  review.moderationStatus = "hidden";
+  review.isHidden = true;
+  review.hiddenAt = now;
+  review.hiddenByAdminId = params.adminId ?? "";
+  review.hiddenReason = reason || "Owner hide request approved";
+  review.ownerHideRequest = {
+    status: "approved",
+    reasonCategory: request.reasonCategory,
+    note: request.note,
+    requestedAt: request.requestedAt ? new Date(request.requestedAt) : null,
+    reviewedAt: now,
+    reviewedByAdminId: params.adminId ?? "",
+    adminNote,
+  };
+  review.moderationHistory.push({
+    action: "owner_hide_approved",
+    reason,
+    adminId: params.adminId ?? "",
+    createdAt: now,
+  });
+  await review.save();
+
+  const restaurant = await RestaurantModel.findById(review.restaurantId, {
+    ownerId: 1,
+    name: 1,
+  }).lean();
+  const ownerId = objectIdString(restaurant?.ownerId);
+
+  await writeReviewAudit({
+    adminId: params.adminId,
+    reviewId: params.reviewId,
+    action: "review.owner_hide_approved",
+    title: "Owner review hide request approved",
+    description: reason,
+    metadata: {
+      previousStatus,
+      nextStatus: "hidden",
+      restaurantId: objectIdString(review.restaurantId),
+      ownerId,
+      rating: numberValue(review.rating),
+      reasonCategory: request.reasonCategory,
+    },
+  });
+  await resolveAdminOperationalAlertByDedupeKey(reviewHideRequestDedupeKey(review.id));
+  emitSocketEvent("admin:ops", "admin.review.updated", {
+    reviewId: review.id,
+    status: "hide_request_approved",
+  });
+
+  if (ownerId) {
+    await createOwnerNotification({
+      ownerId,
+      restaurantId: objectIdString(review.restaurantId),
+      type: "review",
+      eventType: "review.hide_request.approved",
+      entityType: "review",
+      entityId: review.id,
+      title: "Review hide request approved",
+      description: "Admin approved your request. The review is hidden from customer-facing ratings.",
+      actionPath: `/reviews?review=${review.id}`,
+    });
+    emitSocketEvent(`owner:${ownerId}`, "review.updated", {
+      reviewId: review.id,
+      status: "hide_request_approved",
+    });
+  }
+
+  const [item] = await hydrateReviewRows([review.toObject()]);
+  return item;
+}
+
+export async function rejectReviewHideRequest(params: {
+  reviewId: string;
+  adminNote?: string;
+  adminId?: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  if (!mongoose.Types.ObjectId.isValid(params.reviewId)) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "REVIEW_NOT_FOUND",
+      "Review not found",
+    );
+  }
+  const review = await ReviewModel.findById(params.reviewId);
+  if (!review) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "REVIEW_NOT_FOUND",
+      "Review not found",
+    );
+  }
+  await assertReviewInAdminScope(review, params);
+
+  const request = mapOwnerHideRequest(review.ownerHideRequest);
+  if (request.status !== "pending") {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "REVIEW_HIDE_REQUEST_NOT_PENDING",
+      "This review does not have a pending hide request",
+    );
+  }
+
+  const now = new Date();
+  const adminNote = String(params.adminNote ?? "").trim();
+  const reason = adminNote || "Admin reviewed the request and kept the review visible.";
+  review.ownerHideRequest = {
+    status: "rejected",
+    reasonCategory: request.reasonCategory,
+    note: request.note,
+    requestedAt: request.requestedAt ? new Date(request.requestedAt) : null,
+    reviewedAt: now,
+    reviewedByAdminId: params.adminId ?? "",
+    adminNote: reason,
+  };
+  review.moderationHistory.push({
+    action: "owner_hide_rejected",
+    reason,
+    adminId: params.adminId ?? "",
+    createdAt: now,
+  });
+  await review.save();
+
+  const restaurant = await RestaurantModel.findById(review.restaurantId, {
+    ownerId: 1,
+    name: 1,
+  }).lean();
+  const ownerId = objectIdString(restaurant?.ownerId);
+
+  await writeReviewAudit({
+    adminId: params.adminId,
+    reviewId: params.reviewId,
+    action: "review.owner_hide_rejected",
+    title: "Owner review hide request rejected",
+    description: reason,
+    metadata: {
+      restaurantId: objectIdString(review.restaurantId),
+      ownerId,
+      rating: numberValue(review.rating),
+      reasonCategory: request.reasonCategory,
+    },
+  });
+  await resolveAdminOperationalAlertByDedupeKey(reviewHideRequestDedupeKey(review.id));
+  emitSocketEvent("admin:ops", "admin.review.updated", {
+    reviewId: review.id,
+    status: "hide_request_rejected",
+  });
+
+  if (ownerId) {
+    await createOwnerNotification({
+      ownerId,
+      restaurantId: objectIdString(review.restaurantId),
+      type: "review",
+      eventType: "review.hide_request.rejected",
+      entityType: "review",
+      entityId: review.id,
+      title: "Review hide request reviewed",
+      description: reason,
+      actionPath: `/reviews?review=${review.id}`,
+    });
+    emitSocketEvent(`owner:${ownerId}`, "review.updated", {
+      reviewId: review.id,
+      status: "hide_request_rejected",
+    });
+  }
 
   const [item] = await hydrateReviewRows([review.toObject()]);
   return item;

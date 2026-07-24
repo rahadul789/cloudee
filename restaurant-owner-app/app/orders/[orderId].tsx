@@ -150,7 +150,13 @@ export default function OrderDetailsScreen() {
         }
       >
         <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={handleBack}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed ? styles.backButtonPressed : null,
+            ]}
+            onPress={handleBack}
+          >
             <Ionicons name="chevron-back" size={23} color={palette.foreground} />
           </Pressable>
           <View style={styles.headerTextWrap}>
@@ -420,9 +426,12 @@ function PreparationTimingPanel({
           {timing.extensionOptions.map((minutes) => (
             <Pressable
               key={minutes}
-              style={[
+              style={({ pressed }) => [
                 styles.extensionChip,
                 pendingExtension === minutes ? styles.extensionChipDisabled : null,
+                pressed && pendingExtension === null
+                  ? styles.extensionChipPressed
+                  : null,
               ]}
               disabled={pendingExtension !== null}
               onPress={() => onExtend(minutes as 5 | 10)}
@@ -599,10 +608,11 @@ function ActionButton({
 }) {
   return (
     <Pressable
-      style={[
+      style={({ pressed }) => [
         styles.actionButton,
         tone === "danger" ? styles.dangerButton : styles.primaryButton,
         disabled ? styles.disabled : null,
+        pressed && !disabled ? styles.actionButtonPressed : null,
       ]}
       disabled={disabled}
       onPress={onPress}
@@ -659,6 +669,10 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
+  },
+  backButtonPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
   },
   headerTextWrap: {
     flex: 1,
@@ -846,6 +860,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  extensionChipPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
+  },
   extensionChipDisabled: {
     opacity: 0.7,
   },
@@ -916,6 +934,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+  },
+  actionButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   primaryButton: {
     backgroundColor: palette.foreground,

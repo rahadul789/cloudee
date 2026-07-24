@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  EyeOff,
   Filter,
   LoaderCircle,
   MessageSquareText,
@@ -44,10 +45,22 @@ import {
   type OwnerListResponse,
   type OwnerReviewResponse,
 } from "@/lib/backend-mappers"
-import { useOwnerReviewReplyMutation, useOwnerReviewsQuery } from "@/hooks/use-owner-api"
+import {
+  useOwnerReviewHideRequestMutation,
+  useOwnerReviewReplyMutation,
+  useOwnerReviewsQuery,
+} from "@/hooks/use-owner-api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Empty,
   EmptyContent,
@@ -73,14 +86,48 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
 import { useSearchParams } from "react-router-dom"
 import { useAppStore } from "@/store/app-store"
 
 type CommentFilter = "all" | "with-comments" | "without-comments"
 type ReplyFilter = "all" | "replied" | "not-replied"
 type SortKey = "latest" | "highest" | "lowest"
+type ReviewHideReasonCategory =
+  | "fake_spam"
+  | "abusive_language"
+  | "wrong_restaurant_or_order"
+  | "unfair_misleading"
+  | "other"
 
 const pageSizeOptions = [6, 12, 24]
+const reviewHideReasonOptions: Array<{ value: ReviewHideReasonCategory; label: string; helper: string }> = [
+  {
+    value: "fake_spam",
+    label: "Fake or spam",
+    helper: "The review looks unrelated, duplicated, or intentionally fake.",
+  },
+  {
+    value: "abusive_language",
+    label: "Abusive language",
+    helper: "The comment contains harassment, threats, or abusive wording.",
+  },
+  {
+    value: "wrong_restaurant_or_order",
+    label: "Wrong order/restaurant",
+    helper: "The issue does not match this restaurant or order.",
+  },
+  {
+    value: "unfair_misleading",
+    label: "Unfair or misleading",
+    helper: "The comment misses key facts or misrepresents the order.",
+  },
+  {
+    value: "other",
+    label: "Other",
+    helper: "Send admin a short explanation.",
+  },
+]
 
 function patchReviewListCache(current: unknown, payload: OwnerReviewResponse) {
   if (!current || typeof current !== "object" || !("items" in (current as Record<string, unknown>))) {
@@ -115,6 +162,9 @@ function ReviewStars({ rating, compact = false }: { rating: number; compact?: bo
 }
 
 function getStatusBadge(status: Review["status"]) {
+  if (status === "hidden") {
+    return <Badge variant="destructive">Hidden</Badge>
+  }
   if (status === "new") {
     return <Badge className="bg-sky-600 text-white hover:bg-sky-600">New</Badge>
   }
@@ -132,11 +182,50 @@ function getStatusBadge(status: Review["status"]) {
   )
 }
 
+function getHideRequestBadge(review: Review) {
+  const status = review.ownerHideRequest?.status ?? "none"
+  if (review.isHidden || review.moderationStatus === "hidden") {
+    return (
+      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+        Hidden from customers
+      </Badge>
+    )
+  }
+  if (status === "pending") {
+    return (
+      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+        Hide request pending
+      </Badge>
+    )
+  }
+  if (status === "rejected") {
+    return (
+      <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+        Hide request rejected
+      </Badge>
+    )
+  }
+  if (status === "approved") {
+    return (
+      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+        Hide approved
+      </Badge>
+    )
+  }
+  return null
+}
+
+function canRequestReviewHide(review: Review) {
+  const requestStatus = review.ownerHideRequest?.status ?? "none"
+  return !review.isHidden && review.moderationStatus !== "hidden" && requestStatus !== "pending"
+}
+
 export function ReviewsPage() {
   const { reviews, setReviews } = useReviews()
   const ownerAccount = useAppStore((state) => state.ownerAccount)
   const queryClient = useQueryClient()
   const reviewReplyMutation = useOwnerReviewReplyMutation()
+  const reviewHideRequestMutation = useOwnerReviewHideRequestMutation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
   const [selectedRating, setSelectedRating] = React.useState<"all" | `${1 | 2 | 3 | 4 | 5}`>("all")
@@ -152,6 +241,9 @@ export function ReviewsPage() {
   const [pageIndex, setPageIndex] = React.useState(0)
   const [viewingReview, setViewingReview] = React.useState<Review | null>(null)
   const [replyDraft, setReplyDraft] = React.useState("")
+  const [hideRequestTarget, setHideRequestTarget] = React.useState<Review | null>(null)
+  const [hideRequestReason, setHideRequestReason] = React.useState<ReviewHideReasonCategory>("unfair_misleading")
+  const [hideRequestNote, setHideRequestNote] = React.useState("")
   const [pendingReviewAction, setPendingReviewAction] = React.useState<{
     reviewId: string
     type: "save" | "delete"
@@ -375,6 +467,41 @@ export function ReviewsPage() {
     }))
   }
 
+  function openHideRequest(review: Review) {
+    setHideRequestTarget(review)
+    setHideRequestReason("unfair_misleading")
+    setHideRequestNote(review.ownerHideRequest?.adminNote ?? "")
+  }
+
+  function submitHideRequest() {
+    if (!hideRequestTarget) return
+    reviewHideRequestMutation.mutate(
+      {
+        reviewId: hideRequestTarget.id,
+        reasonCategory: hideRequestReason,
+        note: hideRequestNote.trim(),
+      },
+      {
+        onSuccess: (response) => {
+          const mapped = mapOwnerReview(response as OwnerReviewResponse)
+          updateReview(hideRequestTarget.id, () => mapped)
+          queryClient.setQueriesData(
+            { queryKey: ["owner", "reviews"] },
+            (current: unknown) => patchReviewListCache(current, response as OwnerReviewResponse)
+          )
+          setHideRequestTarget(null)
+          setHideRequestNote("")
+          toast.success("Hide request sent to admin.")
+        },
+        onError: (error) => {
+          toast.error("Unable to send hide request.", {
+            description: error instanceof Error ? error.message : "Please try again.",
+          })
+        },
+      }
+    )
+  }
+
   function handleExportReviews() {
     const rows = [
       ["id", "customer", "rating", "comment", "orderNumber", "source", "status", "reply", "createdAt"].join(","),
@@ -425,6 +552,7 @@ export function ReviewsPage() {
         onSaveReply={handleSaveReply}
         onDeleteReply={handleDeleteReply}
         onMarkAsRead={handleMarkAsRead}
+        onRequestHide={openHideRequest}
         isSavingReply={
           pendingReviewAction?.reviewId === viewingReview?.id &&
           pendingReviewAction?.type === "save"
@@ -433,7 +561,88 @@ export function ReviewsPage() {
           pendingReviewAction?.reviewId === viewingReview?.id &&
           pendingReviewAction?.type === "delete"
         }
+        isRequestingHide={
+          reviewHideRequestMutation.isPending &&
+          hideRequestTarget?.id === viewingReview?.id
+        }
       />
+
+      <Dialog open={Boolean(hideRequestTarget)} onOpenChange={(open) => !open && setHideRequestTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Request review hide</DialogTitle>
+            <DialogDescription>
+              Admin will review this request. The review stays public until admin approves it.
+            </DialogDescription>
+          </DialogHeader>
+          {hideRequestTarget ? (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <ReviewStars rating={hideRequestTarget.rating} compact />
+                {getHideRequestBadge(hideRequestTarget)}
+              </div>
+              <p className="mt-2 line-clamp-3 text-muted-foreground">
+                {hideRequestTarget.comment || "Customer submitted a rating without a written review."}
+              </p>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Reason</p>
+            <div className="grid gap-2">
+              {reviewHideReasonOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setHideRequestReason(option.value)}
+                  className={`rounded-lg border p-3 text-left text-sm transition ${
+                    hideRequestReason === option.value
+                      ? "border-primary bg-primary/10"
+                      : "bg-background hover:bg-muted/40"
+                  }`}
+                >
+                  <span className="font-medium">{option.label}</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">{option.helper}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Admin note</p>
+            <Textarea
+              value={hideRequestNote}
+              onChange={(event) => setHideRequestNote(event.target.value)}
+              placeholder="Add short context for admin"
+              rows={4}
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground">{hideRequestNote.length}/500</p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={reviewHideRequestMutation.isPending}
+              onClick={() => setHideRequestTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={reviewHideRequestMutation.isPending}
+              onClick={submitHideRequest}
+            >
+              {reviewHideRequestMutation.isPending ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                "Send request"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <Card className="rounded-2xl shadow-sm">
@@ -749,7 +958,12 @@ export function ReviewsPage() {
                     <TableCell>
                       <Badge variant="secondary">{review.source}</Badge>
                     </TableCell>
-                    <TableCell>{getStatusBadge(review.status)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col items-start gap-1.5">
+                        {getStatusBadge(review.status)}
+                        {getHideRequestBadge(review)}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       {review.reply?.message ? (
                         <div className="max-w-52 space-y-1">
@@ -775,23 +989,36 @@ export function ReviewsPage() {
                       </div>
                     </TableCell>
                     <TableCell className="pr-4 text-right lg:pr-6">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setViewingReview(review)}
-                        disabled={pendingReviewAction?.reviewId === review.id}
-                      >
-                        {pendingReviewAction?.reviewId === review.id ? (
-                          <>
-                            <LoaderCircle className="size-4 animate-spin" />
-                            Updating...
-                          </>
-                        ) : review.reply?.message ? (
-                          "View & Edit Reply"
-                        ) : (
-                          "Reply"
-                        )}
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        {canRequestReviewHide(review) ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openHideRequest(review)}
+                            disabled={reviewHideRequestMutation.isPending}
+                          >
+                            <EyeOff className="size-4" />
+                            Request Hide
+                          </Button>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewingReview(review)}
+                          disabled={pendingReviewAction?.reviewId === review.id}
+                        >
+                          {pendingReviewAction?.reviewId === review.id ? (
+                            <>
+                              <LoaderCircle className="size-4 animate-spin" />
+                              Updating...
+                            </>
+                          ) : review.reply?.message ? (
+                            "View & Edit Reply"
+                          ) : (
+                            "Reply"
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

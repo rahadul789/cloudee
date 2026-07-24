@@ -448,6 +448,10 @@ export function useRestaurantDiscoveryInfiniteQuery(
     sortBy: params.sortBy,
     minimumRating: params.minimumRating,
     maximumLowestPrice: params.maximumLowestPrice,
+    // Tells the backend this build renders the open-now empty states itself, so it should
+    // return the true open list (empty when nothing is open) plus areaHasRestaurants,
+    // rather than the legacy closed-cards fallback.
+    openStrict: 1,
   });
   const queryKey = buildQueryString(baseQuery);
 
@@ -473,6 +477,75 @@ export function useRestaurantDiscoveryInfiniteQuery(
     getNextPageParam: (lastPage) =>
       lastPage.hasNextPage ? lastPage.nextPage : undefined,
   });
+}
+
+/**
+ * Lightweight companion to the discovery list query: fetches ONLY the total match
+ * count for a given filter set (pageSize 1, we read `total`, discard the items).
+ * Used by the filter sheet to preview "how many restaurants match" as the user
+ * toggles draft filters — instantly and independent of how many list pages are
+ * currently loaded. `keepPreviousData` keeps the last count on screen while the
+ * next filter's count is in flight, so the number doesn't flash empty.
+ */
+export function useRestaurantDiscoveryTotalQuery(
+  params: RestaurantDiscoveryPageParams,
+  enabled = true,
+) {
+  const baseQuery = compactQueryParams({
+    latitude: typeof params.latitude === "number" ? params.latitude : undefined,
+    longitude: typeof params.longitude === "number" ? params.longitude : undefined,
+    radiusKm: params.radiusKm,
+    search: params.search?.trim(),
+    pageSize: 1,
+    filter: params.filter && params.filter !== "all" ? params.filter : undefined,
+    sortBy: params.sortBy,
+    minimumRating: params.minimumRating,
+    maximumLowestPrice: params.maximumLowestPrice,
+    openStrict: 1,
+  });
+  const queryKey = buildQueryString(baseQuery);
+
+  return useQuery({
+    queryKey: ["customer", "restaurant-discovery-total", queryKey],
+    enabled:
+      enabled &&
+      typeof params.latitude === "number" &&
+      typeof params.longitude === "number",
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const response = await apiGet<DiscoverableRestaurantsPage>(
+        `/customer/restaurants/search?${buildQueryString({ ...baseQuery, page: 1 })}`,
+      );
+      return response.data.total ?? response.data.items?.length ?? 0;
+    },
+  });
+}
+
+export type HomePollResults = {
+  total: number;
+  options: { id: string; label: string; count: number }[];
+};
+
+export type HomePollVoteResponse = {
+  ok: boolean;
+  alreadyVoted: boolean;
+  thanksMessage: string;
+  results: HomePollResults | null;
+};
+
+export async function submitHomePollVote(body: {
+  pollId: string;
+  optionId: string;
+  deviceId: string;
+  feedback?: string;
+}): Promise<HomePollVoteResponse> {
+  const response = await apiPost<HomePollVoteResponse>(
+    "/customer/home/poll/vote",
+    body,
+  );
+  return response.data;
 }
 
 export function useCustomerDiscoveryHomeQuery(params: {
@@ -838,6 +911,13 @@ export type CartQuoteResponse = {
     selectedVariantOptions: { groupName: string; optionLabel: string }[];
     selectedAddOnOptions: { groupName: string; optionLabel: string }[];
   }[];
+  // Restaurant/platform minimum order gate (item subtotal, before delivery & voucher).
+  minimumOrder?: {
+    amount: number;
+    subtotal: number;
+    isMet: boolean;
+    amountShort: number;
+  };
   pricing: {
     subtotal: number;
     menuMarkdownAmount?: number;
@@ -846,6 +926,18 @@ export type CartQuoteResponse = {
     discountAmount: number;
     firstOrderDiscountAmount?: number;
     total: number;
+  };
+  // How the delivery fee splits, for a transparent "why this fee" breakdown in the cart.
+  deliveryBreakdown?: {
+    distanceKm: number | null;
+    baseFee: number;
+    baseCoversKm: number;
+    distanceSurchargeEnabled: boolean;
+    extraDistanceKm: number;
+    extraDistanceFee: number;
+    surchargeStepMeters: number;
+    surchargeAmountTaka: number;
+    totalFee: number;
   };
   appliedVouchers: {
     id: string;

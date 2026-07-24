@@ -20,11 +20,29 @@ import {
   RestaurantModel
 } from "../auth/auth.model"
 import { sendPushToCustomer } from "../customer/push.service"
-import { getRestaurantEnforcement, isRestaurantOrderingRestricted } from "../restaurant-enforcement"
-import { resolveServiceZoneForCoordinates } from "../service-area/service-area.service"
+import { invalidateCustomerRestaurantAvailabilityCaches } from "../customer/customer.service"
+import {
+  getOwnerRestaurantEnforcement,
+  getRestaurantEnforcement,
+  isRestaurantOrderingRestricted
+} from "../restaurant-enforcement"
+import {
+  getServiceHoursOverrideForZone,
+  resolveRestaurantServiceAreaSnapshot,
+  resolveServiceZoneForCoordinates,
+} from "../service-area/service-area.service"
+import {
+  evaluateServiceWindowForOverride,
+  formatMinuteOfDayLabel,
+} from "../service-area/service-hours"
+import { getPlatformServiceHours } from "../public/content.service"
 import { createOwnerNotification } from "./operational.service"
 import { ReviewModel, SupportCaseModel } from "./experience.model"
 import { OrderModel } from "./operational.model"
+import {
+  syncRestaurantAvailabilitySession,
+  type RestaurantAvailabilitySessionSource
+} from "./restaurant-availability-session.service"
 
 function buildRestaurantLocationPoint(
   latitude?: number | null,
@@ -286,7 +304,28 @@ export async function getStoreSettings(ownerId: string) {
   }
 
   const storeSettings = restaurant.toObject()
-  storeSettings.enforcement = getRestaurantEnforcement(storeSettings)
+  storeSettings.enforcement = getOwnerRestaurantEnforcement(storeSettings)
+
+  // Surface the platform/zone service window so the owner apps can explain why
+  // customers may see the restaurant as closed even when it is toggled online.
+  // Driven by the restaurant's own zone. Evaluated live (uncached endpoint).
+  const restaurantServiceArea =
+    (await resolveRestaurantServiceAreaSnapshot(restaurant)) ??
+    (storeSettings.serviceArea as { zoneId?: string } | null | undefined) ??
+    null
+  const serviceWindow = evaluateServiceWindowForOverride(
+    await getServiceHoursOverrideForZone(restaurantServiceArea?.zoneId),
+    await getPlatformServiceHours(),
+  )
+  ;(storeSettings as Record<string, any>).serviceHours = {
+    enabled: serviceWindow.enabled,
+    isOpenNow: serviceWindow.isOpen,
+    openMinute: serviceWindow.openMinute,
+    closeMinute: serviceWindow.closeMinute,
+    openLabel: formatMinuteOfDayLabel(serviceWindow.openMinute),
+    closeLabel: formatMinuteOfDayLabel(serviceWindow.closeMinute),
+    timezone: serviceWindow.timezone,
+  }
   return storeSettings
 }
 
@@ -498,8 +537,11 @@ export async function updateStoreSettings(params: {
 export async function updateRestaurantStatus(params: {
   ownerId: string
   isOnline: boolean
+  source?: RestaurantAvailabilitySessionSource
 }) {
   const { restaurant, restaurantId } = await getOwnerBusinessContext(params.ownerId)
+  const previousOnline = restaurant.runtime?.isOnline === true
+  const previousUpdatedAt = restaurant.updatedAt ?? new Date()
   if (params.isOnline && isRestaurantOrderingRestricted(restaurant)) {
     const enforcement = getRestaurantEnforcement(restaurant)
     throw new AppError(
@@ -518,6 +560,22 @@ export async function updateRestaurantStatus(params: {
 
   await restaurant.save()
 
+  const activeOrders = await OrderModel.find({
+    restaurantId,
+    status: { $in: ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"] }
+  }).select("customerId orderNumber status")
+
+  await syncRestaurantAvailabilitySession({
+    restaurantId,
+    ownerId: params.ownerId,
+    isOnline: params.isOnline,
+    source: params.source ?? "unknown",
+    endReason: params.isOnline ? undefined : "manual_offline",
+    activeOrderCount: activeOrders.length,
+    activeOrderNumbers: activeOrders.map((order) => order.orderNumber),
+    fallbackStartedAt: !params.isOnline && previousOnline ? previousUpdatedAt : null
+  })
+
   emitSocketEvent(`owner:${params.ownerId}`, "store.updated", {
     restaurantId,
     type: "status_updated",
@@ -529,10 +587,12 @@ export async function updateRestaurantStatus(params: {
     isOnline: params.isOnline
   })
 
-  const activeOrders = await OrderModel.find({
-    restaurantId,
-    status: { $in: ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"] }
-  }).select("customerId orderNumber status")
+  // The online/offline toggle changes customer-visible availability, so the customer
+  // discovery/detail/cart read caches MUST be flushed here — otherwise a warm cache
+  // serves the old status for up to TTL+SWR (~75s), which is why the change reflected
+  // instantly on a cold cache but lagged on a warm one. (Documented invariant; this
+  // call had regressed out of the toggle path.)
+  invalidateCustomerRestaurantAvailabilityCaches()
 
   const offlineActiveOrdersDedupeKey = `restaurant:${restaurantId}:offline_active_orders`
   if (!params.isOnline && activeOrders.length > 0) {
@@ -797,6 +857,103 @@ export async function listReviewsWithFilters(params: {
   ])
 
   return { items, total }
+}
+
+type ReviewHideReasonCategory =
+  | "fake_spam"
+  | "abusive_language"
+  | "wrong_restaurant_or_order"
+  | "unfair_misleading"
+  | "other"
+
+function reviewHideRequestDedupeKey(reviewId: string) {
+  return `review:${reviewId}:owner_hide_request`
+}
+
+function labelReviewHideReason(reasonCategory: ReviewHideReasonCategory) {
+  if (reasonCategory === "fake_spam") return "Fake or spam review"
+  if (reasonCategory === "abusive_language") return "Abusive language"
+  if (reasonCategory === "wrong_restaurant_or_order") return "Wrong restaurant or order"
+  if (reasonCategory === "unfair_misleading") return "Unfair or misleading review"
+  return "Other review concern"
+}
+
+export async function requestReviewHide(params: {
+  ownerId: string
+  reviewId: string
+  reasonCategory: ReviewHideReasonCategory
+  note?: string
+}) {
+  const { owner, restaurant, restaurantId } = await getOwnerBusinessContext(params.ownerId)
+  const review = await ReviewModel.findOne({ _id: params.reviewId, restaurantId })
+
+  if (!review) {
+    throw new AppError(StatusCodes.NOT_FOUND, "REVIEW_NOT_FOUND", "Review not found")
+  }
+
+  if (review.isHidden || review.moderationStatus === "hidden") {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "REVIEW_ALREADY_HIDDEN",
+      "This review is already hidden from customers"
+    )
+  }
+
+  const now = new Date()
+  const note = String(params.note ?? "").trim().slice(0, 500)
+  const reason = labelReviewHideReason(params.reasonCategory)
+  const historyReason = note ? `${reason}: ${note}` : reason
+
+  review.ownerHideRequest = {
+    status: "pending",
+    reasonCategory: params.reasonCategory,
+    note,
+    requestedAt: now,
+    reviewedAt: null,
+    reviewedByAdminId: "",
+    adminNote: ""
+  }
+  review.moderationHistory.push({
+    action: "owner_hide_requested",
+    reason: historyReason,
+    adminId: "",
+    createdAt: now
+  })
+  await review.save()
+
+  await createAdminOperationalAlert({
+    alertType: "review_hide_request",
+    severity: "warning",
+    title: "Owner requested review hide",
+    description: `${restaurant.name || "A restaurant"} asked admin to review a ${review.rating}-star customer review.`,
+    source: "owner",
+    entityType: "review",
+    entityId: review.id,
+    path: `/reviews?hideRequest=pending&review=${review.id}`,
+    iconKey: "star",
+    dedupeKey: reviewHideRequestDedupeKey(review.id),
+    metadata: {
+      ownerId: owner.id,
+      restaurantId,
+      restaurantName: restaurant.name ?? "",
+      rating: review.rating,
+      reasonCategory: params.reasonCategory,
+      note
+    }
+  })
+  emitSocketEvent("admin:ops", "admin.review.updated", {
+    reviewId: review.id,
+    restaurantId,
+    status: "hide_request_pending"
+  })
+
+  emitSocketEvent(`owner:${owner.id}`, "review.updated", {
+    reviewId: review.id,
+    restaurantId,
+    status: "hide_request_pending"
+  })
+
+  return review
 }
 
 export async function replyToReview(params: {

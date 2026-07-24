@@ -13,10 +13,17 @@ import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { ErrorRetryCard } from "@/src/components/error-retry-card";
 import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
+import {
+  RestaurantFilterSheet,
+  DEFAULT_RESTAURANT_FILTER_VALUES,
+  countActiveRestaurantFilters,
+  type RestaurantFilterValues,
+} from "@/src/components/restaurant-filter-sheet";
 import { Screen } from "@/src/components/screen";
 import {
   useCustomerDiscoveryHomeQuery,
@@ -68,6 +75,10 @@ export default function CustomerSearchScreen() {
   const listRef = useRef<FlashListRef<DiscoverableRestaurant>>(null);
   const [query, setQuery] = useState(typeof params.query === "string" ? params.query : "");
   const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [filterValues, setFilterValues] = useState<RestaurantFilterValues>(
+    DEFAULT_RESTAURANT_FILTER_VALUES,
+  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const isOnline = useIsOnline();
   const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
@@ -111,7 +122,10 @@ export default function CustomerSearchScreen() {
       longitude: selectedLocation?.longitude,
       search: searchQuery,
       pageSize: 12,
-      sortBy: "nearest",
+      filter: filterValues.filter,
+      sortBy: filterValues.sortBy,
+      minimumRating: filterValues.minimumRating,
+      maximumLowestPrice: filterValues.maximumLowestPrice,
     },
     searchQuery.length >= 2,
   );
@@ -124,10 +138,20 @@ export default function CustomerSearchScreen() {
 
   const restaurants = useMemo(
     () =>
-      dedupeById(discoveryQuery.data?.pages.flatMap((page) => page.items) ?? []),
-    [discoveryQuery.data],
+      // Only surface discovery results for an ACTIVE search (>= 2 chars, matching the query's
+      // own `enabled`). The empty-search query key collides with the Browse tab's nearby list
+      // (same location + default filters + empty search), and a disabled React Query still
+      // returns that shared cache — so after visiting Browse this list wrongly replaced the
+      // suggestions panel (categories / recently viewed) on an empty search. Gating on the
+      // term keeps the landing on suggestions no matter what is cached, and avoids rendering
+      // a heavy image list where only the lightweight suggestions belong.
+      searchQuery.length >= 2
+        ? dedupeById(discoveryQuery.data?.pages.flatMap((page) => page.items) ?? [])
+        : [],
+    [discoveryQuery.data, searchQuery],
   );
   const total = discoveryQuery.data?.pages[0]?.total ?? restaurants.length;
+  const activeFilterCount = countActiveRestaurantFilters(filterValues);
   const homeCategoryItems = useMemo(
     () => {
       const cmsItems = (homeDiscoveryQuery.data?.homeCms?.homeCategories?.items ?? [])
@@ -227,6 +251,29 @@ export default function CustomerSearchScreen() {
               </Pressable>
             ) : null}
           </View>
+          {searchQuery ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.filterButton,
+                pressed ? styles.filterButtonPressed : null,
+              ]}
+              onPress={() => setIsFilterOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={
+                activeFilterCount
+                  ? `Filters, ${activeFilterCount} active`
+                  : "Filters"
+              }
+              hitSlop={8}
+            >
+              <Ionicons name="options-outline" size={16} color="#fff" />
+              {activeFilterCount ? (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
         </View>
 
         {!isOnline ? (
@@ -379,6 +426,15 @@ export default function CustomerSearchScreen() {
               />
             ) : discoveryQuery.isLoading ? (
               <RestaurantListSkeleton count={4} compact variant="nearby" />
+            ) : discoveryQuery.isError ? (
+              <ErrorRetryCard
+                title="Couldn't load results"
+                description="We couldn't run your search right now. Check your connection and try again."
+                onRetry={() => {
+                  void discoveryQuery.refetch();
+                }}
+                retrying={discoveryQuery.isFetching}
+              />
             ) : (
               <EmptyStateCard
                 title="No food or restaurant found"
@@ -392,6 +448,7 @@ export default function CustomerSearchScreen() {
               subtitle={restaurantSubtitle(item)}
               imageUrl={item.coverImage?.url || item.logo?.url || null}
               isOpen={item.isOpen !== false}
+              availability={item.availability}
               offerLabel={offerLabelByRestaurantId.get(item._id)}
               distanceKm={item.distanceKm}
               avgRating={item.avgRating}
@@ -408,6 +465,16 @@ export default function CustomerSearchScreen() {
           )}
         />
         </View>
+
+        <RestaurantFilterSheet
+          visible={isFilterOpen}
+          onClose={() => setIsFilterOpen(false)}
+          value={filterValues}
+          onApply={setFilterValues}
+          latitude={selectedLocation?.latitude}
+          longitude={selectedLocation?.longitude}
+          search={searchQuery}
+        />
       </View>
     </Screen>
   );
@@ -633,6 +700,40 @@ const styles = StyleSheet.create({
   resultHeader: {
     marginBottom: 14,
     gap: 2,
+  },
+  filterButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: palette.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    flexShrink: 0,
+  },
+  filterButtonPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.97 }],
+  },
+  filterBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.foreground,
+    borderWidth: 1,
+    borderColor: palette.surface,
+  },
+  filterBadgeText: {
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: "800",
+    color: palette.surface,
   },
   resultTitle: {
     fontSize: 20,

@@ -12,6 +12,7 @@ import {
   createSupportWriteLimiter,
   createAnalyticsEventLimiter,
   createCartQuoteLimiter,
+  createFavoriteToggleLimiter,
   createCouponAttemptLimiter,
   createCustomerOrderReadLimiter
 } from "../../common/middleware/rate-limit"
@@ -35,6 +36,7 @@ import {
   getCustomerDiscoveryHomePage,
   getCustomerFavoriteRestaurants,
   postCustomerVoucherDisplayEvent,
+  postCustomerPollVote,
   postCustomerPushOpenEvent,
   getCustomerFavoriteRestaurantCards,
   getCustomerRestaurant,
@@ -89,6 +91,7 @@ const customerPaymentLimiter = createPaymentLimiter()
 const customerOrderActionLimiter = createOrderActionLimiter()
 const customerAnalyticsEventLimiter = createAnalyticsEventLimiter()
 const customerCartQuoteLimiter = createCartQuoteLimiter()
+const customerFavoriteToggleLimiter = createFavoriteToggleLimiter()
 const customerCouponAttemptLimiter = createCouponAttemptLimiter()
 const customerOrderPlaceLimiter = createOrderPlaceLimiter()
 const customerOrderReadLimiter = createCustomerOrderReadLimiter()
@@ -172,6 +175,7 @@ customerRouter.post("/auth/refresh", customerRefreshLimiter, refreshCustomerAuth
 customerRouter.post("/auth/logout", logoutCustomerAuth)
 customerRouter.get("/discovery/home", getCustomerDiscoveryHomePage)
 customerRouter.post("/vouchers/display-event", customerAnalyticsEventLimiter, postCustomerVoucherDisplayEvent)
+customerRouter.post("/home/poll/vote", customerAnalyticsEventLimiter, postCustomerPollVote)
 customerRouter.post("/push-events/open", requireAuth, requireRole("customer"), postCustomerPushOpenEvent)
 customerRouter.get("/restaurants", getCustomerDiscovery)
 customerRouter.get("/restaurants/search", getCustomerDiscoverySearch)
@@ -207,6 +211,7 @@ customerRouter.post(
   "/favorites/restaurants/:restaurantId/toggle",
   requireAuth,
   requireRole("customer"),
+  customerFavoriteToggleLimiter,
   postCustomerFavoriteToggle
 )
 customerRouter.get("/locations", requireAuth, requireRole("customer"), getCustomerLocations)

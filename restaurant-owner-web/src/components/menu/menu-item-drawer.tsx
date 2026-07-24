@@ -32,6 +32,11 @@ import {
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  DEFAULT_CATALOG_DESCRIPTION_LIMITS,
+  clampCatalogDescription,
+  getRemainingCatalogDescriptionChars,
+} from "@/lib/catalog-description-limits"
 
 export type MenuItemSubmitPayload = {
   name: string
@@ -55,14 +60,20 @@ export type MenuItemSubmitPayload = {
   recommendedItemIds?: string[]
 }
 
-function getFormStateFromItem(item: MenuItem): MenuItemFormState {
+function getFormStateFromItem(
+  item: MenuItem,
+  descriptionMaxLength: number
+): MenuItemFormState {
   return {
     name: item.name,
     slug: item.slug,
     imageUrl: item.imageUrl,
     isPopular: item.isPopular,
     categoryId: item.categoryId,
-    description: item.description,
+    description: clampCatalogDescription(
+      item.description,
+      descriptionMaxLength
+    ),
     status: item.status,
     hasVariants: item.variants.length > 0,
     hasAddOns: item.addOnGroups.length > 0,
@@ -99,6 +110,7 @@ export function MenuItemDrawer({
   categories,
   recommendationOptions = [],
   existingSlugs,
+  descriptionMaxLength = DEFAULT_CATALOG_DESCRIPTION_LIMITS.menuItem,
   onSubmitItem,
   isSubmitting = false,
 }: {
@@ -115,6 +127,7 @@ export function MenuItemDrawer({
     categoryName?: string
   }>
   existingSlugs: string[]
+  descriptionMaxLength?: number
   onSubmitItem: (payload: MenuItemSubmitPayload) => void
   isSubmitting?: boolean
 }) {
@@ -139,7 +152,7 @@ export function MenuItemDrawer({
     }
 
     if (item) {
-      setForm(getFormStateFromItem(item))
+      setForm(getFormStateFromItem(item, descriptionMaxLength))
       setIsSlugTouched(true)
       setErrors({})
       return
@@ -148,7 +161,7 @@ export function MenuItemDrawer({
     setForm(getInitialMenuItemFormState())
     setIsSlugTouched(false)
     setErrors({})
-  }, [item, open])
+  }, [descriptionMaxLength, item, open])
 
   function updateForm<K extends keyof MenuItemFormState>(
     key: K,
@@ -170,6 +183,13 @@ export function MenuItemDrawer({
     setIsSlugTouched(true)
     setForm((current) => ({ ...current, slug: createMenuItemSlug(value) }))
     setErrors((current) => ({ ...current, slug: "" }))
+  }
+
+  function handleDescriptionChange(value: string) {
+    updateForm(
+      "description",
+      clampCatalogDescription(value, descriptionMaxLength)
+    )
   }
 
   function addVariant() {
@@ -366,7 +386,10 @@ export function MenuItemDrawer({
         "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=160&q=80",
       isPopular: form.isPopular,
       categoryId: form.categoryId,
-      description: form.description.trim(),
+      description: clampCatalogDescription(
+        form.description.trim(),
+        descriptionMaxLength
+      ),
       status: form.status,
       hasVariants: form.hasVariants,
       hasAddOns: form.hasAddOns,
@@ -588,12 +611,22 @@ export function MenuItemDrawer({
                   </div>
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium">Description</label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium">Description</label>
+                    <span className="text-xs text-muted-foreground">
+                      {getRemainingCatalogDescriptionChars(
+                        form.description,
+                        descriptionMaxLength
+                      )}{" "}
+                      left
+                    </span>
+                  </div>
                   <Textarea
                     value={form.description}
                     onChange={(event) =>
-                      updateForm("description", event.target.value)
+                      handleDescriptionChange(event.target.value)
                     }
+                    maxLength={descriptionMaxLength}
                     placeholder="Short menu description"
                   />
                 </div>

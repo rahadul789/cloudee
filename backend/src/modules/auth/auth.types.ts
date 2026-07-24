@@ -5,6 +5,9 @@ export type JwtPayload = {
   role: "owner" | "admin" | "customer" | "rider" | "system"
   restaurantId?: string
   tokenId?: string
+  // Present only on admin-impersonation sessions: the admin acting as this user.
+  // Surfaced on req.user so audit/guards can see the real actor behind the session.
+  impersonatedByAdminId?: string
 }
 
 export type SendOtpParams = {

@@ -10,6 +10,8 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { useOwnerTranslation } from "@/src/i18n/translations";
+import { localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 type OwnerOtpFieldProps = {
@@ -33,12 +35,14 @@ export function OwnerOtpField({
   autoFocus = false,
   disabled = false,
   hasError = false,
-  label = "Verification code",
+  label,
   length = DEFAULT_OTP_LENGTH,
   onChange,
   style,
   value,
 }: OwnerOtpFieldProps) {
+  const { t } = useOwnerTranslation();
+  const resolvedLabel = label ?? t("otp.codeLabel");
   const inputRef = useRef<TextInput | null>(null);
   const cursorOpacity = useRef(new Animated.Value(1)).current;
   const [isFocused, setIsFocused] = useState(false);
@@ -97,14 +101,14 @@ export function OwnerOtpField({
       ]}
     >
       <View style={styles.header}>
-        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.label}>{resolvedLabel}</Text>
         <Text style={styles.counter}>
-          {code.length}/{length}
+          {localizeDigits(String(code.length))}/{localizeDigits(String(length))}
         </Text>
       </View>
 
       <Pressable
-        accessibilityLabel={label}
+        accessibilityLabel={resolvedLabel}
         accessibilityRole="keyboardkey"
         disabled={disabled}
         onPress={focusInput}

@@ -20,8 +20,10 @@ const historyOrderStatuses: OwnerOrderStatus[] = ["Delivered", "Cancelled", "Rej
 
 function getPlacedAt(order: OwnerOrder) {
   return new Date(
-    order.timestamps?.placedAt ??
+    order.timestamps?.createdAt ??
+      order.timestamps?.placedAt ??
       order.timestamps?.New ??
+      order.createdAt ??
       order.history?.[0]?.createdAt ??
       0,
   ).getTime();

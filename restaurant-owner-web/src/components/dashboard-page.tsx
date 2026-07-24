@@ -40,6 +40,8 @@ import {
 } from "lucide-react"
 import { Link } from "react-router-dom"
 
+import { EnforcementBanner } from "@/components/enforcement-banner"
+import { ServiceHoursBanner } from "@/components/service-hours-banner"
 import { useOpeningHours } from "@/components/hours/opening-hours-context"
 import { useMenuItems } from "@/components/menu/menu-items-context"
 import {
@@ -972,6 +974,9 @@ export function DashboardPage() {
           patchOwnerOrderQueryCaches(queryClient, updated)
           queryClient.invalidateQueries({ queryKey: ["owner", "orders"] })
           queryClient.invalidateQueries({
+            queryKey: ["owner", "sidebar-summary"],
+          })
+          queryClient.invalidateQueries({
             queryKey: ["owner", "dashboard", "summary"],
           })
           queryClient.invalidateQueries({
@@ -1003,6 +1008,8 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-4 px-4 lg:px-6">
+      <EnforcementBanner />
+      <ServiceHoursBanner />
       <div className="rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <OrderDateFilter

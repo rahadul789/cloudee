@@ -289,6 +289,15 @@ export function PayoutsPage() {
     page: transactionPageIndex + 1,
     pageSize: transactionPageSize,
   })
+  const payoutStatementTransactionsQuery = useOwnerPayoutTransactionsQuery(
+    ownerAccount.isAuthenticated && Boolean(viewingPayout?.id),
+    {
+      payoutId: viewingPayout?.id,
+      sortBy: "oldest",
+      page: 1,
+      pageSize: 2000,
+    }
+  )
   const updatePayoutMethodMutation = useUpdateOwnerPayoutMethodMutation()
   const requestPayoutMutation = useRequestOwnerPayoutMutation()
   const hasPayoutData =
@@ -302,11 +311,6 @@ export function PayoutsPage() {
     (payoutSummaryQuery.isPending ||
       payoutHistoryQuery.isPending ||
       payoutTransactionsQuery.isPending)
-  const isRefreshing =
-    !initialLoading &&
-    (payoutSummaryQuery.isFetching ||
-      payoutHistoryQuery.isFetching ||
-      payoutTransactionsQuery.isFetching)
 
   const earningsSummary = React.useMemo(
     () => calculateEarningsSummary(payoutTransactions, payouts),
@@ -382,6 +386,23 @@ export function PayoutsPage() {
       payoutTransactionsQuery.data as OwnerListResponse<OwnerPayoutTransactionResponse>
     ).items.map(mapOwnerPayoutTransaction)
   }, [payoutTransactions, payoutTransactionsQuery.data])
+
+  const payoutStatementTransactions = React.useMemo(() => {
+    if (!viewingPayout) return []
+    if (payoutStatementTransactionsQuery.data) {
+      return (
+        payoutStatementTransactionsQuery.data as OwnerListResponse<OwnerPayoutTransactionResponse>
+      ).items.map(mapOwnerPayoutTransaction)
+    }
+
+    return filteredTransactions.filter(
+      (transaction) => transaction.payoutId === viewingPayout.id
+    )
+  }, [
+    filteredTransactions,
+    payoutStatementTransactionsQuery.data,
+    viewingPayout,
+  ])
 
   React.useEffect(() => {
     const queryTab = searchParams.get("tab")
@@ -649,13 +670,7 @@ export function PayoutsPage() {
   }
 
   function openPrintableStatement(title: string, body: string) {
-    const popup = window.open("", "_blank", "noopener,noreferrer")
-    if (!popup) {
-      toast.error("Popup blocked. Allow popups to print the statement.")
-      return
-    }
-
-    popup.document.write(`
+    const html = `
       <!doctype html>
       <html>
         <head>
@@ -679,33 +694,119 @@ export function PayoutsPage() {
         </head>
         <body>
           <div class="shell">${body}</div>
-          <script>window.onload = () => { window.print(); }</script>
         </body>
       </html>
-    `)
-    popup.document.close()
+    `
+    const frame = document.createElement("iframe")
+    const objectUrl = URL.createObjectURL(
+      new Blob([html], { type: "text/html;charset=utf-8" })
+    )
+    let cleanupTimer: number | undefined
+    let didCleanup = false
+
+    const cleanup = () => {
+      if (didCleanup) return
+      didCleanup = true
+      if (cleanupTimer) window.clearTimeout(cleanupTimer)
+      URL.revokeObjectURL(objectUrl)
+      frame.remove()
+    }
+
+    frame.title = title
+    frame.setAttribute("aria-hidden", "true")
+    frame.style.position = "fixed"
+    frame.style.right = "0"
+    frame.style.bottom = "0"
+    frame.style.width = "0"
+    frame.style.height = "0"
+    frame.style.border = "0"
+
+    frame.onload = () => {
+      const printWindow = frame.contentWindow
+      if (!printWindow) {
+        toast.error("Unable to prepare the statement for printing.")
+        cleanup()
+        return
+      }
+
+      printWindow.addEventListener("afterprint", cleanup, { once: true })
+      cleanupTimer = window.setTimeout(cleanup, 120_000)
+
+      try {
+        printWindow.focus()
+        printWindow.print()
+      } catch {
+        toast.error("Unable to open the print dialog.")
+        cleanup()
+      }
+    }
+    frame.onerror = () => {
+      toast.error("Unable to prepare the statement for printing.")
+      cleanup()
+    }
+    frame.src = objectUrl
+    document.body.appendChild(frame)
   }
 
-  function handlePrintPayoutStatement(payout: Payout) {
-    const linkedTransactions = filteredTransactions.filter(
-      (transaction) => transaction.payoutId === payout.id
+  function handlePrintPayoutStatement(
+    payout: Payout,
+    statementTransactions: EarningTransaction[]
+  ) {
+    const orderTransactions = statementTransactions.filter(
+      (transaction) => transaction.type !== "payout"
     )
-    const transactionRows = linkedTransactions.length
-      ? linkedTransactions
+    const payoutLedgerRows = statementTransactions.filter(
+      (transaction) => transaction.type === "payout"
+    )
+    const statementTotals = orderTransactions.reduce(
+      (totals, transaction) => ({
+        grossAmount: totals.grossAmount + transaction.grossAmount,
+        commission: totals.commission + transaction.commission,
+        discountCost: totals.discountCost + transaction.discountCost,
+        deliveryCost: totals.deliveryCost + transaction.deliveryCost,
+        netAmount: totals.netAmount + transaction.netAmount,
+      }),
+      {
+        grossAmount: 0,
+        commission: 0,
+        discountCost: 0,
+        deliveryCost: 0,
+        netAmount: 0,
+      }
+    )
+    const transactionRows = orderTransactions.length
+      ? orderTransactions
           .map(
             (transaction) => `
               <tr>
                 <td>${escapeHtml(transaction.orderNumber)}</td>
                 <td>${escapeHtml(transaction.type)}</td>
+                <td>${escapeHtml(transaction.paymentMethod || "--")}</td>
+                <td>${escapeHtml(transaction.deliveredAt ? format(new Date(transaction.deliveredAt), "dd MMM yyyy") : "--")}</td>
                 <td class="right">${escapeHtml(formatPayoutMoney(transaction.grossAmount))}</td>
                 <td class="right">${escapeHtml(formatPayoutMoney(transaction.commission))}</td>
                 <td class="right">${escapeHtml(formatPayoutMoney(transaction.discountCost))}</td>
+                <td class="right">${escapeHtml(formatPayoutMoney(transaction.deliveryCost))}</td>
                 <td class="right">${escapeHtml(formatPayoutMoney(transaction.netAmount))}</td>
               </tr>
             `
           )
           .join("")
-      : `<tr><td colspan="6" class="muted">Linked transaction rows are not loaded in the current filter.</td></tr>`
+      : `<tr><td colspan="9" class="muted">No included order transaction rows were found for this payout.</td></tr>`
+    const payoutRows = payoutLedgerRows.length
+      ? payoutLedgerRows
+          .map(
+            (transaction) => `
+              <tr>
+                <td>${escapeHtml(transaction.id)}</td>
+                <td>${escapeHtml(transaction.type)}</td>
+                <td>${escapeHtml(format(new Date(transaction.createdAt), "dd MMM yyyy, hh:mm a"))}</td>
+                <td class="right">${escapeHtml(formatPayoutMoney(transaction.netAmount))}</td>
+              </tr>
+            `
+          )
+          .join("")
+      : `<tr><td colspan="4" class="muted">No payout debit row was returned for this statement.</td></tr>`
     const body = `
       <div class="header">
         <div>
@@ -727,20 +828,47 @@ export function PayoutsPage() {
         <div class="box"><div class="muted">Processed at</div><strong>${escapeHtml(payout.processedAt ? format(new Date(payout.processedAt), "dd MMM yyyy, hh:mm a") : "Not processed yet")}</strong></div>
         <div class="box"><div class="muted">Reference</div><strong>${escapeHtml(payout.providerReference || payout.providerPayoutId || payout.transactionId || "--")}</strong></div>
         <div class="box"><div class="muted">Batch</div><strong>${escapeHtml(payout.batchReference || "--")}</strong></div>
+        <div class="box"><div class="muted">Included orders</div><strong>${escapeHtml(orderTransactions.length)}</strong></div>
+        <div class="box"><div class="muted">Net from orders</div><strong>${escapeHtml(formatPayoutMoney(statementTotals.netAmount))}</strong></div>
       </div>
-      <h2>Included earning rows</h2>
+      <h2>Included order transactions</h2>
       <table>
         <thead>
           <tr>
             <th>Order</th>
             <th>Type</th>
+            <th>Payment</th>
+            <th>Delivered</th>
             <th class="right">Food sales</th>
             <th class="right">Commission</th>
             <th class="right">Owner discount</th>
+            <th class="right">Delivery cost</th>
             <th class="right">Owner earning</th>
           </tr>
         </thead>
         <tbody>${transactionRows}</tbody>
+        <tfoot>
+          <tr>
+            <th colspan="4">Total</th>
+            <th class="right">${escapeHtml(formatPayoutMoney(statementTotals.grossAmount))}</th>
+            <th class="right">${escapeHtml(formatPayoutMoney(statementTotals.commission))}</th>
+            <th class="right">${escapeHtml(formatPayoutMoney(statementTotals.discountCost))}</th>
+            <th class="right">${escapeHtml(formatPayoutMoney(statementTotals.deliveryCost))}</th>
+            <th class="right">${escapeHtml(formatPayoutMoney(statementTotals.netAmount))}</th>
+          </tr>
+        </tfoot>
+      </table>
+      <h2>Payout ledger movement</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Ledger row</th>
+            <th>Type</th>
+            <th>Created</th>
+            <th class="right">Net movement</th>
+          </tr>
+        </thead>
+        <tbody>${payoutRows}</tbody>
       </table>
       <p class="muted">Generated ${escapeHtml(format(new Date(), "dd MMM yyyy, hh:mm a"))}. Settlement rule: T+${settlementDelayDays} days. Admin sends payout when eligible balance is available.</p>
     `
@@ -826,6 +954,11 @@ export function PayoutsPage() {
         payout={viewingPayout}
         open={!!viewingPayout}
         onPrintStatement={handlePrintPayoutStatement}
+        transactions={payoutStatementTransactions}
+        isTransactionsLoading={
+          payoutStatementTransactionsQuery.isPending ||
+          payoutStatementTransactionsQuery.isFetching
+        }
         onOpenChange={(open) => {
           if (!open) {
             setViewingPayout(null)
@@ -917,13 +1050,6 @@ export function PayoutsPage() {
           }
         }}
       />
-
-      {isRefreshing ? (
-        <div className="inline-flex w-fit items-center gap-2 rounded-full border bg-background/90 px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
-          <LoaderCircle className="size-4 animate-spin text-primary" />
-          Updating payouts
-        </div>
-      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <Card className="rounded-2xl shadow-sm">

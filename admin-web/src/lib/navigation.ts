@@ -4,6 +4,7 @@ import {
   CircleAlert,
   Bell,
   BookOpenText,
+  ClipboardCheck,
   CreditCard,
   Gift,
   Globe2,
@@ -95,6 +96,11 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         to: "/restaurants",
         icon: Store,
         badgeKey: "restaurantApprovals",
+      },
+      {
+        title: "Menu Approvals",
+        to: "/menu-approvals",
+        icon: ClipboardCheck,
       },
       {
         title: "Food Categories",
@@ -198,7 +204,7 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         icon: BarChart3,
       },
       {
-        title: "Referrals",
+        title: "Referrals & FFO",
         to: "/referrals",
         icon: Gift,
       },

@@ -14,7 +14,7 @@ import {
 } from "react-native";
 
 import { RemoteImage } from "@/src/components/remote-image";
-import { apiPost } from "@/src/lib/api";
+import { apiPostWithOptionalAuth } from "@/src/lib/api";
 import { resolveCustomerRoute } from "@/src/lib/customer-routes";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import type {
@@ -27,7 +27,7 @@ export function recordCampaignEvent(
   eventType: "impression" | "click" | "modal_open" | "strip_click",
 ) {
   if (!voucherId) return;
-  void apiPost("/customer/vouchers/display-event", {
+  void apiPostWithOptionalAuth("/customer/vouchers/display-event", {
     voucherId,
     eventType,
   }).catch(() => undefined);
@@ -45,9 +45,9 @@ export function recordHomeCmsEvent(
     | "guide_video_click"
     | "guide_image_click",
 ) {
-  void apiPost("/public/content/customer-home-event", { eventType }).catch(
-    () => undefined,
-  );
+  void apiPostWithOptionalAuth("/public/content/customer-home-event", {
+    eventType,
+  }).catch(() => undefined);
 }
 
 export function getBannerToneStyle(

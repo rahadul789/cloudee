@@ -9,12 +9,14 @@ import {
   useMapEvents,
 } from "react-leaflet"
 import {
+  BarChart3,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
   CircleDollarSign,
   Clock3,
   Coins,
+  Copy,
   Crosshair,
   Eye,
   EyeOff,
@@ -22,6 +24,7 @@ import {
   FileText,
   FileUp,
   Loader2,
+  LogIn,
   MoreHorizontal,
   PackageCheck,
   Percent,
@@ -39,18 +42,22 @@ import {
   XCircle,
 } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import "leaflet/dist/leaflet.css"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { generatePinPassword, isPinPassword } from "@/lib/pin-password"
 import {
   approveReviewCase,
   assignAdminOrderRider,
   createAdminRestaurant,
   deleteAdminRestaurant,
   deleteAdminRestaurantReview,
+  getAdminFinancePayoutBatchStatement,
   getAdminServiceAreas,
   getAdminRestaurant,
+  impersonateRestaurantOwner,
   listAdminRestaurantPromotions,
   listAdminRestaurants,
   listAdminRestaurantOrders,
@@ -62,6 +69,7 @@ import {
   startReviewCase,
   updateAdminOrderStatus,
   updateAdminRestaurantCommission,
+  updateAdminRestaurantMinimumOrder,
   updateAdminRestaurantDeliveryPricing,
   updateAdminRestaurantEnforcement,
   updateAdminRestaurantMerchandising,
@@ -69,6 +77,7 @@ import {
   updateAdminRestaurantVisibility,
   uploadAdminMedia,
   type AdminRestaurantDocumentAttachment,
+  type AdminFinancePayoutStatement,
   type AdminRestaurantOrderHistoryItem,
   type AdminRestaurantCreateInput,
   type AdminRestaurantDetails,
@@ -81,7 +90,13 @@ import {
   type AdminRestaurantOrderDateFilterPreset,
   type ReviewCase,
 } from "@/lib/admin-api"
+import { printReportInFrame } from "@/lib/export-utils"
+import {
+  buildAdminPayoutStatementHtml,
+  getAdminPayoutStatementTitle,
+} from "@/lib/payout-statement-export"
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
+import { PayoutStatementDrawer } from "@/components/payout-statement-drawer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -243,11 +258,10 @@ const defaultColumnVisibility: Record<RestaurantColumnKey, boolean> = {
   commission: true,
 }
 
-const defaultCreateForm: AdminRestaurantCreateInput = {
+const defaultCreateFormBase: Omit<AdminRestaurantCreateInput, "temporaryPassword"> = {
   ownerFullName: "",
   ownerPhone: "",
   ownerEmail: "",
-  temporaryPassword: "Owner@12345",
   name: "",
   phone: "",
   email: "",
@@ -263,6 +277,13 @@ const defaultCreateForm: AdminRestaurantCreateInput = {
   commissionRate: 15,
   isVisible: true,
   documents: [],
+}
+
+function createDefaultRestaurantForm(): AdminRestaurantCreateInput {
+  return {
+    ...defaultCreateFormBase,
+    temporaryPassword: generatePinPassword(),
+  }
 }
 
 const RESTAURANT_DOCUMENT_OPTIONS: Array<{
@@ -750,9 +771,9 @@ function AddRestaurantDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
-  const [form, setForm] = React.useState<AdminRestaurantCreateInput>({
-    ...defaultCreateForm,
-  })
+  const [form, setForm] = React.useState<AdminRestaurantCreateInput>(() =>
+    createDefaultRestaurantForm()
+  )
   const [cuisineInput, setCuisineInput] = React.useState("")
   const [tagInput, setTagInput] = React.useState("")
   const [isLocating, setIsLocating] = React.useState(false)
@@ -795,7 +816,7 @@ function AddRestaurantDialog({
     mutationFn: createAdminRestaurant,
     onSuccess: () => {
       toast.success("Restaurant added successfully.")
-      setForm({ ...defaultCreateForm, cuisineTypes: [], tags: [] })
+      setForm(createDefaultRestaurantForm())
       setUseOwnerPhoneForRestaurant(true)
       setUseOwnerPhoneForBkash(true)
       setCuisineInput("")
@@ -822,6 +843,19 @@ function AddRestaurantDialog({
       delete next[key]
       return next
     })
+  }
+
+  function regenerateOwnerPin() {
+    updateForm("temporaryPassword", generatePinPassword())
+  }
+
+  async function copyOwnerPin() {
+    try {
+      await navigator.clipboard.writeText(form.temporaryPassword)
+      toast.success("Temporary PIN copied.")
+    } catch {
+      toast.error("Could not copy PIN.")
+    }
   }
 
   function selectServiceZone(zoneId: string) {
@@ -981,9 +1015,9 @@ function AddRestaurantDialog({
     if (!isValidBangladeshPhone(ownerPhone)) {
       nextErrors.ownerPhone = "Enter a valid 11-digit owner phone number."
     }
-    if (form.temporaryPassword.trim().length < 6) {
+    if (!isPinPassword(form.temporaryPassword)) {
       nextErrors.temporaryPassword =
-        "Temporary password must be at least 6 characters."
+        "Temporary password must be a 6-digit PIN."
     }
     if (form.name.trim().length < 2) {
       nextErrors.name = "Restaurant name must be at least 2 characters."
@@ -1103,15 +1137,32 @@ function AddRestaurantDialog({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="owner-password">Temporary password</Label>
-                  <Input
-                    id="owner-password"
-                    value={form.temporaryPassword}
-                    onChange={(event) =>
-                      updateForm("temporaryPassword", event.target.value)
-                    }
-                    minLength={6}
-                    aria-invalid={Boolean(formErrors.temporaryPassword)}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="owner-password"
+                      value={form.temporaryPassword}
+                      onChange={(event) =>
+                        updateForm(
+                          "temporaryPassword",
+                          event.target.value.replace(/\D/g, "").slice(0, 6)
+                        )
+                      }
+                      inputMode="numeric"
+                      maxLength={6}
+                      aria-invalid={Boolean(formErrors.temporaryPassword)}
+                    />
+                    <Button type="button" variant="outline" size="icon" onClick={regenerateOwnerPin}>
+                      <RotateCcw className="size-4" />
+                      <span className="sr-only">Generate new PIN</span>
+                    </Button>
+                    <Button type="button" variant="outline" size="icon" onClick={() => void copyOwnerPin()}>
+                      <Copy className="size-4" />
+                      <span className="sr-only">Copy PIN</span>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Owner can sign in with phone number and this 6-digit PIN.
+                  </p>
                   {formErrors.temporaryPassword ? (
                     <p className="text-sm text-destructive">
                       {formErrors.temporaryPassword}
@@ -1638,6 +1689,13 @@ function RestaurantDetailsSheet({
     amountMatched: false,
     referenceReady: false,
   })
+  const [payoutStatement, setPayoutStatement] =
+    React.useState<AdminFinancePayoutStatement | null>(null)
+  const [payoutStatementReviewed, setPayoutStatementReviewed] =
+    React.useState(false)
+  const [payoutStatementError, setPayoutStatementError] = React.useState("")
+  const [payoutStatementDrawerOpen, setPayoutStatementDrawerOpen] =
+    React.useState(false)
   const [detailsPreset, setDetailsPreset] =
     React.useState<RestaurantOrderPreset>("last7Days")
   const [detailsFrom, setDetailsFrom] = React.useState("")
@@ -1806,6 +1864,44 @@ function RestaurantDetailsSheet({
     },
   })
 
+  const payoutStatementMutation = useMutation({
+    mutationFn: getAdminFinancePayoutBatchStatement,
+    onSuccess: (statement) => {
+      setPayoutStatement(statement)
+      setPayoutStatementDrawerOpen(true)
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Payout statement could not be loaded."
+      )
+    },
+  })
+
+  function printPayoutStatement(statement: AdminFinancePayoutStatement) {
+    const printed = printReportInFrame(
+      getAdminPayoutStatementTitle(statement),
+      buildAdminPayoutStatementHtml(statement)
+    )
+    if (!printed) toast.error("Unable to prepare payout statement.")
+  }
+
+  async function downloadPayoutActionStatement() {
+    if (!payoutActionTarget) return
+    try {
+      const statement = await getAdminFinancePayoutBatchStatement(
+        payoutActionTarget.payoutId
+      )
+      printPayoutStatement(statement)
+      setPayoutStatement(statement)
+      setPayoutStatementReviewed(false)
+      setPayoutStatementError("")
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Payout statement could not be loaded."
+      )
+    }
+  }
+
   function updateCommission() {
     const commissionRate = Number(commissionDraft)
     if (Number.isNaN(commissionRate)) return
@@ -1910,10 +2006,20 @@ function RestaurantDetailsSheet({
       amountMatched: false,
       referenceReady: false,
     })
+    setPayoutStatement(null)
+    setPayoutStatementReviewed(false)
+    setPayoutStatementError("")
   }
 
   function submitPayoutStatusAction() {
     if (!payoutActionTarget) return
+    if (
+      payoutActionTarget.status === "completed" &&
+      (!payoutStatement || !payoutStatementReviewed)
+    ) {
+      setPayoutStatementError("Download and check the payout statement before completing payout.")
+      return
+    }
     payoutStatusMutation.mutate(
       {
         restaurantId,
@@ -1925,6 +2031,12 @@ function RestaurantDetailsSheet({
         providerTransactionId: payoutProviderTransactionId || undefined,
         paymentProofUrl: payoutPaymentProofUrl || undefined,
         processingNote: payoutProcessingNote || undefined,
+        statementReviewed:
+          payoutActionTarget.status === "completed" ? payoutStatementReviewed : undefined,
+        statementChecksum:
+          payoutActionTarget.status === "completed"
+            ? payoutStatement?.statementChecksum
+            : undefined,
         notifyOwnerSms:
           payoutActionTarget.status === "completed" ? payoutNotifyOwnerSms : false,
         failureReason:
@@ -2039,6 +2151,10 @@ function RestaurantDetailsSheet({
               onPayoutStatusChange={(payoutId, status, expectedStatus, amount) =>
                 openPayoutStatusAction(payoutId, status, expectedStatus, amount)
               }
+              onPayoutStatementView={(payoutId) =>
+                payoutStatementMutation.mutate(payoutId)
+              }
+              payoutStatementPending={payoutStatementMutation.isPending}
               detailsPreset={detailsPreset}
               detailsFrom={detailsFrom}
               detailsTo={detailsTo}
@@ -2099,6 +2215,50 @@ function RestaurantDetailsSheet({
                   </label>
                 ))}
               </div>
+            </div>
+          ) : null}
+          {payoutActionTarget?.status === "completed" ? (
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="font-medium">Transaction statement</div>
+                  <div className="text-muted-foreground">
+                    Download the order breakdown before completing payout.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void downloadPayoutActionStatement()}
+                >
+                  <FileText className="size-4" />
+                  Download PDF
+                </Button>
+              </div>
+              <label className="mt-3 flex items-start gap-3">
+                <Checkbox
+                  checked={payoutStatementReviewed}
+                  disabled={!payoutStatement}
+                  onCheckedChange={(checked) => {
+                    setPayoutStatementReviewed(checked === true)
+                    setPayoutStatementError("")
+                  }}
+                />
+                <span>
+                  <span className="block font-medium">I checked this statement</span>
+                  <span className="text-muted-foreground">
+                    {payoutStatement
+                      ? `Checksum ${payoutStatement.statementChecksum.slice(0, 16)}`
+                      : "Download first to unlock this confirmation."}
+                  </span>
+                </span>
+              </label>
+              {payoutStatementError ? (
+                <p className="mt-2 text-xs font-medium text-destructive">
+                  {payoutStatementError}
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className="grid gap-2">
@@ -2199,6 +2359,12 @@ function RestaurantDetailsSheet({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <PayoutStatementDrawer
+      statement={payoutStatement}
+      open={payoutStatementDrawerOpen}
+      onOpenChange={setPayoutStatementDrawerOpen}
+      onPrint={printPayoutStatement}
+    />
     </>
   )
 }
@@ -3374,6 +3540,150 @@ function datetimeLocalToIso(value: string) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
+function MinimumOrderControl({
+  restaurantId,
+  current,
+}: {
+  restaurantId: string
+  current: number | null
+}) {
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = React.useState(
+    current === null ? "" : String(current),
+  )
+
+  React.useEffect(() => {
+    setDraft(current === null ? "" : String(current))
+  }, [current])
+
+  const mutation = useMutation({
+    mutationFn: updateAdminRestaurantMinimumOrder,
+    onSuccess: () => {
+      toast.success("Minimum order updated.")
+      void queryClient.invalidateQueries({ queryKey: ["admin-restaurants"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-restaurant-details", restaurantId],
+      })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Minimum order update failed.",
+      )
+    },
+  })
+
+  function save() {
+    const trimmed = draft.trim()
+    if (trimmed === "") {
+      mutation.mutate({ restaurantId, minimumOrderAmount: null })
+      return
+    }
+    const value = Math.round(Number(trimmed))
+    if (!Number.isFinite(value) || value < 0) {
+      toast.error("Enter a valid amount (or leave blank to use the platform default).")
+      return
+    }
+    mutation.mutate({ restaurantId, minimumOrderAmount: value })
+  }
+
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <Label htmlFor="detail-minimum-order">Minimum order (৳)</Label>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Blank = use the platform default. 0 = no minimum for this restaurant.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <Input
+          id="detail-minimum-order"
+          type="number"
+          min={0}
+          max={100000}
+          step={10}
+          placeholder="Platform default"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <Button variant="outline" disabled={mutation.isPending} onClick={save}>
+          Save
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ImpersonateOwnerButton({
+  restaurantId,
+  restaurantName,
+}: {
+  restaurantId: string
+  restaurantName: string
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [reason, setReason] = React.useState("")
+
+  const impersonateMutation = useMutation({
+    mutationFn: impersonateRestaurantOwner,
+    onSuccess: (data) => {
+      setOpen(false)
+      setReason("")
+      // Open the owner dashboard in a new tab; it redeems the one-time code and
+      // starts a short-lived (2h) impersonation session. No password involved.
+      window.open(data.url, "_blank", "noopener,noreferrer")
+      toast.success(`Opening owner dashboard as ${data.ownerName || "owner"}…`)
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Could not start impersonation."
+      )
+    },
+  })
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+      >
+        <LogIn className="size-4" />
+        Login as owner
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Login as {restaurantName}&rsquo;s owner</DialogTitle>
+            <DialogDescription>
+              Opens the owner web dashboard signed in as this owner, without their
+              password. The session lasts 2 hours, is fully audited, and cannot
+              change the owner&rsquo;s password. Give a reason for the record.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="e.g. Owner asked us to fix their menu prices over the phone"
+            rows={3}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                impersonateMutation.mutate({ restaurantId, reason: reason.trim() })
+              }
+              disabled={reason.trim().length < 3 || impersonateMutation.isPending}
+            >
+              {impersonateMutation.isPending ? "Preparing…" : "Login as owner"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function RestaurantEnforcementControl({
   details,
   pending,
@@ -3459,9 +3769,15 @@ function RestaurantEnforcementControl({
             customer ordering and owner online status.
           </p>
         </div>
-        {enforcement.expiresAt ? (
-          <Badge variant="secondary">Ends {formatDate(enforcement.expiresAt)}</Badge>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {enforcement.expiresAt ? (
+            <Badge variant="secondary">Ends {formatDate(enforcement.expiresAt)}</Badge>
+          ) : null}
+          <ImpersonateOwnerButton
+            restaurantId={details.id}
+            restaurantName={details.name}
+          />
+        </div>
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -3599,6 +3915,8 @@ function RestaurantDetailsContent({
   onFeaturedPositionSave,
   onReconcileFinance,
   onPayoutStatusChange,
+  onPayoutStatementView,
+  payoutStatementPending,
   detailsPreset,
   detailsFrom,
   detailsTo,
@@ -3660,6 +3978,8 @@ function RestaurantDetailsContent({
     expectedStatus: string,
     amount: number
   ) => void
+  onPayoutStatementView: (payoutId: string) => void
+  payoutStatementPending: boolean
   detailsPreset: RestaurantOrderPreset
   detailsFrom: string
   detailsTo: string
@@ -3851,6 +4171,10 @@ function RestaurantDetailsContent({
                   </Button>
                 </div>
               </div>
+              <MinimumOrderControl
+                restaurantId={details.id}
+                current={details.minimumOrderAmount}
+              />
               <div className="rounded-lg border bg-background p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -4442,6 +4766,16 @@ function RestaurantDetailsContent({
                           <TableCell>{formatShortDate(payout.processedAt)}</TableCell>
                           <TableCell>
                             <div className="flex justify-end gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={payoutStatementPending}
+                                onClick={() => onPayoutStatementView(payout.id)}
+                              >
+                                <Eye className="size-4" />
+                                View
+                              </Button>
                               {payout.status === "pending" ? (
                                 <Button
                                   type="button"
@@ -4830,6 +5164,7 @@ function RestaurantActionsMenu({
 
 export function RestaurantsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [search, setSearch] = React.useState("")
   const [visibility, setVisibility] = React.useState<VisibilityFilter>("all")
   const [runtime, setRuntime] = React.useState<RuntimeFilter>("all")
@@ -5226,6 +5561,15 @@ export function RestaurantsPage() {
                       >
                         <Eye className="size-4" />
                         View
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          navigate(`/restaurants/${restaurant.id}/details`)
+                        }
+                      >
+                        <BarChart3 className="size-4" />
+                        Details
                       </Button>
                       <RestaurantActionsMenu
                         restaurant={restaurant}

@@ -17,6 +17,7 @@ import {
   ownerOtpSigninVerify,
   ownerSignin,
   ownerSignup,
+  redeemOwnerImpersonationSession,
   refreshOwnerAuthSession,
   resetOwnerPassword,
   sendOtp,
@@ -37,6 +38,7 @@ authRouter.post("/owner/signin", ownerSigninLimiter, ownerSignin)
 authRouter.post("/owner/otp/signin/start", otpSendIpLimiter, otpSendLimiter, ownerOtpSigninStart)
 authRouter.post("/owner/otp/signin/verify", otpVerifyLimiter, ownerOtpSigninVerify)
 authRouter.post("/owner/refresh", refreshLimiter, refreshOwnerAuthSession)
+authRouter.post("/owner/impersonation/redeem", refreshLimiter, redeemOwnerImpersonationSession)
 authRouter.post("/owner/logout", ownerLogout)
 authRouter.post("/otp/send", otpSendIpLimiter, otpSendLimiter, sendOtp)
 authRouter.post("/otp/verify", otpVerifyLimiter, verifyOtp)

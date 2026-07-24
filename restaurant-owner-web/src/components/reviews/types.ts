@@ -1,5 +1,21 @@
 export type ReviewSource = "App" | "Web"
-export type ReviewStatus = "new" | "replied" | "flagged"
+export type ReviewStatus = "new" | "replied" | "flagged" | "hidden"
+export type ReviewHideRequestStatus =
+  | "none"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+
+export type ReviewHideRequest = {
+  status: ReviewHideRequestStatus
+  reasonCategory?: string
+  note?: string
+  requestedAt?: string | null
+  reviewedAt?: string | null
+  reviewedByAdminId?: string
+  adminNote?: string
+}
 export type ReviewDatePreset =
   | "today"
   | "yesterday"
@@ -38,6 +54,11 @@ export type Review = {
   source: ReviewSource
   reply?: ReviewReply | null
   status: ReviewStatus
+  moderationStatus?: "visible" | "hidden" | "flagged"
+  isHidden?: boolean
+  hiddenAt?: string | null
+  hiddenReason?: string
+  ownerHideRequest?: ReviewHideRequest
 }
 
 export function getInitialReviews(): Review[] {

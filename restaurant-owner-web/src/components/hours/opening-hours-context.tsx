@@ -8,6 +8,8 @@ import {
 import { useOwnerOpeningHoursQuery } from "@/hooks/use-owner-api"
 import { useAppStore } from "@/store/app-store"
 
+const OpeningHoursLoadingContext = React.createContext(false)
+
 export function OpeningHoursProvider({
   children,
 }: {
@@ -17,10 +19,18 @@ export function OpeningHoursProvider({
   const openingHours = useAppStore((state) => state.openingHours)
   const setOpeningHours = useAppStore((state) => state.setOpeningHours)
   const location = useLocation()
-  const shouldLoadOpeningHours = location.pathname === "/"
-  const openingHoursQuery = useOwnerOpeningHoursQuery(
+  const shouldLoadOpeningHours =
+    location.pathname === "/" ||
+    location.pathname === "/hours" ||
+    location.pathname === "/settings"
+  const isOpeningHoursQueryEnabled =
     ownerAccount.isAuthenticated && shouldLoadOpeningHours
-  )
+  const openingHoursQuery = useOwnerOpeningHoursQuery(isOpeningHoursQueryEnabled)
+  const isOpeningHoursLoading =
+    isOpeningHoursQueryEnabled &&
+    openingHoursQuery.isPending &&
+    !openingHoursQuery.data &&
+    !openingHours.updatedAt
 
   const isSameOpeningHours = React.useCallback(
     (left: typeof openingHours, right: typeof openingHours) => {
@@ -47,18 +57,21 @@ export function OpeningHoursProvider({
     setOpeningHours((current) => (isSameOpeningHours(current, mapped) ? current : mapped))
   }, [isSameOpeningHours, openingHours, openingHoursQuery.data, setOpeningHours])
 
-  return <>{children}</>
+  return (
+    <OpeningHoursLoadingContext.Provider value={isOpeningHoursLoading}>
+      {children}
+    </OpeningHoursLoadingContext.Provider>
+  )
 }
 
 export function useOpeningHours() {
   const openingHours = useAppStore((state) => state.openingHours)
   const setOpeningHours = useAppStore((state) => state.setOpeningHours)
-  const ownerAccount = useAppStore((state) => state.ownerAccount)
-  const openingHoursQuery = useOwnerOpeningHoursQuery(ownerAccount.isAuthenticated)
+  const isLoading = React.useContext(OpeningHoursLoadingContext)
 
   return {
     openingHours,
     setOpeningHours,
-    isLoading: openingHoursQuery.isPending,
+    isLoading,
   }
 }

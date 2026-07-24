@@ -30,6 +30,7 @@ import {
   type AdminRestaurantSummary,
   type PlatformContent,
 } from "@/lib/admin-cms-api"
+import { PollManagerSection } from "@/components/poll-manager-section"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -344,6 +345,7 @@ function getModalContentMode(
   if (!modal.title.trim() && !modal.subtitle.trim()) return "image"
   return "image_text"
 }
+
 
 const DEFAULT_HOME_BANNER: PlatformContent["customerApp"]["homeBanner"] = {
   isActive: false,
@@ -1342,6 +1344,7 @@ export function CustomerHomeCmsSection({
   ) {
     updateCms({ ...currentCms, modal: { ...currentCms.modal, [key]: value } })
   }
+
 
   function updatePush<K extends keyof typeof currentCms.pushCampaign>(
     key: K,
@@ -3978,6 +3981,14 @@ export function CustomerHomeCmsSection({
                 </SelectContent>
               </Select>
             </div>
+          </CmsDetailsCard>
+
+          <CmsDetailsCard
+            title="Home poll"
+            description="Create a poll with options + optional comment. Close it and create another anytime; past polls and results stay here."
+            icon={<BarChart3 className="size-5" />}
+          >
+            <PollManagerSection />
           </CmsDetailsCard>
 
           {hidePushCampaign ? (

@@ -26,6 +26,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  DEFAULT_CATALOG_DESCRIPTION_LIMITS,
+  clampCatalogDescription,
+  getRemainingCatalogDescriptionChars,
+} from "@/lib/catalog-description-limits"
 
 type CategorySubmitPayload = {
   name: string
@@ -39,6 +44,7 @@ export function CategoryEditDrawer({
   onOpenChange,
   category,
   existingSlugs,
+  descriptionMaxLength = DEFAULT_CATALOG_DESCRIPTION_LIMITS.category,
   onSubmitCategory,
   isSubmitting = false,
 }: {
@@ -46,6 +52,7 @@ export function CategoryEditDrawer({
   onOpenChange: (open: boolean) => void
   category: Category | null
   existingSlugs: string[]
+  descriptionMaxLength?: number
   onSubmitCategory: (payload: CategorySubmitPayload) => void
   isSubmitting?: boolean
 }) {
@@ -74,7 +81,12 @@ export function CategoryEditDrawer({
       setName(category.name)
       setSlug(category.slug)
       setStatus(category.status)
-      setDescription(category.description ?? "")
+      setDescription(
+        clampCatalogDescription(
+          category.description ?? "",
+          descriptionMaxLength
+        )
+      )
       setNameError("")
       setSlugError("")
       setIsSlugTouched(false)
@@ -89,7 +101,7 @@ export function CategoryEditDrawer({
     setNameError("")
     setSlugError("")
     setIsSlugTouched(false)
-  }, [category, open])
+  }, [category, descriptionMaxLength, open])
 
   function validate(nextName: string, nextSlug: string) {
     let valid = true
@@ -142,6 +154,12 @@ export function CategoryEditDrawer({
     setSlugError("")
   }
 
+  function handleDescriptionChange(value: string) {
+    setDescription(
+      clampCatalogDescription(value, descriptionMaxLength)
+    )
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
 
@@ -154,7 +172,10 @@ export function CategoryEditDrawer({
       name: nextName,
       slug: nextSlug,
       status,
-      description: description.trim(),
+      description: clampCatalogDescription(
+        description.trim(),
+        descriptionMaxLength
+      ),
     })
     onOpenChange(false)
   }
@@ -255,17 +276,29 @@ export function CategoryEditDrawer({
               </div>
 
               <div className="space-y-2">
-                <label
-                  htmlFor="category-description"
-                  className="text-sm font-medium"
-                >
-                  Description
-                </label>
+                <div className="flex items-center justify-between gap-3">
+                  <label
+                    htmlFor="category-description"
+                    className="text-sm font-medium"
+                  >
+                    Description
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    {getRemainingCatalogDescriptionChars(
+                      description,
+                      descriptionMaxLength
+                    )}{" "}
+                    left
+                  </span>
+                </div>
                 <Textarea
                   id="category-description"
                   placeholder="Short internal note"
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  onChange={(event) =>
+                    handleDescriptionChange(event.target.value)
+                  }
+                  maxLength={descriptionMaxLength}
                 />
               </div>
             </div>

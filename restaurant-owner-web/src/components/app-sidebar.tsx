@@ -16,40 +16,29 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { sidebarGroups } from "@/lib/navigation"
-import { useCategories } from "@/components/categories/categories-context"
-import { useMenuItems } from "@/components/menu/menu-items-context"
-import { useOrders } from "@/components/orders/orders-context"
-import { useReviews } from "@/components/reviews/reviews-context"
-import { Circle, Store } from "lucide-react"
+import { useOwnerEnforcement } from "@/components/enforcement-banner"
+import { Circle, Lock, Store } from "lucide-react"
 
 import { NavUser } from "./nav-user"
 import { useRestaurantStatus } from "./restaurant-status-context"
 import { Switch } from "./ui/switch"
-import { liveOrderStatuses } from "./orders/types"
+import { useOwnerSidebarSummaryQuery } from "@/hooks/use-owner-api"
 import { useAppStore } from "@/store/app-store"
 
 export function AppSidebar() {
   const location = useLocation()
   const { isOnline, setIsOnline, isUpdating } = useRestaurantStatus()
-  const { items } = useMenuItems()
-  const { categories } = useCategories()
-  const { orders } = useOrders()
-  const { reviews } = useReviews()
+  // Quality hold / suspension / permanent disable block going online (under_review
+  // does not, so `isRestricted` — not merely "has enforcement" — gates the switch).
+  const isRestricted = Boolean(useOwnerEnforcement()?.isRestricted)
   const storeSettings = useAppStore((state) => state.storeSettings)
   const ownerAccount = useAppStore((state) => state.ownerAccount)
-  const vouchers = useAppStore((state) => state.vouchers)
-  const notifications = useAppStore((state) => state.notifications)
-
-  const liveOrdersCount = React.useMemo(
-    () =>
-      orders.filter((order) => liveOrderStatuses.includes(order.currentStatus))
-        .length,
-    [orders]
+  const sidebarSummaryQuery = useOwnerSidebarSummaryQuery(
+    ownerAccount.isAuthenticated
   )
-  const unreadNotificationsCount = React.useMemo(
-    () => notifications.filter((item) => !item.read).length,
-    [notifications]
-  )
+  const sidebarSummary = sidebarSummaryQuery.data
+  const liveOrdersCount = sidebarSummary?.liveOrders ?? 0
+  const unreadNotificationsCount = sidebarSummary?.unreadNotifications ?? 0
   const storeDisplayName = storeSettings.name.trim() || "Your store"
 
   return (
@@ -84,28 +73,40 @@ export function AppSidebar() {
             <div className="space-y-1">
               <div className="text-sm font-medium">Restaurant Status</div>
               <p className="text-xs text-muted-foreground">
-                {isOnline
-                  ? "Customers can place orders right now."
-                  : "Your store is hidden from customers."}
+                {isRestricted
+                  ? "Foodbela has blocked your store from going online."
+                  : isOnline
+                    ? "Customers can place orders right now."
+                    : "Your store is hidden from customers."}
               </p>
             </div>
 
             <Switch
               checked={isOnline}
               onCheckedChange={setIsOnline}
-              disabled={isUpdating}
+              disabled={isUpdating || isRestricted}
             />
           </div>
 
           <div className="mt-3 flex items-center justify-end gap-2 text-xs font-medium">
-            <Circle
-              className={`size-2.5 ${
-                isOnline
-                  ? "fill-emerald-500 text-emerald-500"
-                  : "fill-slate-400 text-slate-400"
-              }`}
-            />
-            {isOnline ? "Online" : "Offline"}
+            {isRestricted ? (
+              <Lock className="size-3 text-rose-600" />
+            ) : (
+              <Circle
+                className={`size-2.5 ${
+                  isOnline
+                    ? "fill-emerald-500 text-emerald-500"
+                    : "fill-slate-400 text-slate-400"
+                }`}
+              />
+            )}
+            {isRestricted ? (
+              <span className="text-rose-600">Blocked</span>
+            ) : isOnline ? (
+              "Online"
+            ) : (
+              "Offline"
+            )}
           </div>
         </div>
       </SidebarHeader>
@@ -125,13 +126,13 @@ export function AppSidebar() {
                       item.to === "/orders"
                         ? `${liveOrdersCount}`
                         : item.to === "/menu"
-                          ? `${items.length}`
+                          ? `${sidebarSummary?.menuItems ?? 0}`
                           : item.to === "/categories"
-                          ? `${categories.length}`
+                          ? `${sidebarSummary?.categories ?? 0}`
                             : item.to === "/reviews"
-                              ? `${reviews.length}`
+                              ? `${sidebarSummary?.reviews ?? 0}`
                               : item.to === "/promotions"
-                                ? `${vouchers.length}`
+                                ? `${sidebarSummary?.promotions ?? 0}`
                               : item.badge
 
                     return (

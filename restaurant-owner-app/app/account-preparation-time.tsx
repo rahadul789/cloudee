@@ -17,9 +17,16 @@ import {
   useOwnerStoreSettingsQuery,
   useUpdateOwnerStoreSettingsMutation,
 } from "@/src/hooks/use-owner-api";
+import {
+  MAX_PREPARATION_TIME_MINUTES,
+  MIN_PREPARATION_TIME_MINUTES,
+} from "@/src/lib/preparation";
+import { useOwnerTranslation } from "@/src/i18n/translations";
+import { localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 export default function AccountPreparationTimeScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const storeQuery = useOwnerStoreSettingsQuery();
   const updateMutation = useUpdateOwnerStoreSettingsMutation();
@@ -40,8 +47,18 @@ export default function AccountPreparationTimeScreen() {
   async function savePreparationTime() {
     const numericMinutes = Number(prepMinutes);
 
-    if (prepEnabled && (!Number.isInteger(numericMinutes) || numericMinutes < 5 || numericMinutes > 120)) {
-      Alert.alert("Check preparation time", "Use a whole number between 5 and 120 minutes.");
+    if (
+      prepEnabled &&
+      (!Number.isInteger(numericMinutes) ||
+        numericMinutes < MIN_PREPARATION_TIME_MINUTES ||
+        numericMinutes > MAX_PREPARATION_TIME_MINUTES)
+    ) {
+      Alert.alert(
+        t("prep.errCheckTitle"),
+        t("prep.rangeError")
+          .replace("{min}", localizeDigits(String(MIN_PREPARATION_TIME_MINUTES)))
+          .replace("{max}", localizeDigits(String(MAX_PREPARATION_TIME_MINUTES))),
+      );
       return;
     }
 
@@ -50,13 +67,13 @@ export default function AccountPreparationTimeScreen() {
         preparationTimeMinutes: prepEnabled ? numericMinutes : null,
       });
       await storeQuery.refetch();
-      Alert.alert("Preparation time saved", "New orders will use this kitchen estimate.", [
-        { text: "Done", onPress: () => router.back() },
+      Alert.alert(t("prep.okTitle"), t("prep.okBody"), [
+        { text: t("common.done"), onPress: () => router.back() },
       ]);
     } catch (error) {
       Alert.alert(
-        "Unable to save",
-        error instanceof Error ? error.message : "Please try again.",
+        t("prep.errSaveTitle"),
+        error instanceof Error ? error.message : t("prep.tryAgain"),
       );
     }
   }
@@ -68,7 +85,7 @@ export default function AccountPreparationTimeScreen() {
           <Pressable accessibilityRole="button" hitSlop={10} style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={21} color={palette.foreground} />
           </Pressable>
-          <Text style={styles.title}>Preparation time</Text>
+          <Text style={styles.title}>{t("prep.headerTitle")}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -77,9 +94,9 @@ export default function AccountPreparationTimeScreen() {
             <Ionicons name="restaurant-outline" size={25} color="#FFFFFF" />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Kitchen estimate</Text>
+            <Text style={styles.heroTitle}>{t("prep.cardTitle")}</Text>
             <Text style={styles.heroText}>
-              This time is used for new orders and customer expectations.
+              {t("prep.heroText")}
             </Text>
           </View>
         </View>
@@ -97,9 +114,9 @@ export default function AccountPreparationTimeScreen() {
               color={prepEnabled ? palette.primary : palette.mutedForeground}
             />
             <View style={styles.checkboxCopy}>
-              <Text style={styles.checkboxTitle}>Use default preparation time</Text>
+              <Text style={styles.checkboxTitle}>{t("prep.useDefaultTitle")}</Text>
               <Text style={styles.checkboxText}>
-                Turn this off if you do not want a default kitchen estimate.
+                {t("prep.useDefaultText")}
               </Text>
             </View>
           </Pressable>
@@ -110,7 +127,14 @@ export default function AccountPreparationTimeScreen() {
               disabled={!prepEnabled}
               style={styles.stepButton}
               onPress={() =>
-                setPrepMinutes((current) => String(Math.max(5, Number(current || "0") - 5)))
+                setPrepMinutes((current) =>
+                  String(
+                    Math.max(
+                      MIN_PREPARATION_TIME_MINUTES,
+                      Number(current || "0") - 5,
+                    ),
+                  ),
+                )
               }
             >
               <Ionicons name="remove" size={18} color={palette.foreground} />
@@ -118,18 +142,25 @@ export default function AccountPreparationTimeScreen() {
             <TextInput
               value={prepMinutes}
               editable={prepEnabled}
-              onChangeText={(value) => setPrepMinutes(value.replace(/\D/g, "").slice(0, 3))}
+              onChangeText={(value) => setPrepMinutes(value.replace(/\D/g, "").slice(0, 2))}
               keyboardType="number-pad"
-              maxLength={3}
+              maxLength={2}
               style={styles.input}
             />
-            <Text style={styles.unit}>minutes</Text>
+            <Text style={styles.unit}>{t("prep.minutes")}</Text>
             <Pressable
               accessibilityRole="button"
               disabled={!prepEnabled}
               style={styles.stepButton}
               onPress={() =>
-                setPrepMinutes((current) => String(Math.min(120, Number(current || "0") + 5)))
+                setPrepMinutes((current) =>
+                  String(
+                    Math.min(
+                      MAX_PREPARATION_TIME_MINUTES,
+                      Number(current || "0") + 5,
+                    ),
+                  ),
+                )
               }
             >
               <Ionicons name="add" size={18} color={palette.foreground} />
@@ -137,8 +168,9 @@ export default function AccountPreparationTimeScreen() {
           </View>
 
           <Text style={styles.helperText}>
-            Recommended range is 15-45 minutes. You can still handle individual orders
-            manually from the order details screen.
+            {t("prep.rangeHelper")
+              .replace("{min}", localizeDigits(String(MIN_PREPARATION_TIME_MINUTES)))
+              .replace("{max}", localizeDigits(String(MAX_PREPARATION_TIME_MINUTES)))}
           </Text>
         </View>
 
@@ -156,7 +188,7 @@ export default function AccountPreparationTimeScreen() {
           ) : (
             <>
               <Text style={styles.primaryText}>
-                {isUnchanged ? "No changes yet" : "Save preparation time"}
+                {isUnchanged ? t("prep.noChanges") : t("prep.saveButton")}
               </Text>
               <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
             </>

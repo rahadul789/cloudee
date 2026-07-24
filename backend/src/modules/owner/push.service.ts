@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
+import { optimizePushImageUrl } from "../../common/utils/push-image"
 import { logger } from "../../config/logger"
 import { OwnerModel } from "../auth/auth.model"
 
@@ -180,7 +181,7 @@ export async function sendPushToOwner(params: {
       ? {
           mutableContent: true,
           image: params.payload.imageUrl,
-          richContent: { image: params.payload.imageUrl },
+          richContent: { image: optimizePushImageUrl(params.payload.imageUrl) },
         }
       : {}),
   }))

@@ -23,7 +23,6 @@ import {
   BadgeDollarSign,
   BarChart3,
   CreditCard,
-  LoaderCircle,
   RotateCcw,
   Repeat2,
   ShoppingBag,
@@ -348,7 +347,6 @@ export function AnalyticsPage() {
   const analyticsOverview = analyticsOverviewQuery.data
   const initialLoading =
     analyticsOverviewQuery.isPending && !analyticsOverview
-  const isRefreshing = analyticsOverviewQuery.isFetching && !initialLoading
 
   const orders = storeOrders
   const analyticsPayouts = payouts
@@ -1032,13 +1030,6 @@ export function AnalyticsPage() {
 
   return (
     <div className="relative space-y-4 px-4 lg:px-6">
-      {isRefreshing ? (
-        <div className="pointer-events-none fixed right-6 top-20 z-40 inline-flex items-center gap-2 rounded-full border bg-background/95 px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm backdrop-blur">
-          <LoaderCircle className="size-4 animate-spin text-primary" />
-          Updating analytics
-        </div>
-      ) : null}
-
       <div className="rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap">
           <OrderDateFilter value={dateFilter} onChange={setDateFilter} />

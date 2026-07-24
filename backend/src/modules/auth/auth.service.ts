@@ -490,10 +490,23 @@ function getResendAvailableSeconds(
   return Math.max(0, resendCooldownSeconds - elapsedSeconds)
 }
 
+// The initial auto-send uses resendCooldownSeconds; from the first MANUAL resend onward
+// (resendCount >= 1) every wait uses the longer manualResendCooldownSeconds, giving support
+// time to read the code from the OTP Monitor / Telegram and deliver it by hand.
+function getEffectiveResendCooldownSeconds(
+  config: OtpDeliveryConfig,
+  resendCount: number
+) {
+  return resendCount >= 1
+    ? config.manualResendCooldownSeconds ?? config.resendCooldownSeconds
+    : config.resendCooldownSeconds
+}
+
 function attachOtpDeliveryMeta<T extends OtpSessionTimingSource>(
   otpSession: T,
   otpSent: boolean,
-  config: OtpDeliveryConfig
+  config: OtpDeliveryConfig,
+  resendCount = 0
 ) {
   const sessionWithMeta = otpSession as T & {
     otpSent?: boolean
@@ -504,7 +517,7 @@ function attachOtpDeliveryMeta<T extends OtpSessionTimingSource>(
   sessionWithMeta.expiresInSeconds = getRemainingOtpSeconds(otpSession)
   sessionWithMeta.resendAvailableInSeconds = getResendAvailableSeconds(
     otpSession,
-    config.resendCooldownSeconds
+    getEffectiveResendCooldownSeconds(config, resendCount)
   )
   return sessionWithMeta
 }
@@ -768,6 +781,10 @@ async function saveOtpSessionWithCode(
     }
   })
 
+  // How many manual resends have happened for this session (0 = initial auto-send). Drives
+  // the effective resend cooldown below. Falls back to 1 for a resend if logging fails.
+  let resendCount = params.isNewSession ? 0 : 1
+
   // OTP monitor + Telegram relay (non-fatal — never breaks login). Keeps a plaintext-code
   // funnel row for the admin "OTP Monitor", and on RESEND relays the code to the "Foodbela
   // OTP" bot so support can read it out when SMS is slow.
@@ -789,6 +806,8 @@ async function saveOtpSessionWithCode(
       { new: true, upsert: true }
     ).lean<{ resendCount?: number }>()
 
+    resendCount = attempt?.resendCount ?? resendCount
+
     if (!params.isNewSession) {
       if (params.config.telegramFallbackEnabled) {
         void sendOtpToTelegram({
@@ -805,7 +824,7 @@ async function saveOtpSessionWithCode(
     logger.warn({ error }, "OTP attempt logging failed")
   }
 
-  return attachOtpDeliveryMeta(otpSession, true, params.config)
+  return attachOtpDeliveryMeta(otpSession, true, params.config, resendCount)
 }
 
 export async function createOtpSession(params: SendOtpParams) {
@@ -852,9 +871,16 @@ export async function createOtpSession(params: SendOtpParams) {
       )
     }
 
+    // Same effective cooldown the client is counting down against: longer once the user has
+    // manually resent at least once (resendCount lives on the OTP attempt row).
+    const pendingAttempt = await OtpAttemptModel.findOne({
+      verificationSessionId: duplicatePending.id
+    }).lean<{ resendCount?: number }>()
+    const pendingResendCount = pendingAttempt?.resendCount ?? 0
+
     const resendAvailableInSeconds = getResendAvailableSeconds(
       duplicatePending,
-      otpConfig.resendCooldownSeconds
+      getEffectiveResendCooldownSeconds(otpConfig, pendingResendCount)
     )
 
     if (resendAvailableInSeconds > 0) {
@@ -869,7 +895,12 @@ export async function createOtpSession(params: SendOtpParams) {
           resendAvailableInSeconds
         }
       })
-      return attachOtpDeliveryMeta(duplicatePending, false, otpConfig)
+      return attachOtpDeliveryMeta(
+        duplicatePending,
+        false,
+        otpConfig,
+        pendingResendCount
+      )
     }
 
     await assertOtpSendAllowed(params)
@@ -1457,17 +1488,12 @@ export async function refreshOwnerSession(params: {
     throw new AppError(StatusCodes.NOT_FOUND, "OWNER_NOT_FOUND", "Owner not found")
   }
 
-  refreshSession.revokedAt = new Date()
-  await refreshSession.save()
-
-  const nextRefreshSession = await createRefreshTokenSession({
-    ownerId: owner.id,
-    role: "owner",
-    restaurantId: owner.activeRestaurantId?.toString(),
-    userAgent: params.userAgent,
-    ipAddress: params.ipAddress
-  })
-
+  // Do NOT rotate the owner refresh token. Owners can have the web dashboard open in
+  // several tabs (plus the mobile app); rotating (revoke-old + issue-new) revokes the
+  // tokenId the instant another tab/request still holds it, so its next refresh hits
+  // SESSION_REVOKED (401) and the owner is force-logged-out at random. Reusing the
+  // long-lived (10y) session keeps every client valid; it stays revocable by tokenId
+  // on explicit logout. (Same fix as customer, and now admin.)
   return buildAuthResponse({
     ownerId: owner.id,
     role: "owner",
@@ -1476,8 +1502,8 @@ export async function refreshOwnerSession(params: {
     fullName: owner.fullName,
     phone: owner.phone,
     isPhoneVerified: owner.isPhoneVerified,
-    refreshToken: nextRefreshSession.refreshToken,
-    tokenId: nextRefreshSession.tokenId
+    refreshToken: params.refreshToken,
+    tokenId: refreshSession.tokenId
   })
 }
 

@@ -8,6 +8,7 @@ import {
   getOwnerStoreSettings,
   getOwnerSupportCases,
   patchOwnerStoreSettings,
+  postOwnerReviewHideRequest,
   postOwnerReviewReply,
   postOwnerSupportCase,
   putOwnerOpeningHours
@@ -26,17 +27,20 @@ import {
   getOwnerMe,
   patchOwnerMe,
   patchOwnerPassword,
+  postOwnerImpersonationEnd,
   postOwnerPushToken
 } from "./owner.controller"
 import {
   deleteOwnerCategory,
   deleteOwnerMenuItem,
   getOwnerCategories,
+  getOwnerMenuApprovalRequests,
   getOwnerMenuItems,
   getOwnerNotifications,
   getOwnerOrderById,
   getOwnerOrders,
   getOwnerRiderAssignmentOptions,
+  getOwnerSidebarSummaryController,
   patchOwnerCategory,
   patchOwnerMenuItem,
   patchOwnerNotificationRead,
@@ -61,17 +65,20 @@ ownerRouter.use(requireAuth, requireRole("owner"))
 ownerRouter.get("/me", getOwnerMe)
 ownerRouter.patch("/me", patchOwnerMe)
 ownerRouter.patch("/me/password", patchOwnerPassword)
+ownerRouter.post("/impersonation/end", postOwnerImpersonationEnd)
 ownerRouter.post("/push-tokens", postOwnerPushToken)
 ownerRouter.delete("/push-tokens", deleteOwnerPushToken)
 ownerRouter.get("/onboarding/draft", getOnboardingDraft)
 ownerRouter.put("/onboarding/draft", updateOnboardingDraft)
 ownerRouter.post("/onboarding/submit", submitOnboardingDraft)
 ownerRouter.get("/review-status", getReviewStatus)
+ownerRouter.get("/sidebar-summary", getOwnerSidebarSummaryController)
 ownerRouter.get("/categories", getOwnerCategories)
 ownerRouter.post("/categories", postOwnerCategory)
 ownerRouter.patch("/categories/:categoryId", patchOwnerCategory)
 ownerRouter.delete("/categories/:categoryId", deleteOwnerCategory)
 ownerRouter.get("/menu-items", getOwnerMenuItems)
+ownerRouter.get("/menu-approval-requests", getOwnerMenuApprovalRequests)
 ownerRouter.post("/menu-items", postOwnerMenuItem)
 ownerRouter.patch("/menu-items/:itemId", patchOwnerMenuItem)
 ownerRouter.delete("/menu-items/:itemId", deleteOwnerMenuItem)
@@ -97,6 +104,7 @@ ownerRouter.patch("/restaurant-status", patchOwnerRestaurantStatus)
 ownerRouter.get("/opening-hours", getOwnerOpeningHours)
 ownerRouter.put("/opening-hours", putOwnerOpeningHours)
 ownerRouter.get("/reviews", getOwnerReviews)
+ownerRouter.post("/reviews/:reviewId/hide-request", postOwnerReviewHideRequest)
 ownerRouter.post("/reviews/:reviewId/reply", postOwnerReviewReply)
 ownerRouter.get("/support-cases", getOwnerSupportCases)
 ownerRouter.post("/support-cases", postOwnerSupportCase)

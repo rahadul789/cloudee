@@ -47,6 +47,7 @@ import {
 } from "@/src/lib/customer-order-display";
 import {
   formatDateMedium,
+  formatDateTimeAmPm,
   formatDurationMinutes,
   formatDurationRangeMinutes,
   formatTimeAmPm,
@@ -66,6 +67,17 @@ const LIVE_TRACKING_STATUSES = [
   "ReadyForPickup",
   "PickedUp",
 ];
+
+// Short labels for the compact 6-step "Order journey" row, so each fits under its number
+// at a small font without breaking mid-word (the full labels live in the details sheet).
+const JOURNEY_SHORT_LABELS: Record<string, string> = {
+  New: "Placed",
+  Accepted: "Accepted",
+  Preparing: "Preparing",
+  ReadyForPickup: "Ready",
+  PickedUp: "On the way",
+  Delivered: "Delivered",
+};
 
 type OrderTimelineSource = {
   createdAt?: string;
@@ -1346,6 +1358,17 @@ export default function OrderTrackingScreen() {
                         />
                       ) : null}
                     </View>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.journeyStepLabel,
+                        isCompleted || isCurrent || isDeliveredCurrent
+                          ? styles.journeyStepLabelActive
+                          : null,
+                      ]}
+                    >
+                      {JOURNEY_SHORT_LABELS[step.key] ?? step.label}
+                    </Text>
                   </View>
                 );
               })}
@@ -1392,7 +1415,7 @@ export default function OrderTrackingScreen() {
           <View style={styles.journeyCard}>
             <Text style={styles.journeyTitle}>Order details</Text>
             <Text style={styles.detailsDateText}>
-              Placed {formatDateMedium(order.createdAt)}
+              Placed {formatDateTimeAmPm(order.createdAt)}
             </Text>
             {renderOrderReceipt()}
           </View>
@@ -1456,7 +1479,7 @@ export default function OrderTrackingScreen() {
         contentContainerStyle={styles.detailsBottomSheetContent}
       >
         <Text style={styles.detailsDateText}>
-          Placed {formatDateMedium(order.createdAt)}
+          Placed {formatDateTimeAmPm(order.createdAt)}
         </Text>
 
             <ScrollView

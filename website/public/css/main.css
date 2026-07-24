@@ -4294,6 +4294,35 @@ select {
   line-height: 1.45;
 }
 
+.download-qr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.qr-download-link {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 999px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 0 14px;
+  box-shadow: 0 10px 22px rgba(17, 24, 39, 0.06);
+}
+
+.qr-download-primary {
+  border-color: transparent;
+  background: var(--brand-orange);
+  color: var(--white);
+}
+
 .download-steps-section,
 .download-feature-section {
   max-width: 1300px;
@@ -6323,6 +6352,10 @@ select {
     grid-template-columns: 1fr;
     justify-items: center;
     text-align: center;
+  }
+
+  .download-qr-actions {
+    justify-content: center;
   }
 
   .download-qr-card img {

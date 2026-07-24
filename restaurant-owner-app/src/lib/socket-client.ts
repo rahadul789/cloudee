@@ -9,7 +9,7 @@ export function getOwnerSocket() {
   if (!ownerSocket) {
     ownerSocket = io(getSocketBaseUrl(), {
       autoConnect: false,
-      transports: ["websocket"],
+      withCredentials: true,
     });
   }
 

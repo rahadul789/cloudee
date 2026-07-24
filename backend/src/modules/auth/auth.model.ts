@@ -526,6 +526,9 @@ const restaurantSchema = new Schema(
       type: new Schema(
         {
           commissionRate: { type: Number, min: 0, max: 100, default: 15 },
+          // Per-restaurant minimum order override. null = inherit the platform default
+          // (operations.minimumOrderAmount); a number overrides it (0 = no minimum here).
+          minimumOrderAmount: { type: Number, min: 0, default: null },
           deliveryPricingOverride: {
             type: new Schema(
               {
@@ -710,6 +713,9 @@ const refreshTokenSessionSchema = new Schema(
     ipAddress: { type: String, default: "" },
     expiresAt: { type: Date, required: true },
     revokedAt: { type: Date, default: null },
+    // Set only on admin-impersonation sessions (short-lived, no refresh). Lets us
+    // list/revoke impersonations and keeps the acting admin on the session record.
+    impersonatedByAdminId: { type: String, default: null },
   },
   { timestamps: true },
 );
@@ -741,6 +747,27 @@ riderRefreshTokenSessionSchema.index(
   { expireAfterSeconds: 60 * 60 * 24 * 45 },
 );
 
+// One-time, short-lived handoff for admin "Login as owner". The admin mints a code;
+// owner-web redeems it for an impersonation access token. Tokens are NEVER stored —
+// only this code (hashed), which is single-use and TTL-pruned.
+const impersonationHandoffSchema = new Schema(
+  {
+    codeHash: { type: String, required: true, unique: true },
+    ownerId: { type: Schema.Types.ObjectId, ref: "Owner", required: true },
+    restaurantId: { type: String, default: "" },
+    adminId: { type: String, required: true },
+    adminName: { type: String, default: "Admin" },
+    ownerName: { type: String, default: "" },
+    reason: { type: String, default: "" },
+    expiresAt: { type: Date, required: true },
+    usedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+);
+
+// Auto-remove spent/expired handoffs shortly after they expire.
+impersonationHandoffSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 600 });
+
 export const OwnerModel = mongoose.model("Owner", ownerSchema);
 export const RiderModel = mongoose.model("Rider", riderSchema);
 export const OtpSessionModel = mongoose.model("OtpSession", otpSessionSchema);
@@ -769,6 +796,10 @@ export const OpeningHoursModel = mongoose.model(
 export const RefreshTokenSessionModel = mongoose.model(
   "RefreshTokenSession",
   refreshTokenSessionSchema,
+);
+export const ImpersonationHandoffModel = mongoose.model(
+  "ImpersonationHandoff",
+  impersonationHandoffSchema,
 );
 export const RiderRefreshTokenSessionModel = mongoose.model(
   "RiderRefreshTokenSession",

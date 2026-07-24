@@ -1,5 +1,6 @@
 import * as Location from "expo-location";
 import { useEffect, useRef } from "react";
+import { Platform } from "react-native";
 
 import {
   buildCustomerAddressFromGeocode,
@@ -104,6 +105,29 @@ export function useAppStartup() {
           servicesEnabled = true;
         }
         if (!isMounted) return;
+
+        // Permission is granted but device location (GPS) is OFF. We ONLY pop the system
+        // "Turn on location" dialog when there is genuinely nothing to open the app with —
+        // i.e. a fresh install with no persisted delivery point. If a prior session already
+        // saved a location, we must NOT nag on every launch: we fall through and reuse that
+        // saved pin (see FALLBACK 2) so the app opens directly, exactly like before this
+        // feature existed. Android only — iOS has no programmatic switch. On decline we
+        // continue to the graceful fallback chain either way.
+        const hasUsableSavedLocation =
+          useLocationStore.getState().selectedLocation != null;
+        if (
+          !servicesEnabled &&
+          Platform.OS === "android" &&
+          !hasUsableSavedLocation
+        ) {
+          try {
+            await Location.enableNetworkProviderAsync();
+            servicesEnabled = true;
+          } catch {
+            // Declined or unavailable — leave servicesEnabled false and fall through.
+          }
+          if (!isMounted) return;
+        }
 
         // FRESH-FIRST: the accurate current position is the PRIMARY source, so a user
         // who has moved (e.g. 1.5km) always lands on their REAL location — never a stale

@@ -441,6 +441,10 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   campaignModalAction: {
+    // Always pin the admin-set button to the bottom of the modal, whether or not there is
+    // an image above it (with an image the flex:1 cover fills the gap; without one this
+    // auto margin pushes the button down instead of letting it float mid-card).
+    marginTop: "auto",
     alignItems: "center",
     borderRadius: 999,
     backgroundColor: palette.primary,
@@ -1004,19 +1008,29 @@ export const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: palette.surfaceMuted,
   },
-  timeCompactClosed: {
-    position: "absolute",
-    left: 8,
-    top: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "rgba(31,36,48,0.78)",
+  timeCompactClosedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(20, 24, 35, 0.52)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  timeCompactClosedText: {
-    fontSize: 10,
+  timeCompactClosedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  timeCompactClosedBadgeText: {
+    fontSize: 11,
     fontWeight: "800",
-    color: "#fff",
+    letterSpacing: 0.3,
+    color: palette.foreground,
+  },
+  timeCompactNameClosed: {
+    color: palette.mutedForeground,
   },
   timeCompactCopy: {
     paddingTop: 8,

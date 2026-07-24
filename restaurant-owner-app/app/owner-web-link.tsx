@@ -14,9 +14,11 @@ import {
 
 import { Screen } from "@/src/components/screen";
 import { useOwnerPlatformContentQuery, useOwnerStoreSettingsQuery } from "@/src/hooks/use-owner-api";
+import { useOwnerTranslation } from "@/src/i18n/translations";
 import { palette } from "@/src/theme/palette";
 
 export default function OwnerWebLinkScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const platformContentQuery = useOwnerPlatformContentQuery();
   const storeQuery = useOwnerStoreSettingsQuery();
@@ -27,13 +29,13 @@ export default function OwnerWebLinkScreen() {
 
   async function openDashboard() {
     if (!webDashboardUrl) {
-      Alert.alert("Link not configured", "Ask admin to add the owner dashboard URL.");
+      Alert.alert(t("web.errNotConfiguredTitle"), t("web.errNotConfiguredBody"));
       return;
     }
 
     const canOpen = await Linking.canOpenURL(webDashboardUrl);
     if (!canOpen) {
-      Alert.alert("Cannot open link", webDashboardUrl);
+      Alert.alert(t("web.errOpenTitle"), webDashboardUrl);
       return;
     }
 
@@ -42,14 +44,14 @@ export default function OwnerWebLinkScreen() {
 
   async function shareDashboard() {
     if (!webDashboardUrl) {
-      Alert.alert("Link not configured", "Ask admin to add the owner dashboard URL.");
+      Alert.alert(t("web.errNotConfiguredTitle"), t("web.errNotConfiguredBody"));
       return;
     }
 
     await Share.share({
       message: shareMessage,
       url: webDashboardUrl,
-      title: "Owner dashboard link",
+      title: t("web.headerTitle"),
     });
   }
 
@@ -60,7 +62,7 @@ export default function OwnerWebLinkScreen() {
           <Pressable accessibilityRole="button" hitSlop={10} style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={21} color={palette.foreground} />
           </Pressable>
-          <Text style={styles.title}>Owner web dashboard</Text>
+          <Text style={styles.title}>{t("web.cardTitle")}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -68,18 +70,17 @@ export default function OwnerWebLinkScreen() {
           <View style={styles.heroIcon}>
             <Ionicons name="desktop-outline" size={28} color="#FFFFFF" />
           </View>
-          <Text style={styles.heroTitle}>Manage from a bigger screen</Text>
+          <Text style={styles.heroTitle}>{t("web.cardSubtitle")}</Text>
           <Text style={styles.heroText}>
-            Share this link with your trusted device to manage menu, reports, settings,
-            orders, and promotions from the owner web dashboard.
+            {t("web.heroText")}
           </Text>
         </View>
 
         <View style={styles.linkCard}>
           <View style={styles.linkTop}>
             <View>
-              <Text style={styles.linkLabel}>Dashboard URL</Text>
-              <Text style={styles.linkHint}>Long press the link to copy it.</Text>
+              <Text style={styles.linkLabel}>{t("web.urlLabel")}</Text>
+              <Text style={styles.linkHint}>{t("web.copyHint")}</Text>
             </View>
             {platformContentQuery.isLoading ? (
               <ActivityIndicator size="small" color={palette.primary} />
@@ -89,22 +90,22 @@ export default function OwnerWebLinkScreen() {
           </View>
 
           <Text selectable style={styles.urlText}>
-            {webDashboardUrl || "Owner web dashboard URL is not configured yet."}
+            {webDashboardUrl || t("web.notConfigured")}
           </Text>
         </View>
 
         <View style={styles.actionGrid}>
           <ActionButton
             icon="open-outline"
-            title="Open"
-            caption="Launch in browser"
+            title={t("web.open")}
+            caption={t("web.openCaption")}
             onPress={openDashboard}
             disabled={!webDashboardUrl}
           />
           <ActionButton
             icon="share-social-outline"
-            title="Share"
-            caption="Copy or send"
+            title={t("web.share")}
+            caption={t("web.shareCaption")}
             onPress={shareDashboard}
             disabled={!webDashboardUrl}
           />
@@ -113,8 +114,7 @@ export default function OwnerWebLinkScreen() {
         <View style={styles.noteCard}>
           <Ionicons name="shield-checkmark-outline" size={18} color={palette.info} />
           <Text style={styles.noteText}>
-            The dashboard still requires owner sign-in. Sharing this URL does not give
-            anyone access without the owner account.
+            {t("web.securityNote")}
           </Text>
         </View>
       </ScrollView>

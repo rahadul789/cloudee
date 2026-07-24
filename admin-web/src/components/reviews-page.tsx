@@ -2,6 +2,7 @@ import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Archive,
+  CheckCircle2,
   Download,
   Eye,
   Flag,
@@ -11,16 +12,21 @@ import {
   RotateCcw,
   Search,
   Star,
+  XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useSearchParams } from "react-router-dom"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import {
+  approveAdminReviewHideRequest,
   bulkUpdateAdminReviews,
   getAdminReview,
   listAdminReviews,
+  rejectAdminReviewHideRequest,
   updateAdminReviewModeration,
   type AdminReview,
+  type AdminReviewHideRequestStatus,
   type AdminReviewModerationStatus,
   type AdminReviewSort,
 } from "@/lib/admin-api"
@@ -28,6 +34,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -72,6 +86,54 @@ function StatusBadge({ status, isHidden }: { status: AdminReviewModerationStatus
   return <Badge variant="default">Visible</Badge>
 }
 
+function normalizeHideRequestFilter(value: string | null): "all" | AdminReviewHideRequestStatus {
+  if (
+    value === "none" ||
+    value === "pending" ||
+    value === "approved" ||
+    value === "rejected" ||
+    value === "cancelled"
+  ) {
+    return value
+  }
+  return "all"
+}
+
+function hideRequestStatus(review: AdminReview): AdminReviewHideRequestStatus {
+  return review.ownerHideRequest?.status ?? "none"
+}
+
+function hideRequestReasonLabel(reasonCategory?: string) {
+  if (reasonCategory === "fake_spam") return "Fake/spam"
+  if (reasonCategory === "abusive_language") return "Abusive language"
+  if (reasonCategory === "wrong_restaurant_or_order") return "Wrong order/restaurant"
+  if (reasonCategory === "unfair_misleading") return "Unfair or misleading"
+  if (reasonCategory === "other") return "Other"
+  return "No reason"
+}
+
+function HideRequestBadge({ review }: { review: AdminReview }) {
+  const status = hideRequestStatus(review)
+  if (status === "pending") {
+    return <Badge className="bg-amber-600 text-white hover:bg-amber-600">Hide requested</Badge>
+  }
+  if (status === "approved") {
+    return (
+      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+        Request approved
+      </Badge>
+    )
+  }
+  if (status === "rejected") {
+    return (
+      <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+        Request rejected
+      </Badge>
+    )
+  }
+  return null
+}
+
 function MetricCard({ label, value, helper }: { label: string; value: React.ReactNode; helper: string }) {
   return (
     <Card>
@@ -86,10 +148,14 @@ function MetricCard({ label, value, helper }: { label: string; value: React.Reac
 
 export function ReviewsPage() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
   const debouncedSearch = useDebouncedValue(search, 350)
   const [restaurantId, setRestaurantId] = React.useState("all")
   const [status, setStatus] = React.useState<"all" | AdminReviewModerationStatus>("all")
+  const [hideRequest, setHideRequest] = React.useState<"all" | AdminReviewHideRequestStatus>(() =>
+    normalizeHideRequestFilter(searchParams.get("hideRequest"))
+  )
   const [rating, setRating] = React.useState<"all" | "1" | "2" | "3" | "4" | "5">("all")
   const [reply, setReply] = React.useState<"all" | "replied" | "not_replied">("all")
   const [comment, setComment] = React.useState<"all" | "with_comment" | "without_comment">("all")
@@ -99,10 +165,26 @@ export function ReviewsPage() {
   const [selectedReviewId, setSelectedReviewId] = React.useState<string | null>(null)
   const [selectedReviewIds, setSelectedReviewIds] = React.useState<string[]>([])
   const [moderationReason, setModerationReason] = React.useState("")
+  const [hideDecision, setHideDecision] = React.useState<{
+    review: AdminReview
+    decision: "approve" | "reject"
+  } | null>(null)
+  const [hideDecisionNote, setHideDecisionNote] = React.useState("")
+
+  React.useEffect(() => {
+    const next = normalizeHideRequestFilter(searchParams.get("hideRequest"))
+    if (next !== "all") {
+      setHideRequest(next)
+    }
+    const reviewId = searchParams.get("review")
+    if (reviewId) {
+      setSelectedReviewId(reviewId)
+    }
+  }, [searchParams])
 
   React.useEffect(() => {
     setPage(1)
-  }, [debouncedSearch, restaurantId, status, rating, reply, comment, sortBy, pageSize])
+  }, [debouncedSearch, restaurantId, status, hideRequest, rating, reply, comment, sortBy, pageSize])
 
   const reviewsQuery = useQuery({
     queryKey: [
@@ -110,6 +192,7 @@ export function ReviewsPage() {
       debouncedSearch,
       restaurantId,
       status,
+      hideRequest,
       rating,
       reply,
       comment,
@@ -122,6 +205,7 @@ export function ReviewsPage() {
         search: debouncedSearch,
         restaurantId,
         status,
+        hideRequest,
         rating,
         reply,
         comment,
@@ -165,6 +249,32 @@ export function ReviewsPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Bulk review update failed"),
   })
 
+  const hideDecisionMutation = useMutation({
+    mutationFn: (payload: { reviewId: string; decision: "approve" | "reject"; adminNote?: string }) =>
+      payload.decision === "approve"
+        ? approveAdminReviewHideRequest({
+            reviewId: payload.reviewId,
+            adminNote: payload.adminNote,
+          })
+        : rejectAdminReviewHideRequest({
+            reviewId: payload.reviewId,
+            adminNote: payload.adminNote,
+          }),
+    onSuccess: (review, variables) => {
+      toast.success(
+        variables.decision === "approve"
+          ? "Hide request approved"
+          : "Hide request rejected"
+      )
+      setHideDecision(null)
+      setHideDecisionNote("")
+      void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-review", review.id] })
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Hide request update failed"),
+  })
+
   const data = reviewsQuery.data
   const reviews = data?.items ?? []
   const summary = data?.summary ?? {
@@ -172,6 +282,7 @@ export function ReviewsPage() {
     visible: 0,
     hidden: 0,
     flagged: 0,
+    hideRequestsPending: 0,
     withComments: 0,
     unanswered: 0,
     averageVisibleRating: 0,
@@ -183,6 +294,7 @@ export function ReviewsPage() {
     setSearch("")
     setRestaurantId("all")
     setStatus("all")
+    setHideRequest("all")
     setRating("all")
     setReply("all")
     setComment("all")
@@ -208,6 +320,20 @@ export function ReviewsPage() {
       reviewIds: selectedReviewIds,
       status: nextStatus,
       reason: moderationReason || defaultReason(nextStatus),
+    })
+  }
+
+  const openHideDecision = (review: AdminReview, decision: "approve" | "reject") => {
+    setHideDecision({ review, decision })
+    setHideDecisionNote("")
+  }
+
+  const submitHideDecision = () => {
+    if (!hideDecision) return
+    hideDecisionMutation.mutate({
+      reviewId: hideDecision.review.id,
+      decision: hideDecision.decision,
+      adminNote: hideDecisionNote.trim(),
     })
   }
 
@@ -268,11 +394,12 @@ export function ReviewsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         <MetricCard label="Total reviews" value={summary.total} helper="All customer reviews" />
         <MetricCard label="Visible" value={summary.visible} helper="Included in public ratings" />
         <MetricCard label="Hidden" value={summary.hidden} helper="Excluded from customer surfaces" />
         <MetricCard label="Flagged" value={summary.flagged} helper="Needs admin follow-up" />
+        <MetricCard label="Hide requests" value={summary.hideRequestsPending} helper="Pending owner requests" />
         <MetricCard label="Unanswered" value={summary.unanswered} helper="No owner reply yet" />
         <MetricCard label="Avg visible rating" value={summary.averageVisibleRating.toFixed(1)} helper="Visible reviews only" />
       </div>
@@ -285,7 +412,7 @@ export function ReviewsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_1fr_0.75fr_0.75fr_0.8fr_0.8fr_0.8fr_0.65fr]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.3fr_1fr_0.75fr_0.75fr_0.85fr_0.8fr_0.8fr_0.8fr_0.65fr]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -311,6 +438,16 @@ export function ReviewsPage() {
                 <SelectItem value="visible">Visible</SelectItem>
                 <SelectItem value="flagged">Flagged</SelectItem>
                 <SelectItem value="hidden">Hidden</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={hideRequest} onValueChange={(value) => setHideRequest(value as typeof hideRequest)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All requests</SelectItem>
+                <SelectItem value="pending">Hide requested</SelectItem>
+                <SelectItem value="approved">Approved requests</SelectItem>
+                <SelectItem value="rejected">Rejected requests</SelectItem>
+                <SelectItem value="none">No request</SelectItem>
               </SelectContent>
             </Select>
             <Select value={rating} onValueChange={(value) => setRating(value as typeof rating)}>
@@ -438,7 +575,12 @@ export function ReviewsPage() {
                         <p className="font-medium">{review.customerName}</p>
                         <p className="text-xs text-muted-foreground">{review.customerPhone || review.customerId || "No phone"}</p>
                       </TableCell>
-                      <TableCell><StatusBadge status={review.moderationStatus} isHidden={review.isHidden} /></TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1.5">
+                          <StatusBadge status={review.moderationStatus} isHidden={review.isHidden} />
+                          <HideRequestBadge review={review} />
+                        </div>
+                      </TableCell>
                       <TableCell>
                         {review.ownerReplyMessage ? (
                           <p className="line-clamp-2 text-sm">{review.ownerReplyMessage}</p>
@@ -453,7 +595,12 @@ export function ReviewsPage() {
                             <Eye className="size-4" />
                             View
                           </Button>
-                          <ReviewActions review={review} onUpdate={updateReview} />
+                          <ReviewActions
+                            review={review}
+                            onUpdate={updateReview}
+                            onHideDecision={openHideDecision}
+                            isUpdatingHideRequest={hideDecisionMutation.isPending}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
@@ -491,6 +638,77 @@ export function ReviewsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(hideDecision)} onOpenChange={(open) => !open && setHideDecision(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {hideDecision?.decision === "approve"
+                ? "Approve owner hide request?"
+                : "Reject owner hide request?"}
+            </DialogTitle>
+            <DialogDescription>
+              {hideDecision?.decision === "approve"
+                ? "The review will be hidden from customer-facing ratings and the owner will be notified."
+                : "The review will stay visible and the owner will see your note."}
+            </DialogDescription>
+          </DialogHeader>
+          {hideDecision ? (
+            <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium">{hideDecision.review.restaurantName}</p>
+                <RatingStars rating={hideDecision.review.rating} />
+              </div>
+              <p className="mt-2 line-clamp-3 text-muted-foreground">
+                {hideDecision.review.comment || "No written comment"}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Owner reason: {hideRequestReasonLabel(hideDecision.review.ownerHideRequest?.reasonCategory)}
+              </p>
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <Label>Admin note</Label>
+            <Textarea
+              value={hideDecisionNote}
+              onChange={(event) => setHideDecisionNote(event.target.value)}
+              placeholder={
+                hideDecision?.decision === "approve"
+                  ? "Optional note for audit trail"
+                  : "Why this request was rejected"
+              }
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={hideDecisionMutation.isPending}
+              onClick={() => setHideDecision(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={hideDecision?.decision === "reject" ? "outline" : "default"}
+              disabled={hideDecisionMutation.isPending}
+              onClick={submitHideDecision}
+            >
+              {hideDecisionMutation.isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Saving
+                </>
+              ) : hideDecision?.decision === "approve" ? (
+                "Approve hide"
+              ) : (
+                "Reject request"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={Boolean(selectedReviewId)} onOpenChange={(open) => !open && setSelectedReviewId(null)}>
         <SheetContent className="flex h-full w-full max-w-none! flex-col overflow-hidden p-0 sm:max-w-3xl! md:max-w-6xl!">
@@ -549,6 +767,51 @@ export function ReviewsPage() {
                         {selectedReview.hiddenReason || selectedReview.flaggedReason || "No moderation note yet."}
                       </p>
                     </div>
+                    {hideRequestStatus(selectedReview) !== "none" ? (
+                      <div className="rounded-lg border bg-amber-50/60 p-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">Owner hide request</p>
+                          <HideRequestBadge review={selectedReview} />
+                        </div>
+                        <p className="mt-2 text-muted-foreground">
+                          {hideRequestReasonLabel(selectedReview.ownerHideRequest?.reasonCategory)}
+                          {selectedReview.ownerHideRequest?.requestedAt
+                            ? ` - requested ${formatDate(selectedReview.ownerHideRequest.requestedAt)}`
+                            : ""}
+                        </p>
+                        {selectedReview.ownerHideRequest?.note ? (
+                          <p className="mt-2 rounded-md bg-background/80 p-2 text-muted-foreground">
+                            {selectedReview.ownerHideRequest.note}
+                          </p>
+                        ) : null}
+                        {selectedReview.ownerHideRequest?.adminNote ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Admin note: {selectedReview.ownerHideRequest.adminNote}
+                          </p>
+                        ) : null}
+                        {hideRequestStatus(selectedReview) === "pending" ? (
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={hideDecisionMutation.isPending}
+                              onClick={() => openHideDecision(selectedReview, "reject")}
+                            >
+                              <XCircle className="size-4" />
+                              Reject request
+                            </Button>
+                            <Button
+                              type="button"
+                              disabled={hideDecisionMutation.isPending}
+                              onClick={() => openHideDecision(selectedReview, "approve")}
+                            >
+                              <CheckCircle2 className="size-4" />
+                              Approve hide
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
 
@@ -656,10 +919,16 @@ function defaultReason(status: AdminReviewModerationStatus) {
 function ReviewActions({
   review,
   onUpdate,
+  onHideDecision,
+  isUpdatingHideRequest = false,
 }: {
   review: AdminReview
   onUpdate: (review: AdminReview, status: AdminReviewModerationStatus) => void
+  onHideDecision: (review: AdminReview, decision: "approve" | "reject") => void
+  isUpdatingHideRequest?: boolean
 }) {
+  const hasPendingHideRequest = hideRequestStatus(review) === "pending"
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -668,6 +937,24 @@ function ReviewActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {hasPendingHideRequest ? (
+          <>
+            <DropdownMenuItem
+              disabled={isUpdatingHideRequest}
+              onClick={() => onHideDecision(review, "approve")}
+            >
+              <CheckCircle2 className="size-4" />
+              Approve hide request
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isUpdatingHideRequest}
+              onClick={() => onHideDecision(review, "reject")}
+            >
+              <XCircle className="size-4" />
+              Reject hide request
+            </DropdownMenuItem>
+          </>
+        ) : null}
         <DropdownMenuItem onClick={() => onUpdate(review, "flagged")}>
           <Flag className="size-4" />
           Flag review

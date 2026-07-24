@@ -61,7 +61,7 @@ export function TransactionDetailsDrawer({
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="w-full max-w-none! p-0 sm:max-w-2xl! md:max-w-3xl!"
+        className="w-full max-w-none! gap-0 overflow-hidden p-0 sm:max-w-2xl! md:max-w-3xl!"
       >
         <SheetHeader className="sticky top-0 z-10 border-b bg-popover px-6 pb-4">
           <div className="flex items-start justify-between gap-4">
@@ -81,46 +81,57 @@ export function TransactionDetailsDrawer({
           </div>
         </SheetHeader>
 
-        <div className="space-y-6 px-6 py-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Order Reference</CardTitle></CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                <div className="font-medium">{transaction.orderNumber}</div>
-                <div className="text-muted-foreground">{transaction.orderId}</div>
-              </CardContent>
-            </Card>
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Settlement Status</CardTitle></CardHeader>
-              <CardContent>{getSettlementBadge(transaction.status)}</CardContent>
-            </Card>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className={`text-2xl font-semibold leading-tight ${transaction.netAmount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                    {transaction.netAmount >= 0 ? "+" : ""}
+                    {formatPayoutMoney(transaction.netAmount)}
+                  </p>
+                  {getSettlementBadge(transaction.status)}
+                </div>
+                <div className="mt-2 grid gap-x-5 gap-y-1 text-xs text-muted-foreground sm:grid-cols-2">
+                  <div>
+                    <span className="font-medium text-foreground">Order:</span>{" "}
+                    {transaction.orderNumber}
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Type:</span>{" "}
+                    {getTransactionTypeLabel(transaction.type)}
+                  </div>
+                  <div className="truncate">
+                    <span className="font-medium text-foreground">Order ID:</span>{" "}
+                    <span className="font-mono">{transaction.orderId}</span>
+                  </div>
+                  {transaction.payoutId ? (
+                    <div className="truncate">
+                      <span className="font-medium text-foreground">Payout:</span>{" "}
+                      <span className="font-mono">{transaction.payoutId}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Food Sales</CardTitle></CardHeader>
-              <CardContent><p className="text-lg font-semibold">{formatPayoutMoney(transaction.grossAmount)}</p></CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Card className="rounded-xl shadow-none">
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-sm">Food Sales</CardTitle></CardHeader>
+              <CardContent className="p-3 pt-1"><p className="font-semibold">{formatPayoutMoney(transaction.grossAmount)}</p></CardContent>
             </Card>
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Owner Earning</CardTitle></CardHeader>
-              <CardContent>
-                <p className={`text-lg font-semibold ${transaction.netAmount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                  {transaction.netAmount >= 0 ? "+" : ""}
-                  {formatPayoutMoney(transaction.netAmount)}
-                </p>
-              </CardContent>
+            <Card className="rounded-xl shadow-none">
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-sm">Commission</CardTitle></CardHeader>
+              <CardContent className="p-3 pt-1"><p className="font-semibold text-rose-700">-{formatPayoutMoney(transaction.commission)}</p></CardContent>
             </Card>
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Commission</CardTitle></CardHeader>
-              <CardContent><p className="text-sm">-{formatPayoutMoney(transaction.commission)}</p></CardContent>
+            <Card className="rounded-xl shadow-none">
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-sm">Owner Discount</CardTitle></CardHeader>
+              <CardContent className="p-3 pt-1"><p className="font-semibold text-amber-700">-{formatPayoutMoney(transaction.discountCost)}</p></CardContent>
             </Card>
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Owner Discount</CardTitle></CardHeader>
-              <CardContent><p className="text-sm">-{formatPayoutMoney(transaction.discountCost)}</p></CardContent>
-            </Card>
-            <Card className="rounded-2xl shadow-none">
-              <CardHeader><CardTitle className="text-base">Type</CardTitle></CardHeader>
-              <CardContent>
+            <Card className="rounded-xl shadow-none">
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-sm">Type</CardTitle></CardHeader>
+              <CardContent className="p-3 pt-1">
                 <div className="inline-flex items-center gap-2 text-sm font-medium">
                   <Wallet className="size-4" />
                   {getTransactionTypeLabel(transaction.type)}
@@ -129,8 +140,8 @@ export function TransactionDetailsDrawer({
             </Card>
           </div>
 
-          <Card className="rounded-2xl shadow-none">
-            <CardHeader><CardTitle className="text-base">Settlement Eligibility</CardTitle></CardHeader>
+          <Card className="rounded-xl shadow-none">
+            <CardHeader className="p-4 pb-2"><CardTitle className="text-base">Settlement Eligibility</CardTitle></CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CalendarClock className="size-4" />

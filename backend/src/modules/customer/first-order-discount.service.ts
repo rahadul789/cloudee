@@ -2,13 +2,17 @@ import mongoose from "mongoose"
 
 import { OrderModel } from "../owner/operational.model"
 import { getPlatformContent } from "../public/content.service"
-import { CustomerModel, FirstOrderDiscountClaimModel } from "./customer.model"
+import {
+  CustomerModel,
+  FirstOrderDiscountClaimModel,
+  FirstOrderDiscountDeviceLockModel,
+} from "./customer.model"
 
 export type FirstOrderDiscountSettings = {
   enabled: boolean
   discountAmountTaka: number
   minimumOrderAmountTaka: number
-  paymentRestriction: "any" | "bkash_only"
+  paymentRestriction: "any"
   maxRedemptionsPerDevicePerDay: number
   startsAt: string
   endsAt: string
@@ -39,7 +43,7 @@ export async function getFirstOrderDiscountSettings(): Promise<FirstOrderDiscoun
     minimumOrderAmountTaka: Number.isFinite(s.minimumOrderAmountTaka)
       ? Number(s.minimumOrderAmountTaka)
       : DEFAULTS.minimumOrderAmountTaka,
-    paymentRestriction: s.paymentRestriction === "bkash_only" ? "bkash_only" : "any",
+    paymentRestriction: "any",
     maxRedemptionsPerDevicePerDay: Number.isFinite(s.maxRedemptionsPerDevicePerDay)
       ? Number(s.maxRedemptionsPerDevicePerDay)
       : DEFAULTS.maxRedemptionsPerDevicePerDay,
@@ -93,15 +97,17 @@ export function collectFirstOrderDeviceIds(
   return [...ids]
 }
 
-// Has THIS device already consumed the first-order welcome perk — an active claim
-// (reserved/confirmed) or a redeemed discount on any account on this device? The referral
-// service calls this so ONE physical device gets ONE welcome perk total across BOTH
-// programs (first-order OR referral welcome), never one of each via two phone numbers.
+// Has THIS device already consumed the first-order welcome perk? Active claims,
+// released claims, lifetime device locks, and redeemed customer records all count.
+// The referral service calls this too, so ONE physical device gets ONE welcome perk
+// total across BOTH programs.
 export async function deviceHasFirstOrderWelcome(deviceIds: string[]) {
   if (!deviceIds.length) return false
-  const [claim, redeemed] = await Promise.all([
+  const [lock, claim, redeemed] = await Promise.all([
+    FirstOrderDiscountDeviceLockModel.exists({
+      deviceId: { $in: deviceIds },
+    }),
     FirstOrderDiscountClaimModel.exists({
-      status: { $in: ["reserved", "confirmed"] },
       deviceId: { $in: deviceIds },
     }),
     CustomerModel.exists({
@@ -112,7 +118,35 @@ export async function deviceHasFirstOrderWelcome(deviceIds: string[]) {
       ],
     }),
   ])
-  return Boolean(claim || redeemed)
+  return Boolean(lock || claim || redeemed)
+}
+
+export async function lockFirstOrderDiscountDevice(params: {
+  deviceId: string
+  customerId: mongoose.Types.ObjectId | string
+  orderId: mongoose.Types.ObjectId | string
+  session?: mongoose.ClientSession
+}) {
+  const deviceId = String(params.deviceId ?? "").trim()
+  if (!deviceId) return true
+  const options = params.session ? { session: params.session } : {}
+  try {
+    await FirstOrderDiscountDeviceLockModel.create(
+      [
+        {
+          deviceId,
+          customerId: params.customerId,
+          orderId: params.orderId,
+          reason: "first_order_offer_claim",
+        },
+      ],
+      options,
+    )
+    return true
+  } catch (error) {
+    if ((error as { code?: number })?.code === 11000) return false
+    throw error
+  }
 }
 
 export type FirstOrderDiscountEvaluation = {
@@ -164,14 +198,6 @@ export async function evaluateFirstOrderDiscount(params: {
   if (!settings.enabled) return fail("disabled")
   if (!params.customerId) return fail("no_customer")
   if (!isWithinWindow(settings, new Date())) return fail("outside_window")
-  if (
-    settings.paymentRestriction === "bkash_only" &&
-    params.paymentMethod &&
-    params.paymentMethod !== "Bkash"
-  ) {
-    return fail("payment_restricted")
-  }
-
   const customer =
     params.customer ??
     (await CustomerModel.findById(params.customerId)
@@ -192,6 +218,7 @@ export async function evaluateFirstOrderDiscount(params: {
   const phones = collectFirstOrderPhones(customer)
   const deviceIds = collectFirstOrderDeviceIds(customer, params.deviceId)
   const walletNumber = String(params.walletNumber ?? "").trim()
+  if (!deviceIds.length) return fail("missing_device_fingerprint")
 
   // Fraud gate runs for EVERY genuine first-order candidate — even below the minimum — so
   // the candidate hint (which drives the restaurant "auto-applied" banner) never promises
@@ -199,12 +226,15 @@ export async function evaluateFirstOrderDiscount(params: {
   // used, or the device is over its cap, we return candidate:false so the banner stays
   // hidden instead of showing on the menu and then blocking at the cart.
 
-  // Cross-account block: any OTHER account with an active claim sharing our device,
-  // phone (incl. previous), or wallet means this is the same person on a fresh account.
-  // This is a permanent block (no time window) — one device/phone/wallet = one welcome
-  // discount, ever.
+  // Lifetime device block. Phone/wallet active-claim checks stay below as a secondary
+  // cross-account signal.
+  // This is a permanent block (no time window) for the device fingerprint.
+  // Released claims count here too, so cancel/reject does not reopen FFO on the device.
+  if (deviceIds.length && (await deviceHasFirstOrderWelcome(deviceIds))) {
+    return fail("fingerprint_conflict")
+  }
+
   const fingerprintOr: Record<string, unknown>[] = []
-  if (deviceIds.length) fingerprintOr.push({ deviceId: { $in: deviceIds } })
   if (phones.length) fingerprintOr.push({ phone: { $in: phones } })
   if (walletNumber) fingerprintOr.push({ walletNumber })
 
@@ -278,11 +308,10 @@ export async function evaluateFirstOrderDiscount(params: {
   }
 }
 
-// Give the first-order discount eligibility back to a customer whose qualifying order
-// was cancelled/rejected before delivery, so an honest cancel doesn't burn their
-// welcome offer. The claim row is marked "released" (still counted for per-device/day
-// velocity so rapid place-cancel farming can't reset the cap). No-op if this order
-// isn't the one that consumed the discount.
+// Mark a qualifying FFO claim as financially released when the order is
+// cancelled/rejected before delivery. The customer marker is reset for existing
+// reporting flows, but claim history + device locks still keep this device lifetime
+// ineligible for future FFO claims.
 export async function releaseFirstOrderDiscountForOrder(params: {
   orderId: mongoose.Types.ObjectId | string
   customerId: mongoose.Types.ObjectId | string

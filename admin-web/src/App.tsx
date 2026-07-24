@@ -206,6 +206,11 @@ const RestaurantsPage = React.lazy(() =>
     default: module.RestaurantsPage,
   }))
 )
+const RestaurantIntelligencePage = React.lazy(() =>
+  import("@/components/restaurant-intelligence-page").then((module) => ({
+    default: module.RestaurantIntelligencePage,
+  }))
+)
 const UsersPage = React.lazy(() =>
   import("@/components/users-page").then((module) => ({
     default: module.UsersPage,
@@ -304,6 +309,11 @@ const PromoAnalyticsPage = React.lazy(() =>
 const ReferralsPage = React.lazy(() =>
   import("@/components/referrals-page").then((module) => ({
     default: module.ReferralsPage,
+  }))
+)
+const MenuApprovalsPage = React.lazy(() =>
+  import("@/components/menu-approvals-page").then((module) => ({
+    default: module.MenuApprovalsPage,
   }))
 )
 const WebsitePage = React.lazy(() =>
@@ -3338,6 +3348,22 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <RestaurantsPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "restaurants/:restaurantId/details",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <RestaurantIntelligencePage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "menu-approvals",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <MenuApprovalsPage />
           </React.Suspense>
         ),
       },

@@ -169,6 +169,62 @@ function collectCustomerDeviceIds(customer: Record<string, any>) {
   return deviceIds
 }
 
+async function getWelcomePerkDeviceConflict(params: {
+  customer: Record<string, any>
+  installId?: string
+  excludeCustomerId?: unknown
+}) {
+  const deviceIds = collectCustomerDeviceIds(params.customer)
+  const installDeviceId = normalizeDeviceId(params.installId)
+  if (installDeviceId) deviceIds.add(installDeviceId)
+
+  const deviceIdList = [...deviceIds]
+  if (!deviceIdList.length) {
+    return {
+      conflict: false,
+      deviceIds: deviceIdList,
+      referralWelcomeOnDevice: false,
+      firstOrderWelcomeOnDevice: false,
+      reasonKey: "",
+    }
+  }
+
+  const referralWelcomeQuery: Record<string, unknown> = {
+    refereeRewardGrantedAt: { $ne: null },
+    $or: [
+      { referralSignupDeviceId: { $in: deviceIdList } },
+      { lastKnownDeviceId: { $in: deviceIdList } },
+    ],
+  }
+  const excludeCustomerId = String(params.excludeCustomerId ?? "").trim()
+  if (excludeCustomerId && mongoose.Types.ObjectId.isValid(excludeCustomerId)) {
+    referralWelcomeQuery._id = {
+      $ne: new mongoose.Types.ObjectId(excludeCustomerId),
+    }
+  }
+
+  const [referralWelcomeOnDevice, firstOrderWelcomeOnDevice] =
+    await Promise.all([
+      CustomerModel.exists(referralWelcomeQuery),
+      deviceHasFirstOrderWelcome(deviceIdList),
+    ])
+
+  const hasReferralConflict = Boolean(referralWelcomeOnDevice)
+  const hasFirstOrderConflict = Boolean(firstOrderWelcomeOnDevice)
+
+  return {
+    conflict: hasReferralConflict || hasFirstOrderConflict,
+    deviceIds: deviceIdList,
+    referralWelcomeOnDevice: hasReferralConflict,
+    firstOrderWelcomeOnDevice: hasFirstOrderConflict,
+    reasonKey: hasReferralConflict
+      ? "referral_same_device"
+      : hasFirstOrderConflict
+        ? "referral_device_used_first_order"
+        : "",
+  }
+}
+
 function buildReferralAlertDedupeKey(params: {
   referredCustomerId: string
   orderId?: string
@@ -423,7 +479,7 @@ export async function attachReferralToNewCustomer(params: {
     referralCode,
     status: "active",
   }).select(
-    "_id fullName phone status previousPhones pushTokens lastKnownDeviceId referralSignupDeviceId"
+    "_id fullName phone status previousPhones pushTokens lastKnownDeviceId referralSignupDeviceId referralDisabledByAdmin"
   )
 
   if (!referrer) {
@@ -432,6 +488,18 @@ export async function attachReferralToNewCustomer(params: {
 
   const customerId = String(params.customer._id ?? params.customer.id ?? "")
   if (referrer.id === customerId) {
+    return null
+  }
+
+  if (referrer.referralDisabledByAdmin) {
+    return null
+  }
+
+  const referrerDeliveredOrders = await OrderModel.countDocuments({
+    customerId: referrer._id,
+    status: "Delivered",
+  })
+  if (referrerDeliveredOrders < 1) {
     return null
   }
 
@@ -451,6 +519,38 @@ export async function attachReferralToNewCustomer(params: {
   }
   if (signupDeviceId && referrerDeviceIds.has(signupDeviceId)) {
     rejectedReasonKeys.push("same_device")
+  }
+
+  const welcomeConflict = await getWelcomePerkDeviceConflict({
+    customer: params.customer as Record<string, any>,
+    installId: params.installId,
+    excludeCustomerId: params.customer._id ?? params.customer.id,
+  })
+  if (welcomeConflict.conflict) {
+    await createReferralFraudAlert({
+      severity: "warning",
+      title: "Referral blocked (device already used a welcome offer)",
+      description:
+        "A signup referral code was submitted from a device that had already received a welcome perk. The account was created without linking the referral.",
+      referrerId: referrer.id,
+      referredCustomerId: customerId || referredPhone || "new-customer",
+      reasonKeys: [welcomeConflict.reasonKey || "referral_device_welcome_conflict"],
+      metadata: {
+        referralCode,
+        referrerPhone: referrer.phone ?? "",
+        referredPhone: params.customer.phone ?? "",
+        signupDeviceId,
+        signupIpAddress,
+        deviceIds: welcomeConflict.deviceIds,
+        referralWelcomeOnDevice: welcomeConflict.referralWelcomeOnDevice,
+        firstOrderWelcomeOnDevice: welcomeConflict.firstOrderWelcomeOnDevice,
+      },
+    })
+    return {
+      referrerId: referrer.id,
+      referrerName: referrer.fullName ?? "",
+      rejected: true,
+    }
   }
 
   setReferralField(params.customer, "referredByCustomerId", referrer._id)
@@ -503,6 +603,133 @@ function formatReferralRewardExpiry(date?: Date | string | null) {
   return date ? new Date(date).toISOString() : null
 }
 
+export async function grantRefereeWelcomeVoucherToCustomer(params: {
+  customer: Record<string, any>
+  settings?: ReferralProgramSettings
+}) {
+  const settings = params.settings ?? (await getReferralProgramSettings())
+  if (settings.refereeRewardAmountTaka <= 0) return false
+
+  const customerId = getCustomerId(params.customer)
+  if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) return false
+
+  const customerObjectId = new mongoose.Types.ObjectId(customerId)
+  const refereeVoucherId = new mongoose.Types.ObjectId()
+  const refereeVoucherCode = await createReferralRewardVoucherCode()
+  const now = new Date()
+  const expiresAt = new Date(
+    now.getTime() + settings.voucherExpiryDays * 24 * 60 * 60 * 1000,
+  )
+  const session = await mongoose.startSession()
+  let granted = false
+
+  try {
+    await session.withTransaction(async () => {
+      const marker = await CustomerModel.updateOne(
+        {
+          _id: customerObjectId,
+          refereeRewardGrantedAt: null,
+          refereeRewardVoucherId: null,
+        },
+        {
+          $set: {
+            refereeRewardVoucherId: refereeVoucherId,
+            refereeRewardGrantedAt: now,
+          },
+        },
+        { session },
+      )
+      if (marker.modifiedCount === 0) return
+
+      await VoucherModel.create(
+        [
+          {
+            _id: refereeVoucherId,
+            restaurantId: null,
+            scopeType: "all_restaurants",
+            selectedRestaurantIds: [],
+            audienceType: "selected_users",
+            selectedCustomerIds: [customerObjectId],
+            createdByType: "system",
+            createdById: "referral-system",
+            fundedBy: "platform",
+            ownerSharePercent: 0,
+            platformSharePercent: 100,
+            stackingRule: "exclusive",
+            priority: 80,
+            mode: "auto",
+            type: "flat",
+            name: "Welcome referral reward",
+            code: refereeVoucherCode,
+            discountValue: settings.refereeRewardAmountTaka,
+            maxDiscountAmount: settings.refereeRewardAmountTaka,
+            minimumOrderAmount: settings.minimumOrderAmountTaka,
+            maxTotalUses: 1,
+            maxUsesPerUser: 1,
+            allowRepeatUsage: false,
+            status: "Active",
+            applicability: "all",
+            startsAt: now,
+            endsAt: expiresAt,
+            display: {
+              showOnHome: true,
+              showInOfferStrip: true,
+              placement: "offers_row",
+              variant: "chip",
+              title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+              subtitle: `Use on orders over Tk ${settings.minimumOrderAmountTaka}`,
+              ctaLabel: "Order now",
+              ctaPath: "/(tabs)/browse",
+              backgroundColor: "#FFF0F6",
+              textColor: "#3F2432",
+              accentColor: "#FF5C93",
+            },
+          },
+        ],
+        { session },
+      )
+      granted = true
+    })
+  } catch (error) {
+    logger.warn(
+      { error, customerId },
+      "Failed to grant referee welcome voucher",
+    )
+    return false
+  } finally {
+    await session.endSession()
+  }
+
+  if (!granted) return false
+
+  try {
+    await createCustomerNotification({
+      customerId,
+      payload: {
+        title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+        body: `Your friend's referral gave you Tk ${settings.refereeRewardAmountTaka} off. Use it on orders over Tk ${settings.minimumOrderAmountTaka}.`,
+        data: {
+          type: "promotion",
+          personalOffer: true,
+          voucherId: String(refereeVoucherId),
+          voucherCode: refereeVoucherCode,
+          voucherLabel: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
+          voucherExpiresAt: expiresAt.toISOString(),
+          voucherMinOrder: settings.minimumOrderAmountTaka,
+          path: "/offers",
+        },
+      },
+    })
+  } catch (error) {
+    logger.warn(
+      { error, customerId },
+      "Failed to notify referee welcome voucher",
+    )
+  }
+
+  return true
+}
+
 // Would applying a referral code on THIS device actually grant a welcome voucher? False
 // once this physical device has consumed any welcome perk (a prior referee voucher OR the
 // first-order discount). Drives the client hint so we never invite a referral on a device
@@ -511,23 +738,12 @@ async function isDeviceWelcomeEligible(params: {
   customer: Record<string, any>
   installId?: string
 }) {
-  const deviceIds = collectCustomerDeviceIds(params.customer)
-  const installDeviceId = normalizeDeviceId(params.installId)
-  if (installDeviceId) deviceIds.add(installDeviceId)
-  const deviceIdList = [...deviceIds]
-  if (!deviceIdList.length) return true
-  const [referralWelcome, firstOrder] = await Promise.all([
-    CustomerModel.exists({
-      _id: { $ne: params.customer._id },
-      refereeRewardGrantedAt: { $ne: null },
-      $or: [
-        { referralSignupDeviceId: { $in: deviceIdList } },
-        { lastKnownDeviceId: { $in: deviceIdList } },
-      ],
-    }),
-    deviceHasFirstOrderWelcome(deviceIdList),
-  ])
-  return !referralWelcome && !firstOrder
+  const conflict = await getWelcomePerkDeviceConflict({
+    customer: params.customer,
+    installId: params.installId,
+    excludeCustomerId: params.customer._id,
+  })
+  return !conflict.conflict
 }
 
 export async function getCustomerReferralSummary(
@@ -785,24 +1001,12 @@ export async function applyReferralCodeToCustomer(params: {
   // BEFORE linking. This is what stops "same device + new phone number" from re-running the
   // referral flow. (Doing it after linking only skipped the voucher but still showed the
   // referral as "applied", which read as "allowed on the same device".)
-  const refereeDeviceIds = collectCustomerDeviceIds(customer)
-  const signupDeviceId = normalizeDeviceId(params.installId)
-  if (signupDeviceId) refereeDeviceIds.add(signupDeviceId)
-  const deviceIdList = [...refereeDeviceIds]
-  const [referralWelcomeOnDevice, firstOrderWelcomeOnDevice] = deviceIdList.length
-    ? await Promise.all([
-        CustomerModel.exists({
-          _id: { $ne: customer._id },
-          refereeRewardGrantedAt: { $ne: null },
-          $or: [
-            { referralSignupDeviceId: { $in: deviceIdList } },
-            { lastKnownDeviceId: { $in: deviceIdList } },
-          ],
-        }),
-        deviceHasFirstOrderWelcome(deviceIdList),
-      ])
-    : [null, false]
-  if (referralWelcomeOnDevice || firstOrderWelcomeOnDevice) {
+  const welcomeConflict = await getWelcomePerkDeviceConflict({
+    customer,
+    installId: params.installId,
+    excludeCustomerId: customer._id,
+  })
+  if (welcomeConflict.conflict) {
     await createReferralFraudAlert({
       severity: "warning",
       title: "Referral blocked (device already used a welcome offer)",
@@ -810,12 +1014,12 @@ export async function applyReferralCodeToCustomer(params: {
         "A referral code was applied on a device that had already received a welcome perk (referral or first-order). It was rejected to prevent same-device farming.",
       referrerId: referrer.id,
       referredCustomerId: customer.id,
-      reasonKeys: [
-        referralWelcomeOnDevice
-          ? "referral_same_device"
-          : "referral_device_used_first_order",
-      ],
-      metadata: { deviceIds: deviceIdList },
+      reasonKeys: [welcomeConflict.reasonKey || "referral_device_welcome_conflict"],
+      metadata: {
+        deviceIds: welcomeConflict.deviceIds,
+        referralWelcomeOnDevice: welcomeConflict.referralWelcomeOnDevice,
+        firstOrderWelcomeOnDevice: welcomeConflict.firstOrderWelcomeOnDevice,
+      },
     })
     throw new AppError(
       StatusCodes.BAD_REQUEST,
@@ -854,93 +1058,10 @@ export async function applyReferralCodeToCustomer(params: {
   // so reaching here means this device is clear. Give the referred friend their welcome
   // voucher right away — platform-funded, single-use, auto-applied. Non-fatal on failure so
   // a voucher hiccup never blocks the (already-linked) referral.
-  let refereeRewardGranted = false
-  if (settings.refereeRewardAmountTaka > 0) {
-    try {
-      const refereeVoucherId = new mongoose.Types.ObjectId()
-      const refereeVoucherCode = await createReferralRewardVoucherCode()
-      const now = new Date()
-      const expiresAt = new Date(
-        now.getTime() + settings.voucherExpiryDays * 24 * 60 * 60 * 1000,
-      )
-      await VoucherModel.create({
-        _id: refereeVoucherId,
-        restaurantId: null,
-        scopeType: "all_restaurants",
-        selectedRestaurantIds: [],
-        audienceType: "selected_users",
-        selectedCustomerIds: [customer._id],
-        createdByType: "system",
-        createdById: "referral-system",
-        fundedBy: "platform",
-        ownerSharePercent: 0,
-        platformSharePercent: 100,
-        stackingRule: "exclusive",
-        priority: 80,
-        mode: "auto",
-        type: "flat",
-        name: "Welcome referral reward",
-        code: refereeVoucherCode,
-        discountValue: settings.refereeRewardAmountTaka,
-        maxDiscountAmount: settings.refereeRewardAmountTaka,
-        minimumOrderAmount: settings.minimumOrderAmountTaka,
-        maxTotalUses: 1,
-        maxUsesPerUser: 1,
-        allowRepeatUsage: false,
-        status: "Active",
-        applicability: "all",
-        startsAt: now,
-        endsAt: expiresAt,
-        display: {
-          showOnHome: true,
-          showInOfferStrip: true,
-          placement: "offers_row",
-          variant: "chip",
-          title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
-          subtitle: `Use on orders over Tk ${settings.minimumOrderAmountTaka}`,
-          ctaLabel: "Order now",
-          ctaPath: "/(tabs)/browse",
-          backgroundColor: "#FFF0F6",
-          textColor: "#3F2432",
-          accentColor: "#FF5C93",
-        },
-      })
-      await createCustomerNotification({
-        customerId: customer.id,
-        payload: {
-          title: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
-          body: `Your friend's referral gave you Tk ${settings.refereeRewardAmountTaka} off. Use it on orders over Tk ${settings.minimumOrderAmountTaka}.`,
-          data: {
-            type: "promotion",
-            personalOffer: true,
-            voucherId: String(refereeVoucherId),
-            voucherCode: refereeVoucherCode,
-            voucherLabel: `Tk ${settings.refereeRewardAmountTaka} welcome reward`,
-            voucherExpiresAt: expiresAt.toISOString(),
-            voucherMinOrder: settings.minimumOrderAmountTaka,
-            path: "/offers",
-          },
-        },
-      })
-      // Mark the device as having consumed its one-and-only referee welcome voucher so
-      // future fresh accounts on the same device are blocked by the guard above.
-      await CustomerModel.updateOne(
-        { _id: customer._id },
-        {
-          $set: {
-            refereeRewardVoucherId: refereeVoucherId,
-            refereeRewardGrantedAt: new Date(),
-          },
-        },
-      )
-      refereeRewardGranted = true
-    } catch (error) {
-      logger.warn(
-        { error, customerId: customer.id },
-        "Failed to grant referee welcome voucher",
-      )
-    }
-  }
+  const refereeRewardGranted = await grantRefereeWelcomeVoucherToCustomer({
+    customer,
+    settings,
+  })
 
   return {
     applied: true,
@@ -1259,6 +1380,32 @@ export async function grantReferralRewardForDeliveredOrder(params: {
         title: "Referral reward rejected",
         description:
           "A referral reward was blocked because the referrer and referred customer used the same install/device ID.",
+      },
+    })
+  }
+
+  const welcomeConflict = await getWelcomePerkDeviceConflict({
+    customer: referredCustomer,
+    excludeCustomerId: referredCustomer._id,
+  })
+  if (welcomeConflict.conflict) {
+    return markReferralRewardSkipped({
+      referredCustomer,
+      referrer,
+      order,
+      status: "rejected",
+      skippedReason: REFERRAL_INELIGIBLE_MESSAGE,
+      reasonKey: welcomeConflict.reasonKey || "referral_device_welcome_conflict",
+      alert: {
+        severity: "critical",
+        title: "Referral reward rejected",
+        description:
+          "A referral reward was blocked because the referred customer's device had already used a welcome offer.",
+        metadata: {
+          deviceIds: welcomeConflict.deviceIds,
+          referralWelcomeOnDevice: welcomeConflict.referralWelcomeOnDevice,
+          firstOrderWelcomeOnDevice: welcomeConflict.firstOrderWelcomeOnDevice,
+        },
       },
     })
   }

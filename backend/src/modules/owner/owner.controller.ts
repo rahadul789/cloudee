@@ -1,11 +1,26 @@
 import type { Response } from "express"
+import { StatusCodes } from "http-status-codes"
 import { z } from "zod"
 
+import { AppError } from "../../common/utils/app-error"
 import { sendSuccess } from "../../common/utils/api-response"
 import { asyncHandler } from "../../common/utils/async-handler"
 import type { AuthenticatedRequest } from "../../common/middleware/auth"
+import { endOwnerImpersonation } from "../auth/impersonation.service"
 import { getOwnerProfile, updateOwnerPassword, updateOwnerProfile } from "./owner.service"
 import { registerOwnerPushToken, unregisterOwnerPushToken } from "./push.service"
+
+// Actions that could lock the real owner out or are irreversible must not be
+// performed from an admin-impersonation session (support/act-as only).
+function assertNotImpersonating(req: AuthenticatedRequest, action: string) {
+  if (req.user?.impersonatedByAdminId) {
+    throw new AppError(
+      StatusCodes.FORBIDDEN,
+      "IMPERSONATION_ACTION_BLOCKED",
+      `${action} is disabled while an admin is signed in as this account.`
+    )
+  }
+}
 
 const ownerProfileUpdateSchema = z.object({
   fullName: z.string().min(1).optional(),
@@ -90,6 +105,7 @@ export const patchOwnerMe = asyncHandler(async (req: AuthenticatedRequest, res: 
 })
 
 export const patchOwnerPassword = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  assertNotImpersonating(req, "Changing the password")
   const ownerId = req.user?.id ?? ""
   const payload = ownerPasswordUpdateSchema.parse(req.body)
   const result = await updateOwnerPassword({
@@ -102,6 +118,30 @@ export const patchOwnerPassword = asyncHandler(async (req: AuthenticatedRequest,
     data: result
   })
 })
+
+export const postOwnerImpersonationEnd = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const adminId = req.user?.impersonatedByAdminId
+    const tokenId = req.user?.tokenId
+    if (!adminId || !tokenId) {
+      return sendSuccess(res, {
+        message: "No impersonation session to end",
+        data: { ended: false }
+      })
+    }
+
+    await endOwnerImpersonation({
+      ownerId: req.user?.id ?? "",
+      tokenId,
+      adminId
+    })
+
+    return sendSuccess(res, {
+      message: "Impersonation session ended",
+      data: { ended: true }
+    })
+  }
+)
 
 export const postOwnerPushToken = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const ownerId = req.user?.id ?? ""

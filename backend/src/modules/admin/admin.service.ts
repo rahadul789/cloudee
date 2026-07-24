@@ -157,22 +157,19 @@ export async function refreshAdminSession(params: {
     throw new AppError(StatusCodes.NOT_FOUND, "ADMIN_NOT_FOUND", "Admin not found")
   }
 
-  session.revokedAt = new Date()
-  await session.save()
-
-  const refreshSession = await createAdminRefreshSession({
-    adminId: admin.id,
-    userAgent: params.userAgent,
-    ipAddress: params.ipAddress
-  })
-
+  // Do NOT rotate the admin refresh token. Admins routinely keep several tabs open;
+  // rotating (revoke-old + issue-new) revokes the tokenId the moment another tab or
+  // an in-flight request still holds it, so that caller's next refresh hits
+  // SESSION_REVOKED (401) and the admin is force-logged-out at random. Reusing the
+  // long-lived (10y) session keeps every tab valid. The session stays revocable by
+  // tokenId on explicit logout / from Session management. (Same fix as customer.)
   return buildAdminAuthPayload({
     adminId: admin.id,
     fullName: admin.fullName,
     email: admin.email,
     role: "admin",
-    refreshToken: refreshSession.refreshToken,
-    tokenId: refreshSession.tokenId
+    refreshToken: params.refreshToken,
+    tokenId: session.tokenId
   })
 }
 

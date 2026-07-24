@@ -476,6 +476,22 @@ export type AdminFoodCategoryDetails = {
 
 export type AdminReviewModerationStatus = "visible" | "hidden" | "flagged"
 export type AdminReviewSort = "newest" | "oldest" | "highest" | "lowest"
+export type AdminReviewHideRequestStatus =
+  | "none"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+
+export type AdminReviewHideRequest = {
+  status: AdminReviewHideRequestStatus
+  reasonCategory: string
+  note: string
+  requestedAt: string | null
+  reviewedAt: string | null
+  reviewedByAdminId: string
+  adminNote: string
+}
 
 export type AdminReview = {
   id: string
@@ -501,6 +517,7 @@ export type AdminReview = {
   flaggedAt: string | null
   flaggedByAdminId: string
   flaggedReason: string
+  ownerHideRequest?: AdminReviewHideRequest
   createdAt: string | null
   updatedAt: string | null
 }
@@ -1256,6 +1273,8 @@ export type AdminRestaurantSummary = {
   featuredPosition: number | null
   isSponsored: boolean
   commissionRate: number
+  /** Per-restaurant minimum order override; null = inherit the platform default. */
+  minimumOrderAmount: number | null
   profileCompletionPercentage: number
   totalOrders: number
   liveOrders: number
@@ -1531,6 +1550,314 @@ export type AdminRestaurantDetails = AdminRestaurantSummary & {
   }>
 }
 
+export type AdminRestaurantIntelligence = {
+  restaurant: AdminRestaurantDetails
+  filters: {
+    preset: AdminRestaurantOrderDateFilterPreset
+    from: string
+    to: string
+    status: "all" | "live" | "delivered" | "cancelled" | "rejected"
+    paymentMethod: string
+    categoryId: string
+    itemId: string
+    customerTier: "all" | "new" | "repeat"
+  }
+  sample: {
+    matchingOrders: number
+    analyzedOrders: number
+    loadedOrders: number
+    maxLoadedOrders: number
+    truncated: boolean
+  }
+  availability: {
+    filters: {
+      event: "all" | "online" | "offline"
+      source: "all" | "owner_app" | "owner_web" | "admin" | "system" | "unknown"
+      reason:
+        | "all"
+        | "manual_offline"
+        | "admin_offline"
+        | "enforcement"
+        | "restaurant_hidden"
+        | "replaced"
+        | "system"
+      risk: "all" | "offline_with_live_orders"
+    }
+    summary: {
+      isOnline: boolean
+      currentSessionStartedAt: string | null
+      todayOnlineSeconds: number
+      windowOnlineSeconds: number
+      windowOnlineHours: number
+      scheduledWindowSeconds: number
+      scheduledWindowHours: number
+      scheduledComplianceRate: number
+      missedScheduledSeconds: number
+      missedScheduledHours: number
+      scheduledOpenNow: boolean
+      temporaryClosureActive: boolean
+      sessionCount: number
+      averageSessionSeconds: number
+      offlineWithLiveOrdersCount: number
+      shortSessionCount: number
+      lastOnlineAt: string | null
+      lastOfflineAt: string | null
+    }
+    daily: Array<{
+      date: string
+      label: string
+      onlineSeconds: number
+      onlineHours: number
+      scheduledSeconds: number
+      scheduledHours: number
+      complianceRate: number
+      missedSeconds: number
+      sessionCount: number
+      offlineEvents: number
+    }>
+    alerts: Array<{
+      key: string
+      severity: "info" | "warning" | "critical"
+      title: string
+      description: string
+    }>
+    sourceBreakdown: Array<{
+      source: string
+      count: number
+    }>
+    events: Array<{
+      id: string
+      type: "online" | "offline"
+      occurredAt: string | null
+      source: string
+      reason: string
+      durationSeconds: number
+      activeOrderCount: number
+      activeOrderNumbers: string[]
+    }>
+    sessions: Array<{
+      id: string
+      startedAt: string | null
+      endedAt: string | null
+      durationSeconds: number
+      status: "online" | "closed" | string
+      startSource: string
+      endSource: string
+      endReason: string
+      activeOrderCountAtStart: number
+      activeOrderCountAtEnd: number
+      activeOrderNumbersAtEnd: string[]
+    }>
+  }
+  health: {
+    isOnline: boolean
+    isVisible: boolean
+    enforcementStatus: string
+    profileCompletionPercentage: number
+    openSupportCases: number
+    lateLiveOrders: number
+    riskItems: string[]
+  }
+  actions: Array<{
+    id: string
+    priority: "critical" | "warning" | "opportunity"
+    domain:
+      | "availability"
+      | "orders"
+      | "finance"
+      | "menu"
+      | "reviews"
+      | "support"
+      | "growth"
+      | "profile"
+    title: string
+    description: string
+    impact: string
+    recommendation: string
+    actionLabel: string
+    targetTab?:
+      | "overview"
+      | "availability"
+      | "performance"
+      | "sales"
+      | "menu"
+      | "customers"
+      | "finance"
+      | "quality"
+      | "timeline"
+    path?: string
+    metricLabel: string
+    metricValue: string
+  }>
+  benchmark: {
+    status: "ready" | "insufficient_data"
+    scope: "zone" | "district" | "platform"
+    scopeLabel: string
+    peerCount: number
+    minimumPeers: number
+    generatedAt: string | null
+    orderSample: {
+      loadedOrders: number
+      maxLoadedOrders: number
+      truncated: boolean
+    }
+    metrics: Array<{
+      key: string
+      label: string
+      domain:
+        | "availability"
+        | "orders"
+        | "finance"
+        | "menu"
+        | "reviews"
+        | "support"
+        | "growth"
+        | "profile"
+      unit: "money" | "count" | "percent" | "minutes" | "hours" | "rating"
+      direction: "higher_better" | "lower_better"
+      current: number
+      peerMedian: number
+      peerAverage: number
+      percentile: number
+      deltaFromMedian: number
+      status:
+        | "excellent"
+        | "good"
+        | "watch"
+        | "needs_attention"
+        | "not_available"
+      summary: string
+      recommendation: string
+    }>
+  }
+  sales: {
+    summary: {
+      orders: number
+      liveOrders: number
+      deliveredOrders: number
+      cancelledOrders: number
+      rejectedOrders: number
+      grossRevenue: number
+      netEarnings: number
+      averageOrderValue: number
+      cancellationRate: number
+    }
+    trend: Array<{
+      date: string
+      label: string
+      orders: number
+      revenue: number
+      cancelled: number
+      rejected: number
+      averageAcceptanceMinutes: number
+      averagePreparationMinutes: number
+    }>
+    statusDistribution: Array<{
+      key: string
+      label: string
+      count: number
+      revenue: number
+    }>
+    paymentMethods: Array<{
+      method: string
+      orders: number
+      revenue: number
+    }>
+  }
+  performance: {
+    preparationTargetMinutes: number
+    ordersAnalyzed: number
+    averageAcceptanceMinutes: number
+    medianAcceptanceMinutes: number
+    averagePreparationMinutes: number
+    medianPreparationMinutes: number
+    averageReadyFromOrderMinutes: number
+    averagePickupWaitMinutes: number
+    averageDeliveryMinutes: number
+    acceptedWithin5MinutesRate: number
+    readyWithinEstimateRate: number
+    lateAcceptanceOrders: number
+    latePreparationOrders: number
+    slowestOrders: AdminRestaurantOrderHistoryItem[]
+  }
+  menu: {
+    counts: AdminRestaurantDetails["menu"]
+    topItems: Array<{
+      itemId: string
+      categoryId: string
+      name: string
+      categoryName: string
+      quantity: number
+      revenue: number
+      orders: number
+      lastSoldAt: string | null
+    }>
+    heroProduct: null | {
+      itemId: string
+      categoryId: string
+      name: string
+      categoryName: string
+      quantity: number
+      revenue: number
+      orders: number
+      lastSoldAt: string | null
+      imageUrl: string
+      availability: string
+    }
+    unavailableItems: Array<{
+      id: string
+      name: string
+      categoryId: string
+      basePrice: number
+    }>
+    categories: Array<{
+      id: string
+      name: string
+      status: string
+    }>
+    items: Array<{
+      id: string
+      name: string
+      categoryId: string
+      basePrice: number
+      status: string
+      availability: string
+      isPopular: boolean
+    }>
+  }
+  customers: {
+    totalCustomers: number
+    repeatCustomers: number
+    newCustomers: number
+    repeatRate: number
+    topCustomers: Array<{
+      customerId: string
+      name: string
+      phone: string
+      orders: number
+      totalSpend: number
+      deliveredOrders: number
+      cancelledOrders: number
+      lastOrderedAt: string | null
+      averageOrderValue: number
+    }>
+  }
+  finance: AdminRestaurantDetails["finance"]
+  quality: {
+    averageRating: number
+    reviewCount: number
+    hiddenReviews: number
+    recentReviews: AdminRestaurantDetails["recentReviews"]
+    support: AdminRestaurantDetails["support"]
+  }
+  operations: {
+    openingHours: AdminRestaurantDetails["openingHours"]
+    recentOrders: AdminRestaurantOrderHistoryItem[]
+    activityTimeline: AdminRestaurantDetails["activityTimeline"]
+    auditLogs: AdminRestaurantDetails["auditLogs"]
+  }
+}
+
 export type AdminListResponse<T> = {
   items: T[]
   total: number
@@ -1538,6 +1865,107 @@ export type AdminListResponse<T> = {
   pageSize: number
   pageCount: number
   summary?: Record<string, number>
+}
+
+export type AdminMenuApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "superseded"
+
+export type AdminMenuApprovalType = "new_item" | "price_update"
+
+export type AdminMenuApprovalPriceDiff = {
+  path: string
+  label: string
+  oldPrice: number | null
+  newPrice: number | null
+  delta: number
+  percentDelta: number | null
+}
+
+export type AdminMenuApprovalSnapshot = {
+  categoryId?: string
+  name?: string
+  slug?: string
+  description?: string
+  status?: string
+  availability?: string
+  kind?: string
+  basePrice?: number
+  variants?: unknown[]
+  addOnGroups?: unknown[]
+  recommendedItemIds?: string[]
+  isPopular?: boolean
+}
+
+export type AdminMenuApprovalRequest = {
+  id: string
+  _id: string
+  type: AdminMenuApprovalType
+  status: AdminMenuApprovalStatus
+  restaurantId: string
+  restaurantName: string
+  ownerId: string
+  ownerName: string
+  ownerPhone: string
+  menuItemId: string | null
+  proposedName: string
+  currentName: string
+  priceDiffCount: number
+  priceDiffs: AdminMenuApprovalPriceDiff[]
+  currentSnapshot: AdminMenuApprovalSnapshot
+  proposedSnapshot: AdminMenuApprovalSnapshot
+  ownerReason: string
+  ownerNote: string
+  internalNote: string
+  reviewedByAdminId: string
+  allowResubmit: boolean
+  submittedAt: string | null
+  reviewedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type AdminMenuApprovalsResponse = AdminListResponse<AdminMenuApprovalRequest> & {
+  summary: {
+    pending: number
+    approved: number
+    rejected: number
+  }
+}
+
+export type AdminMenuApprovalHistorySummary = {
+  total: number
+  pending: number
+  approved: number
+  rejected: number
+  approvalRate: number
+  rejectionRate: number
+  mostRequestedRestaurants: Array<{
+    restaurantId: string
+    restaurantName: string
+    requestCount: number
+    pending: number
+    approved: number
+    rejected: number
+  }>
+  mostRequestedItems: Array<{
+    restaurantId: string
+    restaurantName: string
+    menuItemId: string | null
+    itemName: string
+    itemSlug: string
+    requestCount: number
+    pending: number
+    approved: number
+    rejected: number
+  }>
+}
+
+export type AdminMenuApprovalHistoryResponse = AdminMenuApprovalsResponse & {
+  historySummary: AdminMenuApprovalHistorySummary
 }
 
 export type AdminReferralStatus =
@@ -1631,6 +2059,384 @@ export type AdminReferralListResponse = {
   pageCount: number
   summary: AdminReferralSummary
   topReferrers: AdminReferralTopReferrer[]
+}
+
+export type AdminReferralRiskDeviceStatus = "clean" | "warning" | "danger"
+
+export type AdminReferralRiskDeviceRow = {
+  deviceId: string
+  status: AdminReferralRiskDeviceStatus
+  danger: boolean
+  warning: boolean
+  firstSeen: string | null
+  lastSeen: string | null
+  accountCount: number
+  phoneCount: number
+  referralAppliedCount: number
+  distinctReferrerCount: number
+  refereeVoucherCount: number
+  rewardedReferralCount: number
+  underReviewCount: number
+  rejectedCount: number
+  disabledAccountCount: number
+  sameDeviceReferralCount: number
+  autoBlocked: boolean
+  manuallyBlocked: boolean
+  block: {
+    locked: boolean
+    source: string
+    reason: string
+    note: string
+    manuallyBlockedAt: string | null
+    blockedBy: string
+    createdAt: string | null
+  }
+  phones: string[]
+  reasons: string[]
+}
+
+export type AdminReferralRiskDeviceDetails = AdminReferralRiskDeviceRow & {
+  accounts: Array<{
+    id: string
+    fullName: string
+    phone: string
+    status: string
+    referralCode: string
+    joinedAt: string | null
+    appliedReferral: boolean
+    referredAt: string | null
+    referralRewardStatus: string
+    referralRewardedAt: string | null
+    gotRefereeVoucher: boolean
+    refereeRewardGrantedAt: string | null
+    referralDisabledByAdmin: boolean
+    sameDeviceReferral: boolean
+    referrer: {
+      id: string
+      fullName: string
+      phone: string
+      referralCode: string
+      sharesDevice: boolean
+    } | null
+  }>
+  referrers: Array<{
+    id: string
+    fullName: string
+    phone: string
+    referralCode: string
+    referredCount: number
+    rewardedCount: number
+    sameDeviceCount: number
+  }>
+}
+
+export type AdminReferralRiskDeviceSummary = {
+  totalDevices: number
+  dangerDevices: number
+  warningDevices: number
+  cleanDevices: number
+  sameDeviceReferrals: number
+  refereeVoucherDevices: number
+  disabledAccounts: number
+  lockedDevices: number
+  adminBlockedDevices: number
+}
+
+export type AdminReferralRiskDeviceListResponse = {
+  items: AdminReferralRiskDeviceRow[]
+  total: number
+  page: number
+  pageSize: number
+  pageCount: number
+  summary: AdminReferralRiskDeviceSummary
+}
+
+export type AdminFirstOrderOfferClaimStatus =
+  | "reserved"
+  | "confirmed"
+  | "released"
+
+export type AdminFirstOrderOfferClaimRow = {
+  id: string
+  status: AdminFirstOrderOfferClaimStatus
+  claimedAt: string | null
+  updatedAt: string | null
+  releasedAt: string | null
+  releasedReason: string
+  amount: number
+  customer: {
+    id: string
+    fullName: string
+    phone: string
+    status: string
+    createdAt: string | null
+    firstOrderDiscountRedeemedAt: string | null
+    referralDisabledByAdmin: boolean
+  }
+  order: {
+    id: string
+    orderNumber: string
+    status: string
+    paymentMethod: string
+    paymentStatus: string
+    total: number
+    firstOrderDiscountAmount: number
+    createdAt: string | null
+    deliveredAt: string | null
+    deliveryAddress: {
+      label: string
+      addressLine: string
+    }
+  }
+  fingerprints: {
+    deviceId: string
+    phone: string
+    walletNumber: string
+    ipAddress: string
+    addressFingerprint: string
+  }
+  risk: {
+    suspicious: boolean
+    score: number
+    reasons: string[]
+    deviceAccountCount: number
+    deviceClaimCount: number
+    distinctPhoneCount: number
+    confirmedClaimCount: number
+    releasedClaimCount: number
+    reservedClaimCount: number
+    firstOrderRedeemedAccountCount: number
+    refereeVoucherAccountCount: number
+    accounts: Array<{
+      id: string
+      fullName: string
+      phone: string
+      joinedAt: string | null
+      appliedReferral: boolean
+      gotRefereeVoucher: boolean
+      redeemedFirstOrder: boolean
+      referralDisabledByAdmin: boolean
+      isCurrent: boolean
+    }>
+  }
+}
+
+export type AdminFirstOrderOfferSummary = {
+  totalClaims: number
+  reservedClaims: number
+  confirmedClaims: number
+  releasedClaims: number
+  suspiciousClaims: number
+  totalDiscountAmount: number
+  statusCounts: Record<AdminFirstOrderOfferClaimStatus, number>
+}
+
+export type AdminFirstOrderOfferTopDevice = {
+  deviceId: string
+  claimCount: number
+  distinctPhoneCount: number
+  confirmedClaimCount: number
+  releasedClaimCount: number
+  riskScore: number
+  totalAmount: number
+}
+
+export type AdminFirstOrderOfferListResponse = {
+  items: AdminFirstOrderOfferClaimRow[]
+  total: number
+  page: number
+  pageSize: number
+  pageCount: number
+  summary: AdminFirstOrderOfferSummary
+  topDevices: AdminFirstOrderOfferTopDevice[]
+}
+
+export type AdminFirstOrderOfferDeviceStatus =
+  | "clean"
+  | "multiple_accounts"
+  | "ffo_used"
+  | "danger"
+  | "admin_blocked"
+
+export type AdminFirstOrderOfferDeviceRow = {
+  deviceId: string
+  status: AdminFirstOrderOfferDeviceStatus
+  firstSeen: string | null
+  lastSeen: string | null
+  phoneCount: number
+  accountCount: number
+  claimCount: number
+  confirmedClaimCount: number
+  releasedClaimCount: number
+  reservedClaimCount: number
+  totalAmount: number
+  danger: boolean
+  multipleAccounts: boolean
+  autoBlocked: boolean
+  manuallyBlocked: boolean
+  block: {
+    locked: boolean
+    source: string
+    reason: string
+    note: string
+    manuallyBlockedAt: string | null
+    blockedBy: string
+    createdAt: string | null
+  }
+  phones: string[]
+  reasons: string[]
+}
+
+export type AdminFirstOrderOfferDeviceDetails = AdminFirstOrderOfferDeviceRow & {
+  accounts: Array<{
+    id: string
+    fullName: string
+    phone: string
+    status: string
+    joinedAt: string | null
+    appliedReferral: boolean
+    gotRefereeVoucher: boolean
+    ffoClaimed: boolean
+    ffoClaimCount: number
+    firstOrderDiscountRedeemedAt: string | null
+    referralDisabledByAdmin: boolean
+  }>
+  claims: AdminFirstOrderOfferClaimRow[]
+}
+
+export type AdminFirstOrderOfferDeviceSummary = {
+  totalDevices: number
+  claimedDevices: number
+  cleanDevices: number
+  dangerDevices: number
+  multipleAccountDevices: number
+  adminBlockedDevices: number
+  totalClaims: number
+  totalDiscountAmount: number
+}
+
+export type AdminFirstOrderOfferDeviceListResponse = {
+  items: AdminFirstOrderOfferDeviceRow[]
+  total: number
+  page: number
+  pageSize: number
+  pageCount: number
+  summary: AdminFirstOrderOfferDeviceSummary
+}
+
+export type AdminWelcomeOfferDeviceStatus =
+  | "available"
+  | "needs_review"
+  | "system_blocked"
+  | "admin_blocked"
+
+export type AdminWelcomeOfferDeviceUsedOffer =
+  | "none"
+  | "ffo"
+  | "referral"
+  | "mixed"
+
+export type AdminWelcomeOfferDeviceRow = {
+  deviceId: string
+  status: AdminWelcomeOfferDeviceStatus
+  usedOffer: AdminWelcomeOfferDeviceUsedOffer
+  blocked: boolean
+  systemLocked: boolean
+  adminBlocked: boolean
+  firstSeen: string | null
+  lastSeen: string | null
+  accountCount: number
+  phoneCount: number
+  phones: string[]
+  ffo: {
+    claimCount: number
+    confirmedClaimCount: number
+    releasedClaimCount: number
+    reservedClaimCount: number
+    totalAmount: number
+    danger: boolean
+  }
+  referral: {
+    appliedCount: number
+    welcomeCount: number
+    rewardedCount: number
+    sameDeviceCount: number
+    underReviewCount: number
+    rejectedCount: number
+    disabledAccountCount: number
+    danger: boolean
+    warning: boolean
+  }
+  block: {
+    locked: boolean
+    source: string
+    reason: string
+    note: string
+    manuallyBlockedAt: string | null
+    blockedBy: string
+    createdAt: string | null
+  }
+  reasons: string[]
+}
+
+export type AdminWelcomeOfferDeviceDetails = AdminWelcomeOfferDeviceRow & {
+  accounts: Array<{
+    id: string
+    fullName: string
+    phone: string
+    status: string
+    joinedAt: string | null
+    ffoClaimed: boolean
+    ffoClaimCount: number
+    firstOrderDiscountRedeemedAt: string | null
+    appliedReferral: boolean
+    gotRefereeVoucher: boolean
+    referralRewardStatus: string
+    referralRewardedAt: string | null
+    refereeRewardGrantedAt: string | null
+    referralDisabledByAdmin: boolean
+    sameDeviceReferral: boolean
+    referrer: {
+      id: string
+      fullName: string
+      phone: string
+      referralCode: string
+      sharesDevice: boolean
+    } | null
+  }>
+  ffoClaims: AdminFirstOrderOfferClaimRow[]
+  referrers: Array<{
+    id: string
+    fullName: string
+    phone: string
+    referralCode: string
+    referredCount: number
+    rewardedCount: number
+    sameDeviceCount: number
+  }>
+}
+
+export type AdminWelcomeOfferDeviceSummary = {
+  totalDevices: number
+  blockedDevices: number
+  systemBlockedDevices: number
+  adminBlockedDevices: number
+  needsReviewDevices: number
+  availableDevices: number
+  ffoDevices: number
+  referralDevices: number
+  totalFfoClaims: number
+  totalReferralApplications: number
+  totalReferralWelcome: number
+}
+
+export type AdminWelcomeOfferDeviceListResponse = {
+  items: AdminWelcomeOfferDeviceRow[]
+  total: number
+  page: number
+  pageSize: number
+  pageCount: number
+  summary: AdminWelcomeOfferDeviceSummary
 }
 
 export type AdminRestaurantVisibilityUpdate = {
@@ -2021,6 +2827,17 @@ export type AdminFinancePayoutBatch = {
   paymentProofUrl: string
   processingNote: string
   failureReason: string
+  statementReview?: {
+    reviewed: boolean
+    checksum: string
+    reviewedByAdminId: string
+    reviewedAt: string | null
+    generatedAt: string | null
+    amount: number
+    selectedTotal: number
+    residualAmount: number
+    ledgerEntryCount: number
+  }
   requestedAt: string | null
   approvedAt: string | null
   processedAt: string | null
@@ -3691,6 +4508,10 @@ export type PlatformContent = {
     ownerApp: {
       webDashboardUrl: string
       showCustomerPhoneNumbers: boolean
+      catalogDescriptionLimits: {
+        menuItem: number
+        category: number
+      }
     }
     serviceArea: {
       name: string
@@ -3704,6 +4525,13 @@ export type PlatformContent = {
       surchargeStartsAfterKm: number
       surchargeStepMeters: number
       surchargeAmountTaka: number
+    }
+    minimumOrderAmount: number
+    serviceHours: {
+      enabled: boolean
+      openMinute: number
+      closeMinute: number
+      timezone: string
     }
     reviewRequests?: {
       autoEnabled: boolean
@@ -3792,7 +4620,7 @@ export type PlatformContent = {
       enabled: boolean
       discountAmountTaka: number
       minimumOrderAmountTaka: number
-      paymentRestriction: "any" | "bkash_only"
+      paymentRestriction: "any"
       maxRedemptionsPerDevicePerDay: number
       startsAt: string
       endsAt: string
@@ -3843,6 +4671,7 @@ export type PlatformContent = {
     otp: {
       expiresInSeconds: number
       resendCooldownSeconds: number
+      manualResendCooldownSeconds?: number
       messageTemplate: string
       telegramFallbackEnabled?: boolean
       callButtonAfterResends?: number
@@ -4646,6 +5475,7 @@ export async function listAdminRiders(params?: {
 export async function createAdminRider(params: {
   fullName: string
   phone: string
+  temporaryPassword: string
   status?: "active" | "suspended" | "locked"
   isAvailableForAssignments?: boolean
   verificationStatus?: "pending" | "approved" | "rejected"
@@ -4866,6 +5696,198 @@ export async function listAdminRestaurants(params?: {
   const response = await adminRequest<
     AdminListResponse<AdminRestaurantSummary>
   >(`/admin/restaurants${query}`)
+  return response.data
+}
+
+export type AdminFinancePayoutStatementEntry = {
+  id: string
+  restaurantId: string
+  orderId: string
+  orderNumber: string
+  orderStatus: string
+  paymentMethod: string
+  paymentStatus: string
+  deliveredAt: string | null
+  payoutBatchId: string
+  sourceEntityType: string
+  sourceEntityId: string
+  sourceLabel: string
+  isCarryForward: boolean
+  entryType: string
+  grossAmount: number
+  commissionBase: number
+  commission: number
+  discountCost: number
+  platformDiscountCost: number
+  deliveryCost: number
+  netAmount: number
+  settlementStatus: string
+  availableAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type AdminFinancePayoutStatement = {
+  mode: "preview" | "batch"
+  statementChecksum: string
+  generatedAt: string
+  amount: number
+  includePending: boolean
+  restaurant: {
+    id: string
+    name: string
+    slug: string
+    city: string
+    address: string
+    logoUrl: string
+  }
+  owner: {
+    id: string
+    fullName: string
+    phone: string
+    email: string
+    status: string
+  }
+  payoutMethod: null | {
+    id: string
+    type: string
+    accountName: string
+    accountNumber: string
+    accountNumberMasked: string
+    bankName: string
+    branchName: string
+    isVerified: boolean
+    verifiedAt: string | null
+    updatedAt: string | null
+  }
+  payout: AdminFinancePayoutBatch | null
+  summary: {
+    grossAmount: number
+    commissionBase: number
+    commission: number
+    discountCost: number
+    platformDiscountCost: number
+    deliveryCost: number
+    netAmount: number
+    payoutAmount: number
+    selectedTotal: number
+    residualAmount: number
+    residualEntryAmount: number
+    orderCount: number
+    entryCount: number
+    payoutMovementCount: number
+  }
+  entries: AdminFinancePayoutStatementEntry[]
+  payoutEntries: AdminFinancePayoutStatementEntry[]
+  residualEntries: AdminFinancePayoutStatementEntry[]
+}
+
+export async function listAdminMenuApprovals(params?: {
+  status?: AdminMenuApprovalStatus | "all"
+  type?: AdminMenuApprovalType | "all"
+  search?: string
+  restaurantId?: string
+  menuItemId?: string
+  from?: string
+  to?: string
+  sortBy?: "newest" | "oldest"
+  page?: number
+  pageSize?: number
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.status && params.status !== "all") {
+    searchParams.set("status", params.status)
+  }
+  if (params?.type && params.type !== "all") {
+    searchParams.set("type", params.type)
+  }
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.restaurantId) searchParams.set("restaurantId", params.restaurantId)
+  if (params?.menuItemId) searchParams.set("menuItemId", params.menuItemId)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminMenuApprovalsResponse>(
+    `/admin/menu-approvals${query}`
+  )
+  return response.data
+}
+
+export async function listAdminMenuApprovalHistory(params?: {
+  status?: AdminMenuApprovalStatus | "all"
+  type?: AdminMenuApprovalType | "all"
+  search?: string
+  restaurantId?: string
+  menuItemId?: string
+  from?: string
+  to?: string
+  sortBy?: "newest" | "oldest"
+  page?: number
+  pageSize?: number
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.status && params.status !== "all") {
+    searchParams.set("status", params.status)
+  }
+  if (params?.type && params.type !== "all") {
+    searchParams.set("type", params.type)
+  }
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.restaurantId) searchParams.set("restaurantId", params.restaurantId)
+  if (params?.menuItemId) searchParams.set("menuItemId", params.menuItemId)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminMenuApprovalHistoryResponse>(
+    `/admin/menu-approvals/history${query}`
+  )
+  return response.data
+}
+
+export async function getAdminMenuApproval(requestId: string) {
+  const response = await adminRequest<AdminMenuApprovalRequest>(
+    `/admin/menu-approvals/${requestId}`
+  )
+  return response.data
+}
+
+export async function approveAdminMenuApproval(params: {
+  requestId: string
+  note?: string
+}) {
+  const response = await adminRequest<AdminMenuApprovalRequest>(
+    `/admin/menu-approvals/${params.requestId}/approve`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note: params.note }),
+    }
+  )
+  return response.data
+}
+
+export async function rejectAdminMenuApproval(params: {
+  requestId: string
+  ownerReason: string
+  internalNote?: string
+}) {
+  const response = await adminRequest<AdminMenuApprovalRequest>(
+    `/admin/menu-approvals/${params.requestId}/reject`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ownerReason: params.ownerReason,
+        internalNote: params.internalNote,
+      }),
+    }
+  )
   return response.data
 }
 
@@ -5127,6 +6149,206 @@ export async function listAdminReferrals(params?: {
 export async function getAdminReferral(referralId: string) {
   const response = await adminRequest<AdminReferralRow>(
     `/admin/referrals/${referralId}`
+  )
+  return response.data
+}
+
+export async function listAdminReferralRiskDevices(params?: {
+  search?: string
+  status?: "all" | AdminReferralRiskDeviceStatus
+  preset?: "today" | "yesterday" | "last7Days" | "last30Days" | "last90Days" | "thisMonth" | "lastMonth" | "lifetime" | "custom"
+  from?: string
+  to?: string
+  sortBy?: "risk" | "accounts" | "referrals" | "lastSeen"
+  page?: number
+  pageSize?: number
+  zoneId?: string
+  districtId?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.status && params.status !== "all")
+    searchParams.set("status", params.status)
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
+  if (params?.districtId) searchParams.set("districtId", params.districtId)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminReferralRiskDeviceListResponse>(
+    `/admin/referrals/risk/devices${query}`
+  )
+  return response.data
+}
+
+export async function getAdminReferralRiskDevice(deviceId: string) {
+  const response = await adminRequest<AdminReferralRiskDeviceDetails>(
+    `/admin/referrals/risk/devices/${encodeURIComponent(deviceId)}`
+  )
+  return response.data
+}
+
+export async function listAdminFirstOrderOffers(params?: {
+  search?: string
+  status?: "all" | AdminFirstOrderOfferClaimStatus
+  preset?: "today" | "yesterday" | "last7Days" | "last30Days" | "last90Days" | "thisMonth" | "lastMonth" | "lifetime" | "custom"
+  from?: string
+  to?: string
+  risk?: "all" | "suspicious" | "clean"
+  paymentMethod?: "all" | "Cash" | "Bkash"
+  sortBy?: "newest" | "oldest" | "amount" | "risk"
+  page?: number
+  pageSize?: number
+  zoneId?: string
+  districtId?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.status && params.status !== "all")
+    searchParams.set("status", params.status)
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.risk && params.risk !== "all") searchParams.set("risk", params.risk)
+  if (params?.paymentMethod && params.paymentMethod !== "all") {
+    searchParams.set("paymentMethod", params.paymentMethod)
+  }
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
+  if (params?.districtId) searchParams.set("districtId", params.districtId)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminFirstOrderOfferListResponse>(
+    `/admin/referrals/ffo${query}`
+  )
+  return response.data
+}
+
+export async function getAdminFirstOrderOffer(claimId: string) {
+  const response = await adminRequest<AdminFirstOrderOfferClaimRow>(
+    `/admin/referrals/ffo/${claimId}`
+  )
+  return response.data
+}
+
+export async function listAdminFirstOrderOfferDevices(params?: {
+  search?: string
+  status?: "all" | AdminFirstOrderOfferDeviceStatus
+  claim?: "all" | "claimed" | "not_claimed"
+  preset?: "today" | "yesterday" | "last7Days" | "last30Days" | "last90Days" | "thisMonth" | "lastMonth" | "lifetime" | "custom"
+  from?: string
+  to?: string
+  sortBy?: "lastSeen" | "claims" | "accounts" | "danger"
+  page?: number
+  pageSize?: number
+  zoneId?: string
+  districtId?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.status && params.status !== "all")
+    searchParams.set("status", params.status)
+  if (params?.claim && params.claim !== "all") searchParams.set("claim", params.claim)
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
+  if (params?.districtId) searchParams.set("districtId", params.districtId)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminFirstOrderOfferDeviceListResponse>(
+    `/admin/referrals/ffo/devices${query}`
+  )
+  return response.data
+}
+
+export async function getAdminFirstOrderOfferDevice(deviceId: string) {
+  const response = await adminRequest<AdminFirstOrderOfferDeviceDetails>(
+    `/admin/referrals/ffo/devices/${encodeURIComponent(deviceId)}`
+  )
+  return response.data
+}
+
+export async function blockAdminFirstOrderOfferDevice(params: {
+  deviceId: string
+  reason?: string
+  note?: string
+}) {
+  const response = await adminRequest<AdminFirstOrderOfferDeviceDetails>(
+    `/admin/referrals/ffo/devices/${encodeURIComponent(params.deviceId)}/block`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reason: params.reason,
+        note: params.note,
+      }),
+    }
+  )
+  return response.data
+}
+
+export async function listAdminWelcomeOfferDevices(params?: {
+  search?: string
+  status?: "all" | AdminWelcomeOfferDeviceStatus
+  offer?: "all" | AdminWelcomeOfferDeviceUsedOffer
+  preset?: "today" | "yesterday" | "last7Days" | "last30Days" | "last90Days" | "thisMonth" | "lastMonth" | "lifetime" | "custom"
+  from?: string
+  to?: string
+  sortBy?: "lastSeen" | "risk" | "accounts" | "ffoClaims" | "referrals"
+  page?: number
+  pageSize?: number
+  zoneId?: string
+  districtId?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.search) searchParams.set("search", params.search)
+  if (params?.status && params.status !== "all")
+    searchParams.set("status", params.status)
+  if (params?.offer && params.offer !== "all") searchParams.set("offer", params.offer)
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  if (params?.zoneId) searchParams.set("zoneId", params.zoneId)
+  if (params?.districtId) searchParams.set("districtId", params.districtId)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminWelcomeOfferDeviceListResponse>(
+    `/admin/referrals/welcome-devices${query}`
+  )
+  return response.data
+}
+
+export async function getAdminWelcomeOfferDevice(deviceId: string) {
+  const response = await adminRequest<AdminWelcomeOfferDeviceDetails>(
+    `/admin/referrals/welcome-devices/${encodeURIComponent(deviceId)}`
+  )
+  return response.data
+}
+
+export async function blockAdminWelcomeOfferDevice(params: {
+  deviceId: string
+  reason?: string
+  note?: string
+}) {
+  const response = await adminRequest<AdminWelcomeOfferDeviceDetails>(
+    `/admin/referrals/welcome-devices/${encodeURIComponent(params.deviceId)}/block`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reason: params.reason,
+        note: params.note,
+      }),
+    }
   )
   return response.data
 }
@@ -5833,6 +7055,68 @@ export async function getAdminRestaurant(
   return response.data
 }
 
+export async function getAdminRestaurantIntelligence(
+  restaurantId: string,
+  params?: {
+    preset?: AdminRestaurantOrderDateFilterPreset
+    from?: string
+    to?: string
+    status?: "all" | "live" | "delivered" | "cancelled" | "rejected"
+    paymentMethod?: string
+    categoryId?: string
+    itemId?: string
+    customerTier?: "all" | "new" | "repeat"
+    availabilityEvent?: "all" | "online" | "offline"
+    availabilitySource?: "all" | "owner_app" | "owner_web" | "admin" | "system" | "unknown"
+    availabilityReason?:
+      | "all"
+      | "manual_offline"
+      | "admin_offline"
+      | "enforcement"
+      | "restaurant_hidden"
+      | "replaced"
+      | "system"
+    availabilityRisk?: "all" | "offline_with_live_orders"
+  }
+) {
+  const searchParams = new URLSearchParams()
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.status && params.status !== "all") {
+    searchParams.set("status", params.status)
+  }
+  if (params?.paymentMethod && params.paymentMethod !== "all") {
+    searchParams.set("paymentMethod", params.paymentMethod)
+  }
+  if (params?.categoryId && params.categoryId !== "all") {
+    searchParams.set("categoryId", params.categoryId)
+  }
+  if (params?.itemId && params.itemId !== "all") {
+    searchParams.set("itemId", params.itemId)
+  }
+  if (params?.customerTier && params.customerTier !== "all") {
+    searchParams.set("customerTier", params.customerTier)
+  }
+  if (params?.availabilityEvent && params.availabilityEvent !== "all") {
+    searchParams.set("availabilityEvent", params.availabilityEvent)
+  }
+  if (params?.availabilitySource && params.availabilitySource !== "all") {
+    searchParams.set("availabilitySource", params.availabilitySource)
+  }
+  if (params?.availabilityReason && params.availabilityReason !== "all") {
+    searchParams.set("availabilityReason", params.availabilityReason)
+  }
+  if (params?.availabilityRisk && params.availabilityRisk !== "all") {
+    searchParams.set("availabilityRisk", params.availabilityRisk)
+  }
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminRestaurantIntelligence>(
+    `/admin/restaurants/${restaurantId}/intelligence${query}`
+  )
+  return response.data
+}
+
 export async function listAdminRestaurantOrders(
   restaurantId: string,
   params?: {
@@ -5887,6 +7171,24 @@ export async function updateAdminRestaurantVisibility(params: {
       }),
     }
   )
+  return response.data
+}
+
+export async function impersonateRestaurantOwner(params: {
+  restaurantId: string
+  reason: string
+}) {
+  const response = await adminRequest<{
+    ownerId: string
+    ownerName: string
+    url: string
+  }>(`/admin/restaurants/${params.restaurantId}/impersonate-owner`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ reason: params.reason }),
+  })
   return response.data
 }
 
@@ -5973,6 +7275,24 @@ export async function updateAdminRestaurantCommission(params: {
       }),
     }
   )
+  return response.data
+}
+
+export async function updateAdminRestaurantMinimumOrder(params: {
+  restaurantId: string
+  // null clears the override → inherit the platform default.
+  minimumOrderAmount: number | null
+}) {
+  const response = await adminRequest<{
+    id: string
+    name: string
+    minimumOrderAmount: number | null
+    updatedAt: string | null
+  }>(`/admin/restaurants/${params.restaurantId}/minimum-order`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ minimumOrderAmount: params.minimumOrderAmount }),
+  })
   return response.data
 }
 
@@ -6216,6 +7536,27 @@ export async function getAdminFinancePayoutDetails(restaurantId: string) {
   return response.data
 }
 
+export async function getAdminFinancePayoutStatementPreview(params: {
+  restaurantId: string
+  amount: number
+  includePending?: boolean
+}) {
+  const searchParams = new URLSearchParams()
+  searchParams.set("amount", `${params.amount}`)
+  if (params.includePending) searchParams.set("includePending", "true")
+  const response = await adminRequest<AdminFinancePayoutStatement>(
+    `/admin/finance/payouts/${params.restaurantId}/statement-preview?${searchParams.toString()}`
+  )
+  return response.data
+}
+
+export async function getAdminFinancePayoutBatchStatement(payoutId: string) {
+  const response = await adminRequest<AdminFinancePayoutStatement>(
+    `/admin/finance/payout-batches/${payoutId}/statement`
+  )
+  return response.data
+}
+
 export async function createAdminFinancePayout(params: {
   restaurantId: string
   amount: number
@@ -6226,6 +7567,8 @@ export async function createAdminFinancePayout(params: {
   providerTransactionId?: string
   paymentProofUrl?: string
   includePending?: boolean
+  statementReviewed?: boolean
+  statementChecksum?: string
   notifyOwnerSms?: boolean
 }) {
   const response = await adminRequest<AdminFinancePayoutBatch>(
@@ -6244,6 +7587,8 @@ export async function createAdminFinancePayout(params: {
         providerTransactionId: params.providerTransactionId,
         paymentProofUrl: params.paymentProofUrl,
         includePending: params.includePending,
+        statementReviewed: params.statementReviewed,
+        statementChecksum: params.statementChecksum,
         notifyOwnerSms: params.notifyOwnerSms,
       }),
     }
@@ -6316,6 +7661,8 @@ export async function updateAdminRestaurantPayoutStatus(params: {
   providerTransactionId?: string
   paymentProofUrl?: string
   processingNote?: string
+  statementReviewed?: boolean
+  statementChecksum?: string
   notifyOwnerSms?: boolean
 }) {
   const response = await adminRequest<{
@@ -6348,6 +7695,8 @@ export async function updateAdminRestaurantPayoutStatus(params: {
       providerTransactionId: params.providerTransactionId,
       paymentProofUrl: params.paymentProofUrl,
       processingNote: params.processingNote,
+      statementReviewed: params.statementReviewed,
+      statementChecksum: params.statementChecksum,
       notifyOwnerSms: params.notifyOwnerSms,
     }),
   })
@@ -6713,6 +8062,7 @@ export async function listAdminReviews(params: {
   search?: string
   restaurantId?: string
   status?: "all" | AdminReviewModerationStatus
+  hideRequest?: "all" | AdminReviewHideRequestStatus
   rating?: "all" | "1" | "2" | "3" | "4" | "5"
   reply?: "all" | "replied" | "not_replied"
   comment?: "all" | "with_comment" | "without_comment"
@@ -6737,6 +8087,7 @@ export async function listAdminReviews(params: {
       visible: number
       hidden: number
       flagged: number
+      hideRequestsPending: number
       withComments: number
       unanswered: number
       averageVisibleRating: number
@@ -6762,6 +8113,36 @@ export async function updateAdminReviewModeration(params: {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status: params.status, reason: params.reason ?? "" }),
+    }
+  )
+  return response.data
+}
+
+export async function approveAdminReviewHideRequest(params: {
+  reviewId: string
+  adminNote?: string
+}) {
+  const response = await adminRequest<AdminReview>(
+    `/admin/reviews/${params.reviewId}/hide-request/approve`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adminNote: params.adminNote ?? "" }),
+    }
+  )
+  return response.data
+}
+
+export async function rejectAdminReviewHideRequest(params: {
+  reviewId: string
+  adminNote?: string
+}) {
+  const response = await adminRequest<AdminReview>(
+    `/admin/reviews/${params.reviewId}/hide-request/reject`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ adminNote: params.adminNote ?? "" }),
     }
   )
   return response.data
@@ -6800,6 +8181,74 @@ export async function getAdminRestaurantsWithOffers() {
     restaurants: Array<{ id: string; name: string }>
   }>(`/admin/platform-content/restaurants-with-offers`)
   return response.data.restaurants
+}
+
+export type AdminPollSummary = {
+  pollId: string
+  question: string
+  status: "active" | "closed"
+  isEnded: boolean
+  optionCount: number
+  totalVotes: number
+  endsAt: string | null
+  createdAt: string
+  closedAt: string | null
+}
+
+export type AdminPollDetail = {
+  pollId: string
+  question: string
+  status: "active" | "closed"
+  isEnded: boolean
+  endsAt: string | null
+  createdAt: string
+  closedAt: string | null
+  showResultsToUser: boolean
+  allowFeedback: boolean
+  total: number
+  options: { id: string; label: string; count: number }[]
+  feedback: { feedback: string; optionLabel: string; createdAt: string }[]
+}
+
+export type CreateAdminPollInput = {
+  question: string
+  imageUrl: string
+  imagePublicId: string
+  options: { id: string; label: string }[]
+  allowFeedback: boolean
+  feedbackPrompt: string
+  showResultsToUser: boolean
+  thanksMessage: string
+  endsAt: string | null
+}
+
+export async function listAdminPolls() {
+  const response = await adminRequest<{ polls: AdminPollSummary[] }>(
+    `/admin/platform-content/polls`
+  )
+  return response.data.polls
+}
+
+export async function getAdminPollDetail(pollId: string) {
+  const response = await adminRequest<AdminPollDetail | null>(
+    `/admin/platform-content/polls/${pollId}`
+  )
+  return response.data
+}
+
+export async function createAdminPoll(input: CreateAdminPollInput) {
+  const response = await adminRequest<AdminPollSummary>(
+    `/admin/platform-content/polls`,
+    { method: "POST", body: JSON.stringify(input) }
+  )
+  return response.data
+}
+
+export async function closeAdminPoll(pollId: string) {
+  await adminRequest<{ closed: boolean }>(
+    `/admin/platform-content/polls/${pollId}/close`,
+    { method: "POST" }
+  )
 }
 
 function getAdminZoneScopeQueryString() {

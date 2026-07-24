@@ -33,6 +33,7 @@ import {
   mapOwnerNotification,
   type OwnerListResponse,
   type OwnerNotificationResponse,
+  type OwnerSidebarSummaryResponse,
 } from "@/lib/backend-mappers"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -192,6 +193,11 @@ export function NotificationsPage() {
           } satisfies OwnerListResponse<OwnerNotificationResponse>
         }
       )
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current ? { ...current, unreadNotifications: 0 } : current
+      )
     } catch {
       setNotifications(previous)
     }
@@ -243,6 +249,19 @@ export function NotificationsPage() {
             unreadCount: Math.max(0, (result.unreadCount ?? 0) - 1),
           } satisfies OwnerListResponse<OwnerNotificationResponse>
         }
+      )
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current
+            ? {
+                ...current,
+                unreadNotifications: Math.max(
+                  0,
+                  current.unreadNotifications - 1
+                ),
+              }
+            : current
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : ""

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -23,6 +23,8 @@ import {
   useOwnerPasswordResetStartMutation,
   useOwnerSigninMutation,
 } from "@/src/hooks/use-owner-api";
+import { useOwnerTranslation } from "@/src/i18n/translations";
+import { localizeDigits } from "@/src/lib/format";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 
@@ -70,12 +72,27 @@ function OtpCodeInput({
   const [focused, setFocused] = useState(false);
   const activeIndex = Math.min(value.length, OTP_LENGTH - 1);
 
+  const focusOtpInput = useCallback(() => {
+    const input = inputRef.current;
+    if (!input || disabled) return;
+
+    // On Android the keyboard can be dismissed (back button, or a tap that closes it)
+    // without RN ever blurring this hidden input. It then still believes the field is
+    // focused, so a plain focus() is a no-op and the keyboard never comes back — that
+    // is the "tap the boxes and nothing happens" case. Blurring first forces a real
+    // re-focus; the second call covers the race where blur lands late.
+    if (Platform.OS === "android") {
+      input.blur();
+      setTimeout(() => input.focus(), 60);
+      setTimeout(() => input.focus(), 200);
+      return;
+    }
+
+    input.focus();
+  }, [disabled]);
+
   return (
-    <Pressable
-      style={styles.otpRow}
-      disabled={disabled}
-      onPress={() => inputRef.current?.focus()}
-    >
+    <Pressable style={styles.otpRow} disabled={disabled} onPress={focusOtpInput}>
       <TextInput
         ref={inputRef}
         value={value}
@@ -118,6 +135,7 @@ function OtpCodeInput({
 }
 
 export default function SignInScreen() {
+  const { t } = useOwnerTranslation();
   const accessToken = useOwnerAuthStore((state) => state.accessToken);
   const signinMutation = useOwnerSigninMutation();
   const otpSigninStartMutation = useOwnerOtpSigninStartMutation();
@@ -193,7 +211,7 @@ export default function SignInScreen() {
   function requireValidPhone() {
     const cleanPhone = onlyDigits(phone);
     if (!isValidPhone(cleanPhone)) {
-      setError("Enter a valid 11-digit owner phone number.");
+      setError(t("signin.errInvalidPhone"));
       setSuccess("");
       return "";
     }
@@ -205,7 +223,7 @@ export default function SignInScreen() {
     if (!cleanPhone) return;
 
     if (password.trim().length < 6) {
-      setError("Password must be at least 6 characters.");
+      setError(t("signin.errShortPassword"));
       setSuccess("");
       passwordInputRef.current?.focus();
       return;
@@ -219,7 +237,7 @@ export default function SignInScreen() {
         password,
       });
     } catch (signinError) {
-      setError(getErrorMessage(signinError, "Could not sign in right now."));
+      setError(getErrorMessage(signinError, t("signin.errSigninFailed")));
     }
   }
 
@@ -237,17 +255,17 @@ export default function SignInScreen() {
       setStep("otp");
       setSuccess(
         data.otpSent === false
-          ? "Use the OTP we already sent to this phone."
-          : "A 4-digit OTP has been sent.",
+          ? t("signin.okOtpAlreadySent")
+          : t("signin.okOtpSent"),
       );
     } catch (otpError) {
-      setError(getErrorMessage(otpError, "Could not send OTP right now."));
+      setError(getErrorMessage(otpError, t("signin.errOtpFailed")));
     }
   }
 
   async function verifyOtpLogin() {
     if (otpCode.length !== OTP_LENGTH) {
-      setError("Enter the 4-digit OTP.");
+      setError(t("signin.errEnterOtp"));
       setSuccess("");
       return;
     }
@@ -261,7 +279,7 @@ export default function SignInScreen() {
       });
     } catch (otpError) {
       setOtpCode("");
-      setError(getErrorMessage(otpError, "This OTP is incorrect or expired."));
+      setError(getErrorMessage(otpError, t("signin.errOtpInvalid")));
     }
   }
 
@@ -277,15 +295,15 @@ export default function SignInScreen() {
       setVerificationSessionId(data.verificationSessionId);
       setResendCountdown(data.resendAvailableInSeconds ?? (data.otpSent === false ? 30 : 60));
       setStep("resetOtp");
-      setSuccess("A 4-digit password reset OTP has been sent.");
+      setSuccess(t("signin.okResetOtpSent"));
     } catch (resetError) {
-      setError(getErrorMessage(resetError, "Could not send password reset OTP."));
+      setError(getErrorMessage(resetError, t("signin.errResetOtpFailed")));
     }
   }
 
   async function verifyResetOtp() {
     if (otpCode.length !== OTP_LENGTH) {
-      setError("Enter the 4-digit OTP.");
+      setError(t("signin.errEnterOtp"));
       setSuccess("");
       return;
     }
@@ -298,24 +316,24 @@ export default function SignInScreen() {
         otpCode,
       });
       setStep("resetPassword");
-      setSuccess("OTP verified. Create your new password.");
+      setSuccess(t("signin.okOtpVerified"));
       setTimeout(() => newPasswordInputRef.current?.focus(), 150);
     } catch (otpError) {
       setOtpCode("");
-      setError(getErrorMessage(otpError, "This OTP is incorrect or expired."));
+      setError(getErrorMessage(otpError, t("signin.errOtpInvalid")));
     }
   }
 
   async function updatePassword() {
     if (newPassword.trim().length < 6) {
-      setError("Use at least 6 characters for the new password.");
+      setError(t("signin.errShortNewPassword"));
       setSuccess("");
       newPasswordInputRef.current?.focus();
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError("Both password fields must match.");
+      setError(t("signin.errPasswordMismatch"));
       setSuccess("");
       confirmPasswordInputRef.current?.focus();
       return;
@@ -333,10 +351,10 @@ export default function SignInScreen() {
       setConfirmPassword("");
       setOtpCode("");
       setStep("password");
-      setSuccess("Password updated. Sign in with your new password.");
+      setSuccess(t("signin.okPasswordUpdated"));
       setTimeout(() => passwordInputRef.current?.focus(), 150);
     } catch (resetError) {
-      setError(getErrorMessage(resetError, "Could not reset password right now."));
+      setError(getErrorMessage(resetError, t("signin.errResetFailed")));
     }
   }
 
@@ -348,10 +366,10 @@ export default function SignInScreen() {
   }
 
   function getPrimaryLabel() {
-    if (step === "otp") return "Verify and sign in";
-    if (step === "resetOtp") return "Verify OTP";
-    if (step === "resetPassword") return "Update password";
-    return "Sign in";
+    if (step === "otp") return t("signin.actionVerifySignin");
+    if (step === "resetOtp") return t("signin.actionVerifyOtp");
+    if (step === "resetPassword") return t("signin.actionUpdatePassword");
+    return t("signin.actionSignin");
   }
 
   function submitPrimary() {
@@ -387,7 +405,7 @@ export default function SignInScreen() {
             </View>
             <View style={styles.heroText}>
               <Text style={[styles.title, isKeyboardVisible ? styles.titleCompact : null]}>
-                {isResetFlow ? "Reset access" : "Restaurant owner"}
+                {isResetFlow ? t("signin.kickerReset") : t("signin.kicker")}
               </Text>
               {!isKeyboardVisible ? (
                 <Text style={styles.subtitle}>
@@ -399,7 +417,7 @@ export default function SignInScreen() {
 
           <View style={styles.form}>
             <View style={styles.field}>
-              <Text style={styles.label}>Phone number</Text>
+              <Text style={styles.label}>{t("signin.phoneLabel")}</Text>
               <View style={styles.inputShell}>
                 <Ionicons name="call-outline" size={18} color={palette.mutedForeground} />
                 <TextInput
@@ -424,7 +442,7 @@ export default function SignInScreen() {
             {step === "password" ? (
               <>
                 <View style={styles.field}>
-                  <Text style={styles.label}>Password</Text>
+                  <Text style={styles.label}>{t("signin.passwordLabel")}</Text>
                   <View style={styles.inputShell}>
                     <Ionicons
                       name="lock-closed-outline"
@@ -435,7 +453,7 @@ export default function SignInScreen() {
                       ref={passwordInputRef}
                       value={password}
                       onChangeText={setPassword}
-                      placeholder="Your password"
+                      placeholder={t("signin.passwordPlaceholder")}
                       placeholderTextColor="#9A8D91"
                       style={styles.input}
                       secureTextEntry={!showPassword}
@@ -462,14 +480,14 @@ export default function SignInScreen() {
                     {passwordResetStartMutation.isPending ? (
                       <ActivityIndicator size="small" color={palette.primary} />
                     ) : (
-                      <Text style={styles.textButtonText}>Forgot password?</Text>
+                      <Text style={styles.textButtonText}>{t("signin.forgotPassword")}</Text>
                     )}
                   </Pressable>
                   <Pressable style={styles.textButton} onPress={startOtpLogin}>
                     {otpSigninStartMutation.isPending ? (
                       <ActivityIndicator size="small" color={palette.primary} />
                     ) : (
-                      <Text style={styles.textButtonText}>Sign in with OTP</Text>
+                      <Text style={styles.textButtonText}>{t("signin.signinWithOtp")}</Text>
                     )}
                   </Pressable>
                 </View>
@@ -478,7 +496,7 @@ export default function SignInScreen() {
               <View style={styles.otpSection}>
                 <View style={styles.stepHeader}>
                   <Text style={styles.stepTitle}>
-                    {step === "otp" ? "Enter owner OTP" : "Verify reset OTP"}
+                    {step === "otp" ? t("signin.otpTitle") : t("signin.resetOtpTitle")}
                   </Text>
                   <Text style={styles.stepCopy}>
                     We sent a 4-digit code to {onlyDigits(phone)}.
@@ -502,33 +520,33 @@ export default function SignInScreen() {
                   >
                     <Text style={styles.secondaryButtonText}>
                       {resendCountdown > 0
-                        ? `Resend in ${formatCountdown(resendCountdown)}`
-                        : "Resend OTP"}
+                        ? `${t("signin.resendIn")} ${localizeDigits(formatCountdown(resendCountdown))}`
+                        : t("signin.resendOtp")}
                     </Text>
                   </Pressable>
                   <Pressable style={styles.textButton} onPress={goBackToPassword}>
-                    <Text style={styles.textButtonText}>Back to password</Text>
+                    <Text style={styles.textButtonText}>{t("signin.backToPassword")}</Text>
                   </Pressable>
                 </View>
               </View>
             ) : (
               <View style={styles.resetPasswordSection}>
                 <View style={styles.stepHeader}>
-                  <Text style={styles.stepTitle}>Create new password</Text>
+                  <Text style={styles.stepTitle}>{t("signin.createNewPassword")}</Text>
                   <Text style={styles.stepCopy}>
                     Use at least 6 characters. You can show the password while typing.
                   </Text>
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>New password</Text>
+                  <Text style={styles.label}>{t("signin.newPasswordLabel")}</Text>
                   <View style={styles.inputShell}>
                     <Ionicons name="key-outline" size={18} color={palette.mutedForeground} />
                     <TextInput
                       ref={newPasswordInputRef}
                       value={newPassword}
                       onChangeText={setNewPassword}
-                      placeholder="New password"
+                      placeholder={t("signin.newPasswordPlaceholder")}
                       placeholderTextColor="#9A8D91"
                       style={styles.input}
                       secureTextEntry={!showNewPassword}
@@ -553,7 +571,7 @@ export default function SignInScreen() {
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Confirm password</Text>
+                  <Text style={styles.label}>{t("signin.confirmPasswordLabel")}</Text>
                   <View style={styles.inputShell}>
                     <Ionicons
                       name="shield-checkmark-outline"
@@ -564,7 +582,7 @@ export default function SignInScreen() {
                       ref={confirmPasswordInputRef}
                       value={confirmPassword}
                       onChangeText={setConfirmPassword}
-                      placeholder="Re-enter password"
+                      placeholder={t("signin.confirmPasswordPlaceholder")}
                       placeholderTextColor="#9A8D91"
                       style={styles.input}
                       secureTextEntry={!showConfirmPassword}

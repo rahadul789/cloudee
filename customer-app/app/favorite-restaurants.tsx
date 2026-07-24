@@ -11,6 +11,7 @@ import {
 import { FlashList } from "@shopify/flash-list";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { ErrorRetryCard } from "@/src/components/error-retry-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
@@ -145,6 +146,7 @@ export default function FavoriteRestaurantsScreen() {
         subtitle={restaurantSubtitle(item)}
         imageUrl={item.coverImage?.url ?? item.logo?.url ?? null}
         isOpen={item.isOpen ?? true}
+        availability={item.availability}
         offerLabel={undefined}
         distanceKm={item.distanceKm}
         avgRating={item.avgRating}
@@ -198,6 +200,19 @@ export default function FavoriteRestaurantsScreen() {
           isInitialLoading ? (
             <View style={styles.loadingWrap}>
               <FavoriteRestaurantListSkeleton count={3} />
+            </View>
+          ) : favoriteRestaurantsQuery.isError && !restaurants.length ? (
+            <View
+              style={[styles.feedbackWrap, { minHeight: emptyStateMinHeight }]}
+            >
+              <ErrorRetryCard
+                title="Couldn't load favorites"
+                description="We couldn't load your saved restaurants. Check your connection and try again."
+                onRetry={() => {
+                  void favoriteRestaurantsQuery.refetch();
+                }}
+                retrying={favoriteRestaurantsQuery.isFetching}
+              />
             </View>
           ) : (
             <View

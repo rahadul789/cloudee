@@ -10,16 +10,19 @@ import {
 } from "react-router-dom"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { ImpersonateRoute } from "@/components/impersonate-route"
+import { ImpersonationBanner } from "@/components/impersonation-banner"
 import { CategoriesProvider } from "@/components/categories/categories-context"
 import { OpeningHoursProvider } from "@/components/hours/opening-hours-context"
 import { MenuItemsProvider } from "@/components/menu/menu-items-context"
 import { NotificationsPopover } from "@/components/notifications/notifications-popover"
 import { NotificationsProvider } from "@/components/notifications/notifications-context"
+import { OrderAttentionPanel } from "@/components/orders/order-attention-panel"
+import { NewOrderModal } from "@/components/orders/new-order-modal"
 import { OrdersProvider } from "@/components/orders/orders-context"
 import { PayoutsProvider } from "@/components/payouts/payouts-context"
 import { PromotionsProvider } from "@/components/promotions/promotions-context"
 import { ReviewsProvider } from "@/components/reviews/reviews-context"
-import { DataActivityIndicator } from "@/components/data-activity-indicator"
 import {
   RestaurantStatusProvider,
   useRestaurantStatus,
@@ -374,6 +377,7 @@ function AppLayout() {
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
         <main className="flex min-w-0 flex-1 flex-col">
+          <ImpersonationBanner />
           <header className="sticky top-0 z-50 flex h-14 items-center justify-between border-b bg-background px-4">
             <div className="flex items-center gap-3">
               <SidebarTrigger />
@@ -452,13 +456,14 @@ function AppLayout() {
               </div>
             </div>
           </header>
-          <DataActivityIndicator />
           <section className="flex-1 overflow-auto py-4">
             <Outlet />
           </section>
         </main>
       </div>
       <Toaster richColors closeButton position="top-right" />
+      <OrderAttentionPanel />
+      <NewOrderModal />
       <VerificationModalHost />
     </SidebarProvider>
   )
@@ -819,6 +824,11 @@ export const router = createBrowserRouter([
         <PrivacyPolicyPage />
       </PublicPageLayout>
     ),
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/impersonate",
+    element: <ImpersonateRoute />,
     errorElement: <RouteErrorBoundary />,
   },
   {

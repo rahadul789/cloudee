@@ -50,3 +50,42 @@ export function isRestaurantOrderingRestricted(
 ) {
   return getRestaurantEnforcement(restaurant).isRestricted;
 }
+
+/**
+ * Customer-facing view. Customers must only ever see the message written for them —
+ * never the admin's `internalNote`/`reason`/`history` or the note meant for the owner.
+ */
+export function getCustomerRestaurantEnforcement(
+  restaurant: Record<string, any> | null | undefined,
+) {
+  const enforcement = getRestaurantEnforcement(restaurant);
+
+  return {
+    isRestricted: enforcement.isRestricted,
+    customerMessage: enforcement.customerMessage,
+  };
+}
+
+/**
+ * Owner-facing view of the enforcement record. `internalNote`, `reason`, `history`
+ * and `updatedByAdminId` are admin-only bookkeeping and must never reach the owner
+ * app/web payload — only `ownerNote` (the admin's "Owner-visible note") and the
+ * customer-facing message are shared.
+ */
+export function getOwnerRestaurantEnforcement(
+  restaurant: Record<string, any> | null | undefined,
+) {
+  const enforcement = getRestaurantEnforcement(restaurant);
+
+  return {
+    status: enforcement.status,
+    effectiveStatus: enforcement.effectiveStatus,
+    isRestricted: enforcement.isRestricted,
+    isExpired: enforcement.isExpired,
+    ownerNote: enforcement.ownerNote,
+    customerMessage: enforcement.customerMessage,
+    startsAt: enforcement.startsAt,
+    expiresAt: enforcement.expiresAt,
+    updatedAt: enforcement.updatedAt,
+  };
+}

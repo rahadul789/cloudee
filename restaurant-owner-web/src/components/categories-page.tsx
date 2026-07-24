@@ -50,6 +50,7 @@ import {
   useCreateOwnerCategoryMutation,
   useDeleteOwnerCategoryMutation,
   useOwnerCategoriesQuery,
+  usePublicPlatformContentQuery,
   useUpdateOwnerCategoryMutation,
 } from "@/hooks/use-owner-api"
 import {
@@ -57,6 +58,10 @@ import {
   type OwnerCategoryResponse,
   type OwnerListResponse,
 } from "@/lib/backend-mappers"
+import {
+  clampCatalogDescription,
+  resolveCatalogDescriptionLimits,
+} from "@/lib/catalog-description-limits"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -318,10 +323,13 @@ function DraggableCategoryRow({
           aria-label="Select row"
         />
       </TableCell>
-      <TableCell>
-        <div className="min-w-40">
-          <div className="font-medium">{row.name}</div>
-          <div className="text-xs text-muted-foreground">
+      <TableCell className="w-[18rem] max-w-[18rem]">
+        <div className="min-w-0 max-w-[16rem]">
+          <div className="truncate font-medium">{row.name}</div>
+          <div
+            className="truncate text-xs text-muted-foreground"
+            title={row.description || row.slug}
+          >
             {row.description || row.slug}
           </div>
         </div>
@@ -413,6 +421,13 @@ export function CategoriesPage() {
     page: pageIndex + 1,
     pageSize,
   })
+  const platformContentQuery = usePublicPlatformContentQuery(
+    ownerAccount.isAuthenticated
+  )
+  const descriptionLimits = React.useMemo(
+    () => resolveCatalogDescriptionLimits(platformContentQuery.data),
+    [platformContentQuery.data]
+  )
 
   const sensors = useSensors(useSensor(MouseSensor), useSensor(TouchSensor))
   const filteredAndSorted = React.useMemo(() => {
@@ -526,12 +541,17 @@ export function CategoriesPage() {
     setSortBy("displayOrder")
   }
 
+  function refreshCategoryData() {
+    queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
+    queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+    queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+  }
+
   function handleDelete(id: string) {
     setPendingCategoryAction({ type: "delete", id })
     deleteCategoryMutation.mutate(id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
-        queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+        refreshCategoryData()
         setSelectedIds((current) => current.filter((item) => item !== id))
         toast.success("Category deleted.")
       },
@@ -549,10 +569,7 @@ export function CategoriesPage() {
     if (action === "delete") {
       selectedIds.forEach((id) => {
         deleteCategoryMutation.mutate(id, {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
-            queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
-          },
+          onSuccess: refreshCategoryData,
           onError: (error) => {
             toast.error("Unable to delete category", {
               description:
@@ -569,8 +586,7 @@ export function CategoriesPage() {
             status: action === "activate" ? "active" : "archived",
           },
           {
-            onSuccess: () =>
-              queryClient.invalidateQueries({ queryKey: ["owner", "categories"] }),
+            onSuccess: refreshCategoryData,
             onError: (error) => {
               toast.error("Unable to update category", {
                 description:
@@ -599,7 +615,10 @@ export function CategoriesPage() {
     createCategoryMutation.mutate(
       {
         name,
-        description,
+        description: clampCatalogDescription(
+          description,
+          descriptionLimits.category
+        ),
       },
       {
         onSuccess: (created) => {
@@ -617,12 +636,11 @@ export function CategoriesPage() {
                 status: "archived",
               },
               {
-                onSuccess: () =>
-                  queryClient.invalidateQueries({ queryKey: ["owner", "categories"] }),
+                onSuccess: refreshCategoryData,
               }
             )
           } else {
-            queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
+            refreshCategoryData()
           }
           toast.success("Category created.")
         },
@@ -652,12 +670,15 @@ export function CategoriesPage() {
       {
         id,
         name,
-        description,
+        description: clampCatalogDescription(
+          description,
+          descriptionLimits.category
+        ),
         status: status === "Active" ? "active" : "archived",
       },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
+          refreshCategoryData()
           toast.success("Category updated.")
         },
         onError: (error) => {
@@ -699,6 +720,7 @@ export function CategoriesPage() {
         onOpenChange={setIsAddCategoryOpen}
         category={null}
         existingSlugs={data.map((item) => item.slug)}
+        descriptionMaxLength={descriptionLimits.category}
         onSubmitCategory={handleCreateCategory}
         isSubmitting={pendingCategoryAction?.type === "submit" && !pendingCategoryAction.id}
       />
@@ -713,6 +735,7 @@ export function CategoriesPage() {
         existingSlugs={data
           .filter((item) => item.id !== editingCategory?.id)
           .map((item) => item.slug)}
+        descriptionMaxLength={descriptionLimits.category}
         onSubmitCategory={(payload) => {
           if (!editingCategory) return
           handleEditCategory({

@@ -57,6 +57,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { validateImageFile } from "@/lib/image-upload"
+import { PREPARATION_TIME_OPTIONS } from "@/lib/preparation"
 import {
   buildOnboardingDraftPayload,
   buildOnboardingStateFromDraft,
@@ -144,7 +145,6 @@ const PRESET_CUISINES = [
 
 const DESCRIPTION_LIMIT = 220
 const MAX_CUISINES = 3
-const PREPARATION_TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45, 50, 60]
 type StepValidation = {
   valid: boolean
   errors: Record<string, string>

@@ -17,9 +17,11 @@ import {
   useOwnerStoreSettingsQuery,
   useUpdateOwnerStoreSettingsMutation,
 } from "@/src/hooks/use-owner-api";
+import { useOwnerTranslation } from "@/src/i18n/translations";
 import { palette } from "@/src/theme/palette";
 
 export default function AccountContactScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const inputRef = useRef<TextInput | null>(null);
   const storeQuery = useOwnerStoreSettingsQuery();
@@ -45,19 +47,19 @@ export default function AccountContactScreen() {
     if (isUnchanged) return;
 
     if (!/^01\d{9}$/.test(cleanPhone)) {
-      Alert.alert("Invalid phone number", "Enter a valid 11-digit restaurant contact number.");
+      Alert.alert(t("contact.errInvalidTitle"), t("contact.errInvalidBody"));
       return;
     }
 
     try {
       await updateMutation.mutateAsync({ phone: cleanPhone });
-      Alert.alert("Contact updated", "Riders will see this restaurant contact number.", [
+      Alert.alert(t("contact.okTitle"), t("contact.okBody"), [
         { text: "Done", onPress: () => router.back() },
       ]);
     } catch (error) {
       Alert.alert(
-        "Unable to update contact",
-        error instanceof Error ? error.message : "Please try again.",
+        t("contact.errSaveTitle"),
+        error instanceof Error ? error.message : t("prep.tryAgain"),
       );
     }
   }
@@ -65,22 +67,22 @@ export default function AccountContactScreen() {
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Header title="Restaurant contact" onBack={() => router.back()} />
+        <Header title={t("contact.headerTitle")} onBack={() => router.back()} />
 
         <View style={styles.heroCard}>
           <View style={styles.heroIcon}>
             <Ionicons name="call-outline" size={24} color="#FFFFFF" />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Pickup support number</Text>
+            <Text style={styles.heroTitle}>{t("contact.cardTitle")}</Text>
             <Text style={styles.heroText}>
-              This number is shown to riders for pickup and order support.
+              {t("contact.heroText")}
             </Text>
           </View>
         </View>
 
         <View style={styles.formCard}>
-          <Text style={styles.label}>Restaurant phone number</Text>
+          <Text style={styles.label}>{t("contact.fieldLabel")}</Text>
           <View style={styles.inputShell}>
             <Ionicons name="call-outline" size={18} color={palette.mutedForeground} />
             <TextInput
@@ -95,7 +97,7 @@ export default function AccountContactScreen() {
             />
           </View>
           <Text style={styles.helperText}>
-            Use a reachable number so delivery riders can contact the restaurant quickly.
+            {t("contact.helperText")}
           </Text>
         </View>
 
@@ -113,7 +115,7 @@ export default function AccountContactScreen() {
           ) : (
             <>
               <Text style={styles.primaryText}>
-                {isUnchanged ? "No changes yet" : "Save contact"}
+                {isUnchanged ? t("contact.noChanges") : t("contact.saveButton")}
               </Text>
               <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
             </>

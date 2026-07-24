@@ -38,6 +38,8 @@ import {
 } from "@/src/components/loading-skeleton";
 import { RemoteImage } from "@/src/components/remote-image";
 import { styles } from "@/src/components/restaurant-details/restaurant-details.styles";
+import { RestaurantClosedBanner } from "@/src/components/restaurant-details/restaurant-closed-banner";
+import { getClosedCopy } from "@/src/lib/restaurant-availability";
 import {
   CategoryRail,
   ConnectedPopularItemCard,
@@ -1153,7 +1155,9 @@ export default function RestaurantDetailsScreen() {
                         : null,
                     ]}
                   >
-                    {restaurant.isOpen === false ? "Closed now" : "Open now"}
+                    {restaurant.isOpen === false
+                      ? getClosedCopy(restaurant.availability).title
+                      : "Open now"}
                   </Text>
                 </View>
                 {detailsData?.activeOffers[0] ? (
@@ -1238,6 +1242,12 @@ export default function RestaurantDetailsScreen() {
                   ) : null}
                 </View>
               </View>
+
+              {restaurant.isOpen === false ? (
+                <View style={{ marginTop: 12 }}>
+                  <RestaurantClosedBanner availability={restaurant.availability} />
+                </View>
+              ) : null}
 
               <View style={styles.infoBadgeRow}>
                 {importantFacts.map((fact) => (
@@ -1704,8 +1714,14 @@ export default function RestaurantDetailsScreen() {
           <Text style={styles.infoSheetSectionTitle}>Cuisine & tags</Text>
           <View style={styles.infoSheetChipWrap}>
             {[
-              ...(restaurant.cuisineTypes ?? []),
-              ...(restaurant.tags ?? []),
+              ...new Set(
+                [
+                  ...(restaurant.cuisineTypes ?? []),
+                  ...(restaurant.tags ?? []),
+                ]
+                  .map((entry) => entry.trim())
+                  .filter(Boolean),
+              ),
             ].map((entry) => (
               <View key={entry} style={styles.infoSheetChip}>
                 <Text style={styles.infoSheetChipText}>{entry}</Text>
@@ -1898,14 +1914,13 @@ export default function RestaurantDetailsScreen() {
                     </Text>
                   </View>
                   <Text style={styles.simpleItemBody}>
-                    {selectedItem.description?.trim()
-                      ? selectedItem.description
-                      : "This item is ready to add to your cart as-is."}
+                    No options to choose — just pick a quantity and add it to
+                    your cart.
                   </Text>
                 </View>
               ) : null}
 
-              {(selectedItem.variants ?? []).map((group) => {
+              {(selectedItem.variants ?? []).map((group, groupIndex) => {
                 const selected = selectedVariants[group.name] ?? [];
                 const isMissingRequired =
                   (group.minSelect ?? 0) > 0 &&
@@ -1913,7 +1928,7 @@ export default function RestaurantDetailsScreen() {
 
                 return (
                   <View
-                    key={group.name}
+                    key={`${group.name}-${groupIndex}`}
                     style={[
                       styles.groupCard,
                       isMissingRequired ? styles.groupCardWarning : null,
@@ -1926,11 +1941,11 @@ export default function RestaurantDetailsScreen() {
                       </View>
                     </View>
                     <View style={styles.optionsList}>
-                      {group.options.map((option) => {
+                      {group.options.map((option, optionIndex) => {
                         const isSelected = selected.includes(option.label);
                         return (
                           <Pressable
-                            key={option.label}
+                            key={`${option.label}-${optionIndex}`}
                             onPress={() => {
                               void Haptics.selectionAsync();
                               toggleSelection(
@@ -1985,7 +2000,7 @@ export default function RestaurantDetailsScreen() {
                 );
               })}
 
-              {(selectedItem.addOnGroups ?? []).map((group) => {
+              {(selectedItem.addOnGroups ?? []).map((group, groupIndex) => {
                 const selected = selectedAddOns[group.name] ?? [];
                 const isMissingRequired =
                   (group.minSelect ?? 0) > 0 &&
@@ -1993,7 +2008,7 @@ export default function RestaurantDetailsScreen() {
 
                 return (
                   <View
-                    key={group.name}
+                    key={`${group.name}-${groupIndex}`}
                     style={[
                       styles.groupCard,
                       isMissingRequired ? styles.groupCardWarning : null,
@@ -2009,11 +2024,11 @@ export default function RestaurantDetailsScreen() {
                       </View>
                     </View>
                     <View style={styles.optionsList}>
-                      {group.options.map((option) => {
+                      {group.options.map((option, optionIndex) => {
                         const isSelected = selected.includes(option.label);
                         return (
                           <Pressable
-                            key={option.label}
+                            key={`${option.label}-${optionIndex}`}
                             onPress={() => {
                               void Haptics.selectionAsync();
                               toggleSelection(

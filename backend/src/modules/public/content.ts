@@ -459,6 +459,10 @@ export const platformContent = {
     ownerApp: {
       webDashboardUrl: "http://localhost:5173",
       showCustomerPhoneNumbers: true,
+      catalogDescriptionLimits: {
+        menuItem: 120,
+        category: 90,
+      },
     },
     serviceArea: {
       name: "Netrokona service area",
@@ -472,6 +476,18 @@ export const platformContent = {
       surchargeStartsAfterKm: 2,
       surchargeStepMeters: 500,
       surchargeAmountTaka: 5,
+    },
+    // Platform-wide minimum order amount (Taka) on the customer's item subtotal. 0 = no
+    // minimum. Per-restaurant overrides live on restaurant.commercial.minimumOrderAmount.
+    minimumOrderAmount: 0,
+    // Platform-wide service window (Asia/Dhaka). Outside open→close every restaurant
+    // is forced closed regardless of the owner's online toggle. Minutes-from-midnight
+    // (12:00 = 720, 23:00 = 1380). Per-zone overrides live on ServiceZone.serviceHours.
+    serviceHours: {
+      enabled: true,
+      openMinute: 720,
+      closeMinute: 1380,
+      timezone: "Asia/Dhaka",
     },
     reviewRequests: {
       // Auto post-delivery review push. Fully dynamic; no app update needed.
@@ -748,6 +764,10 @@ export const platformContent = {
     otp: {
       expiresInSeconds: 300,
       resendCooldownSeconds: 60,
+      // Once the user has manually resent at least once (SMS may be failing), every further
+      // resend uses THIS longer cooldown instead of resendCooldownSeconds — buying support
+      // time to read the code from the OTP Monitor / Telegram and deliver it by hand.
+      manualResendCooldownSeconds: 90,
       messageTemplate:
         "Your {{platformName}} verification code is {{code}}. It expires in {{expiryMinutes}} minutes.",
       // When SMS is unreliable: on resend, relay the code to the "Foodbela OTP" Telegram

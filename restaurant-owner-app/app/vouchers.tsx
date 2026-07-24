@@ -24,6 +24,11 @@ import {
   type OwnerVoucher,
   type OwnerVoucherPayload,
 } from "@/src/hooks/use-owner-api";
+import {
+  useOwnerTranslation,
+  type TranslationKey,
+} from "@/src/i18n/translations";
+import { formatCurrency, localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 type VoucherForm = {
@@ -79,10 +84,14 @@ function createDefaultForm(): VoucherForm {
   };
 }
 
-function formatDiscount(voucher: OwnerVoucher) {
-  if (voucher.type === "percentage") return `${voucher.discountValue ?? 0}% off`;
-  if (voucher.type === "free_delivery") return "Free delivery";
-  return `${Math.round(voucher.discountValue ?? 0).toLocaleString()}tk off`;
+function formatDiscount(
+  voucher: OwnerVoucher,
+  t: (key: TranslationKey) => string,
+) {
+  if (voucher.type === "percentage")
+    return `${localizeDigits(String(voucher.discountValue ?? 0))}% ${t("voucher.off")}`;
+  if (voucher.type === "free_delivery") return t("voucher.freeDelivery");
+  return `${formatCurrency(voucher.discountValue ?? 0)} ${t("voucher.off")}`;
 }
 
 function formatDate(value: string) {
@@ -91,9 +100,9 @@ function formatDate(value: string) {
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string, t: (key: TranslationKey) => string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Choose date & time";
+  if (Number.isNaN(date.getTime())) return t("voucher.chooseDateTime");
   return date.toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -103,7 +112,7 @@ function formatDateTime(value: string) {
 }
 
 function formatMoney(value?: number | null) {
-  return `${Math.round(value ?? 0).toLocaleString()}tk`;
+  return formatCurrency(value ?? 0);
 }
 
 function monthTitle(date: Date) {
@@ -132,6 +141,7 @@ function isSameDate(left: Date, right: Date) {
 }
 
 export default function VouchersScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string | string[]; voucherId?: string | string[] }>();
   const vouchersQuery = useOwnerVouchersQuery();
@@ -221,37 +231,37 @@ export default function VouchersScreen() {
     const maxUsesPerUser = form.allowRepeatUsage ? Number(form.maxUsesPerUser) : 1;
 
     if (!form.name.trim()) {
-      Alert.alert("Voucher name required", "Add a clear name for this offer.");
+      Alert.alert(t("voucher.errNameTitle"), t("voucher.errNameBody"));
       return false;
     }
 
     if (!form.code.trim()) {
-      Alert.alert("Voucher code required", "Add a code customers can apply.");
+      Alert.alert(t("voucher.errCodeTitle"), t("voucher.errCodeBody"));
       return false;
     }
 
     if (!Number.isFinite(discount) || discount <= 0) {
-      Alert.alert("Discount required", "Enter a discount value greater than zero.");
+      Alert.alert(t("voucher.errDiscountTitle"), t("voucher.errDiscountBody"));
       return false;
     }
 
     if (form.type === "percentage" && discount > 100) {
-      Alert.alert("Check discount", "Percentage discount cannot be more than 100%.");
+      Alert.alert(t("voucher.errPercentTitle"), t("voucher.errPercentBody"));
       return false;
     }
 
     if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || startsAt > endsAt) {
-      Alert.alert("Check dates", "Choose a valid start and end date.");
+      Alert.alert(t("voucher.errDatesTitle"), t("voucher.errDatesBody"));
       return false;
     }
 
     if (maxTotalUses !== null && (!Number.isInteger(maxTotalUses) || maxTotalUses < 1)) {
-      Alert.alert("Check max uses", "Max uses must be a whole number greater than zero.");
+      Alert.alert(t("voucher.errMaxUsesTitle"), t("voucher.errMaxUsesBody"));
       return false;
     }
 
     if (form.allowRepeatUsage && (!Number.isInteger(maxUsesPerUser) || maxUsesPerUser < 2)) {
-      Alert.alert("Check repeat usage", "Repeat usage needs at least 2 uses per customer.");
+      Alert.alert(t("voucher.errRepeatTitle"), t("voucher.errRepeatBody"));
       return false;
     }
 
@@ -291,12 +301,12 @@ export default function VouchersScreen() {
         await createMutation.mutateAsync(payload);
       }
       resetForm();
-      Alert.alert("Voucher saved", "This offer is synced with owner web and customer app.");
+      Alert.alert(t("voucher.okTitle"), t("voucher.okBody"));
       router.replace("/vouchers" as never);
     } catch (error) {
       Alert.alert(
-        "Unable to save voucher",
-        error instanceof Error ? error.message : "Please try again.",
+        t("voucher.errSaveTitle"),
+        error instanceof Error ? error.message : t("prep.tryAgain"),
       );
     }
   }
@@ -315,8 +325,8 @@ export default function VouchersScreen() {
       router.replace("/vouchers" as never);
     } catch (error) {
       Alert.alert(
-        "Unable to delete",
-        error instanceof Error ? error.message : "Please try again.",
+        t("voucher.errDeleteTitle"),
+        error instanceof Error ? error.message : t("prep.tryAgain"),
       );
     }
   }
@@ -382,7 +392,7 @@ export default function VouchersScreen() {
             <Pressable accessibilityRole="button" hitSlop={10} style={styles.backButton} onPress={() => router.back()}>
               <Ionicons name="chevron-back" size={21} color={palette.foreground} />
             </Pressable>
-            <Text style={styles.title}>Vouchers</Text>
+            <Text style={styles.title}>{t("voucher.title")}</Text>
             <Pressable accessibilityRole="button" style={styles.headerCreateButton} onPress={openCreateVoucher}>
               <Ionicons name="add" size={18} color="#FFFFFF" />
             </Pressable>
@@ -403,7 +413,7 @@ export default function VouchersScreen() {
                   <Ionicons name="alert-circle-outline" size={28} color={palette.danger} />
                 )}
                 <Text style={styles.feedbackText}>
-                  {vouchersQuery.isLoading ? "Loading voucher" : "Voucher not found"}
+                  {vouchersQuery.isLoading ? t("voucher.loadingOne") : t("voucher.notFound")}
                 </Text>
               </View>
             )
@@ -414,52 +424,52 @@ export default function VouchersScreen() {
                   <Ionicons name="ticket-outline" size={26} color="#FFFFFF" />
                 </View>
                 <View style={styles.heroCopy}>
-                  <Text style={styles.heroTitle}>Owner-funded offers</Text>
+                  <Text style={styles.heroTitle}>{t("voucher.kicker")}</Text>
                   <Text style={styles.heroText}>
-                    Flat or percentage discounts only. Free delivery stays disabled for owner vouchers.
+                    {t("voucher.heroText")}
                   </Text>
                 </View>
                 <View style={styles.heroStats}>
                   <Text style={styles.heroStatsValue}>{activeCount}</Text>
-                  <Text style={styles.heroStatsLabel}>Active</Text>
+                  <Text style={styles.heroStatsLabel}>{t("voucher.active")}</Text>
                 </View>
               </View>
 
               <View style={styles.analyticsGrid}>
                 <AnalyticsCard
                   icon="repeat-outline"
-                  label="Uses"
+                  label={t("voucher.uses")}
                   value={`${voucherAnalytics.uses}`}
                   tint="#FFF0F6"
                 />
                 <AnalyticsCard
                   icon="trending-up-outline"
-                  label="Voucher sales"
+                  label={t("voucher.sales")}
                   value={formatMoney(voucherAnalytics.revenue)}
                   tint="#EEF8F2"
                 />
                 <AnalyticsCard
                   icon="pricetag-outline"
-                  label="Discount cost"
+                  label={t("voucher.discountCost")}
                   value={formatMoney(voucherAnalytics.discount)}
                   tint="#FFF6E3"
                 />
               </View>
 
               <Pressable accessibilityRole="button" style={styles.createVoucherButton} onPress={openCreateVoucher}>
-                <Text style={styles.createVoucherText}>Create voucher</Text>
+                <Text style={styles.createVoucherText}>{t("voucher.create")}</Text>
                 <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
               </Pressable>
 
               <View style={styles.listHeader}>
-                <Text style={styles.sectionTitle}>Current vouchers</Text>
+                <Text style={styles.sectionTitle}>{t("voucher.current")}</Text>
                 <Text style={styles.sectionCount}>{vouchers.length}</Text>
               </View>
 
               {vouchersQuery.isLoading ? (
                 <View style={styles.feedbackCard}>
                   <ActivityIndicator size="small" color={palette.primary} />
-                  <Text style={styles.feedbackText}>Loading vouchers</Text>
+                  <Text style={styles.feedbackText}>{t("voucher.loadingList")}</Text>
                 </View>
               ) : vouchers.length ? (
                 <View style={styles.voucherList}>
@@ -475,9 +485,9 @@ export default function VouchersScreen() {
               ) : (
                 <View style={styles.emptyCard}>
                   <Ionicons name="ticket-outline" size={28} color={palette.primary} />
-                  <Text style={styles.emptyTitle}>No voucher yet</Text>
+                  <Text style={styles.emptyTitle}>{t("voucher.empty")}</Text>
                   <Text style={styles.emptyText}>
-                    Create your first owner-funded offer.
+                    {t("voucher.emptyBody")}
                   </Text>
                 </View>
               )}
@@ -506,7 +516,7 @@ export default function VouchersScreen() {
           <Pressable accessibilityRole="button" hitSlop={10} style={styles.backButton} onPress={() => router.back()}>
             <Ionicons name="chevron-back" size={21} color={palette.foreground} />
           </Pressable>
-          <Text style={styles.title}>Vouchers</Text>
+          <Text style={styles.title}>{t("voucher.title")}</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -515,34 +525,31 @@ export default function VouchersScreen() {
             <Ionicons name="ticket-outline" size={26} color="#FFFFFF" />
           </View>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>Owner-funded offers</Text>
-            <Text style={styles.heroText}>
-              Create simple flat or percentage discounts. Free delivery stays disabled
-              for owner vouchers.
-            </Text>
+            <Text style={styles.heroTitle}>{t("voucher.kicker")}</Text>
+            <Text style={styles.heroText}>{t("voucher.formHeroText")}</Text>
           </View>
           <View style={styles.heroStats}>
             <Text style={styles.heroStatsValue}>{activeCount}</Text>
-            <Text style={styles.heroStatsLabel}>Active</Text>
+            <Text style={styles.heroStatsLabel}>{t("voucher.active")}</Text>
           </View>
         </View>
 
         <View style={styles.analyticsGrid}>
           <AnalyticsCard
             icon="repeat-outline"
-            label="Uses"
+            label={t("voucher.uses")}
             value={`${voucherAnalytics.uses}`}
             tint="#FFF0F6"
           />
           <AnalyticsCard
             icon="trending-up-outline"
-            label="Voucher sales"
+            label={t("voucher.sales")}
             value={formatMoney(voucherAnalytics.revenue)}
             tint="#EEF8F2"
           />
           <AnalyticsCard
             icon="pricetag-outline"
-            label="Discount cost"
+            label={t("voucher.discountCost")}
             value={formatMoney(voucherAnalytics.discount)}
             tint="#FFF6E3"
           />
@@ -552,10 +559,10 @@ export default function VouchersScreen() {
           <View style={styles.formHeader}>
             <View>
               <Text style={styles.formTitle}>
-                {editingVoucher ? "Edit voucher" : "Add voucher"}
+                {editingVoucher ? t("voucher.edit") : t("voucher.add")}
               </Text>
               <Text style={styles.formSubtitle}>
-                Default validity is today to the next 7 days.
+                {t("voucher.defaultValidity")}
               </Text>
             </View>
             {editingVoucher ? (
@@ -566,42 +573,42 @@ export default function VouchersScreen() {
           </View>
 
           <InputGroup
-            label="Voucher name"
+            label={t("voucher.name")}
             value={form.name}
             onChangeText={(value) => updateForm("name", value)}
-            placeholder="Lunch saver"
+            placeholder={t("voucher.namePlaceholder")}
           />
 
           {/* Owner vouchers are always code-based. There is no auto/threshold
               apply type, so the voucher code is always required. */}
           <InputGroup
-            label="Voucher code"
+            label={t("voucher.code")}
             value={form.code}
             onChangeText={(value) => updateForm("code", value.replace(/\s/g, "").toUpperCase())}
-            placeholder="SAVE50"
+            placeholder={t("voucher.codePlaceholder")}
             autoCapitalize="characters"
           />
 
           <SegmentedControl
-            label="Discount type"
+            label={t("voucher.discountType")}
             value={form.type}
             options={[
-              { label: "Flat", value: "flat" },
-              { label: "Percent", value: "percentage" },
+              { label: t("voucher.flat"), value: "flat" },
+              { label: t("voucher.percent"), value: "percentage" },
             ]}
             onChange={(value) => updateForm("type", value as VoucherForm["type"])}
           />
 
           <View style={styles.twoColumn}>
             <InputGroup
-              label={form.type === "percentage" ? "Discount %" : "Discount tk"}
+              label={form.type === "percentage" ? t("voucher.discountPercent") : t("voucher.discountTaka")}
               value={form.discountValue}
               onChangeText={(value) => updateForm("discountValue", value.replace(/[^\d.]/g, ""))}
               placeholder={form.type === "percentage" ? "10" : "50"}
               keyboardType="numeric"
             />
             <InputGroup
-              label="Min order"
+              label={t("voucher.minOrder")}
               value={form.minimumOrderAmount}
               onChangeText={(value) => updateForm("minimumOrderAmount", value.replace(/[^\d.]/g, ""))}
               placeholder="0"
@@ -611,18 +618,18 @@ export default function VouchersScreen() {
 
           <View style={styles.twoColumn}>
             <InputGroup
-              label="Max uses"
+              label={t("voucher.maxUses")}
               value={form.maxTotalUses}
               onChangeText={(value) => updateForm("maxTotalUses", value.replace(/\D/g, ""))}
-              placeholder="Optional"
+              placeholder={t("voucher.optional")}
               keyboardType="number-pad"
             />
             <SegmentedControl
-              label="Status"
+              label={t("voucher.status")}
               value={form.status}
               options={[
-                { label: "Active", value: "Active" },
-                { label: "Draft", value: "Draft" },
+                { label: t("voucher.active"), value: "Active" },
+                { label: t("voucher.draft"), value: "Draft" },
               ]}
               onChange={(value) => updateForm("status", value as VoucherForm["status"])}
             />
@@ -643,16 +650,20 @@ export default function VouchersScreen() {
                 color={form.allowRepeatUsage ? palette.primary : palette.mutedForeground}
               />
               <View style={styles.repeatCopy}>
-                <Text style={styles.repeatTitle}>Allow repeat usage</Text>
-                <Text style={styles.repeatText}>
-                  Let the same customer use this voucher more than once.
-                </Text>
+                <Text style={styles.repeatTitle}>{t("voucher.allowRepeat")}</Text>
+                {/* The Bangla title already states this in full, so the caption would
+                    only repeat it — it is intentionally empty in bn. */}
+                {t("voucher.repeatCaption") ? (
+                  <Text style={styles.repeatText}>
+                    {t("voucher.repeatCaption")}
+                  </Text>
+                ) : null}
               </View>
             </Pressable>
 
             {form.allowRepeatUsage ? (
               <InputGroup
-                label="Max uses per customer"
+                label={t("voucher.maxUsesPerCustomer")}
                 value={form.maxUsesPerUser}
                 onChangeText={(value) => updateForm("maxUsesPerUser", value.replace(/\D/g, ""))}
                 placeholder="2"
@@ -663,7 +674,7 @@ export default function VouchersScreen() {
 
           <View style={styles.twoColumn}>
             <DateTimeField
-              label="Starts"
+              label={t("voucher.starts")}
               value={form.startsAt}
               onPress={() => setDatePickerTarget("startsAt")}
             />
@@ -685,7 +696,7 @@ export default function VouchersScreen() {
             ) : (
               <>
                 <Text style={styles.primaryText}>
-                  {editingVoucher ? "Save changes" : "Create voucher"}
+                  {editingVoucher ? t("voucher.saveChanges") : t("voucher.create")}
                 </Text>
                 <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
               </>
@@ -695,7 +706,7 @@ export default function VouchersScreen() {
 
         <DateTimePickerModal
           visible={datePickerTarget !== null}
-          title={datePickerTarget === "startsAt" ? "Start date & time" : "End date & time"}
+          title={datePickerTarget === "startsAt" ? t("voucher.startDateTime") : t("voucher.endDateTime")}
           value={datePickerTarget ? form[datePickerTarget] : new Date().toISOString()}
           onClose={() => setDatePickerTarget(null)}
           onConfirm={(value) => {
@@ -749,6 +760,8 @@ function VoucherListCard({
   onPress: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useOwnerTranslation();
+
   function handleDeletePress(event: GestureResponderEvent) {
     event.stopPropagation();
     onDelete();
@@ -770,8 +783,8 @@ function VoucherListCard({
             {voucher.name}
           </Text>
           <Text style={styles.voucherMeta}>
-            {voucher.mode === "coupon" ? voucher.code || "No code" : "Auto applied"} -{" "}
-            {formatDiscount(voucher)}
+            {voucher.mode === "coupon" ? voucher.code || t("voucher.noCode") : t("voucher.autoApplied")} -{" "}
+            {formatDiscount(voucher, t)}
           </Text>
         </View>
         <View style={styles.voucherActions}>
@@ -797,7 +810,7 @@ function VoucherListCard({
         <View style={styles.compactMetricPill}>
           <Ionicons name="repeat-outline" size={13} color={palette.primary} />
           <Text style={styles.compactMetricText}>
-            {voucher.analytics?.totalUses ?? 0} uses
+            {localizeDigits(String(voucher.analytics?.totalUses ?? 0))} {t("voucher.uses")}
           </Text>
         </View>
       </View>
@@ -806,6 +819,7 @@ function VoucherListCard({
 }
 
 function VoucherStatusBadge({ status }: { status: OwnerVoucher["status"] }) {
+  const { t } = useOwnerTranslation();
   const isActive = status === "Active";
   return (
     <View style={[styles.statusBadge, isActive ? styles.statusBadgeActive : null]}>
@@ -815,7 +829,7 @@ function VoucherStatusBadge({ status }: { status: OwnerVoucher["status"] }) {
           isActive ? styles.statusBadgeTextActive : null,
         ]}
       >
-        {status}
+        {isActive ? t("voucher.active") : t("voucher.draft")}
       </Text>
     </View>
   );
@@ -834,12 +848,13 @@ function DeleteVoucherConfirmationSheet({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useOwnerTranslation();
   return (
     <AppBottomSheet
       visible={visible}
       onClose={onClose}
       title="Delete voucher?"
-      subtitle="This offer will stop showing in customer app after deletion."
+      subtitle={t("voucher.deleteSubtitle")}
       leadingIcon="trash-outline"
       snapPoints={[0.48]}
       initialSnapPoint={0.48}
@@ -857,7 +872,7 @@ function DeleteVoucherConfirmationSheet({
             {voucher?.name ?? "Selected voucher"}
           </Text>
           <Text style={styles.deleteHeroText}>
-            {voucher ? `${formatDiscount(voucher)} - ${voucher.mode === "coupon" ? voucher.code || "No code" : "Auto applied"}` : "This voucher will be removed."}
+            {voucher ? `${formatDiscount(voucher, t)} - ${voucher.mode === "coupon" ? voucher.code || t("voucher.noCode") : t("voucher.autoApplied")}` : t("voucher.deleteFallback")}
           </Text>
         </View>
       </View>
@@ -907,6 +922,8 @@ function VoucherDetailsView({
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useOwnerTranslation();
+
   return (
     <View style={styles.detailsStack}>
       <View style={styles.detailsHeroCard}>
@@ -917,17 +934,17 @@ function VoucherDetailsView({
           <VoucherStatusBadge status={voucher.status} />
         </View>
         <Text numberOfLines={2} style={styles.detailsTitle}>{voucher.name}</Text>
-        <Text style={styles.detailsDiscount}>{formatDiscount(voucher)}</Text>
+        <Text style={styles.detailsDiscount}>{formatDiscount(voucher, t)}</Text>
         <Text style={styles.detailsMeta}>
-          {voucher.mode === "coupon" ? `Code ${voucher.code || "--"}` : "Auto applied"} -{" "}
-          {formatDateTime(voucher.startsAt)} to {formatDateTime(voucher.endsAt)}
+          {voucher.mode === "coupon" ? `${t("voucher.codePrefix")} ${voucher.code || "--"}` : t("voucher.autoApplied")} -{" "}
+          {formatDateTime(voucher.startsAt, t)} to {formatDateTime(voucher.endsAt, t)}
         </Text>
       </View>
 
       <View style={styles.analyticsGrid}>
         <AnalyticsCard
           icon="repeat-outline"
-          label="Uses"
+          label={t("voucher.uses")}
           value={`${voucher.analytics?.totalUses ?? 0}`}
           tint="#FFF0F6"
         />
@@ -946,10 +963,24 @@ function VoucherDetailsView({
       </View>
 
       <View style={styles.detailRowsCard}>
-        <VoucherDetailLine label="Apply type" value={voucher.mode === "coupon" ? "Code required" : "Auto applied"} />
+        <VoucherDetailLine
+          label={t("voucher.applyType")}
+          value={
+            voucher.mode === "coupon"
+              ? t("voucher.codeRequired")
+              : t("voucher.autoApplied")
+          }
+        />
         <VoucherDetailLine label="Minimum order" value={formatMoney(voucher.minimumOrderAmount)} />
         <VoucherDetailLine label="Max total uses" value={voucher.maxTotalUses ? `${voucher.maxTotalUses}` : "Unlimited"} />
-        <VoucherDetailLine label="Repeat user" value={voucher.allowRepeatUsage ? `${voucher.maxUsesPerUser ?? 1} uses/customer` : "One time per customer"} />
+        <VoucherDetailLine
+          label={t("voucher.repeatUser")}
+          value={
+            voucher.allowRepeatUsage
+              ? `${localizeDigits(String(voucher.maxUsesPerUser ?? 1))} ${t("voucher.usesPerCustomer")}`
+              : t("voucher.oncePerCustomer")
+          }
+        />
       </View>
 
       <View style={styles.detailsActionRow}>
@@ -1041,13 +1072,15 @@ function DateTimeField({
   value: string;
   onPress: () => void;
 }) {
+  const { t } = useOwnerTranslation();
+
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>{label}</Text>
       <Pressable accessibilityRole="button" style={styles.dateField} onPress={onPress}>
         <Ionicons name="calendar-outline" size={17} color={palette.primary} />
         <Text numberOfLines={1} style={styles.dateFieldText}>
-          {formatDateTime(value)}
+          {formatDateTime(value, t)}
         </Text>
       </Pressable>
     </View>
@@ -1067,6 +1100,7 @@ function DateTimePickerModal({
   onClose: () => void;
   onConfirm: (value: string) => void;
 }) {
+  const { t } = useOwnerTranslation();
   const initialDate = new Date(value);
   const safeInitialDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
   const [draftDate, setDraftDate] = useState(safeInitialDate);
@@ -1111,7 +1145,7 @@ function DateTimePickerModal({
       visible={visible}
       onClose={onClose}
       title={title}
-      subtitle={formatDateTime(draftDate.toISOString())}
+      subtitle={formatDateTime(draftDate.toISOString(), t)}
       leadingIcon="calendar-outline"
       snapPoints={[0.9]}
       initialSnapPoint={0.9}

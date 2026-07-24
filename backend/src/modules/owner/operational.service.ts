@@ -16,6 +16,7 @@ import {
   createCustomerNotification,
   sendPushToCustomer,
 } from "../customer/push.service";
+import * as customerReadCacheModule from "../customer/customer.service";
 import { handleCustomerCustomOfferDeliveredOrder } from "../customer/custom-offer.service";
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service";
 import { releaseFirstOrderDiscountForOrder } from "../customer/first-order-discount.service";
@@ -32,6 +33,17 @@ import {
   NotificationModel,
   OrderModel,
 } from "./operational.model";
+import {
+  buildMenuItemSnapshot,
+  buildProposedMenuItemSnapshot,
+  decorateMenuItemsWithApprovals,
+  hasMenuPricingChange,
+  hasMenuPricingPayload,
+  submitMenuPriceUpdateApproval,
+  submitNewMenuItemApproval,
+} from "./menu-approval.service";
+import { ReviewModel } from "./experience.model";
+import { VoucherModel } from "../customer/customer.model";
 import {
   buildOrderPreparationTiming,
   buildPreparationMetaForExtension,
@@ -951,6 +963,16 @@ export async function listCategoriesWithFilters(params: {
   return { items, total };
 }
 
+// Flush the customer read caches on any INSTANT, customer-visible menu/category change
+// (availability, status, name, delete). New items + price changes are approval-gated
+// and flushed on approval (menu-approval.service), so those paths don't call this.
+// customer.service ↔ operational.service is a circular import, so this reads the export
+// off the namespace at CALL time (never destructured at import) — the cycle can't hand
+// us an undefined binding that way.
+function flushCustomerAvailabilityCaches() {
+  customerReadCacheModule.invalidateCustomerRestaurantAvailabilityCaches();
+}
+
 export async function createCategory(params: {
   ownerId: string;
   name: string;
@@ -1008,6 +1030,7 @@ export async function updateCategory(params: {
   }
 
   await category.save();
+  flushCustomerAvailabilityCaches();
   return category;
 }
 
@@ -1045,6 +1068,7 @@ export async function deleteCategoryPermanently(params: {
     categoryId: params.categoryId,
   });
   await CategoryModel.deleteOne({ _id: params.categoryId, restaurantId });
+  flushCustomerAvailabilityCaches();
 
   return { deleted: true };
 }
@@ -1118,7 +1142,52 @@ export async function listMenuItemsWithFilters(params: {
     MenuItemModel.countDocuments(query),
   ]);
 
-  return { items, total };
+  return { items: await decorateMenuItemsWithApprovals(items), total };
+}
+
+export async function getOwnerSidebarSummary(ownerId: string) {
+  const { restaurantId } = await getOwnerRestaurantContext(ownerId);
+  const restaurantObjectId = new mongoose.Types.ObjectId(restaurantId);
+
+  const [
+    liveOrders,
+    categories,
+    menuItems,
+    reviews,
+    promotions,
+    unreadNotifications,
+  ] = await Promise.all([
+    OrderModel.countDocuments({
+      restaurantId,
+      status: { $in: [...liveStatuses] },
+    }),
+    CategoryModel.countDocuments({ restaurantId: restaurantObjectId }),
+    MenuItemModel.countDocuments({
+      restaurantId,
+      status: "active",
+    }),
+    ReviewModel.countDocuments({ restaurantId: restaurantObjectId }),
+    VoucherModel.countDocuments({
+      restaurantId: restaurantObjectId,
+      createdByType: "owner",
+      createdById: ownerId,
+      archivedAt: null,
+      surface: { $ne: "menu_markdown" },
+    }),
+    NotificationModel.countDocuments({
+      ownerId,
+      isRead: false,
+    }),
+  ]);
+
+  return {
+    liveOrders,
+    categories,
+    menuItems,
+    reviews,
+    promotions,
+    unreadNotifications,
+  };
 }
 
 async function resolveRecommendedMenuItemIds(params: {
@@ -1189,11 +1258,9 @@ export async function createMenuItem(params: {
     itemIds: params.recommendedItemIds,
   });
 
-  const menuItem = await MenuItemModel.create({
-    restaurantId,
+  const proposedSnapshot = buildMenuItemSnapshot({
     categoryId: params.categoryId,
     name: params.name,
-    slug: slugify(params.name),
     description: params.description ?? "",
     images: params.images ?? [],
     status: params.status,
@@ -1206,18 +1273,11 @@ export async function createMenuItem(params: {
     isPopular: params.isPopular ?? false,
   });
 
-  emitSocketEvent(
-    `owner:${params.ownerId}`,
-    "menu.updated",
-    menuItem.toObject(),
-  );
-  emitSocketEvent(
-    `restaurant:${restaurantId}`,
-    "menu.updated",
-    menuItem.toObject(),
-  );
-
-  return menuItem;
+  return submitNewMenuItemApproval({
+    ownerId: params.ownerId,
+    restaurantId,
+    proposedSnapshot,
+  });
 }
 
 export async function updateMenuItem(params: {
@@ -1268,6 +1328,35 @@ export async function updateMenuItem(params: {
     menuItem.categoryId = category._id;
   }
 
+  const currentSnapshot = buildProposedMenuItemSnapshot({
+    current: menuItem.toObject(),
+  });
+  const proposedSnapshot = buildProposedMenuItemSnapshot({
+    current: menuItem.toObject(),
+    categoryId: params.categoryId,
+    name: params.name,
+    description: params.description,
+    images: params.images,
+    status: params.status,
+    availability: params.availability,
+    kind: params.kind,
+    basePrice: params.basePrice,
+    variants: params.variants,
+    addOnGroups: params.addOnGroups,
+    recommendedItemIds:
+      params.recommendedItemIds !== undefined
+        ? await resolveRecommendedMenuItemIds({
+            restaurantId,
+            itemIds: params.recommendedItemIds,
+            currentItemId: menuItem._id,
+          })
+        : undefined,
+    isPopular: params.isPopular,
+  });
+  const requiresPriceApproval =
+    hasMenuPricingPayload(params) &&
+    hasMenuPricingChange(currentSnapshot, proposedSnapshot);
+
   if (params.name !== undefined) {
     menuItem.name = params.name;
     menuItem.slug = slugify(params.name);
@@ -1281,27 +1370,46 @@ export async function updateMenuItem(params: {
   if (params.status !== undefined) menuItem.status = params.status;
   if (params.availability !== undefined)
     menuItem.availability = params.availability;
-  if (params.kind !== undefined) menuItem.kind = params.kind;
-  if (params.basePrice !== undefined) menuItem.basePrice = params.basePrice;
-  if (params.variants !== undefined) {
-    menuItem.set("variants", params.variants);
-  }
-  if (params.addOnGroups !== undefined) {
-    menuItem.set("addOnGroups", params.addOnGroups);
+  if (!requiresPriceApproval) {
+    if (params.kind !== undefined) menuItem.kind = params.kind;
+    if (params.basePrice !== undefined) menuItem.basePrice = params.basePrice;
+    if (params.variants !== undefined) {
+      menuItem.set("variants", params.variants);
+    }
+    if (params.addOnGroups !== undefined) {
+      menuItem.set("addOnGroups", params.addOnGroups);
+    }
   }
   if (params.recommendedItemIds !== undefined) {
     menuItem.set(
       "recommendedItemIds",
-      await resolveRecommendedMenuItemIds({
-        restaurantId,
-        itemIds: params.recommendedItemIds,
-        currentItemId: menuItem._id,
-      }),
+      proposedSnapshot.recommendedItemIds,
     );
   }
   if (params.isPopular !== undefined) menuItem.isPopular = params.isPopular;
 
   await menuItem.save();
+  // availability/status/name/images/isPopular apply instantly (only pricing is
+  // approval-gated), so this edit is customer-visible now → flush the read caches.
+  flushCustomerAvailabilityCaches();
+  if (requiresPriceApproval) {
+    const approvalRequest = await submitMenuPriceUpdateApproval({
+      ownerId: params.ownerId,
+      restaurantId,
+      menuItemId: String(menuItem._id),
+      currentSnapshot,
+      proposedSnapshot,
+    });
+    const payload = {
+      ...menuItem.toObject(),
+      approvalRequired: true,
+      approvalRequest,
+      approval: approvalRequest,
+    };
+    emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", payload);
+    return payload;
+  }
+
   emitSocketEvent(
     `owner:${params.ownerId}`,
     "menu.updated",
@@ -1345,6 +1453,7 @@ export async function deleteMenuItemPermanently(params: {
   }
 
   await MenuItemModel.deleteOne({ _id: params.itemId, restaurantId });
+  flushCustomerAvailabilityCaches();
   emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", {
     itemId: params.itemId,
     deleted: true,
@@ -1449,7 +1558,7 @@ export async function listOrders(params: {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
 
-  const [items, total, restaurant] = await Promise.all([
+  const [items, total, restaurant, statusCountRows] = await Promise.all([
     OrderModel.find(query)
       .sort(sort)
       .skip((page - 1) * pageSize)
@@ -1457,7 +1566,29 @@ export async function listOrders(params: {
       .lean(),
     OrderModel.countDocuments(query),
     RestaurantModel.findById(restaurantId).lean(),
+    // Per-status totals for the owner app's filter chips, so each chip can show how
+    // many orders it holds. Independent of the current filter/paging.
+    // NOTE: aggregate() does not cast like find() does — restaurantId is a string here,
+    // so it must be converted or the $match silently matches nothing.
+    OrderModel.aggregate<{ _id: string; count: number }>([
+      { $match: { restaurantId: new mongoose.Types.ObjectId(restaurantId) } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
   ]);
+
+  const statusCounts = statusCountRows.reduce<Record<string, number>>(
+    (result, row) => {
+      if (row?._id) {
+        result[row._id] = Number(row.count ?? 0);
+      }
+      return result;
+    },
+    {},
+  );
+  statusCounts.live = [...liveStatuses].reduce(
+    (sum, status) => sum + (statusCounts[status] ?? 0),
+    0,
+  );
   const contentRecord = content as Record<string, any>;
   const automationSettingsCache = new Map<
     string,
@@ -1479,6 +1610,7 @@ export async function listOrders(params: {
       ),
     ),
     total,
+    statusCounts,
   };
 }
 

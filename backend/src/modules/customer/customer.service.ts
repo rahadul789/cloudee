@@ -37,6 +37,7 @@ import {
 import {
   applyServiceAreaHomeCmsOverride,
   getPlatformContent,
+  getPlatformServiceHours,
   registerPlatformContentInvalidationListener,
 } from "../public/content.service";
 import {
@@ -47,7 +48,12 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from "../auth/auth.utils";
-import { OtpSessionModel, RestaurantModel, RiderModel } from "../auth/auth.model";
+import {
+  OpeningHoursModel,
+  OtpSessionModel,
+  RestaurantModel,
+  RiderModel,
+} from "../auth/auth.model";
 import { LedgerEntryModel } from "../owner/finance.model";
 import { syncOrderLedgerForFinalStatus } from "../owner/finance.service";
 import { decorateOwnerFinancials } from "../owner/order-financials";
@@ -56,6 +62,7 @@ import { buildOrderPreparationTiming } from "../owner/preparation-timing";
 import { sendLocalizedPushToOwner } from "../owner/push.service";
 import { ReviewModel, SupportCaseModel } from "../owner/experience.model";
 import {
+  getCustomerRestaurantEnforcement,
   getRestaurantEnforcement,
   isRestaurantOrderingRestricted,
 } from "../restaurant-enforcement";
@@ -73,12 +80,17 @@ import {
   applyServiceAreaDeliveryPricing,
   assertLocationInsideServiceArea,
   assertRestaurantMatchesDeliveryServiceArea,
+  buildZoneServiceHoursMap,
   getServiceAreaRestaurantDistanceKm,
+  getServiceHoursOverrideForZone,
   isCoordinateInsideServiceArea,
   isServiceAreaModeEnabled,
   resolveRestaurantServiceAreaSnapshot,
   resolveServiceZoneForCoordinates,
 } from "../service-area/service-area.service";
+import { resolveServiceHoursConfig } from "../service-area/service-hours";
+import { computeRestaurantAvailability } from "./restaurant-availability";
+import { getActivePublicPoll } from "./poll.service";
 import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service";
 import {
   BkashPaymentAttemptModel,
@@ -93,12 +105,14 @@ import {
 } from "./customer.model";
 import {
   evaluateFirstOrderDiscount,
+  lockFirstOrderDiscountDevice,
   releaseFirstOrderDiscountForOrder,
 } from "./first-order-discount.service";
 import {
   attachReferralToNewCustomer,
   createCustomerReferralCode,
   ensureCustomerReferralCode,
+  grantRefereeWelcomeVoucherToCustomer,
 } from "./referral.service";
 import {
   calculateVoucherDiscount,
@@ -147,6 +161,10 @@ type DiscoverableRestaurantsPageResult = {
   pageCount: number;
   hasNextPage: boolean;
   nextPage: number | null;
+  // Does the customer's location have ANY serviceable restaurant (regardless of the
+  // active filter / open state)? Lets the app tell "everything's closed right now" apart
+  // from "we don't serve this area yet" without inferring intent from the item shape.
+  areaHasRestaurants: boolean;
 };
 type CustomerDiscoveryHomeResult = CustomerCacheRecord;
 type CustomerRestaurantDetailsResult = CustomerCacheRecord;
@@ -1096,7 +1114,7 @@ export async function verifyCustomerPhoneSignin(params: {
       referralCode: await createCustomerReferralCode(),
       authProviders: ["phone"],
     });
-    await attachReferralToNewCustomer({
+    const referralLink = await attachReferralToNewCustomer({
       customer,
       referralCode: params.referralCode,
       installId: params.installId,
@@ -1106,6 +1124,9 @@ export async function verifyCustomerPhoneSignin(params: {
     rememberCustomerSigninContext(customer, params);
     await applyCustomerCurrentLocationSnapshot(customer, params.currentLocation);
     await customer.save();
+    if (referralLink && !referralLink.rejected) {
+      await grantRefereeWelcomeVoucherToCustomer({ customer });
+    }
   } else {
     assertCustomerAccountAccessible(customer);
 
@@ -1997,6 +2018,24 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
     ]),
   );
 
+  // Full per-restaurant availability (service window + own schedule predictor + owner
+  // toggle) so every card can show a meaningful "Opens at …" instead of a bare closed
+  // badge. Config (platform default + per-zone override map) is cache-backed; the
+  // open/closed decision + reopen countdown are computed live. Applied before the
+  // page-level comparators re-sort, so closed rows sink correctly.
+  const [platformServiceHours, zoneServiceHoursMap, openingHoursRows] =
+    await Promise.all([
+      getPlatformServiceHours(),
+      buildZoneServiceHoursMap(),
+      OpeningHoursModel.find({ restaurantId: { $in: restaurantObjectIds } })
+        .select({ restaurantId: 1, timezone: 1, weeklySchedule: 1, exceptions: 1 })
+        .lean<Array<Record<string, any>>>(),
+    ]);
+  const openingHoursByRestaurantId = new Map(
+    openingHoursRows.map((row) => [String(row.restaurantId), row]),
+  );
+  const now = new Date();
+
   restaurants.forEach((restaurant) => {
     const mutableRestaurant = restaurant as Record<string, any>;
     const restaurantId = String(mutableRestaurant._id ?? "");
@@ -2005,6 +2044,19 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
       pricingByRestaurantId.get(restaurantId) ?? null;
     mutableRestaurant.reviewCount = reviewMetrics?.reviewCount ?? 0;
     mutableRestaurant.avgRating = reviewMetrics?.avgRating ?? null;
+
+    const availability = computeRestaurantAvailability({
+      serviceHours: resolveServiceHoursConfig(
+        zoneServiceHoursMap.get(String(mutableRestaurant.serviceArea?.zoneId ?? "")),
+        platformServiceHours,
+      ),
+      isOnline: mutableRestaurant.runtime?.isOnline ?? false,
+      restricted: isRestaurantOrderingRestricted(mutableRestaurant),
+      openingHours: openingHoursByRestaurantId.get(restaurantId) ?? null,
+      now,
+    });
+    mutableRestaurant.availability = availability;
+    mutableRestaurant.isOpen = availability.isOpen;
   });
 
   return restaurants;
@@ -2395,6 +2447,11 @@ export async function listDiscoverableRestaurantsPage(params?: {
   sortBy?: "nearest" | "fastest" | "topRated";
   minimumRating?: number;
   maximumLowestPrice?: number;
+  // Clients that render the "open now" empty states themselves (all-closed vs not-served)
+  // send this so the open filter returns the TRUE open list — empty when nothing is open —
+  // instead of the legacy fallback that returns closed restaurants to spare older builds a
+  // misleading "not in this area" screen.
+  openStrict?: number;
 }): Promise<DiscoverableRestaurantsPageResult> {
   const page = Math.max(1, Math.floor(params?.page ?? 1));
   const pageSize = Math.max(1, Math.min(30, Math.floor(params?.pageSize ?? 12)));
@@ -2407,8 +2464,29 @@ export async function listDiscoverableRestaurantsPage(params?: {
     ? new Map(restaurants.map((restaurant, index) => [String(restaurant._id), index]))
     : null;
 
+  // Snapshot BEFORE any Show-filter narrows the list: does the location have serviceable
+  // restaurants at all? Drives the app's "all closed" vs "not in this area" distinction.
+  const areaHasRestaurants = restaurants.length > 0;
+  const openStrict = params?.openStrict === 1;
+
   if (params?.filter === "open") {
-    restaurants = restaurants.filter((restaurant) => restaurant.isOpen !== false);
+    const openRestaurants = restaurants.filter(
+      (restaurant) => restaurant.isOpen !== false,
+    );
+    if (openStrict) {
+      // New app: it renders the closed/not-served states itself, so hand it the TRUE open
+      // list (possibly empty) and let it read areaHasRestaurants to pick the right copy.
+      restaurants = openRestaurants;
+    } else {
+      // Legacy/published app: its empty-state labels an empty, search-less browse list as
+      // "Foodbela isn't in this area yet" (its title keys only off the search box, not the
+      // active filter). So when the area HAS restaurants but none are open right now —
+      // outside service hours, or all owners offline — keep returning them (rendered as
+      // closed cards) instead of an empty list that misreads as "not served". With a
+      // search active the app already shows "No matching food found", so leave that path.
+      restaurants =
+        openRestaurants.length > 0 || searchActive ? openRestaurants : restaurants;
+    }
   } else if (params?.filter === "featured") {
     restaurants = restaurants.filter(
       (restaurant) =>
@@ -2479,6 +2557,7 @@ export async function listDiscoverableRestaurantsPage(params?: {
     pageCount,
     hasNextPage,
     nextPage: hasNextPage ? safePage + 1 : null,
+    areaHasRestaurants,
   };
 }
 
@@ -3277,10 +3356,36 @@ export async function getCustomerDiscoveryHome(params?: {
       ) {
         homeCms.howToOrderGuide.isActive = false;
       }
+      // Area-wide service window for the customer's location → powers the "Your area
+      // opens at 11:00 AM" banner. isOnline:true / no schedule so ONLY the platform/zone
+      // window matters here. opensAtEpochMs is absolute, so it stays correct even though
+      // this home response is cached.
+      const areaZone = await resolveServiceZoneForCoordinates({
+        latitude: params?.latitude,
+        longitude: params?.longitude,
+      });
+      const areaAvailability = computeRestaurantAvailability({
+        serviceHours: resolveServiceHoursConfig(
+          await getServiceHoursOverrideForZone(areaZone?.snapshot?.zoneId),
+          await getPlatformServiceHours(),
+        ),
+        isOnline: true,
+        restricted: false,
+        openingHours: null,
+      });
+
+      const activePoll = await getActivePublicPoll();
+
       return {
         homeBanner: homePlatformContent.customerApp.homeBanner.isActive
           ? homePlatformContent.customerApp.homeBanner
           : null,
+        areaServiceWindow: {
+          isOpen: areaAvailability.isOpen,
+          opensAtLabel: areaAvailability.opensAtLabel,
+          opensAtEpochMs: areaAvailability.opensAtEpochMs,
+        },
+        activePoll,
         homeCms,
         timeBasedSection,
         featuredRestaurants,
@@ -3358,7 +3463,7 @@ export async function getCustomerRestaurantDetails(
         );
       }
 
-      restaurant.enforcement = getRestaurantEnforcement(restaurant);
+      restaurant.enforcement = getCustomerRestaurantEnforcement(restaurant);
       restaurant.isOpen =
         (restaurant.runtime?.isOnline ?? false) && !restaurant.enforcement.isRestricted;
       const platformContent = await getPlatformContent();
@@ -3378,6 +3483,30 @@ export async function getCustomerRestaurantDetails(
         await resolveRestaurantServiceAreaSnapshot(restaurant);
       restaurant.selectedServiceArea = selectedServiceArea?.snapshot ?? null;
       restaurant.serviceArea = restaurantServiceArea ?? restaurant.serviceArea ?? null;
+
+      // Full customer-facing availability: platform/zone service window (deterministic,
+      // area-wide) + the restaurant's own schedule (predictor when the owner is offline)
+      // + owner toggle + enforcement. Reopen time is Dhaka-computed so the app countdown
+      // is timezone-safe. Drives both `isOpen` and the "Opens at …" copy.
+      const [serviceHoursOverride, platformServiceHours, restaurantOpeningHours] =
+        await Promise.all([
+          getServiceHoursOverrideForZone(restaurant.serviceArea?.zoneId),
+          getPlatformServiceHours(),
+          OpeningHoursModel.findOne({ restaurantId: restaurant._id })
+            .select({ timezone: 1, weeklySchedule: 1, exceptions: 1 })
+            .lean<Record<string, any> | null>(),
+        ]);
+      const availability = computeRestaurantAvailability({
+        serviceHours: resolveServiceHoursConfig(
+          serviceHoursOverride,
+          platformServiceHours,
+        ),
+        isOnline: restaurant.runtime?.isOnline ?? false,
+        restricted: restaurant.enforcement?.isRestricted ?? false,
+        openingHours: restaurantOpeningHours,
+      });
+      restaurant.availability = availability;
+      restaurant.isOpen = availability.isOpen;
       const deliveryRadiusKm = Math.max(
         0,
         isServiceAreaModeEnabled()
@@ -4444,6 +4573,7 @@ export async function placeCustomerOrder(params: {
   clientOrderId?: string;
   items: CartInputItem[];
   voucherCode?: string;
+  installId?: string;
   paymentMethod: string;
   paymentReference?: {
     provider?: string;
@@ -4470,10 +4600,21 @@ export async function placeCustomerOrder(params: {
     restaurantId: params.restaurantId,
     items: params.items,
     voucherCode: params.voucherCode,
+    installId: params.installId,
     customerId,
     latitude: params.deliveryAddress.latitude,
     longitude: params.deliveryAddress.longitude,
   });
+
+  // Minimum-order enforcement — defense behind the app's disabled checkout button.
+  // Uses the SAME quote the customer sees, so the gate can never disagree with the UI.
+  if (quote.minimumOrder && quote.minimumOrder.isMet === false) {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "RESTAURANT_MINIMUM_ORDER_NOT_MET",
+      `Minimum order is ৳${quote.minimumOrder.amount}. Add ৳${quote.minimumOrder.amountShort} more to continue.`,
+    );
+  }
 
   const restaurant = await RestaurantModel.findById(params.restaurantId);
 
@@ -4714,6 +4855,56 @@ export async function placeCustomerOrder(params: {
           : 0,
       );
       if (firstOrderDiscountAmount > 0) {
+        const fpCustomer = await CustomerModel.findById(customer.id)
+          .select(
+            "phone previousPhones lastKnownDeviceId referralSignupDeviceId firstOrderDiscountRedeemedAt status lastKnownIpAddress",
+          )
+          .session(session)
+          .lean<Record<string, any>>();
+        const walletNumber =
+          params.paymentMethod === "Bkash"
+            ? String(params.paymentReference?.walletNumber ?? "").trim()
+            : "";
+        const firstOrderSubtotal = Math.max(
+          0,
+          Number(quote.pricing?.subtotal ?? 0) -
+            Number(quote.pricing?.menuMarkdownAmount ?? 0),
+        );
+        const firstOrderCheck = await evaluateFirstOrderDiscount({
+          customerId,
+          subtotalTaka: firstOrderSubtotal,
+          paymentMethod: params.paymentMethod,
+          deviceId: params.installId,
+          walletNumber,
+          customer: fpCustomer,
+        });
+        if (
+          !firstOrderCheck.eligible ||
+          firstOrderCheck.amount !== firstOrderDiscountAmount
+        ) {
+          throw new AppError(
+            StatusCodes.CONFLICT,
+            "FIRST_ORDER_DISCOUNT_UNAVAILABLE",
+            "The first-order discount is no longer available for this device.",
+          );
+        }
+
+        for (const deviceId of firstOrderCheck.fingerprints.deviceIds) {
+          const locked = await lockFirstOrderDiscountDevice({
+            deviceId,
+            customerId: customer.id,
+            orderId,
+            session,
+          });
+          if (!locked) {
+            throw new AppError(
+              StatusCodes.CONFLICT,
+              "FIRST_ORDER_DISCOUNT_UNAVAILABLE",
+              "The first-order discount is no longer available for this device.",
+            );
+          }
+        }
+
         const lock = await CustomerModel.updateOne(
           { _id: customer.id, firstOrderDiscountRedeemedAt: null },
           {
@@ -4733,19 +4924,12 @@ export async function placeCustomerOrder(params: {
           );
         }
 
-        const fpCustomer = await CustomerModel.findById(customer.id)
-          .select("lastKnownDeviceId lastKnownIpAddress phone")
-          .session(session)
-          .lean<Record<string, any>>();
-        const walletNumber =
-          params.paymentMethod === "Bkash"
-            ? String(params.paymentReference?.walletNumber ?? "").trim()
-            : "";
         const addr = params.deliveryAddress;
         const addressFingerprint =
           typeof addr?.latitude === "number" && typeof addr?.longitude === "number"
             ? `${addr.latitude.toFixed(4)},${addr.longitude.toFixed(4)}`
             : String(addr?.addressLine ?? "").trim().toLowerCase();
+        const primaryDeviceId = firstOrderCheck.fingerprints.deviceIds[0] ?? "";
 
         await FirstOrderDiscountClaimModel.create(
           [
@@ -4753,7 +4937,7 @@ export async function placeCustomerOrder(params: {
               customerId: customer.id,
               orderId: created._id,
               amount: firstOrderDiscountAmount,
-              deviceId: String(fpCustomer?.lastKnownDeviceId ?? "").trim(),
+              deviceId: primaryDeviceId,
               phone: String(fpCustomer?.phone ?? customer.phone ?? "").replace(/\D/g, ""),
               walletNumber,
               ipAddress: String(fpCustomer?.lastKnownIpAddress ?? "").trim(),
@@ -5086,6 +5270,11 @@ export async function placeCustomerOrder(params: {
 
     emitSocketEvent(
       `owner:${restaurant.ownerId.toString()}`,
+      "order.created",
+      ownerOrderObject,
+    );
+    emitSocketEvent(
+      `owner:${restaurant.ownerId.toString()}`,
       "order.updated",
       ownerOrderObject,
     );
@@ -5190,6 +5379,7 @@ export async function initiateBkashPayment(params: {
   clientOrderId?: string;
   items: CartInputItem[];
   voucherCode?: string;
+  installId?: string;
   note?: string;
   walletNumber: string;
   deliveryAddress: CustomerDeliveryAddressInput;
@@ -5220,6 +5410,7 @@ export async function initiateBkashPayment(params: {
     restaurantId: params.restaurantId,
     items: params.items,
     voucherCode: params.voucherCode,
+    installId: params.installId,
     customerId,
     latitude: params.deliveryAddress.latitude,
     longitude: params.deliveryAddress.longitude,
@@ -5232,6 +5423,7 @@ export async function initiateBkashPayment(params: {
     clientOrderId: normalizeClientOrderId(params.clientOrderId),
     items: params.items,
     voucherCode: params.voucherCode ?? "",
+    installId: params.installId ?? "",
     note: orderNote,
     deliveryAddress: params.deliveryAddress,
     serviceArea: quote.serviceArea ?? null,
@@ -5355,6 +5547,10 @@ function getBkashCheckoutSnapshot(session: any) {
       typeof snapshot.voucherCode === "string" && snapshot.voucherCode.trim()
         ? snapshot.voucherCode.trim()
         : undefined,
+    installId:
+      typeof snapshot.installId === "string" && snapshot.installId.trim()
+        ? snapshot.installId.trim()
+        : undefined,
     note: typeof snapshot.note === "string" ? snapshot.note : "",
     deliveryAddress: {
       label: deliveryAddress.label,
@@ -5416,6 +5612,7 @@ async function finalizeConfirmedBkashSessionOrder(session: any) {
       clientOrderId: checkoutSnapshot.clientOrderId,
       items: checkoutSnapshot.items,
       voucherCode: checkoutSnapshot.voucherCode,
+      installId: checkoutSnapshot.installId,
       note: checkoutSnapshot.note,
       paymentMethod: "Bkash",
       paymentReference: {

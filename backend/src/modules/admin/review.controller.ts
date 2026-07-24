@@ -5,12 +5,14 @@ import type { AuthenticatedRequest } from "../../common/middleware/auth"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
+  approveReviewHideRequest,
   approveReviewCase,
   bulkUpdateAdminReviews,
   getAdminReviewDetails,
   listReviewCases,
   listAdminReviews,
   moveReviewCaseToUnderReview,
+  rejectReviewHideRequest,
   rejectReviewCase,
   updateAdminReviewModeration
 } from "./review.service"
@@ -39,6 +41,7 @@ const listAdminReviewsQuerySchema = z.object({
   zoneId: z.string().optional(),
   districtId: z.string().optional(),
   status: z.enum(["all", "visible", "hidden", "flagged"]).optional(),
+  hideRequest: z.enum(["all", "none", "pending", "approved", "rejected", "cancelled"]).optional(),
   rating: z.enum(["all", "1", "2", "3", "4", "5"]).optional(),
   reply: z.enum(["all", "replied", "not_replied"]).optional(),
   comment: z.enum(["all", "with_comment", "without_comment"]).optional(),
@@ -54,6 +57,10 @@ const updateAdminReviewModerationSchema = z.object({
 
 const bulkUpdateAdminReviewsSchema = updateAdminReviewModerationSchema.extend({
   reviewIds: z.array(z.string().trim().min(1)).min(1)
+})
+
+const reviewHideRequestDecisionSchema = z.object({
+  adminNote: z.string().trim().max(500).optional()
 })
 
 function getAdminId(req: AuthenticatedRequest) {
@@ -110,6 +117,7 @@ export const getAdminReviews = asyncHandler(async (req: AuthenticatedRequest, re
     zoneId: getOptionalStringParam(req.query.zoneId),
     districtId: getOptionalStringParam(req.query.districtId),
     status: getOptionalStringParam(req.query.status),
+    hideRequest: getOptionalStringParam(req.query.hideRequest),
     rating: getOptionalStringParam(req.query.rating),
     reply: getOptionalStringParam(req.query.reply),
     comment: getOptionalStringParam(req.query.comment),
@@ -152,6 +160,32 @@ export const patchAdminReviewsBulkModeration = asyncHandler(async (req: Authenti
   })
   return sendSuccess(res, { message: "Reviews updated", data })
 })
+
+export const postAdminReviewHideRequestApprove = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = reviewHideRequestDecisionSchema.parse(req.body)
+    const data = await approveReviewHideRequest({
+      reviewId: getStringParam(req.params.reviewId),
+      adminId: getAdminId(req),
+      adminNote: payload.adminNote,
+      ...getAdminAreaScope(req),
+    })
+    return sendSuccess(res, { message: "Review hide request approved", data })
+  }
+)
+
+export const postAdminReviewHideRequestReject = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = reviewHideRequestDecisionSchema.parse(req.body)
+    const data = await rejectReviewHideRequest({
+      reviewId: getStringParam(req.params.reviewId),
+      adminId: getAdminId(req),
+      adminNote: payload.adminNote,
+      ...getAdminAreaScope(req),
+    })
+    return sendSuccess(res, { message: "Review hide request rejected", data })
+  }
+)
 
 export const startAdminReview = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const result = await moveReviewCaseToUnderReview(

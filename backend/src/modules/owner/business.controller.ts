@@ -2,6 +2,7 @@ import type { Response } from "express"
 import { z } from "zod"
 
 import type { AuthenticatedRequest } from "../../common/middleware/auth"
+import { MAX_PREPARATION_TIME_MINUTES } from "../../common/constants/preparation"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
@@ -14,6 +15,7 @@ import {
   listReviewsWithFilters,
   listSupportCases,
   listSupportCasesWithFilters,
+  requestReviewHide,
   replyToReview,
   updateRestaurantStatus,
   updateOpeningHours,
@@ -40,7 +42,13 @@ const storeSettingsUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   phone: z.string().regex(/^01\d{9}$/).optional(),
-  preparationTimeMinutes: z.number().int().min(5).max(120).nullable().optional(),
+  preparationTimeMinutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(MAX_PREPARATION_TIME_MINUTES)
+    .nullable()
+    .optional(),
   autoAcceptOrders: z.boolean().optional(),
   cuisineTypes: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
@@ -76,11 +84,23 @@ const openingHoursUpdateSchema = z.object({
 })
 
 const restaurantStatusSchema = z.object({
-  isOnline: z.boolean()
+  isOnline: z.boolean(),
+  source: z.enum(["owner_app", "owner_web"]).optional()
 })
 
 const reviewReplySchema = z.object({
   message: z.string().optional()
+})
+
+const reviewHideRequestSchema = z.object({
+  reasonCategory: z.enum([
+    "fake_spam",
+    "abusive_language",
+    "wrong_restaurant_or_order",
+    "unfair_misleading",
+    "other"
+  ]),
+  note: z.string().trim().max(500).optional()
 })
 
 const reviewsQuerySchema = z.object({
@@ -147,6 +167,18 @@ function getStringParam(value: unknown) {
   return ""
 }
 
+function inferRestaurantStatusSource(req: AuthenticatedRequest) {
+  const userAgent = String(req.headers["user-agent"] ?? "").toLowerCase()
+  if (
+    userAgent.includes("expo") ||
+    userAgent.includes("reactnative") ||
+    userAgent.includes("okhttp")
+  ) {
+    return "owner_app" as const
+  }
+  return "owner_web" as const
+}
+
 export const getOwnerStoreSettings = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const data = await getStoreSettings(getOwnerId(req))
@@ -170,7 +202,8 @@ export const patchOwnerRestaurantStatus = asyncHandler(
     const payload = restaurantStatusSchema.parse(req.body)
     const data = await updateRestaurantStatus({
       ownerId: getOwnerId(req),
-      isOnline: payload.isOnline
+      isOnline: payload.isOnline,
+      source: payload.source ?? inferRestaurantStatusSource(req)
     })
 
     return sendSuccess(res, {
@@ -231,6 +264,19 @@ export const postOwnerReviewReply = asyncHandler(
       message: payload.message ?? ""
     })
     return sendSuccess(res, { message: "Review reply saved successfully", data })
+  }
+)
+
+export const postOwnerReviewHideRequest = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = reviewHideRequestSchema.parse(req.body)
+    const data = await requestReviewHide({
+      ownerId: getOwnerId(req),
+      reviewId: getStringParam(req.params.reviewId),
+      reasonCategory: payload.reasonCategory,
+      note: payload.note
+    })
+    return sendSuccess(res, { message: "Review hide request submitted", data })
   }
 )
 

@@ -8,6 +8,7 @@ import {
   Linking,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -111,9 +112,10 @@ export default function ProfileScreen() {
     [router],
   );
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const customer = useCustomerAuthStore((state) => state.customer);
   const deferredProfileWorkReady = useDeferredProfileWork(Boolean(customer));
-  useCustomerProfileQuery(Boolean(customer));
+  const profileQuery = useCustomerProfileQuery(Boolean(customer));
   const logoutMutation = useCustomerLogoutMutation();
   const profileUpdateMutation = useCustomerProfileUpdateMutation();
   const serverPromotionsEnabled =
@@ -165,6 +167,32 @@ export default function ProfileScreen() {
     (state) => state.preferredPaymentMethod,
   );
   const isOnline = useIsOnline();
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        profileQuery.refetch(),
+        notificationsQuery.refetch(),
+        personalOffersQuery.refetch(),
+        customOfferSummaryQuery.refetch(),
+        favoriteRestaurantIdsQuery.refetch(),
+        paymentSettingsQuery.refetch(),
+        referralSummaryQuery.refetch(),
+        howToOrderGuideQuery.refetch(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [
+    customOfferSummaryQuery,
+    favoriteRestaurantIdsQuery,
+    howToOrderGuideQuery,
+    notificationsQuery,
+    paymentSettingsQuery,
+    personalOffersQuery,
+    profileQuery,
+    referralSummaryQuery,
+  ]);
   const unreadCount = notificationsQuery.data?.unreadCount ?? 0;
   const personalOffers = useMemo(
     () =>
@@ -827,6 +855,14 @@ export default function ProfileScreen() {
           !customer ? styles.guestContainer : null,
         ]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={palette.primary}
+            colors={[palette.primary, palette.secondary, "#FF5C93"]}
+          />
+        }
       >
         {profileListItems.map((item, index) => (
           <View key={keyExtractor(item)}>

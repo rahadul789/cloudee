@@ -23,6 +23,7 @@ function keepPreviousOwnerListData<TData>(
     section === "orders" ||
     section === "payouts" ||
     section === "reviews" ||
+    section === "sidebar-summary" ||
     section === "support-cases" ||
     section === "vouchers"
   ) {

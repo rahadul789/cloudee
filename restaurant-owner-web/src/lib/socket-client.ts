@@ -18,7 +18,6 @@ export function getOwnerSocket() {
   if (!ownerSocket) {
     ownerSocket = io(resolveSocketUrl(), {
       autoConnect: false,
-      transports: ["websocket"],
       withCredentials: true,
     })
   }

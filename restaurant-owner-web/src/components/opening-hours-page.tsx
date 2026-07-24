@@ -942,7 +942,6 @@ export function OpeningHoursPage() {
                   setSaved(mapped)
                   setDraft(mapped)
                   setOpeningHours(mapped)
-                  void queryClient.invalidateQueries({ queryKey: ["owner", "opening-hours"] })
                   setSuccessMessage("Opening hours updated successfully.")
                   window.setTimeout(() => setSuccessMessage(""), 2500)
                 } catch (error) {

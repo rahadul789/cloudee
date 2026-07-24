@@ -3,6 +3,7 @@ import { StatusCodes } from "http-status-codes";
 
 import { AppError } from "../../common/utils/app-error";
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout";
+import { optimizePushImageUrl } from "../../common/utils/push-image";
 import { logger } from "../../config/logger";
 import { emitSocketEvent } from "../../config/socket";
 import { AdminNotificationScheduleModel } from "../admin/notification-schedule.model";
@@ -765,45 +766,64 @@ export async function markCustomerNotificationOpened(params: {
     filters.push({ "notifications.campaignId": params.campaignId });
   }
 
-  if (!filters.length) return { recorded: false, matched: 0, modified: 0 };
+  if (!filters.length) return { recorded: false, matched: 0, openRecorded: false };
 
-  const result = await CustomerModel.updateOne(
-    {
-      _id: params.customerId,
-      $or: filters,
-    },
-    {
-      $set: {
-        "notifications.$.isRead": true,
-        "notifications.$.readAt": new Date(),
-      },
-    },
-  );
-
-  if (params.campaignId && result.matchedCount > 0) {
-    await AdminNotificationScheduleModel.updateOne(
+  // Mark the in-app notification as read — best-effort, isolated so it can never block the
+  // campaign-open record below.
+  let readMatched = 0;
+  try {
+    const readResult = await CustomerModel.updateOne(
       {
-        _id: params.campaignId,
-        "result.recipientEvents.customerId": params.customerId,
+        _id: params.customerId,
+        $or: filters,
       },
       {
         $set: {
-          "result.recipientEvents.$.openedAt": new Date().toISOString(),
-          "result.recipientEvents.$.openStatus": "opened",
+          "notifications.$.isRead": true,
+          "notifications.$.readAt": new Date(),
         },
       },
-    ).catch((error) => {
+    );
+    readMatched = readResult.matchedCount ?? 0;
+  } catch (error) {
+    logger.warn(
+      { error, customerId: params.customerId },
+      "Failed to mark customer notification read on open",
+    );
+  }
+
+  // Record the campaign OPEN for the admin timeline. Crucially this is DECOUPLED from the
+  // read-mark above: the recipient is already known from the campaign's recipientEvents, so
+  // the open must be stamped even when the in-app read-mark doesn't match (the old code
+  // gated this on the read-mark, which silently dropped every open).
+  let openRecorded = false;
+  if (params.campaignId && mongoose.Types.ObjectId.isValid(params.campaignId)) {
+    try {
+      const openResult = await AdminNotificationScheduleModel.updateOne(
+        {
+          _id: params.campaignId,
+          "result.recipientEvents.customerId": params.customerId,
+        },
+        {
+          $set: {
+            "result.recipientEvents.$.openedAt": new Date().toISOString(),
+            "result.recipientEvents.$.openStatus": "opened",
+          },
+        },
+      );
+      openRecorded = (openResult.matchedCount ?? 0) > 0;
+    } catch (error) {
       logger.warn(
         { error, customerId: params.customerId, campaignId: params.campaignId },
         "Failed to update admin notification open analytics",
       );
-    });
+    }
   }
 
   return {
-    recorded: result.matchedCount > 0,
-    matched: result.matchedCount,
-    modified: result.modifiedCount,
+    recorded: readMatched > 0 || openRecorded,
+    matched: readMatched,
+    openRecorded,
   };
 }
 
@@ -937,7 +957,7 @@ export async function sendPushToCustomer(params: {
     ...(payload.imageUrl
       ? {
           mutableContent: true,
-          richContent: { image: payload.imageUrl },
+          richContent: { image: optimizePushImageUrl(payload.imageUrl) },
         }
       : {}),
     data: {

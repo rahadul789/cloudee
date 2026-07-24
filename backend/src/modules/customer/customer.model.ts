@@ -743,10 +743,38 @@ firstOrderDiscountClaimSchema.index({ phone: 1, status: 1 })
 firstOrderDiscountClaimSchema.index({ walletNumber: 1, status: 1 })
 firstOrderDiscountClaimSchema.index({ ipAddress: 1, createdAt: -1 })
 
+// Lifetime device guard for FFO. Claim rows can be released for reporting after a
+// cancel/reject, but this lock is never released: one physical device gets one FFO
+// claim attempt ever. Keeping it separate avoids unique-index conflicts with older
+// claim rows that may already contain more than one row for the same device.
+const firstOrderDiscountDeviceLockSchema = new Schema(
+  {
+    deviceId: { type: String, required: true, trim: true },
+    customerId: { type: Schema.Types.ObjectId, ref: "Customer", default: null },
+    orderId: { type: Schema.Types.ObjectId, ref: "Order", default: null },
+    source: {
+      type: String,
+      enum: ["first_order_offer_claim", "admin_manual"],
+      default: "first_order_offer_claim",
+    },
+    reason: { type: String, default: "first_order_offer_claim" },
+    note: { type: String, default: "", trim: true },
+    manuallyBlockedAt: { type: Date, default: null },
+    manuallyBlockedBy: { type: Schema.Types.ObjectId, ref: "Admin", default: null },
+  },
+  { timestamps: true }
+)
+firstOrderDiscountDeviceLockSchema.index({ deviceId: 1 }, { unique: true })
+firstOrderDiscountDeviceLockSchema.index({ customerId: 1, createdAt: -1 })
+
 export const CustomerModel = mongoose.model("Customer", customerSchema)
 export const FirstOrderDiscountClaimModel = mongoose.model(
   "FirstOrderDiscountClaim",
   firstOrderDiscountClaimSchema
+)
+export const FirstOrderDiscountDeviceLockModel = mongoose.model(
+  "FirstOrderDiscountDeviceLock",
+  firstOrderDiscountDeviceLockSchema
 )
 export const CustomerRefreshTokenSessionModel = mongoose.model(
   "CustomerRefreshTokenSession",

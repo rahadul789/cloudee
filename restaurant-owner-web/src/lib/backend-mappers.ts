@@ -135,11 +135,22 @@ export type OwnerListResponse<T> = {
   unreadCount?: number
 }
 
+export type OwnerSidebarSummaryResponse = {
+  liveOrders: number
+  categories: number
+  menuItems: number
+  reviews: number
+  promotions: number
+  unreadNotifications: number
+}
+
 export type OwnerOrderResponse = {
   _id: string
   orderNumber: string
   status: OrderStatus
   paymentMethod: string
+  createdAt?: string
+  updatedAt?: string
   cancelledBy?: string
   terminalReason?: string
   pricing?: {
@@ -227,11 +238,36 @@ export type OwnerRiderAssignmentOptionResponse = {
   activeOrders: number
 }
 
+export type OwnerEnforcementStatus =
+  | "active"
+  | "under_review"
+  | "quality_hold"
+  | "temporarily_suspended"
+  | "permanently_disabled"
+
+/**
+ * Owner-safe subset of the admin enforcement record. The backend strips the
+ * admin-only `internalNote` and `history` before sending it here.
+ */
+export type OwnerEnforcement = {
+  status: OwnerEnforcementStatus
+  effectiveStatus: OwnerEnforcementStatus
+  isRestricted: boolean
+  isExpired: boolean
+  reason?: string
+  ownerNote: string
+  customerMessage: string
+  startsAt?: string | null
+  expiresAt?: string | null
+  updatedAt?: string | null
+}
+
 export type OwnerStoreSettingsResponse = {
   id: string
   name: string
   description?: string
   preparationTimeMinutes?: number | null
+  enforcement?: OwnerEnforcement
   cuisineTypes?: string[]
   tags?: string[]
   documents?: Array<{
@@ -263,15 +299,16 @@ export type OwnerStoreSettingsResponse = {
     isVisible?: boolean
     currentOperationalStatus?: string
   }
-  enforcement?: {
-    status?: string
-    effectiveStatus?: string
-    isRestricted?: boolean
-    reason?: string
-    ownerNote?: string
-    customerMessage?: string
-    startsAt?: string | null
-    expiresAt?: string | null
+  // Platform/zone ordering window. Outside it customers see this restaurant as
+  // closed even when the owner is online. Evaluated live by the backend.
+  serviceHours?: {
+    enabled: boolean
+    isOpenNow: boolean
+    openMinute: number
+    closeMinute: number
+    openLabel: string
+    closeLabel: string
+    timezone: string
   }
   settings?: {
     orderSettings?: {
@@ -330,9 +367,49 @@ export type OwnerMenuItemResponse = {
   }>
   isPopular?: boolean
   recommendedItemIds?: string[]
+  approval?: OwnerMenuApprovalSummary | null
+  approvalRequired?: boolean
+  approvalRequest?: OwnerMenuApprovalSummary | null
   createdAt: string
   updatedAt: string
 }
+
+export type OwnerMenuApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "superseded"
+
+export type OwnerMenuApprovalSummary = {
+  id: string
+  type: "new_item" | "price_update"
+  status: OwnerMenuApprovalStatus
+  menuItemId: string | null
+  proposedName: string
+  currentName: string
+  priceDiffCount: number
+  priceDiffs?: Array<{
+    path: string
+    label: string
+    oldPrice: number | null
+    newPrice: number | null
+    delta: number
+    percentDelta: number | null
+  }>
+  ownerReason?: string
+  submittedAt: string | null
+  reviewedAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type OwnerMenuMutationResponse =
+  | OwnerMenuItemResponse
+  | {
+      approvalRequired: true
+      approvalRequest: OwnerMenuApprovalSummary
+    }
 
 export type OwnerPayoutMethodResponse = {
   payoutMethod: {
@@ -408,6 +485,12 @@ export type OwnerPayoutHistoryResponse = {
 export type OwnerPayoutTransactionResponse = {
   _id: string
   orderId?: string | null
+  relatedOrderNumber?: string | null
+  relatedOrderStatus?: string | null
+  relatedOrderPaymentMethod?: string | null
+  relatedOrderPaymentStatus?: string | null
+  relatedOrderDeliveredAt?: string | null
+  relatedOrderCreatedAt?: string | null
   payoutBatchId?: string | null
   entryType: "earning" | "refund" | "payout" | "adjustment"
   grossAmount?: number
@@ -567,6 +650,17 @@ export type OwnerReviewResponse = {
   }
   moderationStatus?: "visible" | "hidden" | "flagged"
   isHidden?: boolean
+  hiddenAt?: string | null
+  hiddenReason?: string
+  ownerHideRequest?: {
+    status?: "none" | "pending" | "approved" | "rejected" | "cancelled"
+    reasonCategory?: string
+    note?: string
+    requestedAt?: string | null
+    reviewedAt?: string | null
+    reviewedByAdminId?: string
+    adminNote?: string
+  }
   createdAt: string
 }
 
@@ -696,6 +790,16 @@ export type PlatformContentResponse = {
         title: string
         body: string[]
       }>
+    }
+  }
+  operations?: {
+    ownerApp?: {
+      webDashboardUrl?: string
+      showCustomerPhoneNumbers?: boolean
+      catalogDescriptionLimits?: {
+        menuItem?: number
+        category?: number
+      }
     }
   }
 }
@@ -1052,6 +1156,7 @@ export function mapOwnerMenuItem(item: OwnerMenuItemResponse): MenuItem {
     variants,
     addOnGroups,
     recommendedItemIds: (item.recommendedItemIds ?? []).map((id) => String(id)),
+    approval: item.approval ?? item.approvalRequest ?? null,
     updatedAt: item.updatedAt,
   }
 }
@@ -1115,7 +1220,11 @@ export function mapOwnerPayoutTransaction(
   return {
     id: entry._id,
     orderId: entry.orderId ?? entry.payoutBatchId ?? entry._id,
-    orderNumber: entry.orderId ?? entry.payoutBatchId ?? entry._id,
+    orderNumber:
+      entry.relatedOrderNumber ??
+      entry.orderId ??
+      entry.payoutBatchId ??
+      entry._id,
     type:
       entry.entryType === "payout"
         ? "payout"
@@ -1124,6 +1233,9 @@ export function mapOwnerPayoutTransaction(
           : "earning",
     payoutId: entry.payoutBatchId ?? null,
     ledgerGroupId: entry._id,
+    orderStatus: entry.relatedOrderStatus ?? "",
+    paymentMethod: entry.relatedOrderPaymentMethod ?? "",
+    paymentStatus: entry.relatedOrderPaymentStatus ?? "",
     grossAmount: entry.grossAmount ?? Math.max(entry.netAmount, 0),
     commission: entry.commission ?? 0,
     discountCost: entry.discountCost ?? 0,
@@ -1137,6 +1249,7 @@ export function mapOwnerPayoutTransaction(
           ? "refund"
           : "earning",
     createdAt: entry.createdAt,
+    deliveredAt: entry.relatedOrderDeliveredAt ?? entry.relatedOrderCreatedAt ?? null,
     settlementAvailableAt: entry.availableAt ?? entry.createdAt,
   }
 }
@@ -1145,7 +1258,9 @@ export function mapOwnerReview(review: OwnerReviewResponse): Review {
   const replyMessage = review.ownerReply?.message?.trim() ?? ""
   const hasReply = replyMessage.length > 0
   const status =
-    review.moderationStatus === "flagged"
+    review.isHidden || review.moderationStatus === "hidden"
+      ? "hidden"
+      : review.moderationStatus === "flagged"
       ? "flagged"
       : hasReply
         ? "replied"
@@ -1176,6 +1291,19 @@ export function mapOwnerReview(review: OwnerReviewResponse): Review {
         }
       : null,
     status,
+    moderationStatus: review.moderationStatus ?? "visible",
+    isHidden: review.isHidden === true || review.moderationStatus === "hidden",
+    hiddenAt: review.hiddenAt ?? null,
+    hiddenReason: review.hiddenReason ?? "",
+    ownerHideRequest: {
+      status: review.ownerHideRequest?.status ?? "none",
+      reasonCategory: review.ownerHideRequest?.reasonCategory ?? "",
+      note: review.ownerHideRequest?.note ?? "",
+      requestedAt: review.ownerHideRequest?.requestedAt ?? null,
+      reviewedAt: review.ownerHideRequest?.reviewedAt ?? null,
+      reviewedByAdminId: review.ownerHideRequest?.reviewedByAdminId ?? "",
+      adminNote: review.ownerHideRequest?.adminNote ?? "",
+    },
   }
 }
 
@@ -1375,9 +1503,17 @@ export function mapOwnerVoucher(voucher: OwnerVoucherResponse): Voucher {
   }
 }
 
-function buildOrderTimestamps(source?: Partial<Record<string, string>>): OrderStatusTimestamps {
+function buildOrderTimestamps(
+  source?: Partial<Record<string, string>>,
+  createdAt?: string
+): OrderStatusTimestamps {
   return {
-    placedAt: source?.placedAt ?? new Date().toISOString(),
+    placedAt:
+      source?.createdAt ??
+      source?.placedAt ??
+      source?.New ??
+      createdAt ??
+      new Date().toISOString(),
     acceptedAt: source?.Accepted ?? source?.acceptedAt ?? null,
     preparingAt: source?.Preparing ?? source?.preparingAt ?? null,
     readyForPickupAt: source?.ReadyForPickup ?? source?.readyForPickupAt ?? null,
@@ -1477,7 +1613,7 @@ export function mapOwnerOrder(order: OwnerOrderResponse): Order {
     cancelledBy: order.cancelledBy,
     terminalReason: order.terminalReason,
     kitchenNote: "",
-    timestamps: buildOrderTimestamps(order.timestamps),
+    timestamps: buildOrderTimestamps(order.timestamps, order.createdAt),
     autoCancel: order.autoCancel,
     preparationTiming: order.preparationTiming,
     appliedVouchers: order.appliedVouchers ?? [],

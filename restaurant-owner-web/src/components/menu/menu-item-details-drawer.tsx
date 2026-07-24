@@ -169,7 +169,7 @@ export function MenuItemDetailsDrawer({
                 <CardTitle className="text-base">Description</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="min-h-24 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                <div className="min-h-24 whitespace-pre-wrap break-words rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                   {item.description || "No description added."}
                 </div>
               </CardContent>

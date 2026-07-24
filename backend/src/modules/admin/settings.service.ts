@@ -332,6 +332,31 @@ function applyZoneDispatchSettings(
   }
 }
 
+function applyZoneServiceHours(
+  settings: AdminPlatformSettings,
+  zone: Record<string, any>,
+) {
+  const serviceHours = zone.serviceHours ?? {}
+  const current = settings.operations.serviceHours
+  settings.operations.serviceHours = {
+    ...current,
+    enabled: boolValue(serviceHours.enabled, current.enabled),
+    openMinute: numberValue(serviceHours.openMinute, current.openMinute),
+    closeMinute: numberValue(serviceHours.closeMinute, current.closeMinute),
+  }
+}
+
+// The fallback `operations.serviceArea.radiusKm` is capped at 50 by the platform
+// content schema, but a service zone has NO max radius. The "all areas" view derives
+// this fallback from Math.max(zone radii), and a single scoped zone can be larger too
+// — either can exceed 50 and make the settings save fail validation on an unrelated
+// change. Clamp the derived value so it always stays within the schema range.
+const MAX_PLATFORM_SERVICE_AREA_RADIUS_KM = 50
+
+function clampServiceAreaRadiusKm(value: number) {
+  return Math.min(MAX_PLATFORM_SERVICE_AREA_RADIUS_KM, Math.max(0, value))
+}
+
 function applySettingsScope(
   baseSettings: AdminPlatformSettings,
   scope: ResolvedSettingsScope,
@@ -354,10 +379,11 @@ function applySettingsScope(
         average(latitudes) ?? settings.operations.serviceArea.centerLatitude,
       centerLongitude:
         average(longitudes) ?? settings.operations.serviceArea.centerLongitude,
-      radiusKm:
+      radiusKm: clampServiceAreaRadiusKm(
         radii.length > 0
           ? Math.max(...radii)
           : settings.operations.serviceArea.radiusKm,
+      ),
     }
     return settings
   }
@@ -379,16 +405,20 @@ function applySettingsScope(
       zone.center?.longitude,
       settings.operations.serviceArea.centerLongitude,
     ),
-    radiusKm: numberValue(zone.radiusKm, settings.operations.serviceArea.radiusKm),
+    radiusKm: clampServiceAreaRadiusKm(
+      numberValue(zone.radiusKm, settings.operations.serviceArea.radiusKm),
+    ),
   }
   applyZoneDeliveryPricing(settings, zone)
   applyZoneDispatchSettings(settings, zone)
+  applyZoneServiceHours(settings, zone)
   return settings
 }
 
 function buildServiceZoneUpdateFromSettings(settings: AdminPlatformSettings) {
   const dispatch = settings.operations.dispatch
   const deliveryPricing = settings.operations.deliveryPricing
+  const serviceHours = settings.operations.serviceHours
   return {
     delivery: {
       baseFeeTaka: deliveryPricing.baseFeeTaka,
@@ -396,6 +426,11 @@ function buildServiceZoneUpdateFromSettings(settings: AdminPlatformSettings) {
       surchargeStartsAfterKm: deliveryPricing.surchargeStartsAfterKm,
       surchargeStepMeters: deliveryPricing.surchargeStepMeters,
       surchargeAmountTaka: deliveryPricing.surchargeAmountTaka,
+    },
+    serviceHours: {
+      enabled: serviceHours.enabled,
+      openMinute: serviceHours.openMinute,
+      closeMinute: serviceHours.closeMinute,
     },
     dispatch: {
       autoAssignEnabled: dispatch.autoAssignmentEnabled,
@@ -495,6 +530,8 @@ export async function updateAdminPlatformSettings(params: {
           adminNotifications: params.settings.operations.adminNotifications,
           referrals: params.settings.operations.referrals,
           customOffers: params.settings.operations.customOffers,
+          // Platform-level (not per-zone), so it persists from any settings scope.
+          minimumOrderAmount: params.settings.operations.minimumOrderAmount,
         }
   const nextContent: PlatformContent = {
     ...currentContent,
@@ -519,6 +556,9 @@ export async function updateAdminPlatformSettings(params: {
             zoneUpdate.delivery.surchargeStartsAfterKm,
           "delivery.surchargeStepMeters": zoneUpdate.delivery.surchargeStepMeters,
           "delivery.surchargeAmountTaka": zoneUpdate.delivery.surchargeAmountTaka,
+          "serviceHours.enabled": zoneUpdate.serviceHours.enabled,
+          "serviceHours.openMinute": zoneUpdate.serviceHours.openMinute,
+          "serviceHours.closeMinute": zoneUpdate.serviceHours.closeMinute,
           dispatch: zoneUpdate.dispatch,
         },
       },

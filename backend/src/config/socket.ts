@@ -146,7 +146,17 @@ export function createSocketServer(server: HttpServer) {
 
     socket.on("owner:join", (ownerId: string) => {
       const user = (socket.data as SocketAuthData).user
-      if (user?.role !== "owner" || user.id !== ownerId) return
+      if (user?.role !== "owner" || user.id !== ownerId) {
+        logger.warn(
+          {
+            requestedOwnerId: ownerId,
+            socketUserId: user?.id ?? "",
+            socketRole: user?.role ?? "anonymous"
+          },
+          "Owner socket join rejected"
+        )
+        return
+      }
       socket.join(`owner:${ownerId}`)
     })
 
@@ -202,6 +212,22 @@ export function emitSocketEvent(channel: string, eventName: string, payload: unk
       "Socket server not initialized. Event emission skipped."
     )
     return
+  }
+
+  const room = ioInstance.sockets.adapter.rooms.get(channel)
+  const subscriberCount = room?.size ?? 0
+  if (
+    subscriberCount === 0 &&
+    channel.startsWith("owner:") &&
+    (eventName === "order.created" || eventName === "order.updated")
+  ) {
+    logger.warn(
+      {
+        channel,
+        eventName
+      },
+      "Owner order realtime event emitted with no active subscribers"
+    )
   }
 
   ioInstance.to(channel).emit(eventName, payload)

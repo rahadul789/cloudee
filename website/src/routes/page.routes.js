@@ -15,12 +15,42 @@ const {
   getAreaCuisines,
   getAreaPopularSearches,
 } = require("../services/seo.service");
+const { renderQrPng, renderQrSvg } = require("../services/qr-code.service");
 const { getAreaRestaurants } = require("../services/website-api.service");
 
 const router = express.Router();
 
 function getSettings(res) {
   return res.locals.websiteSettings || {};
+}
+
+function getInstallTarget(settings) {
+  const appInstallUrl = settings.playStoreUrl || settings.appDownloadUrl || "/download";
+  if (/^https?:\/\//i.test(appInstallUrl)) {
+    return appInstallUrl;
+  }
+
+  const siteUrl = String(settings.siteUrl || "https://foodbela.com").replace(/\/$/, "");
+  const path = appInstallUrl.startsWith("/") ? appInstallUrl : `/${appInstallUrl}`;
+  return `${siteUrl}${path}`;
+}
+
+function downloadInstallQr(req, res, next, format) {
+  try {
+    const installTarget = getInstallTarget(getSettings(res));
+    const buffer =
+      format === "svg"
+        ? renderQrSvg(installTarget)
+        : renderQrPng(installTarget, { size: 2400 });
+    res.set({
+      "Cache-Control": "public, max-age=86400",
+      "Content-Disposition": `attachment; filename="foodbela-app-qr.${format}"`,
+      "Content-Length": String(buffer.length),
+    });
+    res.type(format === "svg" ? "image/svg+xml" : "image/png").send(buffer);
+  } catch (error) {
+    next(error);
+  }
 }
 
 function renderSeoPage(req, res, view, pageKey, options = {}) {
@@ -43,6 +73,14 @@ router.get("/sitemap.xml", (req, res) => {
 
 router.get("/", (req, res) => {
   renderSeoPage(req, res, "pages/home", "home");
+});
+
+router.get("/download/qr.png", (req, res, next) => {
+  downloadInstallQr(req, res, next, "png");
+});
+
+router.get("/download/qr.svg", (req, res, next) => {
+  downloadInstallQr(req, res, next, "svg");
 });
 
 router.get("/restaurants", (req, res) => {

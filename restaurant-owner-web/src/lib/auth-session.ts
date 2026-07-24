@@ -2,8 +2,20 @@ const LEGACY_AUTH_SESSION_STORAGE_KEY = "restaurant-owner-auth-session"
 
 export const OWNER_ACCESS_TOKEN_UPDATED_EVENT = "owner-access-token-updated"
 
+export type OwnerImpersonation = {
+  adminName: string
+  ownerName: string
+}
+
 export type OwnerAuthSession = {
   accessToken: string
+  // Present only when an admin is signed in as this owner. No refresh token exists
+  // for such a session, so it is intentionally short-lived and ends on reload/expiry.
+  impersonation?: OwnerImpersonation
+}
+
+export function getOwnerImpersonation(): OwnerImpersonation | null {
+  return ownerAuthSession?.impersonation ?? null
 }
 
 let ownerAuthSession: OwnerAuthSession | null = null

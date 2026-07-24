@@ -3,6 +3,10 @@ import { StatusCodes } from "http-status-codes"
 import { z } from "zod"
 
 import type { AuthenticatedRequest } from "../../common/middleware/auth"
+import {
+  MAX_PREPARATION_TIME_MINUTES,
+  MIN_PREPARATION_TIME_MINUTES
+} from "../../common/constants/preparation"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import { AppError } from "../../common/utils/app-error"
@@ -20,7 +24,12 @@ const onboardingDraftUpdateSchema = z.object({
       phone: z.string().regex(/^01\d{9}$/).or(z.literal("")).optional(),
       email: z.string().email().or(z.literal("")).optional(),
       description: z.string().optional(),
-      preparationTimeMinutes: z.number().int().min(5).max(120).optional(),
+      preparationTimeMinutes: z
+        .number()
+        .int()
+        .min(MIN_PREPARATION_TIME_MINUTES)
+        .max(MAX_PREPARATION_TIME_MINUTES)
+        .optional(),
       cuisineTypes: z.array(z.string()).optional(),
       tags: z.array(z.string()).optional(),
       logo: z

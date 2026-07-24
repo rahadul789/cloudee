@@ -131,9 +131,16 @@ async function request<T>(
     allowRefresh &&
     !attemptedRefreshBeforeRequest
   ) {
-    const refreshedSession = await refreshOwnerSession()
-    if (refreshedSession) {
-      return request<T>(path, options, false)
+    // An impersonation session has no refresh token (it is deliberately short-lived).
+    // Never try to refresh it — that could silently pick up a real owner's refresh
+    // cookie on this domain. Just end it so the app returns to a signed-out state.
+    if (session?.impersonation) {
+      clearOwnerAuthSession()
+    } else {
+      const refreshedSession = await refreshOwnerSession()
+      if (refreshedSession) {
+        return request<T>(path, options, false)
+      }
     }
   }
 

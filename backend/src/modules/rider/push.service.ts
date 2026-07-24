@@ -1,6 +1,7 @@
 import mongoose from "mongoose"
 
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
+import { optimizePushImageUrl } from "../../common/utils/push-image"
 import { logger } from "../../config/logger"
 import { emitSocketEvent } from "../../config/socket"
 import { RiderModel } from "../auth/auth.model"
@@ -159,7 +160,7 @@ export async function sendPushToRider(params: {
       ? {
           mutableContent: true,
           image: params.payload.imageUrl,
-          richContent: { image: params.payload.imageUrl },
+          richContent: { image: optimizePushImageUrl(params.payload.imageUrl) },
         }
       : {}),
   }))

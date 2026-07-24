@@ -26,6 +26,12 @@ function invalidateAdminRealtimeQueries(
   if (payload?.entityType === "support_case" || payload?.path?.startsWith("/support")) {
     void queryClient.invalidateQueries({ queryKey: ["admin-support-cases"] })
   }
+  if (payload?.entityType === "review" || payload?.path?.startsWith("/reviews")) {
+    void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
+    if (payload.entityId) {
+      void queryClient.invalidateQueries({ queryKey: ["admin-review", payload.entityId] })
+    }
+  }
   if (payload?.entityType === "website_lead" || payload?.path?.startsWith("/website")) {
     void queryClient.invalidateQueries({ queryKey: ["admin-website-overview"] })
     void queryClient.invalidateQueries({ queryKey: ["admin-website-leads"] })
@@ -179,13 +185,23 @@ export function useAdminSocketBridge(enabled: boolean) {
       void queryClient.refetchQueries({ queryKey: ["admin-cms"], type: "active" })
     }
 
+    const handleReviewUpdated = (payload: { reviewId?: string }) => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
+      void queryClient.refetchQueries({ queryKey: ["admin-reviews"], type: "active" })
+      if (payload.reviewId) {
+        void queryClient.invalidateQueries({ queryKey: ["admin-review", payload.reviewId] })
+      }
+    }
+
     socket.on("admin.notification.created", handleNotification)
     socket.on("admin.order.updated", handleOrderUpdated)
+    socket.on("admin.review.updated", handleReviewUpdated)
     socket.on("admin.platform-content.updated", handlePlatformContentUpdated)
 
     return () => {
       socket.off("admin.notification.created", handleNotification)
       socket.off("admin.order.updated", handleOrderUpdated)
+      socket.off("admin.review.updated", handleReviewUpdated)
       socket.off("admin.platform-content.updated", handlePlatformContentUpdated)
       socket.off("connect", ensureJoined)
       socket.off("connect_error", handleConnectError)
@@ -202,6 +218,7 @@ export function useAdminSocketBridge(enabled: boolean) {
       const socket = getAdminSocket()
       socket.off("admin.notification.created")
       socket.off("admin.order.updated")
+      socket.off("admin.review.updated")
       socket.off("admin.platform-content.updated")
     }
   }, [])

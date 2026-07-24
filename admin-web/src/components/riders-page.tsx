@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Copy,
   Download,
   Eye,
   FileCheck2,
@@ -44,6 +45,7 @@ import { useSearchParams } from "react-router-dom"
 import { escapeHtml, printReport } from "@/lib/export-utils"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
+import { generatePinPassword, isPinPassword } from "@/lib/pin-password"
 import { useAdminRefreshPolicy } from "@/lib/refresh-policy"
 import { cn } from "@/lib/utils"
 import {
@@ -399,6 +401,9 @@ function CreateRiderDialog({
   const queryClient = useQueryClient()
   const [fullName, setFullName] = React.useState("")
   const [phone, setPhone] = React.useState("")
+  const [temporaryPassword, setTemporaryPassword] = React.useState(() =>
+    generatePinPassword()
+  )
   const [status, setStatus] = React.useState<RiderStatus>("active")
   const [verificationStatus, setVerificationStatus] =
     React.useState<RiderVerificationStatus>("pending")
@@ -428,6 +433,7 @@ function CreateRiderDialog({
       toast.success("Rider created.")
       setFullName("")
       setPhone("")
+      setTemporaryPassword(generatePinPassword())
       setStatus("active")
       setVerificationStatus("pending")
       setNationalIdNumber("")
@@ -440,6 +446,19 @@ function CreateRiderDialog({
       toast.error(error instanceof Error ? error.message : "Rider create failed.")
     },
   })
+
+  function regenerateRiderPin() {
+    setTemporaryPassword(generatePinPassword())
+  }
+
+  async function copyRiderPin() {
+    try {
+      await navigator.clipboard.writeText(temporaryPassword)
+      toast.success("Temporary PIN copied.")
+    } catch {
+      toast.error("Could not copy PIN.")
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -468,6 +487,34 @@ function CreateRiderDialog({
               onChange={(event) => setPhone(event.target.value)}
               placeholder="01XXXXXXXXX"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="rider-password">Temporary password</Label>
+            <div className="flex gap-2">
+              <Input
+                id="rider-password"
+                value={temporaryPassword}
+                onChange={(event) =>
+                  setTemporaryPassword(
+                    event.target.value.replace(/\D/g, "").slice(0, 6)
+                  )
+                }
+                inputMode="numeric"
+                maxLength={6}
+                aria-invalid={Boolean(temporaryPassword && !isPinPassword(temporaryPassword))}
+              />
+              <Button type="button" variant="outline" size="icon" onClick={regenerateRiderPin}>
+                <RotateCcw className="size-4" />
+                <span className="sr-only">Generate new PIN</span>
+              </Button>
+              <Button type="button" variant="outline" size="icon" onClick={() => void copyRiderPin()}>
+                <Copy className="size-4" />
+                <span className="sr-only">Copy PIN</span>
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Rider can sign in with phone number and this 6-digit PIN.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Status</Label>
@@ -561,6 +608,7 @@ function CreateRiderDialog({
             disabled={
               !fullName.trim() ||
               !phone.trim() ||
+              !isPinPassword(temporaryPassword) ||
               !primaryZoneId ||
               mutation.isPending
             }
@@ -568,6 +616,7 @@ function CreateRiderDialog({
               mutation.mutate({
                 fullName,
                 phone,
+                temporaryPassword,
                 status,
                 verificationStatus,
                 nationalIdNumber,

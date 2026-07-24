@@ -62,7 +62,7 @@ export const styles = StyleSheet.create({
   filterButton: {
     width: 44,
     height: 44,
-    borderRadius: 18,
+    borderRadius: 22,
     backgroundColor: palette.secondary,
     alignItems: "center",
     justifyContent: "center",

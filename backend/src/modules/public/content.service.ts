@@ -2,6 +2,11 @@ import { z } from "zod"
 import { StatusCodes } from "http-status-codes"
 
 import { AdminModel } from "../admin/admin.model"
+import {
+  DEFAULT_CATALOG_DESCRIPTION_LIMITS,
+  MAX_CATALOG_DESCRIPTION_LIMIT,
+  MIN_CATALOG_DESCRIPTION_LIMIT,
+} from "../../common/constants/catalog-description-limits"
 import { AppError } from "../../common/utils/app-error"
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache"
@@ -11,6 +16,10 @@ import { sendPushToCustomer } from "../customer/push.service"
 import { OrderModel } from "../owner/operational.model"
 import { ServiceZoneModel } from "../service-area/service-area.model"
 import { buildOrderServiceAreaScopeFilter } from "../service-area/service-area.service"
+import {
+  DEFAULT_PLATFORM_SERVICE_HOURS,
+  type ServiceHoursConfig,
+} from "../service-area/service-hours"
 import { PublicContentModel } from "./content.model"
 import { platformContent } from "./content"
 
@@ -603,11 +612,31 @@ const platformContentSchema = z.object({
           .optional()
           .default("http://localhost:5173"),
         showCustomerPhoneNumbers: z.boolean().optional().default(true),
+        catalogDescriptionLimits: z
+          .object({
+            menuItem: z
+              .number()
+              .int()
+              .min(MIN_CATALOG_DESCRIPTION_LIMIT)
+              .max(MAX_CATALOG_DESCRIPTION_LIMIT)
+              .optional()
+              .default(DEFAULT_CATALOG_DESCRIPTION_LIMITS.menuItem),
+            category: z
+              .number()
+              .int()
+              .min(MIN_CATALOG_DESCRIPTION_LIMIT)
+              .max(MAX_CATALOG_DESCRIPTION_LIMIT)
+              .optional()
+              .default(DEFAULT_CATALOG_DESCRIPTION_LIMITS.category),
+          })
+          .optional()
+          .default(DEFAULT_CATALOG_DESCRIPTION_LIMITS),
       })
       .optional()
       .default({
         webDashboardUrl: "http://localhost:5173",
         showCustomerPhoneNumbers: true,
+        catalogDescriptionLimits: DEFAULT_CATALOG_DESCRIPTION_LIMITS,
       }),
     serviceArea: z.object({
       name: z.string().trim().min(1),
@@ -622,6 +651,26 @@ const platformContentSchema = z.object({
       surchargeStepMeters: z.number().int().min(100).max(10000).optional().default(500),
       surchargeAmountTaka: z.number().int().min(0).max(5000).optional().default(5),
     }),
+    // Platform-wide minimum order amount (Taka) applied to the customer item subtotal.
+    // 0 = no minimum. restaurant.commercial.minimumOrderAmount overrides per restaurant.
+    minimumOrderAmount: z.number().int().min(0).max(100000).optional().default(0),
+    // Platform-wide service window. Minutes-from-midnight in Asia/Dhaka
+    // (0–1440; 1440 = end of day). Outside open→close, restaurants are forced
+    // closed. Per-zone overrides on ServiceZone.serviceHours inherit these when null.
+    serviceHours: z
+      .object({
+        enabled: z.boolean().optional().default(true),
+        openMinute: z.number().int().min(0).max(1440).optional().default(720),
+        closeMinute: z.number().int().min(0).max(1440).optional().default(1380),
+        timezone: z.string().trim().min(1).max(64).optional().default("Asia/Dhaka"),
+      })
+      .optional()
+      .default({
+        enabled: true,
+        openMinute: 720,
+        closeMinute: 1380,
+        timezone: "Asia/Dhaka",
+      }),
     reviewRequests: z
       .object({
         autoEnabled: z.boolean().optional().default(true),
@@ -814,7 +863,11 @@ const platformContentSchema = z.object({
         enabled: z.boolean().optional().default(false),
         discountAmountTaka: z.number().int().min(1).max(100000).optional().default(50),
         minimumOrderAmountTaka: z.number().int().min(0).max(100000).optional().default(350),
-        paymentRestriction: z.enum(["any", "bkash_only"]).optional().default("any"),
+        paymentRestriction: z
+          .enum(["any", "bkash_only"])
+          .optional()
+          .default("any")
+          .transform(() => "any" as const),
         maxRedemptionsPerDevicePerDay: z.number().int().min(1).max(100).optional().default(2),
         startsAt: z.string().trim().optional().default(""),
         endsAt: z.string().trim().optional().default(""),
@@ -912,6 +965,13 @@ const platformContentSchema = z.object({
     otp: z.object({
       expiresInSeconds: z.number().int().min(60).max(900),
       resendCooldownSeconds: z.number().int().min(15).max(300),
+      manualResendCooldownSeconds: z
+        .number()
+        .int()
+        .min(15)
+        .max(600)
+        .optional()
+        .default(90),
       messageTemplate: z
         .string()
         .trim()
@@ -1441,6 +1501,17 @@ export async function getPlatformContent(scope?: PlatformContentScope) {
 export async function getAuthRateLimitSettings(): Promise<AuthRateLimitSettings> {
   const content = await getPlatformContent()
   return content.auth.rateLimits
+}
+
+export async function getPlatformServiceHours(): Promise<ServiceHoursConfig> {
+  const content = await getPlatformContent()
+  const serviceHours = content.operations.serviceHours
+  return {
+    enabled: serviceHours?.enabled ?? DEFAULT_PLATFORM_SERVICE_HOURS.enabled,
+    openMinute: serviceHours?.openMinute ?? DEFAULT_PLATFORM_SERVICE_HOURS.openMinute,
+    closeMinute: serviceHours?.closeMinute ?? DEFAULT_PLATFORM_SERVICE_HOURS.closeMinute,
+    timezone: serviceHours?.timezone || DEFAULT_PLATFORM_SERVICE_HOURS.timezone,
+  }
 }
 
 export async function getOperationalFinanceSettings(): Promise<OperationalFinanceSettings> {

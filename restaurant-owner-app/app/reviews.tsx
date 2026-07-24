@@ -15,23 +15,31 @@ import {
 } from "react-native";
 
 import { Screen } from "@/src/components/screen";
+import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import {
   type OwnerReview,
+  useOwnerReviewHideRequestMutation,
   useOwnerReviewReplyMutation,
   useOwnerReviewsQuery,
 } from "@/src/hooks/use-owner-api";
 import { useOwnerTranslation } from "@/src/i18n/translations";
+import { localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
+// Date + time, so the owner can tell apart several reviews left on the same day.
 function formatReviewDate(value?: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, {
+  const formatted = new Intl.DateTimeFormat("en-US", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  });
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(date);
+  return localizeDigits(formatted);
 }
 
 function Stars({ rating, size = 15 }: { rating: number; size?: number }) {
@@ -50,6 +58,33 @@ function Stars({ rating, size = 15 }: { rating: number; size?: number }) {
 }
 
 const REVIEWS_PAGE_STEP = 20;
+type ReviewHideReasonCategory =
+  | "fake_spam"
+  | "abusive_language"
+  | "wrong_restaurant_or_order"
+  | "unfair_misleading"
+  | "other";
+
+const reviewHideReasonOptions: ReviewHideReasonCategory[] = [
+  "fake_spam",
+  "abusive_language",
+  "wrong_restaurant_or_order",
+  "unfair_misleading",
+  "other",
+];
+
+function getHideRequestStatus(review: OwnerReview) {
+  return review.ownerHideRequest?.status ?? "none";
+}
+
+function isReviewHidden(review: OwnerReview) {
+  return review.isHidden === true || review.moderationStatus === "hidden";
+}
+
+function canRequestReviewHide(review: OwnerReview) {
+  const status = getHideRequestStatus(review);
+  return !isReviewHidden(review) && status !== "pending";
+}
 
 export default function ReviewsScreen() {
   const router = useRouter();
@@ -58,9 +93,14 @@ export default function ReviewsScreen() {
   const [reviewsPageSize, setReviewsPageSize] = useState(REVIEWS_PAGE_STEP);
   const reviewsQuery = useOwnerReviewsQuery(isFocused, reviewsPageSize);
   const replyMutation = useOwnerReviewReplyMutation();
+  const hideRequestMutation = useOwnerReviewHideRequestMutation();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [replyingId, setReplyingId] = useState("");
   const [replyText, setReplyText] = useState("");
+  const [hideRequestTarget, setHideRequestTarget] = useState<OwnerReview | null>(null);
+  const [hideRequestReason, setHideRequestReason] =
+    useState<ReviewHideReasonCategory>("unfair_misleading");
+  const [hideRequestNote, setHideRequestNote] = useState("");
 
   const items = reviewsQuery.data?.items ?? [];
   const total = reviewsQuery.data?.total ?? items.length;
@@ -101,8 +141,90 @@ export default function ReviewsScreen() {
     }
   }
 
+  async function submitHideRequest() {
+    const reviewId = hideRequestTarget?._id ?? hideRequestTarget?.id ?? "";
+    if (!reviewId) return;
+    try {
+      await hideRequestMutation.mutateAsync({
+        reviewId,
+        reasonCategory: hideRequestReason,
+        note: hideRequestNote.trim(),
+      });
+      setHideRequestTarget(null);
+      setHideRequestNote("");
+      Alert.alert(t("reviews.hideRequestSent"));
+    } catch (error) {
+      Alert.alert(
+        t("reviews.hideRequestFailed"),
+        error instanceof Error ? error.message : t("reviews.hideRequestFailed"),
+      );
+    }
+  }
+
   return (
     <Screen>
+      <AppBottomSheet
+        visible={Boolean(hideRequestTarget)}
+        onClose={() => setHideRequestTarget(null)}
+        title={t("reviews.hideRequestTitle")}
+        subtitle={t("reviews.hideRequestSubtitle")}
+        leadingIcon="eye-off-outline"
+        snapPoints={[0.76, 0.92]}
+      >
+        <View style={styles.hideSheetContent}>
+          <Text style={styles.hideSheetLabel}>{t("reviews.hideReason")}</Text>
+          <View style={styles.hideReasonList}>
+            {reviewHideReasonOptions.map((reason) => {
+              const selected = hideRequestReason === reason;
+              return (
+                <Pressable
+                  key={reason}
+                  style={[styles.hideReasonOption, selected ? styles.hideReasonOptionActive : null]}
+                  onPress={() => setHideRequestReason(reason)}
+                >
+                  <View style={[styles.hideReasonRadio, selected ? styles.hideReasonRadioActive : null]}>
+                    {selected ? <View style={styles.hideReasonRadioDot} /> : null}
+                  </View>
+                  <Text style={styles.hideReasonText}>
+                    {t(`reviews.hideReason.${reason}` as never)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <TextInput
+            style={styles.hideNoteInput}
+            value={hideRequestNote}
+            onChangeText={(value) => setHideRequestNote(value.slice(0, 500))}
+            placeholder={t("reviews.hideNotePlaceholder")}
+            placeholderTextColor={palette.mutedForeground}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+          <View style={styles.replyActions}>
+            <Pressable
+              style={[styles.replyButton, styles.replyCancel]}
+              onPress={() => setHideRequestTarget(null)}
+              disabled={hideRequestMutation.isPending}
+            >
+              <Text style={styles.replyCancelText}>{t("orders.cancel")}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.replyButton, styles.replySubmit]}
+              onPress={() => void submitHideRequest()}
+              disabled={hideRequestMutation.isPending}
+            >
+              {hideRequestMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.replySubmitText}>{t("reviews.requestHide")}</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </AppBottomSheet>
+
       <View style={styles.header}>
         <Pressable
           style={styles.backButton}
@@ -132,14 +254,16 @@ export default function ReviewsScreen() {
         <View style={styles.summaryCard}>
           <View style={styles.summaryBlock}>
             <Text style={styles.summaryValue}>
-              {averageRating ? averageRating.toFixed(1) : "--"}
+              {averageRating ? localizeDigits(averageRating.toFixed(1)) : "--"}
             </Text>
             <Stars rating={Math.round(averageRating)} />
             <Text style={styles.summaryLabel}>{t("reviews.averageRating")}</Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryBlock}>
-            <Text style={styles.summaryValue}>{total}</Text>
+            <Text style={styles.summaryValue}>
+              {localizeDigits(String(total))}
+            </Text>
             <Text style={styles.summaryLabel}>{t("reviews.totalReviews")}</Text>
           </View>
         </View>
@@ -160,12 +284,45 @@ export default function ReviewsScreen() {
             const reviewId = review._id ?? review.id ?? "";
             const hasReply = Boolean(review.ownerReply?.message?.trim());
             const isReplying = replyingId === reviewId;
+            const hidden = isReviewHidden(review);
+            const hideStatus = getHideRequestStatus(review);
             return (
               <View key={reviewId} style={styles.reviewCard}>
                 <View style={styles.reviewTop}>
                   <Stars rating={Number(review.rating) || 0} />
                   <Text style={styles.reviewDate}>{formatReviewDate(review.createdAt)}</Text>
                 </View>
+                {hidden || hideStatus === "pending" || hideStatus === "rejected" ? (
+                  <View style={styles.badgeRow}>
+                    {hidden ? (
+                      <View style={[styles.statusBadge, styles.hiddenBadge]}>
+                        <Ionicons name="eye-off-outline" size={13} color={palette.success} />
+                        <Text style={[styles.statusBadgeText, styles.hiddenBadgeText]}>
+                          {t("reviews.hiddenBadge")}
+                        </Text>
+                      </View>
+                    ) : hideStatus === "pending" ? (
+                      <View style={[styles.statusBadge, styles.pendingBadge]}>
+                        <Ionicons name="time-outline" size={13} color={palette.warning} />
+                        <Text style={[styles.statusBadgeText, styles.pendingBadgeText]}>
+                          {t("reviews.pendingHideBadge")}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusBadge, styles.rejectedBadge]}>
+                        <Ionicons name="alert-circle-outline" size={13} color={palette.mutedForeground} />
+                        <Text style={[styles.statusBadgeText, styles.rejectedBadgeText]}>
+                          {t("reviews.rejectedHideBadge")}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+                {hidden ? (
+                  <Text style={styles.visibilityNotice}>{t("reviews.hiddenNotice")}</Text>
+                ) : hideStatus === "pending" ? (
+                  <Text style={styles.visibilityNotice}>{t("reviews.pendingHideNotice")}</Text>
+                ) : null}
                 {review.comment ? (
                   <Text style={styles.reviewComment}>{review.comment}</Text>
                 ) : null}
@@ -232,6 +389,20 @@ export default function ReviewsScreen() {
                     <Text style={styles.replyTriggerText}>{t("reviews.reply")}</Text>
                   </Pressable>
                 )}
+                {canRequestReviewHide(review) ? (
+                  <Pressable
+                    style={styles.hideTrigger}
+                    onPress={() => {
+                      setHideRequestTarget(review);
+                      setHideRequestReason("unfair_misleading");
+                      setHideRequestNote("");
+                    }}
+                    disabled={hideRequestMutation.isPending}
+                  >
+                    <Ionicons name="eye-off-outline" size={15} color={palette.danger} />
+                    <Text style={styles.hideTriggerText}>{t("reviews.requestHide")}</Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
             })}
@@ -377,6 +548,51 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: palette.mutedForeground,
   },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  statusBadge: {
+    minHeight: 26,
+    borderRadius: 13,
+    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+  },
+  hiddenBadge: {
+    backgroundColor: palette.successSoft,
+  },
+  hiddenBadgeText: {
+    color: palette.success,
+  },
+  pendingBadge: {
+    backgroundColor: palette.warningSoft,
+  },
+  pendingBadgeText: {
+    color: palette.warning,
+  },
+  rejectedBadge: {
+    backgroundColor: palette.surfaceMuted,
+  },
+  rejectedBadgeText: {
+    color: palette.mutedForeground,
+  },
+  visibilityNotice: {
+    borderRadius: 12,
+    backgroundColor: palette.surfaceMuted,
+    padding: 10,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
   reviewComment: {
     fontSize: 14,
     lineHeight: 20,
@@ -418,6 +634,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
     color: palette.primary,
+  },
+  hideTrigger: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 4,
+  },
+  hideTriggerText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: palette.danger,
   },
   replyForm: {
     gap: 10,
@@ -461,5 +689,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: "#FFFFFF",
+  },
+  hideSheetContent: {
+    gap: 12,
+  },
+  hideSheetLabel: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  hideReasonList: {
+    gap: 8,
+  },
+  hideReasonOption: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  hideReasonOptionActive: {
+    borderColor: palette.primary,
+    backgroundColor: palette.primarySoft,
+  },
+  hideReasonRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: palette.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hideReasonRadioActive: {
+    borderColor: palette.primary,
+  },
+  hideReasonRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: palette.primary,
+  },
+  hideReasonText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  hideNoteInput: {
+    minHeight: 100,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: palette.foreground,
   },
 });

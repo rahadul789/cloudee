@@ -6,7 +6,6 @@ import {
   Alert,
   FlatList,
   Image,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,7 +16,9 @@ import {
   View,
 } from "react-native";
 
+import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { OwnerStatusBadge } from "@/src/components/owner-status-badge";
+import { EnforcementNotice } from "@/src/components/enforcement-notice";
 import { OwnerHeaderActions } from "@/src/components/owner-header-actions";
 import { Screen } from "@/src/components/screen";
 import { StatusPill } from "@/src/components/status-pill";
@@ -27,25 +28,39 @@ import {
   useOwnerMenuItemsQuery,
   useUpdateOwnerMenuItemMutation,
 } from "@/src/hooks/use-owner-api";
-import { formatCurrency } from "@/src/lib/format";
+import {
+  useOwnerTranslation,
+  type TranslationKey,
+} from "@/src/i18n/translations";
+import { formatCurrency, localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 type AvailabilityFilter = "all" | "active" | "inactive";
+type ChipIcon = keyof typeof Ionicons.glyphMap;
 
-const availabilityFilters: { label: string; value: AvailabilityFilter }[] = [
-  { label: "All", value: "all" },
-  { label: "Active", value: "active" },
-  { label: "Inactive", value: "inactive" },
+const availabilityFilters: {
+  labelKey: TranslationKey;
+  value: AvailabilityFilter;
+  icon: ChipIcon;
+}[] = [
+  { labelKey: "menu.filters.all", value: "all", icon: "apps" },
+  { labelKey: "menu.filters.active", value: "active", icon: "checkmark-circle" },
+  { labelKey: "menu.filters.inactive", value: "inactive", icon: "eye-off" },
 ];
 
-const sortFilters: { label: string; value: OwnerMenuSort }[] = [
-  { label: "A-Z", value: "nameAsc" },
-  { label: "Min price", value: "priceLow" },
-  { label: "Max price", value: "priceHigh" },
+const sortFilters: {
+  labelKey: TranslationKey;
+  value: OwnerMenuSort;
+  icon: ChipIcon;
+}[] = [
+  { labelKey: "menu.sort.nameAsc", value: "nameAsc", icon: "text" },
+  { labelKey: "menu.sort.priceLow", value: "priceLow", icon: "arrow-down" },
+  { labelKey: "menu.sort.priceHigh", value: "priceHigh", icon: "arrow-up" },
 ];
 
 export default function MenuScreen() {
   const queryClient = useQueryClient();
+  const { t } = useOwnerTranslation();
   const [search, setSearch] = useState("");
   const [availabilityFilter, setAvailabilityFilter] =
     useState<AvailabilityFilter>("all");
@@ -78,14 +93,32 @@ export default function MenuScreen() {
       ),
     [allMenuItems, recommendationItem?._id, selectedRecommendationIds],
   );
-  const items = (menuQuery.data?.items ?? []).filter((item) => {
+  // `?? []` would hand the memo below a fresh array every render, defeating it.
+  const searchedItems = useMemo(
+    () => menuQuery.data?.items ?? [],
+    [menuQuery.data?.items],
+  );
+  const items = searchedItems.filter((item) => {
     const isAvailable = item.availability !== "unavailable";
     if (availabilityFilter === "active") return isAvailable;
     if (availabilityFilter === "inactive") return !isAvailable;
     return true;
   });
+  // Counts reflect the current search, so they always match what each chip would show.
+  const availabilityCounts = useMemo(() => {
+    const active = searchedItems.filter(
+      (item) => item.availability !== "unavailable",
+    ).length;
+    return {
+      all: searchedItems.length,
+      active,
+      inactive: searchedItems.length - active,
+    };
+  }, [searchedItems]);
 
   async function toggleAvailability(item: OwnerMenuItem) {
+    if (pendingItemId === item._id) return;
+
     const nextAvailability =
       item.availability === "unavailable" ? "available" : "unavailable";
 
@@ -97,8 +130,8 @@ export default function MenuScreen() {
       });
     } catch (error) {
       Alert.alert(
-        "Menu update failed",
-        error instanceof Error ? error.message : "Please try again.",
+        t("menu.updateFailedTitle"),
+        error instanceof Error ? error.message : t("menu.tryAgain"),
       );
     } finally {
       setPendingItemId("");
@@ -139,15 +172,15 @@ export default function MenuScreen() {
       setRecommendationItem(null);
       setSelectedRecommendationIds([]);
       Alert.alert(
-        "Recommendations saved",
+        t("menu.recsSavedTitle"),
         savedCount > 0
-          ? `${savedCount} item${savedCount > 1 ? "s" : ""} will show with this item in the cart.`
-          : "Cart recommendations cleared for this item.",
+          ? `${localizeDigits(String(savedCount))} ${t("menu.recsSavedBody")}`
+          : t("menu.recsClearedBody"),
       );
     } catch (error) {
       Alert.alert(
-        "Recommendations not saved",
-        error instanceof Error ? error.message : "Please try again.",
+        t("menu.recsFailedTitle"),
+        error instanceof Error ? error.message : t("menu.tryAgain"),
       );
     } finally {
       setIsSavingRecommendations(false);
@@ -189,7 +222,9 @@ export default function MenuScreen() {
               <Text numberOfLines={1} style={styles.itemName}>
                 {item.name}
               </Text>
-              {item.isPopular ? <StatusPill label="Popular" tone="warning" /> : null}
+              {item.isPopular ? (
+                <StatusPill label={t("menu.popular")} tone="warning" />
+              ) : null}
             </View>
             <Text numberOfLines={2} style={styles.itemMeta}>
               {formatCurrency(item.basePrice)}
@@ -201,7 +236,7 @@ export default function MenuScreen() {
         <View style={styles.itemFooter}>
           <View style={styles.itemFooterLeft}>
             <StatusPill
-              label={isAvailable ? "Available" : "Unavailable"}
+              label={isAvailable ? t("menu.available") : t("menu.unavailable")}
               tone={isAvailable ? "success" : "danger"}
             />
             <Pressable
@@ -217,23 +252,29 @@ export default function MenuScreen() {
                 color={palette.secondary}
               />
               <Text style={styles.recommendButtonText}>
-                Recs {item.recommendedItemIds?.length ?? 0}
+                {t("menu.recs")}{" "}
+                {localizeDigits(String(item.recommendedItemIds?.length ?? 0))}
               </Text>
             </Pressable>
           </View>
           <View style={styles.switchWrap}>
-            {isUpdatingThisItem ? (
-              <ActivityIndicator size="small" color={palette.primary} />
-            ) : null}
-            <View style={isUpdatingThisItem ? styles.switchDisabled : null}>
-              <Switch
-                value={isAvailable}
-                disabled={isUpdatingThisItem}
-                onValueChange={() => toggleAvailability(item)}
-                trackColor={{ false: palette.dangerSoft, true: palette.successSoft }}
-                thumbColor={isAvailable ? palette.success : palette.danger}
-              />
+            {/* Fixed-width slot so the spinner never shifts the switch sideways. */}
+            <View style={styles.switchSlot}>
+              {isUpdatingThisItem ? (
+                <ActivityIndicator size="small" color={palette.primary} />
+              ) : null}
             </View>
+            {/* Solid track + white thumb (the *Soft tints were invisible against the
+                card), and never disabled mid-flip — the optimistic cache write in the
+                mutation already makes the flip instant, and toggleAvailability guards
+                re-entry. */}
+            <Switch
+              value={isAvailable}
+              onValueChange={() => toggleAvailability(item)}
+              trackColor={{ false: "#C7CBD4", true: palette.success }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#C7CBD4"
+            />
           </View>
         </View>
       </View>
@@ -244,10 +285,14 @@ export default function MenuScreen() {
     <Screen>
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Menu</Text>
+          <Text style={styles.title}>{t("menu.title")}</Text>
           <OwnerStatusBadge />
         </View>
         <OwnerHeaderActions />
+      </View>
+
+      <View style={styles.enforcementStripWrap}>
+        <EnforcementNotice variant="strip" />
       </View>
 
       <View style={styles.searchShell}>
@@ -255,7 +300,7 @@ export default function MenuScreen() {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search items"
+          placeholder={t("menu.searchPlaceholder")}
           placeholderTextColor="#9A8D91"
           style={styles.searchInput}
           autoCapitalize="none"
@@ -277,7 +322,9 @@ export default function MenuScreen() {
         {availabilityFilters.map((filter) => (
           <FilterChip
             key={filter.value}
-            label={filter.label}
+            label={t(filter.labelKey)}
+            icon={filter.icon}
+            count={availabilityCounts[filter.value]}
             active={availabilityFilter === filter.value}
             onPress={() => setAvailabilityFilter(filter.value)}
           />
@@ -286,7 +333,8 @@ export default function MenuScreen() {
         {sortFilters.map((filter) => (
           <FilterChip
             key={filter.value}
-            label={filter.label}
+            label={t(filter.labelKey)}
+            icon={filter.icon}
             active={sortBy === filter.value}
             onPress={() => setSortBy(filter.value)}
           />
@@ -310,159 +358,143 @@ export default function MenuScreen() {
           menuQuery.isLoading ? (
             <View style={styles.feedbackCard}>
               <ActivityIndicator size="small" color={palette.primary} />
-              <Text style={styles.feedbackText}>Loading menu</Text>
+              <Text style={styles.feedbackText}>{t("menu.loading")}</Text>
             </View>
           ) : (
             <View style={styles.feedbackCard}>
               <Ionicons name="fast-food-outline" size={28} color={palette.mutedForeground} />
-              <Text style={styles.feedbackTitle}>No items found</Text>
-              <Text style={styles.feedbackText}>
-                Try another filter or search term.
-              </Text>
+              <Text style={styles.feedbackTitle}>{t("menu.emptyTitle")}</Text>
+              <Text style={styles.feedbackText}>{t("menu.emptyBody")}</Text>
             </View>
           )
         }
       />
 
-      <Modal
+      <AppBottomSheet
         visible={Boolean(recommendationItem)}
-        transparent
-        animationType="slide"
-        onRequestClose={closeRecommendationEditor}
-      >
-        <View style={styles.modalBackdrop}>
+        onClose={closeRecommendationEditor}
+        title={t("menu.recsTitle")}
+        subtitle={t("menu.recsSubtitle")}
+        leadingIcon="sparkles"
+        snapPoints={[0.62, 0.9]}
+        contentContainerStyle={styles.recommendOptionList}
+        footer={
           <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={closeRecommendationEditor}
-          />
-          <View style={styles.recommendSheet}>
-            <View style={styles.recommendSheetHeader}>
-              <View style={styles.recommendSheetTitleWrap}>
-                <Text style={styles.recommendSheetTitle}>
-                  Cart recommendations
-                </Text>
-                <Text style={styles.recommendSheetSubtitle} numberOfLines={2}>
-                  Show selected items when customers add{" "}
-                  {recommendationItem?.name ?? "this item"} to cart.
-                </Text>
-              </View>
+            disabled={isSavingRecommendations}
+            style={({ pressed }) => [
+              styles.recommendSaveButton,
+              isSavingRecommendations
+                ? styles.recommendSaveButtonDisabled
+                : null,
+              pressed ? styles.recommendSaveButtonPressed : null,
+            ]}
+            onPress={saveRecommendations}
+          >
+            {isSavingRecommendations ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+            )}
+            <Text style={styles.recommendSaveButtonText}>
+              {t("menu.recsSave")}
+              {selectedRecommendationIds.length > 0
+                ? ` (${localizeDigits(String(selectedRecommendationIds.length))})`
+                : ""}
+            </Text>
+          </Pressable>
+        }
+      >
+        {recommendationOptions.length > 0 ? (
+          recommendationOptions.map((option) => {
+            const selected = selectedRecommendationIds.includes(option._id);
+            const imageUrl = option.images?.find((image) => image.url)?.url;
+            return (
               <Pressable
-                style={styles.recommendSheetClose}
-                onPress={closeRecommendationEditor}
+                key={option._id}
+                style={({ pressed }) => [
+                  styles.recommendOption,
+                  selected ? styles.recommendOptionSelected : null,
+                  pressed ? styles.recommendOptionPressed : null,
+                ]}
+                onPress={() => toggleRecommendationSelection(option._id)}
               >
-                <Ionicons
-                  name="close"
-                  size={18}
-                  color={palette.mutedForeground}
-                />
-              </Pressable>
-            </View>
-
-            <ScrollView
-              style={styles.recommendOptionScroller}
-              contentContainerStyle={styles.recommendOptionList}
-              showsVerticalScrollIndicator={false}
-            >
-              {recommendationOptions.length > 0 ? (
-                recommendationOptions.map((option) => {
-                  const selected = selectedRecommendationIds.includes(
-                    option._id,
-                  );
-                  const imageUrl = option.images?.find((image) => image.url)?.url;
-                  return (
-                    <Pressable
-                      key={option._id}
-                      style={[
-                        styles.recommendOption,
-                        selected ? styles.recommendOptionSelected : null,
-                      ]}
-                      onPress={() => toggleRecommendationSelection(option._id)}
-                    >
-                      <View style={styles.recommendOptionImage}>
-                        {imageUrl ? (
-                          <Image
-                            source={{ uri: imageUrl }}
-                            style={styles.thumbImage}
-                          />
-                        ) : (
-                          <Ionicons
-                            name="fast-food-outline"
-                            size={18}
-                            color={palette.primary}
-                          />
-                        )}
-                      </View>
-                      <View style={styles.recommendOptionCopy}>
-                        <Text style={styles.recommendOptionName} numberOfLines={1}>
-                          {option.name}
-                        </Text>
-                        <Text style={styles.recommendOptionMeta}>
-                          {formatCurrency(option.basePrice)}
-                        </Text>
-                      </View>
-                      <Ionicons
-                        name={selected ? "checkbox" : "square-outline"}
-                        size={22}
-                        color={selected ? palette.secondary : palette.border}
-                      />
-                    </Pressable>
-                  );
-                })
-              ) : (
-                <View style={styles.recommendEmpty}>
-                  <Ionicons
-                    name="fast-food-outline"
-                    size={24}
-                    color={palette.mutedForeground}
-                  />
-                  <Text style={styles.recommendEmptyTitle}>
-                    No active items yet
+                <View style={styles.recommendOptionImage}>
+                  {imageUrl ? (
+                    <Image
+                      source={{ uri: imageUrl }}
+                      style={styles.thumbImage}
+                    />
+                  ) : (
+                    <Ionicons
+                      name="fast-food-outline"
+                      size={18}
+                      color={palette.primary}
+                    />
+                  )}
+                </View>
+                <View style={styles.recommendOptionCopy}>
+                  <Text style={styles.recommendOptionName} numberOfLines={1}>
+                    {option.name}
                   </Text>
-                  <Text style={styles.recommendEmptyText}>
-                    Add or activate another item first.
+                  <Text style={styles.recommendOptionMeta}>
+                    {formatCurrency(option.basePrice)}
                   </Text>
                 </View>
-              )}
-            </ScrollView>
-
-            <Pressable
-              disabled={isSavingRecommendations}
-              style={[
-                styles.recommendSaveButton,
-                isSavingRecommendations ? styles.recommendSaveButtonDisabled : null,
-              ]}
-              onPress={saveRecommendations}
-            >
-              {isSavingRecommendations ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-              )}
-              <Text style={styles.recommendSaveButtonText}>
-                Save recommendations
-              </Text>
-            </Pressable>
+                <Ionicons
+                  name={selected ? "checkbox" : "square-outline"}
+                  size={22}
+                  color={selected ? palette.secondary : palette.border}
+                />
+              </Pressable>
+            );
+          })
+        ) : (
+          <View style={styles.recommendEmpty}>
+            <Ionicons
+              name="fast-food-outline"
+              size={24}
+              color={palette.mutedForeground}
+            />
+            <Text style={styles.recommendEmptyTitle}>
+              {t("menu.recsEmptyTitle")}
+            </Text>
+            <Text style={styles.recommendEmptyText}>
+              {t("menu.recsEmptyBody")}
+            </Text>
           </View>
-        </View>
-      </Modal>
+        )}
+      </AppBottomSheet>
     </Screen>
   );
 }
 
 function FilterChip({
   label,
+  icon,
+  count,
   active,
   onPress,
 }: {
   label: string;
+  icon: ChipIcon;
+  count?: number;
   active: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable
-      style={[styles.filterChip, active ? styles.filterChipActive : null]}
+      style={({ pressed }) => [
+        styles.filterChip,
+        active ? styles.filterChipActive : null,
+        pressed ? styles.filterChipPressed : null,
+      ]}
       onPress={onPress}
     >
+      <Ionicons
+        name={icon}
+        size={14}
+        color={active ? "#FFFFFF" : palette.mutedForeground}
+      />
       <Text
         style={[
           styles.filterChipText,
@@ -471,11 +503,32 @@ function FilterChip({
       >
         {label}
       </Text>
+      {typeof count === "number" && count > 0 ? (
+        <View
+          style={[
+            styles.filterChipCount,
+            active ? styles.filterChipCountActive : null,
+          ]}
+        >
+          <Text
+            style={[
+              styles.filterChipCountText,
+              active ? styles.filterChipCountTextActive : null,
+            ]}
+          >
+            {localizeDigits(String(count))}
+          </Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  // Collapses to zero height when there is no enforcement notice to show.
+  enforcementStripWrap: {
+    paddingHorizontal: 18,
+  },
   header: {
     paddingHorizontal: 18,
     paddingTop: 12,
@@ -499,7 +552,7 @@ const styles = StyleSheet.create({
   },
   searchShell: {
     marginHorizontal: 18,
-    marginBottom: 4,
+    marginBottom: 12,
     height: 50,
     borderRadius: 17,
     borderWidth: 1,
@@ -519,15 +572,17 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     includeFontPadding: false,
   },
+  // Tall enough for the 38px chips plus their shadow — at 44px the chips collided
+  // with the search field above.
   filterScroller: {
     flexGrow: 0,
-    height: 44,
+    height: 54,
     marginBottom: 8,
   },
   filterRow: {
     paddingHorizontal: 18,
-    paddingTop: 2,
-    paddingBottom: 6,
+    paddingTop: 4,
+    paddingBottom: 8,
     gap: 8,
     alignItems: "center",
   },
@@ -538,15 +593,26 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   filterChip: {
-    height: 32,
-    minHeight: 32,
+    height: 38,
+    minHeight: 38,
     borderRadius: 999,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.surface,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 6,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  filterChipPressed: {
+    transform: [{ scale: 0.94 }],
+    opacity: 0.9,
   },
   filterChipActive: {
     backgroundColor: palette.foreground,
@@ -559,6 +625,27 @@ const styles = StyleSheet.create({
     color: palette.foreground,
   },
   filterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  filterChipCount: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    backgroundColor: palette.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterChipCountActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.22)",
+  },
+  filterChipCountText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  filterChipCountTextActive: {
     color: "#FFFFFF",
   },
   listContent: {
@@ -647,14 +734,15 @@ const styles = StyleSheet.create({
   },
   switchWrap: {
     minHeight: 40,
-    minWidth: 76,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     gap: 6,
   },
-  switchDisabled: {
-    opacity: 0.5,
+  switchSlot: {
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   feedbackCard: {
     minHeight: 260,
@@ -676,58 +764,10 @@ const styles = StyleSheet.create({
     color: palette.mutedForeground,
     fontWeight: "600",
   },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(31,36,48,0.34)",
-  },
-  recommendSheet: {
-    maxHeight: "78%",
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 18,
-    backgroundColor: palette.surface,
-    gap: 14,
-  },
-  recommendSheetHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  recommendSheetTitleWrap: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
-  recommendSheetTitle: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  recommendSheetSubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  recommendSheetClose: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.surfaceMuted,
-  },
-  recommendOptionScroller: {
-    flexGrow: 0,
-  },
+  // The bottom sheet owns the scroller now; this is just the list spacing we pass
+  // into it via contentContainerStyle.
   recommendOptionList: {
     gap: 9,
-    paddingBottom: 2,
   },
   recommendOption: {
     minHeight: 62,
@@ -744,6 +784,10 @@ const styles = StyleSheet.create({
   recommendOptionSelected: {
     borderColor: "#FFB8D0",
     backgroundColor: palette.primarySoft,
+  },
+  recommendOptionPressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
   },
   recommendOptionImage: {
     width: 44,
@@ -812,6 +856,10 @@ const styles = StyleSheet.create({
   },
   recommendSaveButtonDisabled: {
     opacity: 0.68,
+  },
+  recommendSaveButtonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
   },
   recommendSaveButtonText: {
     fontSize: 14,

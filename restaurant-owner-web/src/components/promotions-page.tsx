@@ -363,6 +363,11 @@ export function PromotionsPage() {
     setSortBy("newestUpdated")
   }
 
+  function refreshVoucherData() {
+    void queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] })
+    void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+  }
+
   async function upsertVoucher(payload: VoucherSubmitPayload, id?: string) {
     const requestPayload = buildVoucherPayload(payload)
     setPendingVoucherAction({ type: "submit", id })
@@ -378,7 +383,7 @@ export function PromotionsPage() {
           current.map((voucher) => (voucher.id === id ? mapped : voucher))
         )
         toast.success("Voucher updated.")
-        void queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] })
+        refreshVoucherData()
         return true
       }
 
@@ -386,7 +391,7 @@ export function PromotionsPage() {
       const mapped = mapOwnerVoucher(created)
       setVouchers((current) => [mapped, ...current])
       toast.success("Voucher created.")
-      void queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] })
+      refreshVoucherData()
       return true
     } catch (error) {
       const message =
@@ -412,6 +417,7 @@ export function PromotionsPage() {
       if (editingVoucher?.id === id) {
         setEditingVoucher(null)
       }
+      refreshVoucherData()
       toast.success("Voucher deleted.")
     } catch (error) {
       const message =
@@ -433,6 +439,7 @@ export function PromotionsPage() {
           current.filter((voucher) => !selectedIds.includes(voucher.id))
         )
         setSelectedIds([])
+        refreshVoucherData()
         toast.success("Selected vouchers deleted.")
       } catch (error) {
         const message =
@@ -464,6 +471,7 @@ export function PromotionsPage() {
         )
       }
       setSelectedIds([])
+      refreshVoucherData()
       toast.success("Selected vouchers updated.")
     } catch (error) {
       const message =

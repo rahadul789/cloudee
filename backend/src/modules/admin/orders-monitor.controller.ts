@@ -191,6 +191,7 @@ const ridersQuerySchema = z.object({
 const createRiderSchema = z.object({
   fullName: z.string().trim().min(1),
   phone: z.string().trim().min(1),
+  temporaryPassword: z.string().regex(/^\d{6}$/),
   status: z.enum(["active", "suspended", "locked"]).optional(),
   isAvailableForAssignments: z.boolean().optional(),
   verificationStatus: z.enum(["pending", "approved", "rejected"]).optional(),

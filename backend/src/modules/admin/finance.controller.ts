@@ -8,8 +8,10 @@ import {
   closeAdminDailyFinance,
   createAdminPlatformWalletEntry,
   createAdminFinancePayout,
+  getAdminFinancePayoutBatchStatement,
   getAdminPlatformFinance,
   getAdminFinancePayoutDetails,
+  getAdminFinancePayoutStatementPreview,
   listAdminCodReconciliation,
   listAdminFinanceLedger,
   listAdminFinancePayouts,
@@ -149,7 +151,16 @@ const createPayoutSchema = z.object({
   providerTransactionId: z.string().trim().max(160).optional(),
   paymentProofUrl: z.string().trim().max(500).optional(),
   includePending: z.boolean().optional(),
+  statementReviewed: z.boolean().optional(),
+  statementChecksum: z.string().trim().max(128).optional(),
   notifyOwnerSms: z.boolean().optional(),
+});
+
+const payoutStatementPreviewQuerySchema = z.object({
+  amount: z.coerce.number().int().positive(),
+  includePending: z.coerce.boolean().optional(),
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
 });
 
 const payoutMethodApprovalSchema = z.object({
@@ -297,6 +308,31 @@ export const getAdminFinancePayoutDetailsController = asyncHandler(
   },
 );
 
+export const getAdminFinancePayoutStatementPreviewController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const query = payoutStatementPreviewQuerySchema.parse(req.query);
+    const data = await getAdminFinancePayoutStatementPreview({
+      restaurantId: getStringParam(req.params.restaurantId),
+      amount: query.amount,
+      includePending: query.includePending,
+      zoneId: query.zoneId,
+      districtId: query.districtId,
+    });
+    return sendSuccess(res, { data });
+  },
+);
+
+export const getAdminFinancePayoutBatchStatementController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const scope = adminAreaScopeQuerySchema.parse(req.query);
+    const data = await getAdminFinancePayoutBatchStatement({
+      payoutId: getStringParam(req.params.payoutId),
+      ...scope,
+    });
+    return sendSuccess(res, { data });
+  },
+);
+
 export const postAdminFinancePayoutController = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = createPayoutSchema.parse(req.body);
@@ -311,6 +347,8 @@ export const postAdminFinancePayoutController = asyncHandler(
       providerTransactionId: payload.providerTransactionId,
       paymentProofUrl: payload.paymentProofUrl,
       includePending: payload.includePending,
+      statementReviewed: payload.statementReviewed,
+      statementChecksum: payload.statementChecksum,
       notifyOwnerSms: payload.notifyOwnerSms,
       adminId: req.user?.id,
       ...scope,

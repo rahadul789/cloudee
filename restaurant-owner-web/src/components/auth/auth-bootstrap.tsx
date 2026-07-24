@@ -39,6 +39,14 @@ export function AuthBootstrap({ children }: { children: React.ReactNode }) {
     if (bootstrapQuery.isPending) return
 
     if (!bootstrapQuery.data) {
+      // The admin "Login as owner" handoff sets an in-memory session token AFTER this
+      // one-time query has already resolved null. Never clobber that impersonation
+      // session with a signed-out account — just mark bootstrap complete and let the
+      // /impersonate route's session stand (it also sets the owner account itself).
+      if (getOwnerAuthSession()?.accessToken) {
+        setAuthBootstrapped(true)
+        return
+      }
       setOwnerAccount(getDefaultSignedOutOwnerAccount())
       setRestaurantLifecycleStatus("account_created")
       setAuthBootstrapped(true)
@@ -58,7 +66,20 @@ export function AuthBootstrap({ children }: { children: React.ReactNode }) {
   ])
 
   React.useEffect(() => {
-    if (!(bootstrapQuery.error instanceof ApiError)) return
+    if (!(bootstrapQuery.error instanceof ApiError)) {
+      // Network / unknown error while bootstrapping — do NOT log out. Just let the
+      // app render; the session is untouched and requests will retry.
+      if (bootstrapQuery.error) setAuthBootstrapped(true)
+      return
+    }
+
+    // Only a genuine auth failure (401/403) ends the session. A transient 5xx/429 on
+    // /owner/me must never log a valid owner out — keep the session and mark bootstrap
+    // done so the app renders and retries.
+    if (bootstrapQuery.error.status !== 401 && bootstrapQuery.error.status !== 403) {
+      setAuthBootstrapped(true)
+      return
+    }
 
     clearOwnerAuthSession()
     setOwnerAccount(getDefaultSignedOutOwnerAccount())

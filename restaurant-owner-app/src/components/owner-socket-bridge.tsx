@@ -1,8 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { AppState, type AppStateStatus } from "react-native";
 
-import type { OwnerOrder } from "@/src/hooks/use-owner-api";
+import type {
+  OwnerListResponse,
+  OwnerNotification,
+  OwnerOrder,
+} from "@/src/hooks/use-owner-api";
 import {
   connectOwnerSocket,
   disconnectOwnerSocket,
@@ -10,6 +14,45 @@ import {
 } from "@/src/lib/socket-client";
 import { patchOwnerOrderQueryCaches } from "@/src/lib/owner-order-cache";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
+
+function isForegroundAppState(state: AppStateStatus) {
+  return state === "active" || state === "unknown";
+}
+
+function findCachedOwnerOrder(queryClient: QueryClient, orderId: string) {
+  const detail = queryClient.getQueryData<OwnerOrder>([
+    "owner",
+    "orders",
+    "details",
+    orderId,
+  ]);
+  if (detail) return detail;
+
+  const queryCache = queryClient.getQueryCache();
+  for (const query of queryCache.findAll({ queryKey: ["owner", "orders"] })) {
+    const data = query.state.data;
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !("items" in (data as Record<string, unknown>))
+    ) {
+      continue;
+    }
+
+    const result = data as OwnerListResponse<OwnerOrder>;
+    const match = result.items?.find((order) => order._id === orderId);
+    if (match) return match;
+  }
+
+  return null;
+}
+
+function shouldRefreshPayoutsForOrderChange(
+  previousOrder: OwnerOrder | null,
+  nextOrder: OwnerOrder,
+) {
+  return previousOrder?.status === "Delivered" || nextOrder.status === "Delivered";
+}
 
 export function OwnerSocketBridge() {
   const queryClient = useQueryClient();
@@ -29,7 +72,7 @@ export function OwnerSocketBridge() {
     }
 
     const connectIfActive = () => {
-      if (appStateRef.current !== "active") {
+      if (!isForegroundAppState(appStateRef.current)) {
         joinedRef.current = "";
         tokenRef.current = "";
         disconnectOwnerSocket();
@@ -42,7 +85,7 @@ export function OwnerSocketBridge() {
     };
 
     if (
-      appStateRef.current === "active" &&
+      isForegroundAppState(appStateRef.current) &&
       (joinedRef.current !== owner.id || tokenRef.current !== accessToken)
     ) {
       connectIfActive();
@@ -50,7 +93,17 @@ export function OwnerSocketBridge() {
 
     const socket = getOwnerSocket();
     const ensureJoined = () => socket.emit("owner:join", owner.id);
-    const scheduleOwnerRealtimeRefresh = () => {
+    const refreshOwnerRealtimeState = () => {
+      void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" });
+      void queryClient.refetchQueries({
+        queryKey: ["owner", "orders", "details"],
+        type: "active",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] });
+    };
+    const scheduleOwnerRealtimeRefresh = (options?: { includePayouts?: boolean }) => {
       if (realtimeRefreshTimerRef.current) {
         clearTimeout(realtimeRefreshTimerRef.current);
       }
@@ -58,27 +111,39 @@ export function OwnerSocketBridge() {
       realtimeRefreshTimerRef.current = setTimeout(() => {
         realtimeRefreshTimerRef.current = null;
         void queryClient.invalidateQueries({ queryKey: ["owner", "orders"] });
+        void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" });
+        void queryClient.refetchQueries({
+          queryKey: ["owner", "orders", "details"],
+          type: "active",
+        });
         void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
-        void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
         void queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] });
+        if (options?.includePayouts) {
+          void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
+        }
       }, 180);
     };
-    const refetchOwnerRealtimeState = () => {
-      void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" });
-      void queryClient.refetchQueries({ queryKey: ["owner", "orders", "details"], type: "active" });
-      void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
-      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
-      void queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] });
+    const handleConnected = () => {
+      ensureJoined();
+      refreshOwnerRealtimeState();
     };
     const handleOrderUpdated = (payload: OwnerOrder) => {
+      const previousOrder = findCachedOwnerOrder(queryClient, payload._id);
+      const shouldRefreshPayouts = shouldRefreshPayoutsForOrderChange(
+        previousOrder,
+        payload,
+      );
       patchOwnerOrderQueryCaches(queryClient, payload);
       void queryClient.invalidateQueries({
         queryKey: ["owner", "orders", "details", payload._id],
       });
-      scheduleOwnerRealtimeRefresh();
+      scheduleOwnerRealtimeRefresh({ includePayouts: shouldRefreshPayouts });
     };
-    const handleNotificationCreated = () => {
-      scheduleOwnerRealtimeRefresh();
+    const handleNotificationCreated = (payload?: OwnerNotification) => {
+      scheduleOwnerRealtimeRefresh({ includePayouts: payload?.type === "payout" });
+      if (payload?.type === "review") {
+        void queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] });
+      }
     };
     const handlePayoutMethodUpdated = () => {
       void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
@@ -99,13 +164,17 @@ export function OwnerSocketBridge() {
       void queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] });
       void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
     };
+    const handleReviewUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] });
+      void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
+    };
     const handleAppStateChange = (nextState: AppStateStatus) => {
       appStateRef.current = nextState;
 
-      if (nextState === "active") {
+      if (isForegroundAppState(nextState)) {
         connectIfActive();
         ensureJoined();
-        refetchOwnerRealtimeState();
+        refreshOwnerRealtimeState();
         return;
       }
 
@@ -114,7 +183,8 @@ export function OwnerSocketBridge() {
       disconnectOwnerSocket();
     };
 
-    socket.on("connect", ensureJoined);
+    socket.on("connect", handleConnected);
+    socket.on("order.created", handleOrderUpdated);
     socket.on("order.updated", handleOrderUpdated);
     socket.on("notification.created", handleNotificationCreated);
     socket.on("payout.method.updated", handlePayoutMethodUpdated);
@@ -122,6 +192,7 @@ export function OwnerSocketBridge() {
     socket.on("menu.updated", handleMenuUpdated);
     socket.on("store.updated", handleStoreUpdated);
     socket.on("promotion.updated", handlePromotionUpdated);
+    socket.on("review.updated", handleReviewUpdated);
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
     return () => {
@@ -130,7 +201,8 @@ export function OwnerSocketBridge() {
         realtimeRefreshTimerRef.current = null;
       }
       subscription.remove();
-      socket.off("connect", ensureJoined);
+      socket.off("connect", handleConnected);
+      socket.off("order.created", handleOrderUpdated);
       socket.off("order.updated", handleOrderUpdated);
       socket.off("notification.created", handleNotificationCreated);
       socket.off("payout.method.updated", handlePayoutMethodUpdated);
@@ -138,6 +210,7 @@ export function OwnerSocketBridge() {
       socket.off("menu.updated", handleMenuUpdated);
       socket.off("store.updated", handleStoreUpdated);
       socket.off("promotion.updated", handlePromotionUpdated);
+      socket.off("review.updated", handleReviewUpdated);
       disconnectOwnerSocket();
     };
   }, [accessToken, owner?.id, queryClient]);

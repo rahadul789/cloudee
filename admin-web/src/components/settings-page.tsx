@@ -5,6 +5,7 @@ import {
   BarChart3,
   Ban,
   ChevronDown,
+  Clock,
   Coins,
   Loader2,
   Lock,
@@ -82,6 +83,35 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
+// Service-window times are stored as minutes-from-midnight (Asia/Dhaka). These
+// convert to/from the value an <input type="time"> uses ("HH:MM"). 1440 (end of
+// day) collapses to 23:59 for display since the input cannot render 24:00.
+function minutesToTimeInput(minute: number) {
+  const clamped = Math.max(0, Math.min(1440, Math.round(minute)))
+  const display = clamped >= 1440 ? 1439 : clamped
+  const hours = String(Math.floor(display / 60)).padStart(2, "0")
+  const mins = String(display % 60).padStart(2, "0")
+  return `${hours}:${mins}`
+}
+
+function timeInputToMinutes(value: string, fallback: number) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!match) return fallback
+  const hours = Number(match[1])
+  const mins = Number(match[2])
+  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return fallback
+  return Math.max(0, Math.min(1439, hours * 60 + mins))
+}
+
+const CATALOG_DESCRIPTION_LIMIT_MIN = 20
+const CATALOG_DESCRIPTION_LIMIT_MAX = 1000
+
+const defaultCatalogDescriptionLimits: PlatformContent["operations"]["ownerApp"]["catalogDescriptionLimits"] =
+  {
+    menuItem: 120,
+    category: 90,
+  }
+
 const defaultFinanceSettings: PlatformContent["operations"]["finance"] = {
   settlementDelayDays: 3,
   minimumPayoutAmountEnabled: true,
@@ -107,6 +137,7 @@ const defaultAdminNotificationSettings: PlatformContent["operations"]["adminNoti
 const defaultOwnerAppSettings: PlatformContent["operations"]["ownerApp"] = {
   webDashboardUrl: "http://localhost:5173",
   showCustomerPhoneNumbers: true,
+  catalogDescriptionLimits: defaultCatalogDescriptionLimits,
 }
 
 const defaultRoutingSettings: PlatformContent["operations"]["routing"] = {
@@ -492,6 +523,10 @@ function ensureOwnerAppSettings(content: PlatformContent) {
   content.operations.ownerApp = {
     ...defaultOwnerAppSettings,
     ...(content.operations.ownerApp ?? {}),
+    catalogDescriptionLimits: {
+      ...defaultCatalogDescriptionLimits,
+      ...(content.operations.ownerApp?.catalogDescriptionLimits ?? {}),
+    },
   }
   return content.operations.ownerApp
 }
@@ -518,6 +553,21 @@ function ensureReviewRequestSettings(content: PlatformContent) {
     ...(content.operations.reviewRequests ?? {}),
   }
   return content.operations.reviewRequests
+}
+
+const defaultServiceHoursSettings: PlatformContent["operations"]["serviceHours"] = {
+  enabled: true,
+  openMinute: 720,
+  closeMinute: 1380,
+  timezone: "Asia/Dhaka",
+}
+
+function ensureServiceHoursSettings(content: PlatformContent) {
+  content.operations.serviceHours = {
+    ...defaultServiceHoursSettings,
+    ...(content.operations.serviceHours ?? {}),
+  }
+  return content.operations.serviceHours
 }
 
 function ensureCustomOfferSettings(content: PlatformContent) {
@@ -551,6 +601,7 @@ function ensureFirstOrderDiscountSettings(content: PlatformContent) {
   content.operations.firstOrderDiscount = {
     ...defaultFirstOrderDiscountSettings,
     ...(content.operations.firstOrderDiscount ?? {}),
+    paymentRestriction: "any",
   }
   return content.operations.firstOrderDiscount
 }
@@ -1727,6 +1778,14 @@ export function SettingsPage() {
     ...defaultReviewRequestSettings,
     ...(draft.operations.reviewRequests ?? {}),
   }
+  const serviceHours = {
+    ...defaultServiceHoursSettings,
+    ...(draft.operations.serviceHours ?? {}),
+  }
+  const minimumOrderAmount =
+    typeof draft.operations.minimumOrderAmount === "number"
+      ? draft.operations.minimumOrderAmount
+      : 0
   const mapStyles = draft.operations.mapStyles ?? defaultMapStyleSettings
   const selectedMapStyle =
     mapStyles.styles.find((style) => style.id === selectedMapStyleId) ??
@@ -1746,6 +1805,10 @@ export function SettingsPage() {
   const ownerApp = {
     ...defaultOwnerAppSettings,
     ...(draft.operations.ownerApp ?? {}),
+    catalogDescriptionLimits: {
+      ...defaultCatalogDescriptionLimits,
+      ...(draft.operations.ownerApp?.catalogDescriptionLimits ?? {}),
+    },
   }
   const referralShareLinkPreview = renderReferralTemplatePreview(
     referrals.shareLinkTemplate,
@@ -2037,6 +2100,127 @@ export function SettingsPage() {
                             ),
                             0.5,
                             50
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="size-4" />
+                    Service hours
+                  </CardTitle>
+                  <CardDescription>
+                    {isScopedSettings
+                      ? `Ordering window for ${settingsScope?.label ?? "this area"}. Outside these hours every restaurant here shows closed to customers, even if the owner is online.`
+                      : "Platform-wide ordering window (Asia/Dhaka). Outside these hours every restaurant shows closed to customers, even if the owner is online. Pick a zone from the top navbar to override a single area."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Enforce service hours"
+                    description="When off, restaurants follow only their own online/offline toggle around the clock."
+                  >
+                    <Switch
+                      checked={serviceHours.enabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureServiceHoursSettings(content).enabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Opens at
+                      </span>
+                      <Input
+                        type="time"
+                        value={minutesToTimeInput(serviceHours.openMinute)}
+                        disabled={!serviceHours.enabled}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureServiceHoursSettings(content).openMinute =
+                              timeInputToMinutes(
+                                event.target.value,
+                                serviceHours.openMinute
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="space-y-1.5 rounded-lg border bg-background p-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Closes at
+                      </span>
+                      <Input
+                        type="time"
+                        value={minutesToTimeInput(serviceHours.closeMinute)}
+                        disabled={!serviceHours.enabled}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureServiceHoursSettings(content).closeMinute =
+                              timeInputToMinutes(
+                                event.target.value,
+                                serviceHours.closeMinute
+                              )
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    {serviceHours.enabled
+                      ? `Customers can order ${minutesToTimeInput(
+                          serviceHours.openMinute
+                        )}–${minutesToTimeInput(
+                          serviceHours.closeMinute
+                        )} (Asia/Dhaka). Orders already in progress are never interrupted.`
+                      : "Service hours are not enforced — restaurants stay open 24/7 subject to their own toggle."}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="size-4" />
+                    Minimum order amount
+                  </CardTitle>
+                  <CardDescription>
+                    Platform-wide minimum order (on the customer&rsquo;s item subtotal,
+                    before delivery). 0 = no minimum. Individual restaurants can override
+                    this from their detail panel. Set this <b>after</b> the new customer
+                    app build reaches testers.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SettingRow
+                    title="Minimum order (৳)"
+                    description="Customers must reach this item subtotal to check out."
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100000}
+                      step={10}
+                      className="w-32"
+                      value={minimumOrderAmount}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          content.operations.minimumOrderAmount = clampNumber(
+                            Math.round(
+                              numberFromInput(event.target.value, minimumOrderAmount),
+                            ),
+                            0,
+                            100000,
                           )
                         })
                       }
@@ -3909,20 +4093,6 @@ export function SettingsPage() {
                 />
               </SettingRow>
               <SettingRow
-                title="bKash (prepaid) only"
-                description="Restrict the discount to prepaid orders — safer against cash-on-delivery farming for higher amounts."
-              >
-                <Switch
-                  checked={firstOrderDiscount.paymentRestriction === "bkash_only"}
-                  onCheckedChange={(checked) =>
-                    updateDraft((content) => {
-                      content.operations.firstOrderDiscount.paymentRestriction =
-                        checked ? "bkash_only" : "any"
-                    })
-                  }
-                />
-              </SettingRow>
-              <SettingRow
                 title="Max per device / day"
                 description="Hard cap on first-order discounts one device can trigger per day (anti-farming)."
               >
@@ -4480,6 +4650,58 @@ export function SettingsPage() {
                   }
                 />
               </SettingRow>
+              <SettingRow
+                title="Menu item description limit"
+                description="Maximum characters restaurant owners can save for menu item descriptions."
+              >
+                <Input
+                  type="number"
+                  min={CATALOG_DESCRIPTION_LIMIT_MIN}
+                  max={CATALOG_DESCRIPTION_LIMIT_MAX}
+                  step={5}
+                  value={ownerApp.catalogDescriptionLimits.menuItem}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      ensureOwnerAppSettings(
+                        content
+                      ).catalogDescriptionLimits.menuItem = clampNumber(
+                        numberFromInput(
+                          event.target.value,
+                          defaultCatalogDescriptionLimits.menuItem
+                        ),
+                        CATALOG_DESCRIPTION_LIMIT_MIN,
+                        CATALOG_DESCRIPTION_LIMIT_MAX
+                      )
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Category description limit"
+                description="Maximum characters restaurant owners can save for category descriptions."
+              >
+                <Input
+                  type="number"
+                  min={CATALOG_DESCRIPTION_LIMIT_MIN}
+                  max={CATALOG_DESCRIPTION_LIMIT_MAX}
+                  step={5}
+                  value={ownerApp.catalogDescriptionLimits.category}
+                  onChange={(event) =>
+                    updateDraft((content) => {
+                      ensureOwnerAppSettings(
+                        content
+                      ).catalogDescriptionLimits.category = clampNumber(
+                        numberFromInput(
+                          event.target.value,
+                          defaultCatalogDescriptionLimits.category
+                        ),
+                        CATALOG_DESCRIPTION_LIMIT_MIN,
+                        CATALOG_DESCRIPTION_LIMIT_MAX
+                      )
+                    })
+                  }
+                />
+              </SettingRow>
             </CardContent>
           </Card>
         </TabsContent>
@@ -4616,6 +4838,31 @@ export function SettingsPage() {
                           15,
                           300
                         )
+                      })
+                    }
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Manual resend timer"
+                  description="From the first manual resend onward, users wait this many seconds between resends. Raise it (e.g. 180) when SMS is failing so support can read the code from the OTP Monitor and deliver it by hand."
+                >
+                  <Input
+                    type="number"
+                    min={15}
+                    max={600}
+                    step={5}
+                    value={otp.manualResendCooldownSeconds ?? 90}
+                    onChange={(event) =>
+                      updateDraft((content) => {
+                        content.auth.otp.manualResendCooldownSeconds =
+                          clampNumber(
+                            numberFromInput(
+                              event.target.value,
+                              otp.manualResendCooldownSeconds ?? 90
+                            ),
+                            15,
+                            600
+                          )
                       })
                     }
                   />

@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Animated,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -128,6 +129,9 @@ function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
       onPressIn={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel="Increase quantity"
+      hitSlop={8}
       style={({ pressed }) => [
         styles.quantityButton,
         styles.quantityButtonPrimary,
@@ -171,6 +175,7 @@ export default function CartScreen() {
   const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState(false);
   const [isWaitingForLocationQuote, setIsWaitingForLocationQuote] =
     useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const quoteQuery = useCustomerCartQuoteQuery({
     restaurantId: isCartFocused ? restaurant?.restaurantId : undefined,
@@ -228,16 +233,36 @@ export default function CartScreen() {
   const isCheckingDeliveryArea =
     isUsingCurrentLocation || isWaitingForLocationQuote;
   const shouldShowQuoteIssue = hasQuoteIssues && !isCheckingDeliveryArea;
+  // Restaurant/platform minimum order. When the item subtotal is below it we block
+  // checkout and show how much more to add (value comes straight from the quote, so it
+  // always matches the backend gate). No message once the minimum is met.
+  const minimumOrder = quoteQuery.data?.minimumOrder;
+  const belowMinimumOrder = minimumOrder ? minimumOrder.isMet === false : false;
+  const minimumOrderMessage = belowMinimumOrder
+    ? `Minimum order TK${minimumOrder!.amount} — add TK${minimumOrder!.amountShort} more to checkout`
+    : null;
   const checkoutDisabled =
     isCheckingDeliveryArea ||
     (hasQuoteIssues && !isServiceabilityBlocked) ||
     quoteQuery.isLoading ||
+    belowMinimumOrder ||
     !isOnline;
   const restaurantDetailsQuery = useCustomerRestaurantDetailsQuery({
     restaurantId: isCartFocused ? restaurant?.restaurantId : undefined,
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
   });
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        quoteQuery.refetch(),
+        restaurantDetailsQuery.refetch(),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [quoteQuery, restaurantDetailsQuery]);
   const canShowRecommendedItems =
     restaurantDetailsQuery.data?.restaurant?.isOpen !== false;
   const cartRecommendationConfig =
@@ -375,6 +400,32 @@ export default function CartScreen() {
     displayPricing.discountAmount > 0
       ? (appliedAutoVoucher?.name ?? bestApplicableOffer?.name ?? "Discount")
       : "";
+  // Backend-supplied "why this delivery fee" breakdown (base + distance surcharge + km).
+  // Only present with a real quote, so the note appears once pricing is verified.
+  const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
+  const deliveryWhyText = useMemo(() => {
+    if (!deliveryBreakdown) return null;
+    const { distanceKm, baseFee, extraDistanceFee, extraDistanceKm } =
+      deliveryBreakdown;
+    const distanceLabel =
+      typeof distanceKm === "number" ? `${distanceKm} km` : null;
+    // Distance surcharge in effect (extra charged beyond the base): spell it out.
+    if (extraDistanceFee > 0) {
+      const extra =
+        extraDistanceKm > 0
+          ? `${extraDistanceKm} km extra ${formatCurrency(extraDistanceFee)}`
+          : `distance ${formatCurrency(extraDistanceFee)}`;
+      const base = `Base ${formatCurrency(baseFee)}`;
+      return distanceLabel
+        ? `${distanceLabel} · ${base} + ${extra}`
+        : `${base} + ${extra}`;
+    }
+    // Flat fee (current setup — no per-distance charge): still show the distance so the
+    // fee never reads as arbitrary.
+    return distanceLabel
+      ? `Flat fee · ${distanceLabel} from the restaurant`
+      : null;
+  }, [deliveryBreakdown]);
   const firstOrderMeta = quoteQuery.data?.firstOrderDiscount;
   const offerProgress = useMemo(() => {
     const subtotal = displayPricing.subtotal;
@@ -596,6 +647,14 @@ export default function CartScreen() {
             <ScrollView
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={handleRefresh}
+                  tintColor={palette.primary}
+                  colors={[palette.primary, palette.secondary, "#FF5C93"]}
+                />
+              }
             >
               <View style={styles.header}>
                 <Text style={styles.kicker}>Cart</Text>
@@ -902,6 +961,13 @@ export default function CartScreen() {
                                         item.quantity - 1,
                                       )
                                     }
+                                    accessibilityRole="button"
+                                    accessibilityLabel={
+                                      item.quantity === 1
+                                        ? `Remove ${item.name} from cart`
+                                        : `Decrease ${item.name} quantity`
+                                    }
+                                    hitSlop={8}
                                     style={({ pressed }) => [
                                       styles.quantityButton,
                                       pressed
@@ -996,6 +1062,8 @@ export default function CartScreen() {
 
                                 <Pressable
                                   onPress={() => removeItem(item.key)}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Remove ${item.name} from cart`}
                                   hitSlop={8}
                                 >
                                   <Text style={styles.removeText}>Remove</Text>
@@ -1204,20 +1272,6 @@ export default function CartScreen() {
                     {formatCurrency(displayPricing.subtotal)}
                   </Text>
                 </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Delivery fee</Text>
-                  <Text style={styles.summaryValue}>
-                    {formatCurrency(displayPricing.deliveryFee)}
-                  </Text>
-                </View>
-                {(displayPricing.rainSurcharge ?? 0) > 0 ? (
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Rain surcharge</Text>
-                    <Text style={styles.summaryValue}>
-                      {formatCurrency(displayPricing.rainSurcharge ?? 0)}
-                    </Text>
-                  </View>
-                ) : null}
                 {displayPricing.discountAmount > 0 ? (
                   <View style={styles.summaryRow}>
                     <Text
@@ -1251,6 +1305,25 @@ export default function CartScreen() {
                     </Text>
                   </View>
                 ) : null}
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Delivery fee</Text>
+                  <Text style={styles.summaryValue}>
+                    {formatCurrency(displayPricing.deliveryFee)}
+                  </Text>
+                </View>
+                {deliveryWhyText ? (
+                  <Text style={styles.summaryDeliveryNote}>
+                    {deliveryWhyText}
+                  </Text>
+                ) : null}
+                {(displayPricing.rainSurcharge ?? 0) > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Rain surcharge</Text>
+                    <Text style={styles.summaryValue}>
+                      {formatCurrency(displayPricing.rainSurcharge ?? 0)}
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={styles.divider} />
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryStrong}>Estimated total</Text>
@@ -1262,6 +1335,18 @@ export default function CartScreen() {
             </ScrollView>
 
             <View style={styles.checkoutWrap}>
+              {minimumOrderMessage ? (
+                <View style={styles.minimumOrderNotice}>
+                  <Ionicons
+                    name="basket-outline"
+                    size={15}
+                    color={palette.warningText}
+                  />
+                  <Text style={styles.minimumOrderNoticeText}>
+                    {minimumOrderMessage}
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.checkoutCard}>
                 <View style={styles.checkoutCopy}>
                   <Text style={styles.checkoutLabel}>

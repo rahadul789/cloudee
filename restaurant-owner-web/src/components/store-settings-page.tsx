@@ -65,6 +65,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
+import {
+  MAX_PREPARATION_TIME_MINUTES,
+  MIN_PREPARATION_TIME_MINUTES,
+  PREPARATION_TIME_OPTIONS,
+} from "@/lib/preparation"
 import { getStoreCoverSrc, getStoreLogoSrc } from "@/lib/store-profile"
 import { validateImageFile } from "@/lib/image-upload"
 import { cn } from "@/lib/utils"
@@ -100,9 +105,6 @@ const PRESET_TAGS = [
   "Combo",
 ]
 
-const PREPARATION_TIME_OPTIONS = [
-  10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 75, 90,
-]
 const DEFAULT_MAP_CENTER = { latitude: 24.8831, longitude: 90.7282 }
 const restaurantMarkerIcon = L.divIcon({
   className: "",
@@ -319,8 +321,11 @@ function validateStoreSettings(
   if (!isValidBangladeshPhone(settings.phone)) {
     errors.phone = "Enter a valid 11-digit restaurant contact number."
   }
-  if (settings.orderSettings.preparationTimeMinutes <= 0) {
-    errors.preparationTimeMinutes = "Preparation time must be greater than 0."
+  if (
+    settings.orderSettings.preparationTimeMinutes < MIN_PREPARATION_TIME_MINUTES ||
+    settings.orderSettings.preparationTimeMinutes > MAX_PREPARATION_TIME_MINUTES
+  ) {
+    errors.preparationTimeMinutes = `Preparation time must be between ${MIN_PREPARATION_TIME_MINUTES} and ${MAX_PREPARATION_TIME_MINUTES} minutes.`
   }
 
   return errors

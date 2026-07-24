@@ -32,6 +32,30 @@ const reviewSchema = new Schema(
     flaggedAt: { type: Date, default: null },
     flaggedByAdminId: { type: String, default: "" },
     flaggedReason: { type: String, default: "" },
+    ownerHideRequest: {
+      status: {
+        type: String,
+        enum: ["none", "pending", "approved", "rejected", "cancelled"],
+        default: "none"
+      },
+      reasonCategory: {
+        type: String,
+        enum: [
+          "",
+          "fake_spam",
+          "abusive_language",
+          "wrong_restaurant_or_order",
+          "unfair_misleading",
+          "other"
+        ],
+        default: ""
+      },
+      note: { type: String, default: "" },
+      requestedAt: { type: Date, default: null },
+      reviewedAt: { type: Date, default: null },
+      reviewedByAdminId: { type: String, default: "" },
+      adminNote: { type: String, default: "" }
+    },
     moderationHistory: {
       type: [
         {
@@ -50,6 +74,7 @@ const reviewSchema = new Schema(
 reviewSchema.index({ restaurantId: 1, createdAt: -1 })
 reviewSchema.index({ restaurantId: 1, moderationStatus: 1, isHidden: 1, createdAt: -1 })
 reviewSchema.index({ moderationStatus: 1, isHidden: 1, createdAt: -1 })
+reviewSchema.index({ "ownerHideRequest.status": 1, createdAt: -1 })
 reviewSchema.index({ customerId: 1, createdAt: -1 })
 // One review per order. Partial so it only constrains real order-linked reviews —
 // reviews with a null orderId (non-order sources) are exempt and can coexist. This is

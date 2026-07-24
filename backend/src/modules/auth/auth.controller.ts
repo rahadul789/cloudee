@@ -20,6 +20,27 @@ import {
   verifyOwnerOtpSignin,
   verifyOtpSession
 } from "./auth.service"
+import { redeemOwnerImpersonation } from "./impersonation.service"
+
+const impersonationRedeemSchema = z.object({
+  code: z.string().trim().min(10).max(200)
+})
+
+export const redeemOwnerImpersonationSession = asyncHandler(
+  async (req: Request, res: Response) => {
+    const payload = impersonationRedeemSchema.parse(req.body)
+    const data = await redeemOwnerImpersonation({
+      code: payload.code,
+      userAgent: req.headers["user-agent"],
+      ipAddress: req.ip
+    })
+
+    return sendSuccess(res, {
+      message: "Impersonation session started",
+      data
+    })
+  }
+)
 
 const ownerSignupSchema = z.object({
   fullName: z.string().min(1),

@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { ErrorRetryCard } from "@/src/components/error-retry-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
@@ -217,7 +218,18 @@ export default function OfferDetailsScreen() {
 
       {offerQuery.isLoading && !displayOffer ? (
         <DetailsSkeleton />
-      ) : (offerQuery.isError && !displayOffer) || !displayOffer ? (
+      ) : offerQuery.isError && !displayOffer && Boolean(notificationId) ? (
+        <View style={styles.feedbackWrap}>
+          <ErrorRetryCard
+            title="Couldn't load this offer"
+            description="We couldn't load this offer right now. Check your connection and try again."
+            onRetry={() => {
+              void offerQuery.refetch();
+            }}
+            retrying={offerQuery.isFetching}
+          />
+        </View>
+      ) : !displayOffer ? (
         <View style={styles.feedbackWrap}>
           <EmptyStateCard
             title="Offer unavailable"

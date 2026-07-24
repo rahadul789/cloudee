@@ -394,7 +394,10 @@ export default function PayoutsScreen() {
                       ) : canLoadMoreHistory ? (
                         <Pressable
                           accessibilityRole="button"
-                          style={styles.loadMoreButton}
+                          style={({ pressed }) => [
+                            styles.loadMoreButton,
+                            pressed ? styles.loadMoreButtonPressed : null,
+                          ]}
                           onPress={() =>
                             setHistoryPageSize((current) => current + PAYOUT_HISTORY_PAGE_STEP)
                           }
@@ -689,9 +692,11 @@ function formatDate(value?: string | null, language: "bn" | "en" = "en") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--";
 
+  // Full month name: the abbreviated Bangla months read badly and got squeezed in the
+  // narrow balance columns. The label wraps instead of truncating.
   return new Intl.DateTimeFormat(dateLocale(language), {
-    day: "2-digit",
-    month: "short",
+    day: "numeric",
+    month: "long",
     year: "numeric",
   }).format(date);
 }
@@ -824,6 +829,9 @@ const styles = StyleSheet.create({
   },
   balanceMetaItem: {
     flex: 1,
+    // Without minWidth:0 a long Bangla label cannot shrink inside the flex row and
+    // gets clipped instead of wrapping.
+    minWidth: 0,
     gap: 3,
   },
   balanceMetaLabel: {
@@ -1207,6 +1215,10 @@ const styles = StyleSheet.create({
     minHeight: 58,
     alignItems: "center",
     justifyContent: "center",
+  },
+  loadMoreButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   loadMoreButton: {
     minHeight: 44,

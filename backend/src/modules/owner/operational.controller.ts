@@ -1,7 +1,9 @@
 import type { Response } from "express"
+import { StatusCodes } from "http-status-codes"
 import { z } from "zod"
 
 import type { AuthenticatedRequest } from "../../common/middleware/auth"
+import { AppError } from "../../common/utils/app-error"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
@@ -11,6 +13,7 @@ import {
   createMenuItem,
   extendOrderPreparation,
   getOrderById,
+  getOwnerSidebarSummary,
   assignOwnerRiderToOrder,
   listCategories,
   listCategoriesWithFilters,
@@ -26,15 +29,20 @@ import {
   updateCategory,
   updateMenuItem
 } from "./operational.service"
+import { listOwnerMenuApprovalRequests } from "./menu-approval.service"
+import {
+  MAX_CATALOG_DESCRIPTION_LIMIT,
+  getCatalogDescriptionLimits,
+} from "./catalog-limits"
 
 const categoryCreateSchema = z.object({
   name: z.string().min(1),
-  description: z.string().optional()
+  description: z.string().max(MAX_CATALOG_DESCRIPTION_LIMIT).optional()
 })
 
 const categoryUpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().max(MAX_CATALOG_DESCRIPTION_LIMIT).optional(),
   status: z.enum(["active", "archived"]).optional(),
   displayOrder: z.number().int().min(0).optional()
 })
@@ -42,7 +50,7 @@ const categoryUpdateSchema = z.object({
 const menuItemCreateSchema = z.object({
   categoryId: z.string().min(1),
   name: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().max(MAX_CATALOG_DESCRIPTION_LIMIT).optional(),
   images: z.array(z.object({ url: z.string().optional(), publicId: z.string().optional() })).optional(),
   status: z.enum(["active", "archived"]).default("active"),
   availability: z.enum(["available", "unavailable"]).default("available"),
@@ -57,7 +65,7 @@ const menuItemCreateSchema = z.object({
 const menuItemUpdateSchema = z.object({
   categoryId: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
-  description: z.string().optional(),
+  description: z.string().max(MAX_CATALOG_DESCRIPTION_LIMIT).optional(),
   images: z.array(z.object({ url: z.string().optional(), publicId: z.string().optional() })).optional(),
   status: z.enum(["active", "archived"]).optional(),
   availability: z.enum(["available", "unavailable"]).optional(),
@@ -88,6 +96,12 @@ const menuItemsListQuerySchema = z.object({
   sortBy: z.enum(["newestUpdated", "nameAsc", "nameDesc", "priceHigh", "priceLow"]).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional()
+})
+
+const menuApprovalListQuerySchema = z.object({
+  status: z
+    .enum(["active", "pending", "approved", "rejected", "cancelled", "superseded"])
+    .optional()
 })
 
 const orderTransitionSchema = z.object({
@@ -138,6 +152,20 @@ function getStringParam(value: unknown) {
   return ""
 }
 
+function assertCatalogDescriptionLimit(
+  value: string | undefined,
+  maxLength: number,
+  label: string
+) {
+  if (value === undefined || value.length <= maxLength) return
+
+  throw new AppError(
+    StatusCodes.BAD_REQUEST,
+    "DESCRIPTION_TOO_LONG",
+    `${label} description must be ${maxLength} characters or fewer.`
+  )
+}
+
 export const getOwnerCategories = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const query = categoryListQuerySchema.parse({
     search: getStringParam(req.query.search) || undefined,
@@ -158,6 +186,8 @@ export const getOwnerCategories = asyncHandler(async (req: AuthenticatedRequest,
 
 export const postOwnerCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const payload = categoryCreateSchema.parse(req.body)
+  const limits = await getCatalogDescriptionLimits()
+  assertCatalogDescriptionLimit(payload.description, limits.category, "Category")
   const data = await createCategory({
     ownerId: getOwnerId(req),
     ...payload
@@ -167,6 +197,8 @@ export const postOwnerCategory = asyncHandler(async (req: AuthenticatedRequest, 
 
 export const patchOwnerCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const payload = categoryUpdateSchema.parse(req.body)
+  const limits = await getCatalogDescriptionLimits()
+  assertCatalogDescriptionLimit(payload.description, limits.category, "Category")
   const data = await updateCategory({
     ownerId: getOwnerId(req),
     categoryId: getStringParam(req.params.categoryId),
@@ -211,23 +243,57 @@ export const getOwnerMenuItems = asyncHandler(async (req: AuthenticatedRequest, 
   return sendSuccess(res, { data })
 })
 
+export const getOwnerMenuApprovalRequests = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const query = menuApprovalListQuerySchema.parse({
+      status: getStringParam(req.query.status) || undefined
+    })
+    const data = await listOwnerMenuApprovalRequests({
+      ownerId: getOwnerId(req),
+      status: query.status
+    })
+    return sendSuccess(res, { data })
+  }
+)
+
+export const getOwnerSidebarSummaryController = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await getOwnerSidebarSummary(getOwnerId(req))
+  return sendSuccess(res, { data })
+})
+
 export const postOwnerMenuItem = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const payload = menuItemCreateSchema.parse(req.body)
+  const limits = await getCatalogDescriptionLimits()
+  assertCatalogDescriptionLimit(payload.description, limits.menuItem, "Menu item")
   const data = await createMenuItem({
     ownerId: getOwnerId(req),
     ...payload
   })
-  return sendSuccess(res, { message: "Menu item created successfully", data })
+  return sendSuccess(res, {
+    message:
+      data && typeof data === "object" && "approvalRequired" in data
+        ? "Menu item submitted for admin approval"
+        : "Menu item created successfully",
+    data
+  })
 })
 
 export const patchOwnerMenuItem = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const payload = menuItemUpdateSchema.parse(req.body)
+  const limits = await getCatalogDescriptionLimits()
+  assertCatalogDescriptionLimit(payload.description, limits.menuItem, "Menu item")
   const data = await updateMenuItem({
     ownerId: getOwnerId(req),
     itemId: getStringParam(req.params.itemId),
     ...payload
   })
-  return sendSuccess(res, { message: "Menu item updated successfully", data })
+  return sendSuccess(res, {
+    message:
+      data && typeof data === "object" && "approvalRequired" in data
+        ? "Menu item price change submitted for admin approval"
+        : "Menu item updated successfully",
+    data
+  })
 })
 
 export const deleteOwnerMenuItem = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {

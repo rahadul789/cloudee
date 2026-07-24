@@ -10,8 +10,10 @@ import {
   type OwnerListResponse,
   type OwnerNotificationResponse,
   type OwnerOrderResponse,
+  type OwnerSidebarSummaryResponse,
 } from "@/lib/backend-mappers"
 import { patchOwnerOrderQueryCaches } from "@/lib/owner-order-cache"
+import { dispatchOwnerNewOrderEvent } from "@/lib/owner-realtime-events"
 import { useAppStore } from "@/store/app-store"
 import type { Order } from "@/components/orders/types"
 
@@ -46,8 +48,37 @@ const activeOrderStatuses = new Set([
   "PickedUp",
 ])
 
+function isLiveOrder(order: Order | null | undefined) {
+  return Boolean(order && activeOrderStatuses.has(order.currentStatus))
+}
+
 function isValidPlacedOrder(order: Order) {
   return order.currentStatus !== "Cancelled" && order.currentStatus !== "Rejected"
+}
+
+function patchSidebarSummaryForOrderChange(
+  summary: OwnerSidebarSummaryResponse,
+  previousOrder: Order | null,
+  nextOrder: Order,
+  eventType: "created" | "updated"
+) {
+  const previousLive = isLiveOrder(previousOrder)
+  const nextLive = isLiveOrder(nextOrder)
+  const liveDelta =
+    eventType === "created"
+      ? nextLive
+        ? 1
+        : 0
+      : previousOrder
+        ? Number(nextLive) - Number(previousLive)
+        : 0
+
+  if (liveDelta === 0) return summary
+
+  return {
+    ...summary,
+    liveOrders: Math.max(0, summary.liveOrders + liveDelta),
+  }
 }
 
 function isWithinSummaryRange(summary: OwnerDashboardSummaryResponse, isoDate?: string | null) {
@@ -130,6 +161,16 @@ function patchDashboardSummaryForOrderChange(
   return applyOrderDeltaToDashboardSummary(nextSummary, nextOrder, 1)
 }
 
+function shouldRefreshPayoutsForOrderChange(
+  previousOrder: Order | null,
+  nextOrder: Order
+) {
+  return (
+    previousOrder?.currentStatus === "Delivered" ||
+    nextOrder.currentStatus === "Delivered"
+  )
+}
+
 export function useOwnerSocketBridge() {
   const ownerAccount = useAppStore((state) => state.ownerAccount)
   const setNotifications = useAppStore((state) => state.setNotifications)
@@ -137,11 +178,19 @@ export function useOwnerSocketBridge() {
   const queryClient = useQueryClient()
   const joinedRef = React.useRef<string | null>(null)
   const tokenRef = React.useRef<string | null>(null)
+  const alertedNewOrderIdsRef = React.useRef<Set<string>>(new Set())
+  const realtimeRefreshTimerRef = React.useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const disconnectedRefreshTimerRef = React.useRef<ReturnType<typeof window.setInterval> | null>(null)
 
   React.useEffect(() => {
     if (!ownerAccount.isAuthenticated) {
       joinedRef.current = null
       tokenRef.current = null
+      alertedNewOrderIdsRef.current.clear()
+      if (disconnectedRefreshTimerRef.current) {
+        window.clearInterval(disconnectedRefreshTimerRef.current)
+        disconnectedRefreshTimerRef.current = null
+      }
       disconnectOwnerSocket()
       return
     }
@@ -153,12 +202,65 @@ export function useOwnerSocketBridge() {
 
     if (joinedRef.current !== ownerId || tokenRef.current !== accessToken) {
       connectOwnerSocket(ownerId, accessToken)
+      alertedNewOrderIdsRef.current.clear()
       joinedRef.current = ownerId
       tokenRef.current = accessToken
     }
 
     const socket = getOwnerSocket()
     const ensureJoined = () => socket.emit("owner:join", ownerId)
+    const refreshOwnerRealtimeState = () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+      void queryClient.refetchQueries({ queryKey: ["owner", "sidebar-summary"], type: "active" })
+      void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] })
+    }
+    const refreshOwnerDisconnectedFallbackState = () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+      void queryClient.refetchQueries({ queryKey: ["owner", "sidebar-summary"], type: "active" })
+      void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" })
+    }
+    const stopDisconnectedRefresh = () => {
+      if (!disconnectedRefreshTimerRef.current) return
+      window.clearInterval(disconnectedRefreshTimerRef.current)
+      disconnectedRefreshTimerRef.current = null
+    }
+    const startDisconnectedRefresh = () => {
+      if (disconnectedRefreshTimerRef.current) return
+      refreshOwnerDisconnectedFallbackState()
+      disconnectedRefreshTimerRef.current = window.setInterval(
+        refreshOwnerDisconnectedFallbackState,
+        15_000
+      )
+    }
+    const scheduleOwnerRealtimeRefresh = (options?: { includePayouts?: boolean }) => {
+      if (realtimeRefreshTimerRef.current) {
+        window.clearTimeout(realtimeRefreshTimerRef.current)
+      }
+
+      realtimeRefreshTimerRef.current = window.setTimeout(() => {
+        realtimeRefreshTimerRef.current = null
+        void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+        void queryClient.refetchQueries({ queryKey: ["owner", "sidebar-summary"], type: "active" })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "orders"] })
+        void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] })
+        if (options?.includePayouts) {
+          void queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] })
+        }
+      }, 180)
+    }
+    const handleConnected = () => {
+      stopDisconnectedRefresh()
+      ensureJoined()
+      refreshOwnerRealtimeState()
+    }
+    const handleDisconnected = () => {
+      startDisconnectedRefresh()
+    }
     const reconnectWithFreshToken = () => {
       const latestSession = resolveOwnerSession()
       if (!latestSession) {
@@ -171,8 +273,11 @@ export function useOwnerSocketBridge() {
       connectOwnerSocket(latestSession.ownerId, latestSession.accessToken)
       joinedRef.current = latestSession.ownerId
       tokenRef.current = latestSession.accessToken
+      socket.emit("owner:join", latestSession.ownerId)
+      refreshOwnerRealtimeState()
     }
-    socket.on("connect", ensureJoined)
+    socket.on("connect", handleConnected)
+    socket.on("disconnect", handleDisconnected)
     window.addEventListener(OWNER_ACCESS_TOKEN_UPDATED_EVENT, reconnectWithFreshToken)
 
     const handleNotification = (payload: OwnerNotificationResponse) => {
@@ -203,6 +308,19 @@ export function useOwnerSocketBridge() {
         }
       )
       queryClient.invalidateQueries({ queryKey: ["owner", "notifications"] })
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current
+            ? {
+                ...current,
+                unreadNotifications:
+                  current.unreadNotifications + (payload.isRead ? 0 : 1),
+              }
+            : current
+      )
+      queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+      scheduleOwnerRealtimeRefresh({ includePayouts: mapped.type === "payout" })
 
       if (mapped.type === "payout") {
         queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "summary"] })
@@ -213,10 +331,12 @@ export function useOwnerSocketBridge() {
 
       if (mapped.type === "review") {
         queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] })
+        queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
       }
 
       if (mapped.type === "promotion") {
         queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] })
+        queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
       }
 
       if (mapped.type === "support") {
@@ -224,11 +344,25 @@ export function useOwnerSocketBridge() {
       }
     }
 
-    const handleOrderUpdated = (payload: OwnerOrderResponse) => {
+    const handleOrderRealtime = (
+      payload: OwnerOrderResponse,
+      eventType: "created" | "updated"
+    ) => {
       const mapped = mapOwnerOrder(payload)
-      let previousOrder: Order | null = null
+      const previousOrder =
+        useAppStore
+          .getState()
+          .orders.find((order) => order.id === mapped.id) ?? null
+      const shouldShowNewOrderModal =
+        mapped.currentStatus === "New" &&
+        !alertedNewOrderIdsRef.current.has(mapped.id) &&
+        (eventType === "created" || !previousOrder)
+
+      if (shouldShowNewOrderModal) {
+        alertedNewOrderIdsRef.current.add(mapped.id)
+      }
+
       setOrders((current) => {
-        previousOrder = current.find((order) => order.id === mapped.id) ?? null
         const exists = current.some((order) => order.id === mapped.id)
         return exists
           ? current.map((order) => (order.id === mapped.id ? mapped : order))
@@ -236,6 +370,18 @@ export function useOwnerSocketBridge() {
       })
 
       patchOwnerOrderQueryCaches(queryClient, payload)
+      queryClient.setQueryData(
+        ["owner", "sidebar-summary"],
+        (current: OwnerSidebarSummaryResponse | undefined) =>
+          current
+            ? patchSidebarSummaryForOrderChange(
+                current,
+                previousOrder,
+                mapped,
+                eventType
+              )
+            : current
+      )
       queryClient.setQueriesData(
         { queryKey: ["owner", "dashboard", "summary"] },
         (current: unknown) => {
@@ -248,15 +394,30 @@ export function useOwnerSocketBridge() {
         }
       )
       void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard", "summary"] })
-      void queryClient.refetchQueries({ queryKey: ["owner", "orders"], type: "active" })
-      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "summary"] })
-      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "history"] })
-      void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "transactions"] })
+      if (shouldRefreshPayoutsForOrderChange(previousOrder, mapped)) {
+        scheduleOwnerRealtimeRefresh({ includePayouts: true })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "summary"] })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "history"] })
+        void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "transactions"] })
+      } else {
+        scheduleOwnerRealtimeRefresh()
+      }
+
+      if (shouldShowNewOrderModal) {
+        window.setTimeout(() => dispatchOwnerNewOrderEvent(mapped.id), 0)
+      }
     }
 
     const handleMenuUpdated = () => {
       void queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "menu-approval-requests"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "categories"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
       void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard", "summary"] })
+    }
+    const handleMenuApprovalUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner", "menu-approval-requests"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] })
     }
     const handleStoreUpdated = () => {
       void queryClient.invalidateQueries({ queryKey: ["owner", "store-settings"] })
@@ -264,7 +425,14 @@ export function useOwnerSocketBridge() {
     }
     const handlePromotionUpdated = () => {
       void queryClient.invalidateQueries({ queryKey: ["owner", "vouchers"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+      void queryClient.refetchQueries({ queryKey: ["owner", "sidebar-summary"], type: "active" })
       void queryClient.invalidateQueries({ queryKey: ["owner", "dashboard", "summary"] })
+    }
+    const handleReviewUpdated = () => {
+      void queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] })
+      void queryClient.invalidateQueries({ queryKey: ["owner", "sidebar-summary"] })
+      void queryClient.refetchQueries({ queryKey: ["owner", "sidebar-summary"], type: "active" })
     }
     const handlePayoutMethodUpdated = () => {
       void queryClient.invalidateQueries({ queryKey: ["owner", "payouts", "summary"] })
@@ -280,22 +448,42 @@ export function useOwnerSocketBridge() {
     }
 
     socket.on("notification.created", handleNotification)
+    const handleOrderCreated = (payload: OwnerOrderResponse) =>
+      handleOrderRealtime(payload, "created")
+    const handleOrderUpdated = (payload: OwnerOrderResponse) =>
+      handleOrderRealtime(payload, "updated")
+    socket.on("order.created", handleOrderCreated)
     socket.on("order.updated", handleOrderUpdated)
     socket.on("payout.method.updated", handlePayoutMethodUpdated)
     socket.on("payout.updated", handlePayoutUpdated)
     socket.on("menu.updated", handleMenuUpdated)
+    socket.on("menu.approval.updated", handleMenuApprovalUpdated)
     socket.on("store.updated", handleStoreUpdated)
     socket.on("promotion.updated", handlePromotionUpdated)
+    socket.on("review.updated", handleReviewUpdated)
+
+    if (!socket.connected) {
+      startDisconnectedRefresh()
+    }
 
     return () => {
+      if (realtimeRefreshTimerRef.current) {
+        window.clearTimeout(realtimeRefreshTimerRef.current)
+        realtimeRefreshTimerRef.current = null
+      }
+      stopDisconnectedRefresh()
       socket.off("notification.created", handleNotification)
+      socket.off("order.created", handleOrderCreated)
       socket.off("order.updated", handleOrderUpdated)
       socket.off("payout.method.updated", handlePayoutMethodUpdated)
       socket.off("payout.updated", handlePayoutUpdated)
       socket.off("menu.updated", handleMenuUpdated)
+      socket.off("menu.approval.updated", handleMenuApprovalUpdated)
       socket.off("store.updated", handleStoreUpdated)
       socket.off("promotion.updated", handlePromotionUpdated)
-      socket.off("connect", ensureJoined)
+      socket.off("review.updated", handleReviewUpdated)
+      socket.off("connect", handleConnected)
+      socket.off("disconnect", handleDisconnected)
       window.removeEventListener(OWNER_ACCESS_TOKEN_UPDATED_EVENT, reconnectWithFreshToken)
       disconnectOwnerSocket()
     }

@@ -1,8 +1,30 @@
+export type RestaurantClosedReason =
+  | "restricted"
+  | "service_window"
+  | "schedule"
+  | "owner_busy";
+
+export type RestaurantAvailability = {
+  isOpen: boolean;
+  closedReason: RestaurantClosedReason | null;
+  /** e.g. "11:00 AM" / "Tomorrow 2:00 PM" — present for service_window & schedule. */
+  opensAtLabel: string | null;
+  /** Absolute reopen instant; countdown = opensAtEpochMs - Date.now(). null if unknown. */
+  opensAtEpochMs: number | null;
+};
+
+export type AreaServiceWindow = {
+  isOpen: boolean;
+  opensAtLabel: string | null;
+  opensAtEpochMs: number | null;
+};
+
 export type DiscoverableRestaurant = {
   _id: string;
   name: string;
   slug: string;
   isOpen?: boolean;
+  availability?: RestaurantAvailability;
   description?: string;
   cuisineTypes?: string[];
   tags?: string[];
@@ -296,8 +318,22 @@ export type CustomerHomeTimeBasedSection = {
   restaurants: DiscoverableRestaurant[];
 };
 
+export type CustomerActivePoll = {
+  pollId: string;
+  question: string;
+  imageUrl: string;
+  options: { id: string; label: string }[];
+  allowFeedback: boolean;
+  feedbackPrompt: string;
+  showResultsToUser: boolean;
+  thanksMessage: string;
+  endsAt: string | null;
+};
+
 export type CustomerDiscoveryHome = {
   homeBanner: CustomerHomeBanner | null;
+  areaServiceWindow?: AreaServiceWindow;
+  activePoll?: CustomerActivePoll | null;
   homeCms?: CustomerHomeCms;
   timeBasedSection?: CustomerHomeTimeBasedSection | null;
   featuredRestaurants: DiscoverableRestaurant[];
@@ -317,6 +353,9 @@ export type DiscoverableRestaurantsPage = {
   pageCount: number;
   hasNextPage: boolean;
   nextPage: number | null;
+  /** Does the location have ANY serviceable restaurant, regardless of the active filter?
+   *  Lets Browse tell "everything's closed right now" apart from "not in this area yet". */
+  areaHasRestaurants?: boolean;
 };
 
 export type CustomerRestaurantDetails = {

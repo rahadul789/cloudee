@@ -14,6 +14,8 @@ import {
 } from "react-native";
 
 import { Screen } from "@/src/components/screen";
+import { EnforcementNotice } from "@/src/components/enforcement-notice";
+import { ServiceHoursNotice } from "@/src/components/service-hours-notice";
 import { OwnerHeaderActions } from "@/src/components/owner-header-actions";
 import { StatusPill } from "@/src/components/status-pill";
 import {
@@ -24,7 +26,7 @@ import {
 } from "@/src/hooks/use-owner-api";
 import { useNow } from "@/src/hooks/use-now";
 import { useOwnerTranslation } from "@/src/i18n/translations";
-import { formatTime, getOrderPlacedAt } from "@/src/lib/format";
+import { formatCurrency, formatTime, getOrderPlacedAt, localizeDigits } from "@/src/lib/format";
 import {
   formatAutoCancelCountdown,
   getAutoCancelRemainingSeconds,
@@ -53,13 +55,26 @@ export default function TodayScreen() {
   const store = storeQuery.data;
   const dashboard = dashboardQuery.data;
   const liveOrders = liveOrdersQuery.data?.items ?? [];
+  // The list itself is capped at 5, so the badge uses the server total.
+  const liveOrderCount = liveOrdersQuery.data?.total ?? liveOrders.length;
   const isOnline = store?.runtime?.isOnline ?? dashboard?.restaurant.isOnline ?? false;
   const savedPrepMinutes =
     typeof store?.preparationTimeMinutes === "number"
       ? store.preparationTimeMinutes
       : null;
+  // Quality hold / suspension / permanent disable block going online. `under_review`
+  // does not, so it must not disable the switch.
+  const isRestricted = Boolean(store?.enforcement?.isRestricted);
+  const isToggleDisabled = statusMutation.isPending || isRestricted;
+  const ratingAverage = dashboard?.restaurant.rating?.average ?? 0;
+  const ratingCount = dashboard?.restaurant.rating?.count ?? 0;
+  const salesToday = dashboard?.metrics.totalRevenue ?? 0;
 
   async function handleToggleOnline() {
+    if (isToggleDisabled) {
+      return;
+    }
+
     try {
       await statusMutation.mutateAsync({ isOnline: !isOnline });
     } catch {
@@ -92,6 +107,9 @@ export default function TodayScreen() {
           />
         }
       >
+        <EnforcementNotice variant="card" enabled={isFocused} />
+        <ServiceHoursNotice enabled={isFocused} />
+
         <View style={styles.restaurantCard}>
           <View style={styles.restaurantTop}>
             <View style={styles.restaurantNameWrap}>
@@ -101,46 +119,144 @@ export default function TodayScreen() {
             </View>
             <OwnerHeaderActions />
           </View>
-          <View style={styles.restaurantStateRow}>
+
+          {/* The online switch is the most consequential control in the app, so it
+              lives in its own colour-coded strip rather than inside the stat row —
+              a mis-tap on a stat tile must never take the store offline. */}
+          <View
+            style={[
+              styles.statusStrip,
+              isOnline ? styles.statusStripOnline : styles.statusStripOffline,
+            ]}
+          >
             <StatusPill
               label={isOnline ? t("status.online") : t("status.offline")}
               tone={isOnline ? "success" : "danger"}
             />
             <View style={styles.switchWrap}>
-              {statusMutation.isPending ? (
-                <ActivityIndicator size="small" color={palette.primary} />
-              ) : null}
+              {/* Fixed-width slot: the spinner (or the restricted lock) occupies the
+                  same space whether or not it is visible, so the Switch never shifts. */}
+              <View style={styles.switchSlot}>
+                {statusMutation.isPending ? (
+                  <ActivityIndicator size="small" color={palette.primary} />
+                ) : isRestricted ? (
+                  <Ionicons name="lock-closed" size={15} color={palette.danger} />
+                ) : null}
+              </View>
+              {/* Solid track + white thumb: the old *Soft palette tints were almost the
+                  same value as the strip behind them, so only the thumb was visible.
+                  Not disabled while saving — greying it out mid-flip reads as a glitch;
+                  handleToggleOnline guards re-entry instead. */}
               <Switch
                 value={isOnline}
-                disabled={statusMutation.isPending}
+                disabled={isRestricted}
                 onValueChange={handleToggleOnline}
-                trackColor={{ false: palette.dangerSoft, true: palette.successSoft }}
-                thumbColor={isOnline ? palette.success : palette.danger}
+                trackColor={{ false: "#C7CBD4", true: palette.success }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#C7CBD4"
               />
             </View>
           </View>
-          <View style={styles.prepSummaryRow}>
-            <View style={styles.prepSummaryCopy}>
-              <Ionicons name="restaurant-outline" size={15} color={palette.primary} />
-              <Text style={styles.prepSummaryText}>
-                {t("today.prepTime")}:{" "}
-                {savedPrepMinutes ? `${savedPrepMinutes} min` : t("today.notSet")}
-              </Text>
-            </View>
+
+          {/* Every tile in this row navigates — one consistent interaction rule. */}
+          <View style={styles.kpiRow}>
             <Pressable
               accessibilityRole="button"
-              hitSlop={8}
-              style={styles.prepEditButton}
+              style={({ pressed }) => [
+                styles.kpiTile,
+                pressed ? styles.kpiTilePressed : null,
+              ]}
+              onPress={() => router.push("/reviews" as never)}
+            >
+              <View style={styles.kpiValueRow}>
+                <Ionicons name="star" size={13} color={palette.warning} />
+                <Text style={styles.kpiValue}>
+                  {ratingCount > 0
+                    ? localizeDigits(ratingAverage.toFixed(1))
+                    : t("today.noRating")}
+                </Text>
+              </View>
+              <Text numberOfLines={1} style={styles.kpiLabel}>
+                {ratingCount > 0
+                  ? `${localizeDigits(String(ratingCount))} ${t("today.ratingsCount")}`
+                  : t("today.rating")}
+              </Text>
+            </Pressable>
+
+            <View style={styles.kpiDivider} />
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.kpiTile,
+                pressed ? styles.kpiTilePressed : null,
+              ]}
               onPress={() => router.push("/account-preparation-time" as never)}
             >
-              <Ionicons name="create-outline" size={16} color={palette.foreground} />
+              <View style={styles.kpiValueRow}>
+                <Ionicons name="time" size={13} color={palette.primary} />
+                <Text style={styles.kpiValue}>
+                  {savedPrepMinutes
+                    ? `${localizeDigits(String(savedPrepMinutes))} ${t("today.minutesShort")}`
+                    : t("today.notSet")}
+                </Text>
+              </View>
+              <Text numberOfLines={1} style={styles.kpiLabel}>
+                {t("today.prepTime")}
+              </Text>
+            </Pressable>
+
+            <View style={styles.kpiDivider} />
+
+            <Pressable
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.kpiTile,
+                pressed ? styles.kpiTilePressed : null,
+              ]}
+              onPress={() => router.push("/sales" as never)}
+            >
+              <View style={styles.kpiValueRow}>
+                <Ionicons name="stats-chart" size={13} color={palette.success} />
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  style={styles.kpiValue}
+                >
+                  {formatCurrency(salesToday)}
+                </Text>
+              </View>
+              <Text numberOfLines={1} style={styles.kpiLabel}>
+                {t("today.salesToday")}
+              </Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t("today.liveOrders")}</Text>
-          <Pressable onPress={() => router.push("/(tabs)/orders" as never)}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>{t("today.liveOrders")}</Text>
+            {liveOrderCount > 0 ? (
+              <View style={styles.sectionCountPill}>
+                <Text style={styles.sectionCountText}>
+                  {localizeDigits(String(liveOrderCount))}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          {/* Deep-links into the Orders tab with the Live filter already selected, so
+              "View all" lands on the same set the owner was just looking at. */}
+          <Pressable
+            hitSlop={8}
+            style={({ pressed }) => (pressed ? styles.sectionActionPressed : null)}
+            onPress={() =>
+              router.push({
+                pathname: "/(tabs)/orders",
+                params: { status: "live", ts: String(Date.now()) },
+              } as never)
+            }
+          >
             <Text style={styles.sectionAction}>{t("today.viewAll")}</Text>
           </Pressable>
         </View>
@@ -163,17 +279,21 @@ export default function TodayScreen() {
                 prepStartSeconds !== null || prepRemainingSeconds !== null;
               const prepPillText =
                 order.status === "Accepted" && prepStartSeconds !== null
-                  ? `${t("orders.prepIn")} ${formatAutoCancelCountdown(prepStartSeconds)}`
+                  ? `${t("orders.prepIn")} ${localizeDigits(formatAutoCancelCountdown(prepStartSeconds))}`
                   : order.status === "Preparing" && prepRemainingSeconds !== null
                     ? prepRemainingSeconds > 0
-                      ? `${t("orders.prep")} ${formatAutoCancelCountdown(prepRemainingSeconds)}`
-                      : `${t("orders.late")} ${formatAutoCancelCountdown(prepLateSeconds)}`
+                      ? `${t("orders.prep")} ${localizeDigits(formatAutoCancelCountdown(prepRemainingSeconds))}`
+                      : `${t("orders.late")} ${localizeDigits(formatAutoCancelCountdown(prepLateSeconds))}`
                     : "";
 
               return (
                 <Pressable
                   key={order._id}
-                  style={[styles.orderCard, isLate ? styles.orderCardLate : null]}
+                  style={({ pressed }) => [
+                    styles.orderCard,
+                    isLate ? styles.orderCardLate : null,
+                    pressed ? styles.orderCardPressed : null,
+                  ]}
                   onPress={() =>
                     router.push({
                       pathname: "/orders/[orderId]",
@@ -186,7 +306,8 @@ export default function TodayScreen() {
                       <Text style={styles.orderNumber}>{order.orderNumber}</Text>
                       <Text style={styles.orderMeta}>
                         {order.customerSnapshot?.fullName || t("today.customer")} -{" "}
-                        {order.itemsSnapshot?.length ?? 0} {t("today.items")}
+                        {localizeDigits(String(order.itemsSnapshot?.length ?? 0))}{" "}
+                        {t("today.items")}
                       </Text>
                       {order.status === "New" ? (
                         <Text style={styles.orderPlacedText}>
@@ -211,7 +332,9 @@ export default function TodayScreen() {
                             color={palette.danger}
                           />
                           <Text style={styles.autoCancelText}>
-                            {formatAutoCancelCountdown(autoCancelSeconds)}
+                            {localizeDigits(
+                              formatAutoCancelCountdown(autoCancelSeconds),
+                            )}
                           </Text>
                         </View>
                       ) : null}
@@ -289,57 +412,87 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
   },
-  restaurantStateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
   restaurantName: {
     fontSize: 20,
     lineHeight: 26,
     fontWeight: "900",
     color: palette.foreground,
   },
-  prepSummaryRow: {
-    minHeight: 38,
-    borderRadius: 14,
-    backgroundColor: palette.primarySoft,
+  statusStrip: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
     paddingLeft: 11,
-    paddingRight: 6,
+    paddingRight: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
-  prepSummaryCopy: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
+  statusStripOnline: {
+    backgroundColor: palette.successSoft,
+    borderColor: "rgba(20, 152, 91, 0.24)",
   },
-  prepSummaryText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  prepEditButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 11,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+  statusStripOffline: {
+    backgroundColor: palette.dangerSoft,
+    borderColor: "rgba(180, 35, 24, 0.22)",
   },
   switchWrap: {
     minHeight: 44,
-    minWidth: 78,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     gap: 6,
+  },
+  switchSlot: {
+    width: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kpiRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    borderRadius: 16,
+    backgroundColor: palette.surfaceMuted,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  kpiTile: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  // Matches the customer app's press feedback: a small scale/lift rather than a
+  // heavy fade, which washed the card out.
+  kpiTilePressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
+  },
+  kpiValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  kpiValue: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  kpiLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  kpiDivider: {
+    width: 1,
+    marginVertical: 4,
+    backgroundColor: palette.border,
   },
   prepCard: {
     borderRadius: 22,
@@ -443,17 +596,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   sectionTitle: {
     fontSize: 19,
     lineHeight: 25,
     fontWeight: "900",
     color: palette.foreground,
   },
+  sectionCountPill: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    backgroundColor: palette.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionCountText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
   sectionAction: {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "900",
     color: palette.primary,
+  },
+  sectionActionPressed: {
+    opacity: 0.7,
   },
   feedbackCard: {
     minHeight: 120,
@@ -482,6 +658,10 @@ const styles = StyleSheet.create({
   orderCardLate: {
     borderColor: "rgba(239, 68, 68, 0.32)",
     backgroundColor: "#FFF7F8",
+  },
+  orderCardPressed: {
+    transform: [{ scale: 0.985 }, { translateY: 1 }],
+    opacity: 0.95,
   },
   orderRow: {
     flexDirection: "row",

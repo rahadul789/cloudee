@@ -28,12 +28,16 @@ function buildJwtPayload(params: {
   role: AuthRole
   restaurantId?: string
   tokenId?: string
+  impersonatedByAdminId?: string
 }): JwtPayload {
   return {
     sub: params.subject,
     role: params.role,
     restaurantId: params.restaurantId,
-    tokenId: params.tokenId
+    tokenId: params.tokenId,
+    ...(params.impersonatedByAdminId
+      ? { impersonatedByAdminId: params.impersonatedByAdminId }
+      : {})
   }
 }
 
@@ -42,9 +46,13 @@ export function signAccessToken(params: {
   role: AuthRole
   restaurantId?: string
   tokenId?: string
+  impersonatedByAdminId?: string
+  // Overrides env.JWT_ACCESS_EXPIRES_IN — used to keep admin-impersonation tokens
+  // short-lived (they intentionally have no refresh path).
+  expiresIn?: SignOptions["expiresIn"]
 }) {
   return jwt.sign(buildJwtPayload(params), env.JWT_ACCESS_SECRET, {
-    expiresIn: env.JWT_ACCESS_EXPIRES_IN as SignOptions["expiresIn"]
+    expiresIn: params.expiresIn ?? (env.JWT_ACCESS_EXPIRES_IN as SignOptions["expiresIn"])
   })
 }
 

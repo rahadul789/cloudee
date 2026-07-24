@@ -3,7 +3,11 @@ import { Router } from "express"
 import { requireAuth, requireRole } from "../../common/middleware/auth"
 import {
   getAdminPlatformContent,
+  getAdminPollDetail,
+  getAdminPollList,
   getAdminRestaurantsWithOffers,
+  postAdminClosePoll,
+  postAdminCreatePoll,
   postAdminCustomerHomePush,
   postAdminCustomerHomeTestPush,
   postAdminCustomerHomePushConversions,
@@ -21,6 +25,16 @@ adminPlatformContentRouter.get("/platform-content", getAdminPlatformContent)
 adminPlatformContentRouter.get(
   "/platform-content/restaurants-with-offers",
   getAdminRestaurantsWithOffers,
+)
+adminPlatformContentRouter.get("/platform-content/polls", getAdminPollList)
+adminPlatformContentRouter.post("/platform-content/polls", postAdminCreatePoll)
+adminPlatformContentRouter.get(
+  "/platform-content/polls/:pollId",
+  getAdminPollDetail,
+)
+adminPlatformContentRouter.post(
+  "/platform-content/polls/:pollId/close",
+  postAdminClosePoll,
 )
 adminPlatformContentRouter.put("/platform-content", putAdminPlatformContent)
 adminPlatformContentRouter.post("/platform-content/rollback", postAdminPlatformContentRollback)

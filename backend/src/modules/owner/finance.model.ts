@@ -34,6 +34,7 @@ ledgerEntrySchema.index({ restaurantId: 1, settlementStatus: 1, createdAt: -1 })
 ledgerEntrySchema.index({ restaurantId: 1, entryType: 1, orderId: 1 })
 ledgerEntrySchema.index({ restaurantId: 1, entryType: 1, settlementStatus: 1, availableAt: 1 })
 ledgerEntrySchema.index({ restaurantId: 1, entryType: 1, createdAt: -1 })
+ledgerEntrySchema.index({ restaurantId: 1, payoutBatchId: 1, createdAt: -1 })
 ledgerEntrySchema.index({ "serviceAreaSnapshot.zoneId": 1, entryType: 1, settlementStatus: 1, createdAt: -1 })
 ledgerEntrySchema.index({ "serviceAreaSnapshot.zoneSlug": 1, entryType: 1, settlementStatus: 1, createdAt: -1 })
 
@@ -62,6 +63,17 @@ const payoutBatchSchema = new Schema(
     approvedAt: { type: Date, default: null },
     processedByAdminId: { type: String, default: "" },
     failureReason: { type: String, default: "" },
+    statementReview: {
+      reviewed: { type: Boolean, default: false },
+      checksum: { type: String, default: "" },
+      reviewedByAdminId: { type: String, default: "" },
+      reviewedAt: { type: Date, default: null },
+      generatedAt: { type: Date, default: null },
+      amount: { type: Number, default: 0 },
+      selectedTotal: { type: Number, default: 0 },
+      residualAmount: { type: Number, default: 0 },
+      ledgerEntryCount: { type: Number, default: 0 },
+    },
     requestedAt: { type: Date, required: true },
     processedAt: { type: Date, default: null }
   },

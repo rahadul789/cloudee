@@ -22,16 +22,21 @@ import {
   type OwnerPayoutSummary,
 } from "@/src/hooks/use-owner-api";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
+import {
+  useOwnerTranslation,
+  type TranslationKey,
+} from "@/src/i18n/translations";
 import { palette } from "@/src/theme/palette";
 
 export default function PayoutMethodScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const numberInputRef = useRef<TextInput | null>(null);
   const owner = useOwnerAuthStore((state) => state.owner);
   const payoutQuery = useOwnerPayoutSummaryQuery();
   const updateMutation = useUpdateOwnerPayoutMethodMutation();
   const payoutMethod = payoutQuery.data?.payoutMethod;
-  const status = getPayoutMethodStatus(payoutMethod);
+  const status = getPayoutMethodStatus(payoutMethod, t);
   const [accountName, setAccountName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const currentAccountName =
@@ -58,12 +63,12 @@ export default function PayoutMethodScreen() {
     if (isUnchanged) return;
 
     if (!cleanAccountName) {
-      Alert.alert("Account name required", "Enter the bKash account holder name.");
+      Alert.alert(t("payoutMethod.errNameTitle"), t("payoutMethod.errNameBody"));
       return;
     }
 
     if (!/^01\d{9}$/.test(cleanNumber)) {
-      Alert.alert("Invalid bKash number", "Enter a valid 11-digit bKash number.");
+      Alert.alert(t("payoutMethod.errNumberTitle"), t("payoutMethod.errNumberBody"));
       numberInputRef.current?.focus();
       return;
     }
@@ -88,13 +93,13 @@ export default function PayoutMethodScreen() {
         return;
       }
 
-      Alert.alert("Payout number updated", "Your payout bKash number is up to date.", [
-        { text: "View payouts", onPress: () => router.replace("/(tabs)/payouts" as never) },
+      Alert.alert(t("payoutMethod.okTitle"), t("payoutMethod.okBody"), [
+        { text: t("payoutMethod.viewPayouts"), onPress: () => router.replace("/(tabs)/payouts" as never) },
       ]);
     } catch (error) {
       Alert.alert(
-        "Unable to update payout number",
-        error instanceof Error ? error.message : "Please try again.",
+        t("payoutMethod.errSaveTitle"),
+        error instanceof Error ? error.message : t("prep.tryAgain"),
       );
     }
   }
@@ -111,7 +116,7 @@ export default function PayoutMethodScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Header title="Payout bKash" onBack={() => router.back()} />
+        <Header title={t("payoutMethod.headerTitle")} onBack={() => router.back()} />
 
         <View style={styles.statusCard}>
           <View style={styles.statusTop}>
@@ -120,9 +125,9 @@ export default function PayoutMethodScreen() {
             </View>
             <StatusPill label={status.label} tone={status.tone} />
           </View>
-          <Text style={styles.statusTitle}>Active payout number</Text>
+          <Text style={styles.statusTitle}>{t("payoutMethod.activeNumber")}</Text>
           <Text style={styles.statusValue}>
-            {payoutMethod?.accountNumber || "Not active yet"}
+            {payoutMethod?.accountNumber || t("payoutMethod.notActiveYet")}
           </Text>
           <Text style={styles.statusText}>{status.detail}</Text>
         </View>
@@ -131,24 +136,23 @@ export default function PayoutMethodScreen() {
           <View style={styles.noticeCard}>
             <Ionicons name="shield-checkmark-outline" size={18} color={palette.info} />
             <Text style={styles.noticeText}>
-              After saving a new number, you will move to a verification screen.
-              Admin approval is required before the number becomes active.
+              {t("payoutMethod.notice")}
             </Text>
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Account holder name</Text>
+            <Text style={styles.label}>{t("payoutMethod.nameLabel")}</Text>
             <TextInput
               value={accountName}
               onChangeText={setAccountName}
-              placeholder="Restaurant owner name"
+              placeholder={t("payoutMethod.namePlaceholder")}
               placeholderTextColor="#9CA3AF"
               style={styles.input}
             />
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>bKash number</Text>
+            <Text style={styles.label}>{t("payoutMethod.numberLabel")}</Text>
             <TextInput
               ref={numberInputRef}
               value={accountNumber}
@@ -176,7 +180,7 @@ export default function PayoutMethodScreen() {
           ) : (
             <>
               <Text style={styles.primaryText}>
-                {isUnchanged ? "No changes yet" : "Continue to verification"}
+                {isUnchanged ? t("payoutMethod.noChanges") : t("payoutMethod.continue")}
               </Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </>
@@ -189,27 +193,28 @@ export default function PayoutMethodScreen() {
 }
 
 function getPayoutMethodStatus(
-  payoutMethod?: OwnerPayoutSummary["payoutMethod"],
+  payoutMethod: OwnerPayoutSummary["payoutMethod"] | undefined,
+  t: (key: TranslationKey) => string,
 ): { label: string; tone: "success" | "warning" | "danger"; detail: string } {
   if (!payoutMethod) {
     return {
-      label: "Setup needed",
+      label: t("payoutMethod.setupNeeded"),
       tone: "warning",
-      detail: "Add a payout bKash number before admin sends payouts.",
+      detail: t("payoutMethod.setupNeededBody"),
     };
   }
 
   if (payoutMethod.pendingVerificationStatus === "otp_pending") {
     return {
-      label: "OTP pending",
+      label: t("payoutMethod.otpPending"),
       tone: "warning",
-      detail: "Submit again to receive a fresh OTP for the pending number.",
+      detail: t("payoutMethod.otpPendingBody"),
     };
   }
 
   if (payoutMethod.pendingVerificationStatus === "admin_pending") {
     return {
-      label: "Pending",
+      label: t("payoutMethod.pending"),
       tone: "warning",
       detail: `New number ${payoutMethod.pendingAccountNumber ?? ""} is waiting for admin approval.`,
     };
@@ -217,26 +222,26 @@ function getPayoutMethodStatus(
 
   if (payoutMethod.pendingVerificationStatus === "rejected") {
     return {
-      label: "Rejected",
+      label: t("payoutMethod.rejected"),
       tone: "danger",
       detail: payoutMethod.pendingAdminNote
         ? `Last request rejected: ${payoutMethod.pendingAdminNote}`
-        : "Last number change was rejected. Submit a new number when ready.",
+        : t("payoutMethod.rejectedBody"),
     };
   }
 
   if (payoutMethod.isVerified) {
     return {
-      label: "Verified",
+      label: t("payoutMethod.verified"),
       tone: "success",
-      detail: "This number is currently active for owner payouts.",
+      detail: t("payoutMethod.verifiedBody"),
     };
   }
 
   return {
-    label: "Unverified",
+    label: t("payoutMethod.unverified"),
     tone: "warning",
-    detail: "Verify the payout number to make it ready for admin payout.",
+    detail: t("payoutMethod.unverifiedBody"),
   };
 }
 

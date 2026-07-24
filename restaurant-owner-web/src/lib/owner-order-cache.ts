@@ -35,7 +35,13 @@ type OwnerOrderQueryParams = {
 }
 
 function getPlacedAt(order: OwnerOrderResponse) {
-  return new Date(order.timestamps?.placedAt ?? 0).getTime()
+  return new Date(
+    order.timestamps?.createdAt ??
+      order.timestamps?.placedAt ??
+      order.timestamps?.New ??
+      order.createdAt ??
+      0
+  ).getTime()
 }
 
 function getHistoryTimestamp(order: OwnerOrderResponse) {
@@ -48,7 +54,10 @@ function getHistoryTimestamp(order: OwnerOrderResponse) {
   return new Date(
     order.timestamps?.[status] ??
       order.timestamps?.[timestampKey] ??
+      order.timestamps?.createdAt ??
       order.timestamps?.placedAt ??
+      order.timestamps?.New ??
+      order.createdAt ??
       0
   ).getTime()
 }

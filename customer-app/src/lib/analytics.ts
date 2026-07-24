@@ -1,4 +1,4 @@
-import { apiPost } from "@/src/lib/api";
+import { apiPostWithOptionalAuth } from "@/src/lib/api";
 import { appStateStorage } from "@/src/lib/app-storage";
 
 export const customerAnalyticsEventTypes = [
@@ -198,7 +198,9 @@ async function sendCustomerEvent(
         }
       : input.metadata;
 
-    await apiPost("/customer/analytics/events", {
+    // Optional-auth: attributes to the real customerId when signed in, stays anonymous for
+    // guests — otherwise every event (even a logged-in customer's) lands as a "guest".
+    await apiPostWithOptionalAuth("/customer/analytics/events", {
       ...input,
       metadata,
       anonymousId,

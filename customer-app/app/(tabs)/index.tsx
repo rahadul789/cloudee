@@ -4,9 +4,13 @@ import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Easing,
+  type LayoutChangeEvent,
   Linking,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,7 +20,12 @@ import {
   type ViewStyle,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  ServiceClosedHero,
+  ServiceClosedStickyPill,
+} from "@/src/components/service-closed-banner";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import {
   getBannerToneStyle,
@@ -24,6 +33,7 @@ import {
   HowToOrderGuideBlock,
   recordHomeCmsEvent,
 } from "@/src/components/home/home-cms-blocks";
+import { HomePollModal } from "@/src/components/home/home-poll-modal";
 import { styles } from "@/src/components/home/home-screen.styles";
 import { RemoteImage } from "@/src/components/remote-image";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
@@ -46,6 +56,7 @@ import { resolveCustomerRoute } from "@/src/lib/customer-routes";
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
+import { hasVotedPoll } from "@/src/lib/poll-vote-storage";
 import type {
   CustomerHomeCms,
   CustomerHomeRestaurantSectionConfig,
@@ -478,6 +489,26 @@ export default function HomeScreen() {
   const homeBanner = !isSearching ? (homeFeed?.homeBanner ?? null) : null;
   const homeCms = !isSearching ? (homeFeed?.homeCms ?? null) : null;
   const homeOfferStrip = homeCms?.offerStrip;
+
+  // The active poll (a standalone record) the backend says to show now — already excludes
+  // closed / past-deadline polls. We show it as a modal until this device has voted.
+  const activePoll = !isSearching ? (homeFeed?.activePoll ?? null) : null;
+  const activePollId = activePoll?.pollId ?? "";
+  const [hasVotedActivePoll, setHasVotedActivePoll] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (!activePollId) {
+      setHasVotedActivePoll(false);
+      return;
+    }
+    void hasVotedPoll(activePollId).then((voted) => {
+      if (active) setHasVotedActivePoll(voted);
+    });
+    return () => {
+      active = false;
+    };
+  }, [activePollId]);
+  const shouldShowPoll = Boolean(activePoll) && !hasVotedActivePoll;
   const restaurantSections = homeCms?.restaurantSections;
   const featuredSectionConfig = restaurantSections?.featured;
   const offersSectionConfig = restaurantSections?.offers;
@@ -806,17 +837,23 @@ export default function HomeScreen() {
   ]);
 
   useEffect(() => {
-    if (!isHomeFocused || !homeCms?.modal.isActive || isSearching) return;
-    if (homeCms.modal.frequency === "once_per_session" && homeCmsModalShown)
-      return;
-    const timer = setTimeout(
-      () => {
-        setShowHomeCmsModal(true);
-        setHomeCmsModalShown(true);
-        recordHomeCmsEvent("modal_impression");
-      },
-      Math.max(homeCms.modal.delaySeconds ?? 0, 0) * 1000,
-    );
+    if (!isHomeFocused || isSearching) return;
+    // Show at most one modal per session. An un-voted active poll takes priority over the
+    // promo modal. `homeCmsModalShown` stops it re-popping after the user closes it — the
+    // vote itself is remembered on-device so it won't return in future sessions either.
+    const pollWant = shouldShowPoll && !homeCmsModalShown;
+    const promoWant =
+      Boolean(homeCms?.modal.isActive) &&
+      !(homeCms?.modal.frequency === "once_per_session" && homeCmsModalShown);
+    if (!pollWant && !promoWant) return;
+    const delaySeconds = pollWant
+      ? 2
+      : Math.max(homeCms?.modal.delaySeconds ?? 0, 0);
+    const timer = setTimeout(() => {
+      setShowHomeCmsModal(true);
+      setHomeCmsModalShown(true);
+      if (!pollWant) recordHomeCmsEvent("modal_impression");
+    }, delaySeconds * 1000);
 
     return () => clearTimeout(timer);
   }, [
@@ -824,6 +861,7 @@ export default function HomeScreen() {
     homeCms?.modal.frequency,
     homeCms?.modal.isActive,
     homeCmsModalShown,
+    shouldShowPoll,
     isHomeFocused,
     isSearching,
   ]);
@@ -954,9 +992,50 @@ export default function HomeScreen() {
     }
   };
 
+  const insets = useSafeAreaInsets();
+  const closedStickyRevealRef = useRef(Number.POSITIVE_INFINITY);
+  const closedStickyShownRef = useRef(false);
+  const [closedStickyVisible, setClosedStickyVisible] = useState(false);
+
+  // Pause the closed-state countdown whenever it can't be seen: another tab focused, or the
+  // app backgrounded. Together with the components unmounting while the area is OPEN, the
+  // timer only ever ticks when someone is actually looking at the closed home.
+  const [isAppActive, setIsAppActive] = useState(
+    () => AppState.currentState === "active",
+  );
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) =>
+      setIsAppActive(state === "active"),
+    );
+    return () => sub.remove();
+  }, []);
+  const closedTimerActive = isHomeFocused && isAppActive;
+
+  const areaWindow = !isSearching ? (homeFeed?.areaServiceWindow ?? null) : null;
+  const isAreaClosed = areaWindow?.isOpen === false;
+
+  // Reveal the slim sticky "Foodbela closed" pill once the in-flow closed hero has scrolled
+  // up under the top. onLayout hands us the hero's offset in the scroll content; we flip a
+  // boolean only when the threshold is crossed (not every scroll frame).
+  const handleClosedHeroLayout = (event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    closedStickyRevealRef.current = y + height * 0.55;
+  };
+
+  const handleHomeScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    const shouldShow = isAreaClosed && offsetY >= closedStickyRevealRef.current;
+    if (shouldShow !== closedStickyShownRef.current) {
+      closedStickyShownRef.current = shouldShow;
+      setClosedStickyVisible(shouldShow);
+    }
+  };
+
   return (
     <Screen>
       <ScrollView
+        onScroll={handleHomeScroll}
+        scrollEventThrottle={32}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1134,6 +1213,19 @@ export default function HomeScreen() {
             <HomeHeroSkeleton translateX={shimmerTranslateX} />
           ) : null}
 
+          {isAreaClosed && areaWindow ? (
+            <View
+              onLayout={handleClosedHeroLayout}
+              style={{ marginTop: 6, marginBottom: 4 }}
+            >
+              <ServiceClosedHero
+                area={areaWindow}
+                showTimer
+                timerActive={closedTimerActive}
+              />
+            </View>
+          ) : null}
+
           {homeBanner ? (
             <Pressable
               style={[styles.bannerCard, { backgroundColor: bannerTone.shell }]}
@@ -1290,6 +1382,7 @@ export default function HomeScreen() {
                       restaurant.coverImage?.url || restaurant.logo?.url || null
                     }
                     isOpen={restaurant.isOpen !== false}
+                    availability={restaurant.availability}
                     distanceKm={restaurant.distanceKm}
                     avgRating={restaurant.avgRating}
                     reviewCount={restaurant.reviewCount}
@@ -1401,15 +1494,30 @@ export default function HomeScreen() {
                           accessibilityLabel={restaurant.name}
                         />
                         {restaurant.isOpen === false ? (
-                          <View style={styles.timeCompactClosed}>
-                            <Text style={styles.timeCompactClosedText}>
-                              Closed
-                            </Text>
+                          <View style={styles.timeCompactClosedOverlay}>
+                            <View style={styles.timeCompactClosedBadge}>
+                              <Ionicons
+                                name="moon"
+                                size={11}
+                                color={palette.foreground}
+                              />
+                              <Text style={styles.timeCompactClosedBadgeText}>
+                                Closed
+                              </Text>
+                            </View>
                           </View>
                         ) : null}
                       </View>
                       <View style={styles.timeCompactCopy}>
-                        <Text style={styles.timeCompactName} numberOfLines={1}>
+                        <Text
+                          style={[
+                            styles.timeCompactName,
+                            restaurant.isOpen === false
+                              ? styles.timeCompactNameClosed
+                              : null,
+                          ]}
+                          numberOfLines={1}
+                        >
                           {restaurant.name}
                         </Text>
                         <View style={styles.timeCompactMetaRow}>
@@ -1482,6 +1590,7 @@ export default function HomeScreen() {
                             null
                           }
                           isOpen={restaurant.isOpen !== false}
+                          availability={restaurant.availability}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1553,6 +1662,7 @@ export default function HomeScreen() {
                             null
                           }
                           isOpen={restaurant.isOpen !== false}
+                          availability={restaurant.availability}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1627,6 +1737,7 @@ export default function HomeScreen() {
                             null
                           }
                           isOpen={restaurant.isOpen !== false}
+                          availability={restaurant.availability}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1696,6 +1807,7 @@ export default function HomeScreen() {
                             null
                           }
                           isOpen={restaurant.isOpen !== false}
+                          availability={restaurant.availability}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1794,6 +1906,7 @@ export default function HomeScreen() {
                           null
                         }
                         isOpen={restaurant.isOpen !== false}
+                        availability={restaurant.availability}
                         distanceKm={restaurant.distanceKm}
                         avgRating={restaurant.avgRating}
                         reviewCount={restaurant.reviewCount}
@@ -1868,13 +1981,31 @@ export default function HomeScreen() {
           </>
         )}
       </ScrollView>
+      <ServiceClosedStickyPill
+        area={areaWindow}
+        visible={closedStickyVisible}
+        topOffset={insets.top + 8}
+        showTimer
+        timerActive={closedTimerActive}
+      />
       <Modal
-        visible={Boolean(showHomeCmsModal && homeCms?.modal.isActive)}
+        visible={Boolean(
+          showHomeCmsModal && (shouldShowPoll || homeCms?.modal.isActive),
+        )}
         transparent
         animationType="fade"
         onRequestClose={() => setShowHomeCmsModal(false)}
       >
-        {homeCms?.modal.isActive ? (
+        {shouldShowPoll && activePoll ? (
+          <HomePollModal
+            poll={activePoll}
+            onClose={() => setShowHomeCmsModal(false)}
+            // Don't flip local state here — the modal must stay mounted to show its own
+            // "thanks" screen. The vote is persisted on-device inside the modal, and
+            // `homeCmsModalShown` already prevents it re-popping this session.
+            onVoted={() => undefined}
+          />
+        ) : homeCms?.modal.isActive ? (
           <View style={styles.campaignModalOverlay}>
             <Pressable
               style={styles.campaignModalBackdrop}

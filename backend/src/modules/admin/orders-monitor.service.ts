@@ -26,9 +26,11 @@ import {
 import { emitSocketEvent } from "../../config/socket";
 import { reconcileBkashPaymentAttemptFromGateway } from "../customer/customer.service";
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service";
+import { releaseFirstOrderDiscountForOrder } from "../customer/first-order-discount.service";
 import { revokeReferralRewardForOrder } from "../customer/referral.service";
 import { sendPushToCustomer } from "../customer/push.service";
 import { activateRiderTrackingOrder } from "../rider/rider.service";
+import { hashPassword } from "../auth/auth.utils";
 import { sendTransactionalSms } from "../auth/otp-sms.service";
 import { sendPushToOwner } from "../owner/push.service";
 import { sendPushToRider } from "../rider/push.service";
@@ -4818,6 +4820,7 @@ async function buildRiderServiceAreaFromZoneIds(params: {
 export async function createAdminRider(params: {
   fullName: string;
   phone: string;
+  temporaryPassword: string;
   status?: AdminRiderStatus;
   isAvailableForAssignments?: boolean;
   verificationStatus?: AdminRiderVerificationStatus;
@@ -4829,12 +4832,13 @@ export async function createAdminRider(params: {
 }) {
   const fullName = params.fullName.trim();
   const phone = params.phone.trim();
+  const temporaryPassword = params.temporaryPassword.trim();
 
-  if (!fullName || !phone) {
+  if (!fullName || !phone || !/^\d{6}$/.test(temporaryPassword)) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "RIDER_REQUIRED_FIELDS",
-      "Rider name and phone are required",
+      "Rider name, phone, and a 6-digit temporary password are required",
     );
   }
 
@@ -4856,6 +4860,7 @@ export async function createAdminRider(params: {
   const rider = await RiderModel.create({
     fullName,
     phone,
+    passwordHash: await hashPassword(temporaryPassword),
     vehicleType: "cycle",
     status,
     serviceArea,
@@ -6326,6 +6331,14 @@ export async function updateAdminOrderStatus(params: {
         updatedOrder._id,
         params.nextStatus === "Rejected" ? "admin_rejected" : "admin_cancelled",
       ),
+      releaseFirstOrderDiscountForOrder({
+        orderId: updatedOrder._id,
+        customerId: updatedOrder.customerId,
+        reason:
+          params.nextStatus === "Rejected"
+            ? "admin_rejected"
+            : "admin_cancelled",
+      }),
       resolveTerminalOrderOperationalAlerts(updatedOrder.id),
     ]);
   }
@@ -7290,6 +7303,11 @@ export async function processAdminOperationalAlerts() {
                 cancelledOrder._id,
                 "system_auto_cancel_unaccepted",
               ),
+              releaseFirstOrderDiscountForOrder({
+                orderId: cancelledOrder._id,
+                customerId: cancelledOrder.customerId,
+                reason: "system_auto_cancel_unaccepted",
+              }),
             ]);
             await emitOrderRealtimeUpdates(cancelledOrder);
             try {

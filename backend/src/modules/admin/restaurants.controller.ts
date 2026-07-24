@@ -10,6 +10,7 @@ import {
   deleteAdminRestaurant,
   deleteAdminRestaurantReview,
   getAdminRestaurantDetails,
+  getAdminRestaurantIntelligence,
   listAdminRestaurantPromotionTargets,
   listAdminRestaurantOrders,
   listAdminRestaurants,
@@ -18,10 +19,16 @@ import {
   updateAdminRestaurantCommission,
   updateAdminRestaurantDeliveryPricing,
   updateAdminRestaurantEnforcement,
+  updateAdminRestaurantMinimumOrder,
   updateAdminRestaurantMerchandising,
   updateAdminRestaurantPayoutStatus,
   updateAdminRestaurantVisibility,
 } from "./restaurants.service";
+import { createOwnerImpersonationHandoff } from "../auth/impersonation.service";
+
+const impersonateOwnerSchema = z.object({
+  reason: z.string().trim().min(3).max(300),
+});
 
 const listRestaurantsQuerySchema = z.object({
   search: z.string().optional(),
@@ -40,7 +47,7 @@ const createRestaurantSchema = z.object({
   ownerFullName: z.string().min(2),
   ownerPhone: z.string().regex(/^01\d{9}$/),
   ownerEmail: z.string().email().optional().or(z.literal("")),
-  temporaryPassword: z.string().min(6),
+  temporaryPassword: z.string().regex(/^\d{6}$/),
   name: z.string().min(2),
   description: z.string().optional(),
   phone: z.string().regex(/^01\d{9}$/).optional().or(z.literal("")),
@@ -90,6 +97,30 @@ const listRestaurantOrdersQuerySchema = detailsQuerySchema.extend({
   pageSize: z.coerce.number().int().positive().optional(),
 });
 
+const restaurantIntelligenceQuerySchema = detailsQuerySchema.extend({
+  status: z.enum(["all", "live", "delivered", "cancelled", "rejected"]).optional(),
+  paymentMethod: z.string().optional(),
+  categoryId: z.string().optional(),
+  itemId: z.string().optional(),
+  customerTier: z.enum(["all", "new", "repeat"]).optional(),
+  availabilityEvent: z.enum(["all", "online", "offline"]).optional(),
+  availabilitySource: z
+    .enum(["all", "owner_app", "owner_web", "admin", "system", "unknown"])
+    .optional(),
+  availabilityReason: z
+    .enum([
+      "all",
+      "manual_offline",
+      "admin_offline",
+      "enforcement",
+      "restaurant_hidden",
+      "replaced",
+      "system",
+    ])
+    .optional(),
+  availabilityRisk: z.enum(["all", "offline_with_live_orders"]).optional(),
+});
+
 const visibilitySchema = z.object({
   isVisible: z.boolean(),
 });
@@ -126,6 +157,11 @@ const commissionSchema = z.object({
   commissionRate: z.number().min(0).max(100),
 });
 
+const minimumOrderSchema = z.object({
+  // null clears the per-restaurant override → inherit the platform default.
+  minimumOrderAmount: z.number().int().min(0).max(100000).nullable(),
+});
+
 const deliveryPricingSchema = z.object({
   enabled: z.boolean(),
   baseFeeTaka: z.number().min(0).optional(),
@@ -144,6 +180,8 @@ const payoutStatusSchema = z.object({
   providerTransactionId: z.string().trim().max(120).optional(),
   paymentProofUrl: z.string().trim().max(500).optional(),
   processingNote: z.string().trim().max(500).optional(),
+  statementReviewed: z.boolean().optional(),
+  statementChecksum: z.string().trim().max(128).optional(),
   notifyOwnerSms: z.boolean().optional(),
 });
 
@@ -191,6 +229,18 @@ export const getAdminRestaurant = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = detailsQuerySchema.parse(req.query);
     const data = await getAdminRestaurantDetails(
+      getStringParam(req.params.restaurantId),
+      query,
+    );
+
+    return sendSuccess(res, { data });
+  },
+);
+
+export const getAdminRestaurantIntelligenceController = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const query = restaurantIntelligenceQuerySchema.parse(req.query);
+    const data = await getAdminRestaurantIntelligence(
       getStringParam(req.params.restaurantId),
       query,
     );
@@ -272,6 +322,23 @@ export const patchAdminRestaurantVisibility = asyncHandler(
   },
 );
 
+export const postAdminImpersonateOwner = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = impersonateOwnerSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
+    const data = await createOwnerImpersonationHandoff({
+      restaurantId: getStringParam(req.params.restaurantId),
+      adminId: getAdminId(req),
+      reason: payload.reason,
+    });
+
+    return sendSuccess(res, {
+      message: "Impersonation link ready",
+      data,
+    });
+  },
+);
+
 export const patchAdminRestaurantEnforcement = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = enforcementSchema.parse(req.body);
@@ -327,6 +394,23 @@ export const patchAdminRestaurantCommission = asyncHandler(
   },
 );
 
+export const patchAdminRestaurantMinimumOrder = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = minimumOrderSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
+    const data = await updateAdminRestaurantMinimumOrder({
+      restaurantId: getStringParam(req.params.restaurantId),
+      minimumOrderAmount: payload.minimumOrderAmount,
+      adminId: getAdminId(req),
+    });
+
+    return sendSuccess(res, {
+      message: "Restaurant minimum order updated",
+      data,
+    });
+  },
+);
+
 export const patchAdminRestaurantDeliveryPricing = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const payload = deliveryPricingSchema.parse(req.body);
@@ -376,6 +460,8 @@ export const patchAdminRestaurantPayoutStatus = asyncHandler(
       providerTransactionId: payload.providerTransactionId,
       paymentProofUrl: payload.paymentProofUrl,
       processingNote: payload.processingNote,
+      statementReviewed: payload.statementReviewed,
+      statementChecksum: payload.statementChecksum,
       notifyOwnerSms: payload.notifyOwnerSms,
       adminId: getAdminId(req),
     });

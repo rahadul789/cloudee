@@ -855,6 +855,14 @@ function buildFinalizedLedgerPipeline(
             in: "$$relatedOrder.status"
           }
         },
+        relatedOrderNumber: {
+          $let: {
+            vars: {
+              relatedOrder: { $arrayElemAt: ["$orderDocs", 0] }
+            },
+            in: "$$relatedOrder.orderNumber"
+          }
+        },
         relatedOrderDeliveredAt: {
           $let: {
             vars: {
@@ -879,6 +887,14 @@ function buildFinalizedLedgerPipeline(
               relatedOrder: { $arrayElemAt: ["$orderDocs", 0] }
             },
             in: "$$relatedOrder.paymentMethod"
+          }
+        },
+        relatedOrderCreatedAt: {
+          $let: {
+            vars: {
+              relatedOrder: { $arrayElemAt: ["$orderDocs", 0] }
+            },
+            in: "$$relatedOrder.createdAt"
           }
         },
         orderIdString: {
@@ -1208,6 +1224,7 @@ export async function listPayoutHistoryWithFilters(params: {
 export async function listPayoutTransactionsWithFilters(params: {
   ownerId: string
   search?: string
+  payoutId?: string
   type?: string
   sortBy?: string
   preset?: string
@@ -1222,6 +1239,7 @@ export async function listPayoutTransactionsWithFilters(params: {
 
   const query: Record<string, unknown> = { restaurantId }
   if (params.type && params.type !== "all") query.entryType = params.type
+  if (params.payoutId) query.payoutBatchId = toObjectId(params.payoutId)
 
   const sort: Record<string, 1 | -1> =
     params.sortBy === "oldest"
@@ -1230,7 +1248,8 @@ export async function listPayoutTransactionsWithFilters(params: {
         ? { netAmount: -1, effectiveAt: -1, createdAt: -1 }
         : { effectiveAt: -1, createdAt: -1 }
   const page = Math.max(1, params.page ?? 1)
-  const pageSize = Math.min(500, Math.max(1, params.pageSize ?? 20))
+  const maxPageSize = params.payoutId ? 2000 : 500
+  const pageSize = Math.min(maxPageSize, Math.max(1, params.pageSize ?? 20))
   const searchRegex = params.search ? new RegExp(params.search, "i") : null
   const searchStage = searchRegex
     ? [{
@@ -2007,7 +2026,8 @@ async function buildDashboardSummary(params: {
     latestPayout,
     dashboardFacet,
     liveOrderRows,
-    recentReviewRows
+    recentReviewRows,
+    ratingAggregate
   ] = await Promise.all([
     OrderModel.find({
       restaurantId,
@@ -2132,7 +2152,27 @@ async function buildDashboardSummary(params: {
       .sort({ createdAt: -1 })
       .limit(4)
       .select({ customerId: 1, rating: 1, comment: 1, createdAt: 1 })
-      .lean()
+      .lean(),
+    // Lifetime rating for the owner's header KPI — not range-scoped, since a star
+    // rating is an all-time reputation figure, not a "today" metric.
+    // `restaurantId` is a string here and aggregate() does not cast it the way find()
+    // does, so it must go through toObjectId or the $match silently returns nothing.
+    ReviewModel.aggregate([
+      {
+        $match: {
+          restaurantId: toObjectId(restaurantId),
+          isHidden: { $ne: true },
+          moderationStatus: { $ne: "hidden" }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          average: { $avg: "$rating" },
+          count: { $sum: 1 }
+        }
+      }
+    ])
   ])
 
   const filteredRevenue = deliveredOrdersInRange.reduce(
@@ -2204,13 +2244,26 @@ async function buildDashboardSummary(params: {
     restaurant
   })
 
+  const ratingRow = (ratingAggregate as Array<Record<string, any>>)[0]
+  const ratingCount = Number(ratingRow?.count ?? 0)
+
   return {
     restaurant: {
       id: restaurant.id,
       name: restaurant.name,
       isOnline: restaurant.runtime?.isOnline ?? false,
       isVisible: restaurant.runtime?.isVisible ?? false,
-      currentOperationalStatus: restaurant.runtime?.currentOperationalStatus ?? "closed"
+      currentOperationalStatus: restaurant.runtime?.currentOperationalStatus ?? "closed",
+      // Enforcement is deliberately NOT surfaced here: this summary is served from a
+      // TTL cache, so an admin suspension would show up late. `/owner/store-settings`
+      // is uncached and stays the single source of truth for enforcement.
+      rating: {
+        average:
+          ratingCount > 0 && typeof ratingRow?.average === "number"
+            ? Math.round(ratingRow.average * 10) / 10
+            : 0,
+        count: ratingCount
+      }
     },
     filter: {
       preset: params.preset ?? "today",

@@ -10,6 +10,10 @@ export type AuthUser = {
   id: string
   role: AuthRole
   restaurantId?: string
+  tokenId?: string
+  // Set only when this session was minted by an admin impersonating the user.
+  // Endpoints can read it to block sensitive actions or add audit context.
+  impersonatedByAdminId?: string
 }
 
 export type AuthenticatedRequest = Request & {
@@ -35,7 +39,9 @@ export async function attachAuthUser(req: AuthenticatedRequest, _res: Response, 
     req.user = {
       id: payload.sub,
       role: payload.role,
-      restaurantId: payload.restaurantId
+      restaurantId: payload.restaurantId,
+      tokenId: payload.tokenId,
+      impersonatedByAdminId: payload.impersonatedByAdminId
     }
 
     return next()

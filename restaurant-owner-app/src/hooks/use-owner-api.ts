@@ -44,6 +44,29 @@ type OwnerNotificationListPage = OwnerListResponse<OwnerNotification> & {
   pageSize?: number;
 };
 
+export type OwnerEnforcementStatus =
+  | "active"
+  | "under_review"
+  | "quality_hold"
+  | "temporarily_suspended"
+  | "permanently_disabled";
+
+/**
+ * Owner-safe subset of the admin enforcement record (the backend strips the
+ * admin-only `internalNote`, `reason` and `history` before sending it here).
+ */
+export type OwnerEnforcement = {
+  status: OwnerEnforcementStatus;
+  effectiveStatus: OwnerEnforcementStatus;
+  isRestricted: boolean;
+  isExpired: boolean;
+  ownerNote: string;
+  customerMessage: string;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  updatedAt?: string | null;
+};
+
 export type OwnerStoreSettings = {
   id: string;
   name: string;
@@ -55,10 +78,22 @@ export type OwnerStoreSettings = {
   preparationTimeMinutes?: number | null;
   logo?: { url?: string };
   coverImage?: { url?: string };
+  enforcement?: OwnerEnforcement;
   runtime?: {
     isOnline?: boolean;
     isVisible?: boolean;
     currentOperationalStatus?: string;
+  };
+  // Platform/zone ordering window. Outside it customers see this restaurant as
+  // closed even while the owner is online. Evaluated live by the backend.
+  serviceHours?: {
+    enabled: boolean;
+    isOpenNow: boolean;
+    openMinute: number;
+    closeMinute: number;
+    openLabel: string;
+    closeLabel: string;
+    timezone: string;
   };
   settings?: {
     notifications?: {
@@ -244,6 +279,40 @@ export type OwnerVoucherPayload = {
   endsAt: string;
 };
 
+export type OwnerSalesPreset =
+  | "today"
+  | "yesterday"
+  | "last7Days"
+  | "last30Days"
+  | "last90Days"
+  | "thisWeek"
+  | "thisMonth"
+  | "lastMonth"
+  | "lifetime"
+  | "custom";
+
+export type OwnerDashboardTrendPoint = {
+  date: string;
+  label: string;
+  orders: number;
+  revenue: number;
+  placedValue: number;
+  deliveredValue: number;
+  netEarnings: number;
+  activeOrders: number;
+  failedOrders: number;
+  failedValue: number;
+  cancelledOrders: number;
+  rejectedOrders: number;
+};
+
+export type OwnerDashboardTopItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  revenue: number;
+};
+
 export type OwnerDashboardSummary = {
   restaurant: {
     id: string;
@@ -251,16 +320,67 @@ export type OwnerDashboardSummary = {
     isOnline: boolean;
     isVisible: boolean;
     currentOperationalStatus: string;
+    rating?: {
+      average: number;
+      count: number;
+    };
+  };
+  filter: {
+    preset: OwnerSalesPreset;
+    from: string;
+    to: string;
   };
   metrics: {
     totalOrders: number;
+    previousTotalOrders: number;
     totalRevenue: number;
+    previousTotalRevenue: number;
+    placedOrderValue: number;
+    previousPlacedOrderValue: number;
+    deliveredOrderValue: number;
+    previousDeliveredOrderValue: number;
     totalNetEarnings: number;
+    previousTotalNetEarnings: number;
+    cancelledOrders: number;
+    previousCancelledOrders: number;
+    cancelledOrderValue: number;
+    previousCancelledOrderValue: number;
+    rejectedOrders: number;
+    previousRejectedOrders: number;
+    rejectedOrderValue: number;
+    previousRejectedOrderValue: number;
     pendingOrders: number;
+    previousPendingOrders: number;
     completedOrders: number;
+    previousCompletedOrders: number;
     averageOrderValue: number;
+    previousAverageOrderValue: number;
+    uniqueCustomers: number;
     nextEstimatedPayoutAt: string | null;
   };
+  salesTrend: OwnerDashboardTrendPoint[];
+  topItems: OwnerDashboardTopItem[];
+  liveOrders?: {
+    id: string;
+    orderNumber: string;
+    customerName: string;
+    status: string;
+    placedAt: string;
+    value: number;
+  }[];
+  recentReviews?: {
+    id: string;
+    customerName: string;
+    rating: number;
+    comment: string;
+    createdAt: string;
+  }[];
+};
+
+export type OwnerDashboardSummaryQueryParams = {
+  preset?: OwnerSalesPreset;
+  from?: string;
+  to?: string;
 };
 
 export type OwnerPayoutSummary = {
@@ -483,6 +603,14 @@ export function useOwnerStoreSettingsQuery(enabled = true) {
   });
 }
 
+function buildOwnerDashboardSummaryPath(params?: OwnerDashboardSummaryQueryParams) {
+  const searchParams = new URLSearchParams();
+  searchParams.set("preset", params?.preset ?? "today");
+  if (params?.from) searchParams.set("from", params.from);
+  if (params?.to) searchParams.set("to", params.to);
+  return `/owner/dashboard/summary?${searchParams.toString()}`;
+}
+
 export function useOwnerDashboardSummaryQuery(enabled = true) {
   return useQuery({
     queryKey: ["owner", "dashboard", "summary", "today"],
@@ -490,7 +618,28 @@ export function useOwnerDashboardSummaryQuery(enabled = true) {
     staleTime: 10_000,
     queryFn: async () => {
       const response = await apiGet<OwnerDashboardSummary>(
-        "/owner/dashboard/summary?preset=today",
+        buildOwnerDashboardSummaryPath({ preset: "today" }),
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useOwnerSalesReportQuery(
+  enabled = true,
+  params?: OwnerDashboardSummaryQueryParams,
+) {
+  const preset = params?.preset ?? "today";
+  const from = params?.from ?? "";
+  const to = params?.to ?? "";
+
+  return useQuery({
+    queryKey: ["owner", "dashboard", "summary", "sales-report", { preset, from, to }],
+    enabled,
+    staleTime: 10_000,
+    queryFn: async () => {
+      const response = await apiGet<OwnerDashboardSummary>(
+        buildOwnerDashboardSummaryPath({ preset, from, to }),
       );
       return response.data;
     },
@@ -504,12 +653,40 @@ export function useUpdateOwnerRestaurantStatusMutation() {
     mutationFn: async (payload: { isOnline: boolean }) => {
       const response = await apiPatch<OwnerStoreSettings>(
         "/owner/restaurant-status",
-        payload,
+        { ...payload, source: "owner_app" },
       );
       return response.data;
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["owner", "store-settings"] });
+    // The native Switch flips its thumb the instant it is pressed. Without writing
+    // the new value into the cache straight away, the next render re-applies the
+    // still-old server value and the thumb snaps back — that snap-back-then-flip is
+    // the "blink". Writing optimistically keeps the flip single and smooth, and we
+    // roll back if the server rejects it.
+    onMutate: async ({ isOnline }) => {
+      await queryClient.cancelQueries({ queryKey: ["owner", "store-settings"] });
+      const previous = queryClient.getQueryData<OwnerStoreSettings>([
+        "owner",
+        "store-settings",
+      ]);
+
+      if (previous) {
+        queryClient.setQueryData<OwnerStoreSettings>(["owner", "store-settings"], {
+          ...previous,
+          runtime: { ...(previous.runtime ?? {}), isOnline },
+        });
+      }
+
+      return { previous };
+    },
+    onError: (_error, _payload, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["owner", "store-settings"], context.previous);
+      }
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["owner", "store-settings"], data);
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
     },
   });
@@ -541,6 +718,19 @@ export type OwnerReview = {
   orderId?: string;
   riderRating?: number | null;
   riderComment?: string;
+  moderationStatus?: "visible" | "hidden" | "flagged";
+  isHidden?: boolean;
+  hiddenAt?: string | null;
+  hiddenReason?: string;
+  ownerHideRequest?: {
+    status?: "none" | "pending" | "approved" | "rejected" | "cancelled";
+    reasonCategory?: string;
+    note?: string;
+    requestedAt?: string | null;
+    reviewedAt?: string | null;
+    reviewedByAdminId?: string;
+    adminNote?: string;
+  };
   createdAt?: string;
   ownerReply?: {
     message?: string;
@@ -571,6 +761,35 @@ export function useOwnerReviewReplyMutation() {
       const response = await apiPost<OwnerReview>(
         `/owner/reviews/${payload.reviewId}/reply`,
         { message: payload.message },
+      );
+      return response.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["owner", "reviews"] });
+    },
+  });
+}
+
+export function useOwnerReviewHideRequestMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      reviewId: string;
+      reasonCategory:
+        | "fake_spam"
+        | "abusive_language"
+        | "wrong_restaurant_or_order"
+        | "unfair_misleading"
+        | "other";
+      note?: string;
+    }) => {
+      const response = await apiPost<OwnerReview>(
+        `/owner/reviews/${payload.reviewId}/hide-request`,
+        {
+          reasonCategory: payload.reasonCategory,
+          note: payload.note ?? "",
+        },
       );
       return response.data;
     },
@@ -641,6 +860,18 @@ export function useDeleteOwnerVoucherMutation() {
   });
 }
 
+/**
+ * Per-status order totals for the filter chips. Keyed by `OwnerOrderStatus`, plus a
+ * `live` roll-up of all in-progress statuses. Independent of the current filter/paging.
+ */
+export type OwnerOrderStatusCounts = Partial<Record<OwnerOrderStatus, number>> & {
+  live?: number;
+};
+
+export type OwnerOrderListResponse = OwnerListResponse<OwnerOrder> & {
+  statusCounts?: OwnerOrderStatusCounts;
+};
+
 export function useOwnerOrdersQuery(
   enabled = true,
   params?: {
@@ -662,7 +893,7 @@ export function useOwnerOrdersQuery(
     refetchIntervalInBackground: false,
     staleTime: 5_000,
     queryFn: async () => {
-      const response = await apiGet<OwnerListResponse<OwnerOrder>>(
+      const response = await apiGet<OwnerOrderListResponse>(
         `/owner/orders${query ? `?${query}` : ""}`,
       );
       return response.data;
@@ -707,7 +938,9 @@ export function useOwnerOrderTransitionMutation() {
         queryKey: ["owner", "orders", "details", order._id],
       });
       await queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
+      if (order.status === "Delivered") {
+        await queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
+      }
     },
   });
 }
@@ -732,7 +965,6 @@ export function useExtendOwnerOrderPreparationMutation() {
         queryKey: ["owner", "orders", "details", order._id],
       });
       await queryClient.invalidateQueries({ queryKey: ["owner", "dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["owner", "payouts"] });
     },
   });
 }
@@ -782,7 +1014,34 @@ export function useUpdateOwnerMenuItemMutation() {
       );
       return response.data;
     },
-    onSuccess: async () => {
+    // Same reason as the restaurant-status switch: the native Switch flips itself on
+    // press, so without an immediate cache write the old server value snaps the thumb
+    // back before the response lands. Patch every cached menu-items page (the key
+    // carries search/sort), then roll back if the request fails.
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: ["owner", "menu-items"] });
+      const snapshots = queryClient.getQueriesData<OwnerListResponse<OwnerMenuItem>>({
+        queryKey: ["owner", "menu-items"],
+      });
+
+      for (const [key, page] of snapshots) {
+        if (!page?.items) continue;
+        queryClient.setQueryData<OwnerListResponse<OwnerMenuItem>>(key, {
+          ...page,
+          items: page.items.map((item) =>
+            item._id === payload.id ? { ...item, ...payload } : item,
+          ),
+        });
+      }
+
+      return { snapshots };
+    },
+    onError: (_error, _payload, context) => {
+      for (const [key, page] of context?.snapshots ?? []) {
+        queryClient.setQueryData(key, page);
+      }
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["owner", "menu-items"] });
     },
   });

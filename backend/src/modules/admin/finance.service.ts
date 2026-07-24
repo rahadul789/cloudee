@@ -1,5 +1,6 @@
 import mongoose, { type PipelineStage } from "mongoose";
 import { StatusCodes } from "http-status-codes";
+import { createHash } from "node:crypto";
 
 import { enqueueBackgroundTask } from "../../common/utils/background-task";
 import { AppError } from "../../common/utils/app-error";
@@ -179,10 +180,52 @@ type CreateAdminPayoutParams = {
   providerTransactionId?: string;
   paymentProofUrl?: string;
   includePending?: boolean;
+  statementReviewed?: boolean;
+  statementChecksum?: string;
   notifyOwnerSms?: boolean;
   adminId?: string;
   zoneId?: string;
   districtId?: string;
+};
+
+type PayoutStatementEntry = {
+  id: string;
+  restaurantId: string;
+  orderId: string;
+  orderNumber: string;
+  orderStatus: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  deliveredAt: string | null;
+  payoutBatchId: string;
+  sourceEntityType: string;
+  sourceEntityId: string;
+  sourceLabel: string;
+  isCarryForward: boolean;
+  entryType: string;
+  grossAmount: number;
+  commissionBase: number;
+  commission: number;
+  discountCost: number;
+  platformDiscountCost: number;
+  deliveryCost: number;
+  netAmount: number;
+  settlementStatus: string;
+  availableAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+type PayoutStatementReviewAudit = {
+  reviewed: boolean;
+  checksum: string;
+  reviewedByAdminId: string;
+  reviewedAt: Date;
+  generatedAt: Date;
+  amount: number;
+  selectedTotal: number;
+  residualAmount: number;
+  ledgerEntryCount: number;
 };
 
 const walletLedgerEntryTypes = ["earning", "refund", "adjustment"] as const;
@@ -984,6 +1027,17 @@ function mapPayoutBatch(payout: Record<string, any>) {
     paymentProofUrl: stringValue(payout.paymentProofUrl),
     processingNote: stringValue(payout.processingNote),
     failureReason: stringValue(payout.failureReason),
+    statementReview: {
+      reviewed: payout.statementReview?.reviewed === true,
+      checksum: stringValue(payout.statementReview?.checksum),
+      reviewedByAdminId: stringValue(payout.statementReview?.reviewedByAdminId),
+      reviewedAt: serializeDate(payout.statementReview?.reviewedAt),
+      generatedAt: serializeDate(payout.statementReview?.generatedAt),
+      amount: numberValue(payout.statementReview?.amount),
+      selectedTotal: numberValue(payout.statementReview?.selectedTotal),
+      residualAmount: numberValue(payout.statementReview?.residualAmount),
+      ledgerEntryCount: numberValue(payout.statementReview?.ledgerEntryCount),
+    },
     requestedAt: serializeDate(payout.requestedAt),
     approvedAt: serializeDate(payout.approvedAt),
     processedAt: serializeDate(payout.processedAt),
@@ -1030,6 +1084,513 @@ function getLedgerSourceLabel(entry: Record<string, any>) {
   if (sourceEntityType === "order") return "Order settlement";
   if (sourceEntityType === "refund") return "Refund adjustment";
   return sourceEntityType || "Ledger entry";
+}
+
+function roundMoney(value: unknown) {
+  return Number(numberValue(value).toFixed(2));
+}
+
+function buildPayoutStatementChecksum(params: {
+  mode: "preview" | "batch";
+  restaurantId: string;
+  payoutId?: string;
+  amount: number;
+  includePending?: boolean;
+  entryIds: string[];
+  payoutEntryIds?: string[];
+  residualEntryIds?: string[];
+  selectedTotal: number;
+  residualAmount: number;
+}) {
+  const canonical = {
+    mode: params.mode,
+    restaurantId: params.restaurantId,
+    payoutId: params.payoutId ?? "",
+    amount: roundMoney(params.amount),
+    includePending: params.includePending === true,
+    entryIds: [...params.entryIds].sort(),
+    payoutEntryIds: [...(params.payoutEntryIds ?? [])].sort(),
+    residualEntryIds: [...(params.residualEntryIds ?? [])].sort(),
+    selectedTotal: roundMoney(params.selectedTotal),
+    residualAmount: roundMoney(params.residualAmount),
+  };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function assertStatementReview(params: {
+  reviewed?: boolean;
+  providedChecksum?: string;
+  expectedChecksum: string;
+}) {
+  if (params.reviewed !== true) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "PAYOUT_STATEMENT_REVIEW_REQUIRED",
+      "Download and review the payout transaction statement before continuing",
+    );
+  }
+  if (!params.providedChecksum?.trim()) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "PAYOUT_STATEMENT_CHECKSUM_REQUIRED",
+      "Download the latest payout statement before continuing",
+    );
+  }
+  if (params.providedChecksum.trim() !== params.expectedChecksum) {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "PAYOUT_STATEMENT_CHANGED",
+      "Payout transaction breakdown changed. Download the statement again",
+    );
+  }
+}
+
+function buildStatementReviewAudit(params: {
+  checksum: string;
+  adminId?: string;
+  generatedAt: Date;
+  amount: number;
+  selectedTotal: number;
+  residualAmount: number;
+  ledgerEntryCount: number;
+}): PayoutStatementReviewAudit {
+  return {
+    reviewed: true,
+    checksum: params.checksum,
+    reviewedByAdminId: params.adminId ?? "",
+    reviewedAt: new Date(),
+    generatedAt: params.generatedAt,
+    amount: roundMoney(params.amount),
+    selectedTotal: roundMoney(params.selectedTotal),
+    residualAmount: roundMoney(params.residualAmount),
+    ledgerEntryCount: params.ledgerEntryCount,
+  };
+}
+
+async function getPayoutStatementContext(
+  restaurantId: mongoose.Types.ObjectId,
+  params: { zoneId?: string; districtId?: string } = {},
+) {
+  const [restaurant, owner, payoutMethod] = await Promise.all([
+    RestaurantModel.findById(restaurantId)
+      .select({
+        ownerId: 1,
+        name: 1,
+        slug: 1,
+        address: 1,
+        logo: 1,
+        serviceArea: 1,
+      })
+      .lean(),
+    RestaurantModel.findById(restaurantId)
+      .select({ ownerId: 1 })
+      .lean()
+      .then((row) =>
+        row?.ownerId
+          ? OwnerModel.findById(row.ownerId)
+              .select({ fullName: 1, phone: 1, email: 1, status: 1 })
+              .lean()
+          : null,
+      ),
+    PayoutMethodModel.findOne({ restaurantId }).lean(),
+  ]);
+
+  if (!restaurant) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "RESTAURANT_NOT_FOUND",
+      "Restaurant not found",
+    );
+  }
+
+  assertServiceAreaSnapshotMatchesScope(restaurant.serviceArea, {
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+    code: "RESTAURANT_NOT_FOUND",
+    message: "Restaurant not found",
+  });
+
+  return { restaurant, owner, payoutMethod };
+}
+
+function mapStatementEntry(
+  entry: Record<string, any>,
+  orderById: Map<string, Record<string, any>>,
+): PayoutStatementEntry {
+  const order = orderById.get(objectIdString(entry.orderId));
+  const deliveredAt =
+    order?.timestamps?.deliveredAt ??
+    order?.timestamps?.Delivered ??
+    null;
+
+  return {
+    id: objectIdString(entry._id),
+    restaurantId: objectIdString(entry.restaurantId),
+    orderId: objectIdString(entry.orderId),
+    orderNumber: stringValue(order?.orderNumber),
+    orderStatus: stringValue(order?.status),
+    paymentMethod: stringValue(order?.paymentMethod),
+    paymentStatus: stringValue(order?.paymentStatus),
+    deliveredAt: serializeDate(deliveredAt),
+    payoutBatchId: objectIdString(entry.payoutBatchId),
+    sourceEntityType: stringValue(entry.sourceEntityType),
+    sourceEntityId: stringValue(entry.sourceEntityId),
+    sourceLabel: getLedgerSourceLabel(entry),
+    isCarryForward: isCarryForwardLedgerEntry(entry),
+    entryType: stringValue(entry.entryType),
+    grossAmount: numberValue(entry.grossAmount),
+    commissionBase: numberValue(entry.commissionBase),
+    commission: numberValue(entry.commission),
+    discountCost: numberValue(entry.discountCost),
+    platformDiscountCost: numberValue(entry.platformDiscountCost),
+    deliveryCost: numberValue(entry.deliveryCost),
+    netAmount: numberValue(entry.netAmount),
+    settlementStatus: stringValue(entry.settlementStatus),
+    availableAt: serializeDate(entry.availableAt),
+    createdAt: serializeDate(entry.createdAt),
+    updatedAt: serializeDate(entry.updatedAt),
+  };
+}
+
+async function mapStatementEntries(entries: Record<string, any>[]) {
+  const orderIds = entries.map((entry) => entry.orderId).filter(Boolean);
+  const orders = orderIds.length
+    ? await OrderModel.find({ _id: { $in: orderIds } })
+        .select({
+          orderNumber: 1,
+          status: 1,
+          paymentMethod: 1,
+          paymentStatus: 1,
+          timestamps: 1,
+        })
+        .lean()
+    : [];
+  const orderById = new Map(orders.map((order) => [objectIdString(order._id), order]));
+  return entries.map((entry) => mapStatementEntry(entry, orderById));
+}
+
+function summarizeStatementEntries(entries: PayoutStatementEntry[]) {
+  return entries.reduce(
+    (totals, entry) => ({
+      grossAmount: roundMoney(totals.grossAmount + entry.grossAmount),
+      commissionBase: roundMoney(totals.commissionBase + entry.commissionBase),
+      commission: roundMoney(totals.commission + entry.commission),
+      discountCost: roundMoney(totals.discountCost + entry.discountCost),
+      platformDiscountCost: roundMoney(
+        totals.platformDiscountCost + entry.platformDiscountCost,
+      ),
+      deliveryCost: roundMoney(totals.deliveryCost + entry.deliveryCost),
+      netAmount: roundMoney(totals.netAmount + entry.netAmount),
+    }),
+    {
+      grossAmount: 0,
+      commissionBase: 0,
+      commission: 0,
+      discountCost: 0,
+      platformDiscountCost: 0,
+      deliveryCost: 0,
+      netAmount: 0,
+    },
+  );
+}
+
+async function selectAdminPayoutStatementEntries(params: {
+  restaurantId: mongoose.Types.ObjectId;
+  amount: number;
+  includePending?: boolean;
+}) {
+  const amount = Math.round(numberValue(params.amount));
+  const selectableEntries = (await aggregatePayableLedgerEntries(
+    {
+      restaurantId: params.restaurantId,
+      entryType: { $in: [...walletLedgerEntryTypes] },
+      settlementStatus: params.includePending
+        ? { $in: ["available", "pending"] }
+        : "available",
+      netAmount: { $gt: 0 },
+    },
+    [{ $sort: { availableAt: 1, createdAt: 1 } }],
+  )) as Record<string, any>[];
+
+  const selectedEntries: Record<string, any>[] = [];
+  let selectedTotal = 0;
+
+  for (const entry of selectableEntries) {
+    if (selectedTotal >= amount) break;
+    selectedEntries.push(entry);
+    selectedTotal += numberValue(entry.netAmount);
+  }
+
+  if (selectedTotal < amount || selectedEntries.length === 0) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "PAYOUT_AMOUNT_EXCEEDS_AVAILABLE",
+      "Payout amount exceeds available payable balance",
+    );
+  }
+
+  const residualAmount = roundMoney(selectedTotal - amount);
+  const checksum = buildPayoutStatementChecksum({
+    mode: "preview",
+    restaurantId: objectIdString(params.restaurantId),
+    amount,
+    includePending: params.includePending === true,
+    entryIds: selectedEntries.map((entry) => objectIdString(entry._id)),
+    selectedTotal,
+    residualAmount,
+  });
+
+  return {
+    entries: selectedEntries,
+    selectedTotal: roundMoney(selectedTotal),
+    residualAmount,
+    checksum,
+  };
+}
+
+async function buildPayoutStatementResponse(params: {
+  mode: "preview" | "batch";
+  restaurant: Record<string, any>;
+  owner: Record<string, any> | null;
+  payoutMethod?: Record<string, any> | null;
+  payout?: Record<string, any> | null;
+  amount: number;
+  includePending?: boolean;
+  entries: Record<string, any>[];
+  payoutEntries?: Record<string, any>[];
+  residualEntries?: Record<string, any>[];
+  selectedTotal: number;
+  residualAmount: number;
+  checksum: string;
+  generatedAt: Date;
+}) {
+  const [mappedEntries, mappedPayoutEntries, mappedResidualEntries] =
+    await Promise.all([
+      mapStatementEntries(params.entries),
+      mapStatementEntries(params.payoutEntries ?? []),
+      mapStatementEntries(params.residualEntries ?? []),
+    ]);
+  const summary = summarizeStatementEntries(mappedEntries);
+  const residualTotal = roundMoney(
+    mappedResidualEntries.reduce((sum, entry) => sum + entry.netAmount, 0),
+  );
+
+  return {
+    mode: params.mode,
+    statementChecksum: params.checksum,
+    generatedAt: params.generatedAt.toISOString(),
+    amount: roundMoney(params.amount),
+    includePending: params.includePending === true,
+    restaurant: {
+      id: objectIdString(params.restaurant._id),
+      name: stringValue(params.restaurant.name),
+      slug: stringValue(params.restaurant.slug),
+      city: stringValue(
+        params.restaurant.address?.city || params.restaurant.address?.area,
+        "Netrokona",
+      ),
+      address: stringValue(params.restaurant.address?.line1 || params.restaurant.address),
+      logoUrl: stringValue(params.restaurant.logo?.url || params.restaurant.logoUrl),
+    },
+    owner: {
+      id: objectIdString(params.owner?._id),
+      fullName: stringValue(params.owner?.fullName),
+      phone: stringValue(params.owner?.phone),
+      email: stringValue(params.owner?.email),
+      status: stringValue(params.owner?.status),
+    },
+    payoutMethod: params.payoutMethod ? mapPayoutMethod(params.payoutMethod) : null,
+    payout: params.payout ? mapPayoutBatch(params.payout) : null,
+    summary: {
+      ...summary,
+      payoutAmount: roundMoney(params.amount),
+      selectedTotal: roundMoney(params.selectedTotal),
+      residualAmount: roundMoney(params.residualAmount),
+      residualEntryAmount: residualTotal,
+      orderCount: mappedEntries.filter((entry) => entry.orderId).length,
+      entryCount: mappedEntries.length,
+      payoutMovementCount: mappedPayoutEntries.length,
+    },
+    entries: mappedEntries,
+    payoutEntries: mappedPayoutEntries,
+    residualEntries: mappedResidualEntries,
+  };
+}
+
+export async function getAdminFinancePayoutStatementPreview(params: {
+  restaurantId: string;
+  amount: number;
+  includePending?: boolean;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  const restaurantId = toObjectId(params.restaurantId);
+  if (!restaurantId) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_RESTAURANT_ID",
+      "Restaurant id is invalid",
+    );
+  }
+
+  const amount = Math.round(numberValue(params.amount));
+  if (amount <= 0) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_PAYOUT_AMOUNT",
+      "Payout amount must be greater than zero",
+    );
+  }
+
+  await matureAvailableLedgerEntries(restaurantId);
+  const [{ restaurant, owner, payoutMethod }, selected] = await Promise.all([
+    getPayoutStatementContext(restaurantId, params),
+    selectAdminPayoutStatementEntries({
+      restaurantId,
+      amount,
+      includePending: params.includePending,
+    }),
+  ]);
+
+  return buildPayoutStatementResponse({
+    mode: "preview",
+    restaurant,
+    owner,
+    payoutMethod,
+    amount,
+    includePending: params.includePending,
+    entries: selected.entries,
+    selectedTotal: selected.selectedTotal,
+    residualAmount: selected.residualAmount,
+    checksum: selected.checksum,
+    generatedAt: new Date(),
+  });
+}
+
+export async function getAdminFinancePayoutBatchStatement(params: {
+  payoutId: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  const payoutId = toObjectId(params.payoutId);
+  if (!payoutId) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_PAYOUT_ID",
+      "Payout id is invalid",
+    );
+  }
+
+  const payout = await PayoutBatchModel.findById(payoutId).lean();
+  if (!payout) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "PAYOUT_NOT_FOUND",
+      "Payout not found",
+    );
+  }
+
+  const restaurantId = toObjectId(objectIdString(payout.restaurantId));
+  if (!restaurantId) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_RESTAURANT_ID",
+      "Restaurant id is invalid",
+    );
+  }
+
+  const [{ restaurant, owner, payoutMethod }, ledgerEntries] = await Promise.all([
+    getPayoutStatementContext(restaurantId, params),
+    aggregatePayableLedgerEntries(
+      {
+        restaurantId,
+        payoutBatchId: payoutId,
+      },
+      [{ $sort: { entryType: 1, createdAt: 1 } }],
+    ) as Promise<Record<string, any>[]>,
+  ]);
+
+  const walletEntries = ledgerEntries.filter((entry) =>
+    walletLedgerEntryTypes.includes(
+      stringValue(entry.entryType) as typeof walletLedgerEntryTypes[number],
+    ),
+  );
+  const residualEntries = walletEntries.filter(
+    (entry) => isCarryForwardLedgerEntry(entry) && stringValue(entry.settlementStatus) === "available",
+  );
+  const includedEntries = walletEntries.filter(
+    (entry) =>
+      !(
+        isCarryForwardLedgerEntry(entry) &&
+        stringValue(entry.settlementStatus) === "available"
+      ),
+  );
+  const payoutEntries = ledgerEntries.filter(
+    (entry) => stringValue(entry.entryType) === "payout",
+  );
+  const residualAmount = roundMoney(
+    residualEntries.reduce((sum, entry) => sum + numberValue(entry.netAmount), 0),
+  );
+  const selectedTotal = roundMoney(numberValue(payout.amount) + residualAmount);
+  const checksum = buildPayoutStatementChecksum({
+    mode: "batch",
+    restaurantId: objectIdString(restaurantId),
+    payoutId: objectIdString(payout._id),
+    amount: numberValue(payout.amount),
+    entryIds: includedEntries.map((entry) => objectIdString(entry._id)),
+    payoutEntryIds: payoutEntries.map((entry) => objectIdString(entry._id)),
+    residualEntryIds: residualEntries.map((entry) => objectIdString(entry._id)),
+    selectedTotal,
+    residualAmount,
+  });
+
+  return buildPayoutStatementResponse({
+    mode: "batch",
+    restaurant,
+    owner,
+    payoutMethod,
+    payout,
+    amount: numberValue(payout.amount),
+    entries: includedEntries,
+    payoutEntries,
+    residualEntries,
+    selectedTotal,
+    residualAmount,
+    checksum,
+    generatedAt: new Date(),
+  });
+}
+
+export async function assertAdminPayoutBatchStatementReview(params: {
+  payoutId: string;
+  statementReviewed?: boolean;
+  statementChecksum?: string;
+  adminId?: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  const statement = await getAdminFinancePayoutBatchStatement({
+    payoutId: params.payoutId,
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+  });
+  assertStatementReview({
+    reviewed: params.statementReviewed,
+    providedChecksum: params.statementChecksum,
+    expectedChecksum: statement.statementChecksum,
+  });
+  return buildStatementReviewAudit({
+    checksum: statement.statementChecksum,
+    adminId: params.adminId,
+    generatedAt: new Date(statement.generatedAt),
+    amount: statement.amount,
+    selectedTotal: statement.summary.selectedTotal,
+    residualAmount: statement.summary.residualAmount,
+    ledgerEntryCount:
+      statement.entries.length +
+      statement.payoutEntries.length +
+      statement.residualEntries.length,
+  });
 }
 
 function mapPayoutMethodApproval(method: Record<string, any>) {
@@ -3453,37 +4014,17 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
         financeSettings.settlementDelayDays,
       );
 
-      const selectableEntries = await aggregatePayableLedgerEntries(
-        {
-          restaurantId,
-          entryType: { $in: [...walletLedgerEntryTypes] },
-          settlementStatus: params.includePending
-            ? { $in: ["available", "pending"] }
-            : "available",
-          netAmount: { $gt: 0 },
-        },
-        [
-          { $sort: { availableAt: 1, createdAt: 1 } },
-          { $project: { _id: 1, netAmount: 1 } },
-        ],
-      );
-
-      const selectedEntryIds: mongoose.Types.ObjectId[] = [];
-      let selectedTotal = 0;
-
-      for (const entry of selectableEntries as Array<{ _id: mongoose.Types.ObjectId; netAmount?: number }>) {
-        if (selectedTotal >= amount) break;
-        selectedEntryIds.push(entry._id);
-        selectedTotal += numberValue(entry.netAmount);
-      }
-
-      if (selectedTotal < amount || selectedEntryIds.length === 0) {
-        throw new AppError(
-          StatusCodes.BAD_REQUEST,
-          "PAYOUT_AMOUNT_EXCEEDS_AVAILABLE",
-          "Payout amount exceeds available payable balance",
-        );
-      }
+      const selected = await selectAdminPayoutStatementEntries({
+        restaurantId,
+        amount,
+        includePending: params.includePending,
+      });
+      assertStatementReview({
+        reviewed: params.statementReviewed,
+        providedChecksum: params.statementChecksum,
+        expectedChecksum: selected.checksum,
+      });
+      const selectedEntryIds = selected.entries.map((entry) => entry._id);
 
       const [payoutBatch] = await PayoutBatchModel.create(
         [
@@ -3499,6 +4040,15 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
             providerTransactionId,
             paymentProofUrl: params.paymentProofUrl?.trim() ?? "",
             processingNote: params.note?.trim() ?? "Admin-created payout",
+            statementReview: buildStatementReviewAudit({
+              checksum: selected.checksum,
+              adminId: params.adminId,
+              generatedAt: now,
+              amount,
+              selectedTotal: selected.selectedTotal,
+              residualAmount: selected.residualAmount,
+              ledgerEntryCount: selected.entries.length,
+            }),
             approvedByAdminId: params.adminId ?? "",
             approvedAt: now,
             processedByAdminId: status === "completed" ? params.adminId ?? "" : "",
@@ -3550,7 +4100,7 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
         { session },
       );
 
-      const residualAmount = Number((selectedTotal - amount).toFixed(2));
+      const residualAmount = selected.residualAmount;
       if (residualAmount > 0) {
         await LedgerEntryModel.create(
           [

@@ -18,6 +18,12 @@ import {
   invalidateCustomerRestaurantAvailabilityCaches,
   listRestaurantsWithActiveOffers,
 } from "../customer/customer.service"
+import {
+  closePoll,
+  createPoll,
+  getPollAdminDetail,
+  listPollsAdmin,
+} from "../customer/poll.service"
 
 const rollbackSchema = z.object({
   updatedAt: z.string().trim().min(1),
@@ -49,6 +55,54 @@ export const getAdminRestaurantsWithOffers = asyncHandler(
     return sendSuccess(res, { data: { restaurants } })
   },
 )
+
+const createPollSchema = z.object({
+  question: z.string().trim().max(300).optional().default(""),
+  imageUrl: z.string().trim().max(2000).optional().default(""),
+  imagePublicId: z.string().trim().max(400).optional().default(""),
+  options: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(200),
+        label: z.string().trim().min(1).max(300),
+      }),
+    )
+    .min(1)
+    .max(12),
+  allowFeedback: z.boolean().optional().default(false),
+  feedbackPrompt: z.string().trim().max(300).optional().default("Tell us more (optional)"),
+  showResultsToUser: z.boolean().optional().default(false),
+  thanksMessage: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .default("Thanks for sharing your opinion!"),
+  endsAt: z.string().trim().max(60).nullable().optional().default(null),
+})
+
+export const getAdminPollList = asyncHandler(async (_req: Request, res: Response) => {
+  const polls = await listPollsAdmin()
+  return sendSuccess(res, { data: { polls } })
+})
+
+export const getAdminPollDetail = asyncHandler(async (req: Request, res: Response) => {
+  const detail = await getPollAdminDetail(String(req.params.pollId))
+  return sendSuccess(res, { data: detail })
+})
+
+export const postAdminCreatePoll = asyncHandler(async (req: Request, res: Response) => {
+  const input = createPollSchema.parse(req.body)
+  const poll = await createPoll(input, req.user?.id ?? "")
+  invalidateCustomerRestaurantAvailabilityCaches()
+  return sendSuccess(res, { data: poll })
+})
+
+export const postAdminClosePoll = asyncHandler(async (req: Request, res: Response) => {
+  await closePoll(String(req.params.pollId))
+  invalidateCustomerRestaurantAvailabilityCaches()
+  return sendSuccess(res, { data: { closed: true } })
+})
 
 export const putAdminPlatformContent = asyncHandler(async (req: Request, res: Response) => {
   const data = await updatePlatformContent({

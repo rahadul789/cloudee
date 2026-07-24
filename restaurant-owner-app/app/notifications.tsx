@@ -21,6 +21,10 @@ import {
   useOwnerNotificationsInfiniteQuery,
 } from "@/src/hooks/use-owner-api";
 import { formatTime } from "@/src/lib/format";
+import {
+  useOwnerTranslation,
+  type TranslationKey,
+} from "@/src/i18n/translations";
 import { palette } from "@/src/theme/palette";
 
 const allowedPaths = new Set([
@@ -56,32 +60,39 @@ function iconFor(type: string) {
   return "notifications-outline" as const;
 }
 
-function chipLabel(notification: OwnerNotification) {
+// Returns a translation key rather than a label: these helpers live outside the
+// component, so they have no access to `t` — the caller translates.
+function chipLabelKey(notification: OwnerNotification): TranslationKey {
   const event = notification.eventType?.toLowerCase() ?? "";
   const type = notification.type.toLowerCase();
-  if (event.includes("admin") || notification.entityType === "admin_notification") return "Admin";
-  if (event.includes("late") || notification.title.toLowerCase().includes("late")) return "Late";
-  if (type === "order" || event.includes("order")) return "Order";
-  if (type === "promotion") return "Promo";
-  if (type === "payout") return "Payout";
-  if (type === "support") return "Support";
-  return "System";
+  if (event.includes("admin") || notification.entityType === "admin_notification")
+    return "notif.tag.admin";
+  if (event.includes("late") || notification.title.toLowerCase().includes("late"))
+    return "notif.tag.late";
+  if (type === "order" || event.includes("order")) return "notif.tag.order";
+  if (type === "promotion") return "notif.tag.promo";
+  if (type === "payout") return "notif.tag.payout";
+  if (type === "support") return "notif.tag.support";
+  return "notif.tag.system";
 }
 
 type NotificationRow =
   | { kind: "date"; id: string; label: string }
   | { kind: "notification"; id: string; notification: OwnerNotification };
 
-function formatDateGroup(value?: string | null) {
-  if (!value) return "Today";
+function formatDateGroup(
+  value: string | null | undefined,
+  t: (key: TranslationKey) => string,
+) {
+  if (!value) return t("notif.today");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Today";
+  if (Number.isNaN(date.getTime())) return t("notif.today");
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
   const dateKey = date.toDateString();
-  if (dateKey === today.toDateString()) return "Today";
-  if (dateKey === yesterday.toDateString()) return "Yesterday";
+  if (dateKey === today.toDateString()) return t("notif.today");
+  if (dateKey === yesterday.toDateString()) return t("notif.yesterday");
   return date.toLocaleDateString(undefined, {
     month: "long",
     day: "numeric",
@@ -90,6 +101,7 @@ function formatDateGroup(value?: string | null) {
 }
 
 export default function OwnerNotificationsScreen() {
+  const { t } = useOwnerTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const notificationsQuery = useOwnerNotificationsInfiniteQuery(true, 20);
@@ -104,7 +116,7 @@ export default function OwnerNotificationsScreen() {
     const rows: NotificationRow[] = [];
     let lastDateLabel = "";
     notifications.forEach((notification) => {
-      const dateLabel = formatDateGroup(notification.createdAt);
+      const dateLabel = formatDateGroup(notification.createdAt, t);
       if (dateLabel !== lastDateLabel) {
         rows.push({ kind: "date", id: `date-${dateLabel}`, label: dateLabel });
         lastDateLabel = dateLabel;
@@ -116,7 +128,7 @@ export default function OwnerNotificationsScreen() {
       });
     });
     return rows;
-  }, [notifications]);
+  }, [notifications, t]);
   const unreadCount = notificationsQuery.data?.pages[0]?.unreadCount ?? 0;
   const isRefreshing =
     notificationsQuery.isRefetching && !notificationsQuery.isFetchingNextPage;
@@ -136,15 +148,15 @@ export default function OwnerNotificationsScreen() {
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
           </Pressable>
           <View style={styles.topCopy}>
-            <Text style={styles.eyebrow}>Restaurant inbox</Text>
-            <Text style={styles.title}>Notifications</Text>
+            <Text style={styles.eyebrow}>{t("notif.kicker")}</Text>
+            <Text style={styles.title}>{t("notif.title")}</Text>
           </View>
           <Pressable
             disabled={!unreadCount || markAllMutation.isPending}
             style={[styles.markButton, !unreadCount ? styles.disabled : null]}
             onPress={() => markAllMutation.mutate()}
           >
-            <Text style={styles.markText}>Read all</Text>
+            <Text style={styles.markText}>{t("notif.readAll")}</Text>
           </Pressable>
         </View>
 
@@ -154,8 +166,8 @@ export default function OwnerNotificationsScreen() {
           </View>
         ) : notifications.length === 0 ? (
           <View style={styles.feedbackWrap}>
-            <Text style={styles.emptyTitle}>No notifications yet</Text>
-            <Text style={styles.emptyText}>Order, payout, and admin messages will appear here.</Text>
+            <Text style={styles.emptyTitle}>{t("notif.emptyTitle")}</Text>
+            <Text style={styles.emptyText}>{t("notif.emptyBody")}</Text>
           </View>
         ) : (
           <FlatList
@@ -216,7 +228,7 @@ export default function OwnerNotificationsScreen() {
                       </Text>
                       <View style={styles.chip}>
                         <Text style={styles.chipText}>
-                          {chipLabel(notification)}
+                          {t(chipLabelKey(notification))}
                         </Text>
                       </View>
                       {!notification.isRead ? (
@@ -236,7 +248,7 @@ export default function OwnerNotificationsScreen() {
                     ) : null}
                     <View style={styles.cardFooter}>
                       <Text style={styles.cardTime}>
-                        {formatTime(notification.createdAt) || "Just now"}
+                        {formatTime(notification.createdAt) || t("notif.justNow")}
                       </Text>
                       <Ionicons
                         name="chevron-forward"

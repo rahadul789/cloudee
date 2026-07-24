@@ -4,6 +4,8 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,7 +15,11 @@ import {
 } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
-import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
+import { RestaurantFilterSheet } from "@/src/components/restaurant-filter-sheet";
+import {
+  ServiceClosedHero,
+  ServiceClosedStickyPill,
+} from "@/src/components/service-closed-banner";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
@@ -129,11 +135,6 @@ export default function BrowseScreen() {
   const [maximumLowestPrice, setMaximumLowestPrice] =
     useState<BrowseLowestPrice>(0);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [draftFilter, setDraftFilter] = useState<BrowseFilter>("all");
-  const [draftSortBy, setDraftSortBy] = useState<BrowseSort>("nearest");
-  const [draftMinimumRating, setDraftMinimumRating] = useState<BrowseRating>(0);
-  const [draftMaximumLowestPrice, setDraftMaximumLowestPrice] =
-    useState<BrowseLowestPrice>(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   // `freezeOnBlur` (tab layout) suspends this screen while it is blurred, so we
   // no longer swap in a placeholder on blur — the frozen full tree returns
@@ -253,6 +254,29 @@ export default function BrowseScreen() {
   );
   const totalRestaurantCount =
     nearbyRestaurantsQuery.data?.pages[0]?.total ?? restaurants.length;
+  // Whether the location has ANY serviceable restaurant (open or closed). Backend-supplied
+  // so an empty "open now" list can mean "all closed" (true) vs "not served" (false).
+  const areaHasRestaurants =
+    nearbyRestaurantsQuery.data?.pages[0]?.areaHasRestaurants ?? false;
+  const areaWindow = homeDiscoveryQuery.data?.areaServiceWindow ?? null;
+  const isAreaClosed = areaWindow?.isOpen === false;
+  const closedRevealRef = useRef(Number.POSITIVE_INFINITY);
+  const closedStickyShownRef = useRef(false);
+  const [closedStickyVisible, setClosedStickyVisible] = useState(false);
+
+  // Reveal the slim closed pill once the in-flow closed hero (the first list header item)
+  // has scrolled up under the top. Flip the boolean only on threshold cross, not per frame.
+  const handleBrowseScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const offsetY = event.nativeEvent.contentOffset.y;
+      const shouldShow = offsetY >= closedRevealRef.current;
+      if (shouldShow !== closedStickyShownRef.current) {
+        closedStickyShownRef.current = shouldShow;
+        setClosedStickyVisible(shouldShow);
+      }
+    },
+    [],
+  );
 
   const offerLabelByRestaurantId = useMemo(
     () => buildRestaurantOfferMap(homeDiscoveryQuery.data?.activeOffers ?? []),
@@ -336,12 +360,8 @@ export default function BrowseScreen() {
   }, [activeFilter, maximumLowestPrice, minimumRating, sortBy]);
 
   const openFilters = useCallback(() => {
-    setDraftFilter(activeFilter);
-    setDraftSortBy(sortBy);
-    setDraftMinimumRating(minimumRating);
-    setDraftMaximumLowestPrice(maximumLowestPrice);
     setIsFilterOpen(true);
-  }, [activeFilter, maximumLowestPrice, minimumRating, sortBy]);
+  }, []);
 
   const openLocationPicker = useCallback(() => {
     router.push("/location-picker");
@@ -428,6 +448,7 @@ export default function BrowseScreen() {
       subtitle={restaurantCardSubtitle(item)}
       imageUrl={item.coverImage?.url || item.logo?.url || null}
       isOpen={item.isOpen !== false}
+      availability={item.availability}
       offerLabel={offerLabelByRestaurantId.get(item._id)}
       distanceKm={item.distanceKm}
       avgRating={item.avgRating}
@@ -448,6 +469,95 @@ export default function BrowseScreen() {
     handleToggleFavorite,
     offerLabelByRestaurantId,
     openRestaurant,
+  ]);
+
+  const showAllRestaurants = useCallback(() => setActiveFilter("all"), []);
+
+  // Empty-list copy for a SERVED location. The list can be empty for very different
+  // reasons — differentiate them so a narrowing filter (Open now / Offers / Featured)
+  // never wrongly reads as "Foodbela isn't in this area yet". "Open now" is upgraded with
+  // the area's real reopen time when the whole area is outside its service window (the
+  // live countdown itself already shows in the banner above the list).
+  const emptyStateContent = useMemo<{
+    title: string;
+    description: string;
+    actionLabel?: string;
+    onPress?: () => void;
+  }>(() => {
+    if (!isOnline) {
+      return {
+        title: "Restaurants are unavailable offline",
+        description:
+          "Check your internet connection to load restaurants for this area again.",
+      };
+    }
+
+    if (searchQuery.trim().length > 0) {
+      return {
+        title: "No matching food found",
+        description:
+          "Try another spelling, food name, cuisine, or restaurant. Your location is still selected.",
+      };
+    }
+
+    if (activeFilter === "open") {
+      // An empty open-now list with NO restaurants in the area at all → genuinely not
+      // served. Fall through to the default "isn't in this area yet" copy below.
+      if (!areaHasRestaurants) {
+        return {
+          title: "Foodbela isn't in this area yet",
+          description:
+            "We don't deliver to this location yet. Try a different delivery point where Foodbela is available.",
+        };
+      }
+      // The area HAS restaurants but none are open right now. Never show them as closed
+      // cards under an "Open now" filter — say so plainly, with the real reopen time when
+      // the whole area is outside its service window.
+      const areaWindow = homeDiscoveryQuery.data?.areaServiceWindow;
+      const outsideServiceWindow = Boolean(areaWindow && areaWindow.isOpen === false);
+      return {
+        title: "All restaurants are closed right now",
+        description:
+          outsideServiceWindow && areaWindow?.opensAtLabel
+            ? `Every restaurant near you is outside its service hours. Ordering opens at ${areaWindow.opensAtLabel}.`
+            : "Every restaurant near you is offline at the moment. Check back shortly, or browse them all to plan ahead.",
+        actionLabel: "Show all restaurants",
+        onPress: showAllRestaurants,
+      };
+    }
+
+    if (activeFilter === "offers") {
+      return {
+        title: "No offers right now",
+        description:
+          "No restaurants in your area are running offers at the moment. Browse all restaurants instead.",
+        actionLabel: "Show all restaurants",
+        onPress: showAllRestaurants,
+      };
+    }
+
+    if (activeFilter === "featured") {
+      return {
+        title: "No featured restaurants yet",
+        description:
+          "We haven't featured any restaurants in your area yet. Browse all restaurants instead.",
+        actionLabel: "Show all restaurants",
+        onPress: showAllRestaurants,
+      };
+    }
+
+    return {
+      title: "Foodbela isn't in this area yet",
+      description:
+        "We don't deliver to this location yet. Try a different delivery point where Foodbela is available.",
+    };
+  }, [
+    activeFilter,
+    areaHasRestaurants,
+    homeDiscoveryQuery.data?.areaServiceWindow,
+    isOnline,
+    searchQuery,
+    showAllRestaurants,
   ]);
 
   return (
@@ -490,6 +600,13 @@ export default function BrowseScreen() {
               pressed ? styles.pressablePressed : null,
             ]}
             onPress={openFilters}
+            accessibilityRole="button"
+            accessibilityLabel={
+              activeFilterCount
+                ? `Filters, ${activeFilterCount} active`
+                : "Filters"
+            }
+            hitSlop={8}
           >
             <Ionicons name="options-outline" size={16} color="#fff" />
             {activeFilterCount ? (
@@ -508,6 +625,8 @@ export default function BrowseScreen() {
         renderItem={renderRestaurant}
         extraData={listExtraData}
         showsVerticalScrollIndicator={false}
+        onScroll={handleBrowseScroll}
+        scrollEventThrottle={32}
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={RestaurantSeparator}
         // Off by default in FlashList v2 this would re-anchor to the previously
@@ -542,6 +661,18 @@ export default function BrowseScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {isAreaClosed && areaWindow ? (
+              <View style={{ marginHorizontal: -20, marginBottom: 14 }}>
+                <ServiceClosedHero
+                  area={areaWindow}
+                  showTimer={false}
+                  onLayout={(event) => {
+                    closedRevealRef.current =
+                      event.nativeEvent.layout.height * 0.6;
+                  }}
+                />
+              </View>
+            ) : null}
             <View style={styles.headerCard}>
               {!isOnline ? (
                 <OfflineNoticeCard description="Browse is showing the last available data. Reconnect to refresh menus, prices, and availability." />
@@ -746,264 +877,41 @@ export default function BrowseScreen() {
             )
           ) : (
             <EmptyStateCard
-              title={
-                isOnline && searchQuery.trim()
-                  ? "No matching food found"
-                  : isOnline
-                    ? "Foodbela isn't in this area yet"
-                    : "Restaurants are unavailable offline"
-              }
-              description={
-                isOnline && searchQuery.trim()
-                  ? "Try another spelling, food name, cuisine, or restaurant. Your location is still selected."
-                  : isOnline
-                    ? "We don't deliver to this location yet. Try a different delivery point where Foodbela is available."
-                  : "Check your internet connection to load restaurants for this area again."
-              }
+              title={emptyStateContent.title}
+              description={emptyStateContent.description}
+              actionLabel={emptyStateContent.actionLabel}
+              onPress={emptyStateContent.onPress}
             />
           )
         }
       />
+      <ServiceClosedStickyPill
+        area={areaWindow}
+        visible={closedStickyVisible}
+        topOffset={8}
+        showTimer={false}
+      />
       </View>
 
-      <AppBottomSheet
+      <RestaurantFilterSheet
         visible={isFilterOpen}
         onClose={() => setIsFilterOpen(false)}
-        title="Filters"
-        subtitle="Choose what you want to see"
-        leadingIcon="options-outline"
-        snapPoints={[0.7, 0.92]}
-        initialSnapPoint={0.7}
-        footer={
-          <View style={styles.filterFooter}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.filterResetButton,
-                pressed ? styles.pressablePressed : null,
-              ]}
-              onPress={() => {
-                setDraftFilter("all");
-                setDraftSortBy("nearest");
-                setDraftMinimumRating(0);
-                setDraftMaximumLowestPrice(0);
-              }}
-            >
-              <Ionicons name="refresh-outline" size={15} color={palette.foreground} />
-              <Text style={styles.filterResetText}>Reset</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.filterApplyButton,
-                pressed ? styles.pressablePressed : null,
-              ]}
-              onPress={() => {
-                setActiveFilter(draftFilter);
-                setSortBy(draftSortBy);
-                setMinimumRating(draftMinimumRating);
-                setMaximumLowestPrice(draftMaximumLowestPrice);
-                setIsFilterOpen(false);
-              }}
-            >
-              <Text style={styles.filterApplyText}>Apply filters</Text>
-              <Ionicons name="checkmark" size={16} color={palette.surface} />
-            </Pressable>
-          </View>
-        }
-      >
-        <View style={styles.filterPill}>
-          <Ionicons name="sparkles" size={12} color={palette.primary} />
-          <Text style={styles.filterPillText}>Browse filters</Text>
-        </View>
-
-        <View style={styles.filterInsightRow}>
-          <View style={styles.filterInsightCard}>
-            <Text style={styles.filterInsightValue}>{filteredRestaurants.length}</Text>
-            <Text style={styles.filterInsightLabel}>Matching restaurants</Text>
-          </View>
-          <View style={styles.filterInsightCard}>
-            <Text style={styles.filterInsightValue}>{activeFilterCount}</Text>
-            <Text style={styles.filterInsightLabel}>Active filters</Text>
-          </View>
-        </View>
-
-        <View style={styles.filterSection}>
-          <View style={styles.filterSectionHeader}>
-            <View style={styles.filterSectionIconWrap}>
-              <Ionicons name="grid-outline" size={14} color="#A14A74" />
-            </View>
-            <Text style={styles.filterSectionLabel}>Show</Text>
-          </View>
-          <View style={styles.filterOptionsRow}>
-            {[
-              { key: "all", label: "All", icon: "apps-outline" },
-              { key: "open", label: "Open now", icon: "checkmark-circle-outline" },
-              { key: "offers", label: "Offers", icon: "pricetag-outline" },
-              { key: "featured", label: "Featured", icon: "sparkles-outline" },
-            ].map((filter) => {
-              const isActive = draftFilter === filter.key;
-              return (
-                <Pressable
-                  key={filter.key}
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    isActive ? styles.filterChipActive : null,
-                    pressed ? styles.chipPressed : null,
-                  ]}
-                  onPress={() => setDraftFilter(filter.key as BrowseFilter)}
-                >
-                  <Ionicons
-                    name={filter.icon as keyof typeof Ionicons.glyphMap}
-                    size={13}
-                    color={isActive ? palette.surface : palette.secondary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      isActive ? styles.filterChipTextActive : null,
-                    ]}
-                  >
-                    {filter.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.filterSection}>
-          <View style={styles.filterSectionHeader}>
-            <View style={styles.filterSectionIconWrap}>
-              <Ionicons name="swap-vertical-outline" size={14} color="#A14A74" />
-            </View>
-            <Text style={styles.filterSectionLabel}>Sort by</Text>
-          </View>
-          <View style={styles.filterOptionsRow}>
-            {[
-              { key: "nearest", label: "Nearest", icon: "navigate-outline" },
-              { key: "fastest", label: "Fastest", icon: "flash-outline" },
-              { key: "topRated", label: "Top rated", icon: "star-outline" },
-            ].map((option) => {
-              const isActive = draftSortBy === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    isActive ? styles.filterChipActive : null,
-                    pressed ? styles.chipPressed : null,
-                  ]}
-                  onPress={() => setDraftSortBy(option.key as BrowseSort)}
-                >
-                  <Ionicons
-                    name={option.icon as keyof typeof Ionicons.glyphMap}
-                    size={13}
-                    color={isActive ? palette.surface : palette.secondary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      isActive ? styles.filterChipTextActive : null,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.filterSection}>
-          <View style={styles.filterSectionHeader}>
-            <View style={styles.filterSectionIconWrap}>
-              <Ionicons name="star-outline" size={14} color="#A14A74" />
-            </View>
-            <Text style={styles.filterSectionLabel}>Ratings</Text>
-          </View>
-          <View style={styles.filterOptionsRow}>
-            {[
-              { key: 0, label: "Any" },
-              { key: 4, label: "4.0+" },
-              { key: 4.5, label: "4.5+" },
-            ].map((option) => {
-              const isActive = draftMinimumRating === option.key;
-              return (
-                <Pressable
-                  key={option.label}
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    isActive ? styles.filterChipActive : null,
-                    pressed ? styles.chipPressed : null,
-                  ]}
-                  onPress={() => setDraftMinimumRating(option.key as BrowseRating)}
-                >
-                  <Ionicons
-                    name={isActive ? "star" : "star-outline"}
-                    size={13}
-                    color={isActive ? palette.surface : palette.secondary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      isActive ? styles.filterChipTextActive : null,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.filterSection}>
-          <View style={styles.filterSectionHeader}>
-            <View style={styles.filterSectionIconWrap}>
-              <Ionicons name="cash-outline" size={14} color="#A14A74" />
-            </View>
-            <Text style={styles.filterSectionLabel}>Starting price</Text>
-          </View>
-          <View style={styles.filterOptionsRow}>
-            {[
-              { key: 0, label: "Any" },
-              { key: 200, label: "Up to Tk 200" },
-              { key: 400, label: "Up to Tk 400" },
-              { key: 700, label: "Up to Tk 700" },
-            ].map((option) => {
-              const isActive = draftMaximumLowestPrice === option.key;
-              return (
-                <Pressable
-                  key={option.label}
-                  style={({ pressed }) => [
-                    styles.filterChip,
-                    isActive ? styles.filterChipActive : null,
-                    pressed ? styles.chipPressed : null,
-                  ]}
-                  onPress={() =>
-                    setDraftMaximumLowestPrice(
-                      option.key as BrowseLowestPrice
-                    )
-                  }
-                >
-                  <Ionicons
-                    name={isActive ? "cash" : "cash-outline"}
-                    size={13}
-                    color={isActive ? palette.surface : palette.secondary}
-                  />
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      isActive ? styles.filterChipTextActive : null,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      </AppBottomSheet>
+        value={{
+          filter: activeFilter,
+          sortBy,
+          minimumRating,
+          maximumLowestPrice,
+        }}
+        onApply={(next) => {
+          setActiveFilter(next.filter);
+          setSortBy(next.sortBy);
+          setMinimumRating(next.minimumRating);
+          setMaximumLowestPrice(next.maximumLowestPrice);
+        }}
+        latitude={selectedLocation?.latitude}
+        longitude={selectedLocation?.longitude}
+        search={debouncedSearchQuery}
+      />
     </Screen>
   );
 }

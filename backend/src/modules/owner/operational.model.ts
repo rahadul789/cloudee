@@ -99,6 +99,55 @@ menuItemSchema.index({ restaurantId: 1, status: 1, availability: 1, isPopular: -
 menuItemSchema.index({ restaurantId: 1, categoryId: 1, status: 1, availability: 1 })
 menuItemSchema.index({ restaurantId: 1, recommendedItemIds: 1 })
 
+const menuApprovalPriceDiffSchema = new Schema(
+  {
+    path: { type: String, required: true, trim: true },
+    label: { type: String, required: true, trim: true },
+    oldPrice: { type: Number, default: null },
+    newPrice: { type: Number, default: null },
+    delta: { type: Number, default: 0 },
+    percentDelta: { type: Number, default: null },
+  },
+  { _id: false },
+)
+
+const menuApprovalRequestSchema = new Schema(
+  {
+    restaurantId: { type: Schema.Types.ObjectId, ref: "Restaurant", required: true },
+    ownerId: { type: Schema.Types.ObjectId, ref: "Owner", required: true },
+    menuItemId: { type: Schema.Types.ObjectId, ref: "MenuItem", default: null },
+    type: {
+      type: String,
+      enum: ["new_item", "price_update"],
+      required: true,
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected", "cancelled", "superseded"],
+      default: "pending",
+      index: true,
+    },
+    currentSnapshot: { type: Schema.Types.Mixed, default: {} },
+    proposedSnapshot: { type: Schema.Types.Mixed, required: true },
+    priceDiffs: { type: [menuApprovalPriceDiffSchema], default: [] },
+    ownerNote: { type: String, default: "", trim: true },
+    ownerReason: { type: String, default: "", trim: true },
+    internalNote: { type: String, default: "", trim: true },
+    allowResubmit: { type: Boolean, default: true },
+    reviewedByAdminId: { type: String, default: "", trim: true },
+    submittedAt: { type: Date, default: Date.now },
+    reviewedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+)
+
+menuApprovalRequestSchema.index({ status: 1, createdAt: -1 })
+menuApprovalRequestSchema.index({ restaurantId: 1, status: 1, createdAt: -1 })
+menuApprovalRequestSchema.index({ ownerId: 1, status: 1, createdAt: -1 })
+menuApprovalRequestSchema.index({ menuItemId: 1, status: 1, createdAt: -1 })
+menuApprovalRequestSchema.index({ "proposedSnapshot.slug": 1, restaurantId: 1, status: 1 })
+
 const orderHistoryEntrySchema = new Schema(
   {
     status: { type: String, required: true },
@@ -237,5 +286,9 @@ notificationSchema.index({ districtId: 1, isRead: 1, createdAt: -1 })
 
 export const CategoryModel = mongoose.model("Category", categorySchema)
 export const MenuItemModel = mongoose.model("MenuItem", menuItemSchema)
+export const MenuApprovalRequestModel = mongoose.model(
+  "MenuApprovalRequest",
+  menuApprovalRequestSchema,
+)
 export const OrderModel = mongoose.model("Order", orderSchema)
 export const NotificationModel = mongoose.model("Notification", notificationSchema)

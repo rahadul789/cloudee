@@ -666,6 +666,15 @@ export const styles = StyleSheet.create({
   summaryHighlight: {
     color: palette.successText,
   },
+  // Sits directly under the "Delivery fee" row (the summaryCard gap is 10, so the negative
+  // top margin pulls this caption up to hug it) — explains WHY the fee is what it is.
+  summaryDeliveryNote: {
+    marginTop: -6,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: palette.mutedForeground,
+  },
   summaryStrong: {
     fontSize: 14,
     lineHeight: 18,
@@ -682,6 +691,25 @@ export const styles = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: 0,
+  },
+  minimumOrderNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    alignSelf: "center",
+    marginBottom: 8,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: palette.warningSurface,
+    borderWidth: 1,
+    borderColor: "rgba(231, 139, 39, 0.28)",
+  },
+  minimumOrderNoticeText: {
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: palette.warningText,
   },
   checkoutCard: {
     paddingHorizontal: 20,
