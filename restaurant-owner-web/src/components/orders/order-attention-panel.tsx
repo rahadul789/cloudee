@@ -315,6 +315,7 @@ export function OrderAttentionPanel() {
           {visibleAlerts.map((alert) => {
             const Icon = getStatusIcon(alert.order.currentStatus)
             const isPending = pendingOrderId === alert.order.id
+            const actionStatus = alert.actionStatus
 
             return (
               <div
@@ -375,11 +376,11 @@ export function OrderAttentionPanel() {
                       <Eye className="size-3.5" />
                       View
                     </Button>
-                    {alert.actionStatus ? (
+                    {actionStatus ? (
                       <Button
                         size="xs"
                         onClick={() =>
-                          updateOrderStatus(alert.order, alert.actionStatus)
+                          updateOrderStatus(alert.order, actionStatus)
                         }
                         disabled={isPending}
                       >

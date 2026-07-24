@@ -52,7 +52,6 @@ import {
   allowedTransitions,
   canActorTransitionOrder,
   type Order,
-  type OrderOperationalTiming,
   type OrderPaymentMethod,
   type OrderStatus,
   formatOrderMoney,
