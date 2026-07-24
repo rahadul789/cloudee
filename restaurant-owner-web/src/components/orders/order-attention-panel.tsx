@@ -275,6 +275,14 @@ export function OrderAttentionPanel() {
     }
   }
 
+  function handleAttentionAction(
+    order: Order,
+    nextStatus: AttentionActionStatus | null
+  ) {
+    if (!nextStatus) return
+    void updateOrderStatus(order, nextStatus)
+  }
+
   function viewOrder(order: Order) {
     navigate(`/orders?order=${order.id}`)
   }
@@ -380,7 +388,7 @@ export function OrderAttentionPanel() {
                       <Button
                         size="xs"
                         onClick={() =>
-                          updateOrderStatus(alert.order, actionStatus)
+                          handleAttentionAction(alert.order, actionStatus)
                         }
                         disabled={isPending}
                       >
