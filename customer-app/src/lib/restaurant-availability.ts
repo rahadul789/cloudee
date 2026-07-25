@@ -1,6 +1,50 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { RestaurantAvailability } from "@/src/types/restaurant";
+
+/**
+ * Auto-refreshes a closed screen when its service window opens: the backend hands us the
+ * absolute reopen instant (`targetEpochMs`) and this calls `onReopen` (the screen's refetch)
+ * the moment it passes — so a customer sitting on the "Opens in …" countdown sees the area +
+ * restaurants flip to open on their own, no pull-to-refresh. (The backend now computes
+ * open/closed live, so a single refetch after the boundary already returns "open".)
+ *
+ * Uses a 1-second tick — a short, reliable interval; a single long `setTimeout` gets
+ * throttled/GC'd by RN and never fires. It only refetches once the instant is reached, then
+ * retries a few times ~4s apart to absorb small device/server clock skew. A null/absent
+ * instant (area already open) is a no-op, and the area opening clears the instant → this tears
+ * down and stops.
+ */
+export function useReopenAutoRefresh(
+  targetEpochMs: number | null | undefined,
+  onReopen: () => void,
+) {
+  const onReopenRef = useRef(onReopen);
+  useEffect(() => {
+    onReopenRef.current = onReopen;
+  }, [onReopen]);
+
+  useEffect(() => {
+    if (typeof targetEpochMs !== "number") return;
+
+    let fires = 0;
+    let lastFireAt = 0;
+    const id = setInterval(() => {
+      const now = Date.now();
+      if (now < targetEpochMs) return;
+      // Past the reopen instant: refetch, then retry up to a few times ~4s apart (skew safety).
+      // If the area truly opens the caller re-renders with a null target and this effect is torn
+      // down before the retries run out.
+      if (now - lastFireAt < 4000) return;
+      lastFireAt = now;
+      onReopenRef.current();
+      fires += 1;
+      if (fires >= 4) clearInterval(id);
+    }, 1000);
+
+    return () => clearInterval(id);
+  }, [targetEpochMs]);
+}
 
 /**
  * Live-ticking remaining milliseconds until an absolute reopen instant. Because the

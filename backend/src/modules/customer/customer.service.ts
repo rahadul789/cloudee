@@ -2062,6 +2062,106 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
   return restaurants;
 }
 
+type LiveAvailabilityContext = {
+  platformServiceHours: Awaited<ReturnType<typeof getPlatformServiceHours>>;
+  zoneServiceHoursMap: Awaited<ReturnType<typeof buildZoneServiceHoursMap>>;
+  now: Date;
+};
+
+/**
+ * Re-evaluates a single discovery row's open/closed state LIVE against the wall clock. The
+ * per-restaurant `isOpen` gets baked into the read caches by `enrichRestaurantDiscoveryRows`,
+ * so once a service window opens/closes the cached rows keep serving a stale value until TTL —
+ * this reapplies the decision on every request so it flips at the exact boundary.
+ *
+ * Opening-hours are a LABEL-only predictor (never a gate — see restaurant-availability.ts), so
+ * we pass `openingHours: null` and only override when the wall-clock gate actually disagrees
+ * with the cached snapshot. That keeps a restaurant closed by its own schedule (owner offline
+ * inside the window) on its nicer cached "Opens at …" label — we only correct the closed↔open
+ * flip that time caused.
+ */
+function applyLiveRestaurantAvailability(
+  row: Record<string, any>,
+  ctx: LiveAvailabilityContext,
+) {
+  const live = computeRestaurantAvailability({
+    serviceHours: resolveServiceHoursConfig(
+      ctx.zoneServiceHoursMap.get(String(row.serviceArea?.zoneId ?? "")),
+      ctx.platformServiceHours,
+    ),
+    isOnline: row.runtime?.isOnline ?? false,
+    restricted: isRestaurantOrderingRestricted(row),
+    openingHours: null,
+    now: ctx.now,
+  });
+  if (live.isOpen !== Boolean(row.isOpen)) {
+    row.isOpen = live.isOpen;
+    row.availability = live.isOpen
+      ? { isOpen: true, closedReason: null, opensAtLabel: null, opensAtEpochMs: null }
+      : live;
+  }
+}
+
+/**
+ * Applies the live open/closed re-evaluation to a whole home-discovery response AFTER it comes
+ * out of the cache: every restaurant list plus the area service window. Config (platform +
+ * per-zone hours) is cache-backed, so this is a cheap in-memory pass with no extra DB hit, and
+ * it's what makes closed→open flip instantly instead of waiting for the cache to expire.
+ */
+async function applyLiveHomeAvailability(
+  home: CustomerDiscoveryHomeResult,
+  params?: { latitude?: number; longitude?: number },
+): Promise<CustomerDiscoveryHomeResult> {
+  const record = home as Record<string, any>;
+  const [platformServiceHours, zoneServiceHoursMap] = await Promise.all([
+    getPlatformServiceHours(),
+    buildZoneServiceHoursMap(),
+  ]);
+  const now = new Date();
+  const ctx: LiveAvailabilityContext = {
+    platformServiceHours,
+    zoneServiceHoursMap,
+    now,
+  };
+
+  for (const key of [
+    "nearbyRestaurants",
+    "featuredRestaurants",
+    "popularNearYouRestaurants",
+    "discoverNewRestaurants",
+    "restaurantsWithOffers",
+  ]) {
+    const rows = record[key];
+    if (Array.isArray(rows)) {
+      for (const row of rows) applyLiveRestaurantAvailability(row, ctx);
+    }
+  }
+
+  // Area-wide window (drives the "your area opens at …" hero) — recompute from the delivery
+  // location's zone so the hero appears/disappears at the exact boundary too.
+  const areaZone = await resolveServiceZoneForCoordinates({
+    latitude: params?.latitude,
+    longitude: params?.longitude,
+  });
+  const areaAvailability = computeRestaurantAvailability({
+    serviceHours: resolveServiceHoursConfig(
+      await getServiceHoursOverrideForZone(areaZone?.snapshot?.zoneId),
+      platformServiceHours,
+    ),
+    isOnline: true,
+    restricted: false,
+    openingHours: null,
+    now,
+  });
+  record.areaServiceWindow = {
+    isOpen: areaAvailability.isOpen,
+    opensAtLabel: areaAvailability.opensAtLabel,
+    opensAtEpochMs: areaAvailability.opensAtEpochMs,
+  };
+
+  return home;
+}
+
 
 function getOrderDeliveryCoordinate(order: Record<string, any>) {
   const deliveryAddress = order.customerSnapshot?.deliveryAddress;
@@ -2456,6 +2556,24 @@ export async function listDiscoverableRestaurantsPage(params?: {
   const page = Math.max(1, Math.floor(params?.page ?? 1));
   const pageSize = Math.max(1, Math.min(30, Math.floor(params?.pageSize ?? 12)));
   let restaurants = [...(await listDiscoverableRestaurants(params))];
+  // Reapply open/closed LIVE against the wall clock — `listDiscoverableRestaurants` bakes
+  // `isOpen` into its cache, so without this a just-opened restaurant stays "closed" until the
+  // cache expires. Done BEFORE the filter/sort below so "open now" and the open-first ordering
+  // both reflect the current state.
+  if (restaurants.length) {
+    const [platformServiceHours, zoneServiceHoursMap] = await Promise.all([
+      getPlatformServiceHours(),
+      buildZoneServiceHoursMap(),
+    ]);
+    const liveCtx: LiveAvailabilityContext = {
+      platformServiceHours,
+      zoneServiceHoursMap,
+      now: new Date(),
+    };
+    for (const restaurant of restaurants) {
+      applyLiveRestaurantAvailability(restaurant as Record<string, any>, liveCtx);
+    }
+  }
   // listDiscoverableRestaurants already returns search results ordered by relevance
   // (restaurant-name matches first). Capture that order so the sort below keeps an
   // exact restaurant-name match on top instead of dropping it to distance order.
@@ -2999,7 +3117,7 @@ export async function getCustomerDiscoveryHome(params?: {
   customerId?: string;
 }): Promise<CustomerDiscoveryHomeResult> {
   const dhakaHourDecimal = getDhakaHourDecimal();
-  return customerDiscoveryHomeCache.getOrSet(
+  const homeResult = await customerDiscoveryHomeCache.getOrSet(
     buildCustomerDiscoveryHomeCacheKey({
       ...params,
       timeBucket: Math.floor(dhakaHourDecimal),
@@ -3417,6 +3535,10 @@ export async function getCustomerDiscoveryHome(params?: {
       };
     },
   );
+
+  // Reapply wall-clock availability OUTSIDE the cache so open/closed flips at the exact
+  // service-window boundary instead of surviving until the cached snapshot expires.
+  return applyLiveHomeAvailability(homeResult, params);
 }
 
 export async function getCustomerRestaurantDetails(

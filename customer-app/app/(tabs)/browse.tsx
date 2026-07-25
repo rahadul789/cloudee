@@ -38,6 +38,7 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useBrowseHistoryStore } from "@/src/store/browse-history-store";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
+import { useReopenAutoRefresh } from "@/src/lib/restaurant-availability";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 import type { CustomerVoucherOffer, DiscoverableRestaurant } from "@/src/types/restaurant";
@@ -260,6 +261,12 @@ export default function BrowseScreen() {
     nearbyRestaurantsQuery.data?.pages[0]?.areaHasRestaurants ?? false;
   const areaWindow = homeDiscoveryQuery.data?.areaServiceWindow ?? null;
   const isAreaClosed = areaWindow?.isOpen === false;
+  // When the area's service window opens, auto-refetch the feed + nearby list so restaurants
+  // flip closed→open on their own — no manual pull-to-refresh or app restart needed.
+  useReopenAutoRefresh(isAreaClosed ? areaWindow?.opensAtEpochMs : null, () => {
+    void homeDiscoveryQuery.refetch();
+    if (hasSelectedCoordinates) void nearbyRestaurantsQuery.refetch();
+  });
   const closedRevealRef = useRef(Number.POSITIVE_INFINITY);
   const closedStickyShownRef = useRef(false);
   const [closedStickyVisible, setClosedStickyVisible] = useState(false);

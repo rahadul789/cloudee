@@ -56,6 +56,7 @@ import { resolveCustomerRoute } from "@/src/lib/customer-routes";
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
+import { useReopenAutoRefresh } from "@/src/lib/restaurant-availability";
 import { hasVotedPoll } from "@/src/lib/poll-vote-storage";
 import type {
   CustomerHomeCms,
@@ -1013,6 +1014,11 @@ export default function HomeScreen() {
 
   const areaWindow = !isSearching ? (homeFeed?.areaServiceWindow ?? null) : null;
   const isAreaClosed = areaWindow?.isOpen === false;
+  // When the area's service window opens, auto-refetch the home feed so restaurants flip
+  // from closed to open on their own — no manual pull-to-refresh or app restart needed.
+  useReopenAutoRefresh(isAreaClosed ? areaWindow?.opensAtEpochMs : null, () => {
+    void homeQuery.refetch();
+  });
 
   // Reveal the slim sticky "Foodbela closed" pill once the in-flow closed hero has scrolled
   // up under the top. onLayout hands us the hero's offset in the scroll content; we flip a
