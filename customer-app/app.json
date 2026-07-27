@@ -2,7 +2,7 @@
   "expo": {
     "name": "Foodbela",
     "slug": "foodbela",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "foodbela",
@@ -16,7 +16,7 @@
       "policy": "fingerprint"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false
     },
     "android": {
       "googleServicesFile": "./google-services.json",
@@ -35,8 +35,7 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",

@@ -487,38 +487,43 @@ const styles = StyleSheet.create({
     paddingRight: 32,
     gap: 8,
   },
+  // Height/radius mirror the real category chip (minHeight 40, borderRadius 14) so the rail
+  // placeholder reserves the exact same height — no content jump when the real rail replaces it.
   menuCategoryWideSkeleton: {
     width: 82,
-    height: 30,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 14,
   },
   menuCategorySkeleton: {
     width: 76,
-    height: 30,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 14,
   },
   menuCategorySmallSkeleton: {
     width: 82,
-    height: 30,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 14,
   },
   menuCategoryTinySkeleton: {
     width: 82,
-    height: 30,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 14,
   },
   menuPopularSkeleton: {
     gap: 6,
   },
+  // Heights mirror the real section header (title lineHeight 25, gap 4, subtitle lineHeight 18) so
+  // the popular placeholder reserves the exact same height — no content nudge when it fills in.
   menuPopularHeaderSkeleton: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 8,
-    gap: 7,
+    gap: 4,
   },
   menuPopularTitleRowSkeleton: {
     flexDirection: "row",
     alignItems: "center",
+    minHeight: 25,
     gap: 6,
   },
   menuPopularIconSkeleton: {
@@ -533,8 +538,8 @@ const styles = StyleSheet.create({
   },
   menuPopularDescriptionSkeleton: {
     width: 142,
-    height: 13,
-    borderRadius: 7,
+    height: 18,
+    borderRadius: 9,
   },
   menuPopularRowSkeleton: {
     paddingHorizontal: 20,

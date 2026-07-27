@@ -8,6 +8,7 @@ import {
   getAdminCustomerAnalyticsFunnelsController,
   getAdminCustomerAnalyticsOverviewController,
   getAdminCustomerAnalyticsPaymentsController,
+  getAdminRestaurantViewStatsController,
 } from "./customer-analytics.controller"
 
 export const adminCustomerAnalyticsRouter = Router()
@@ -19,3 +20,4 @@ adminCustomerAnalyticsRouter.get("/customer-analytics/customers", getAdminCustom
 adminCustomerAnalyticsRouter.get("/customer-analytics/payments", getAdminCustomerAnalyticsPaymentsController)
 adminCustomerAnalyticsRouter.get("/customer-analytics/events", getAdminCustomerAnalyticsEventsController)
 adminCustomerAnalyticsRouter.get("/customer-analytics/actor-detail", getAdminCustomerAnalyticsActorDetailController)
+adminCustomerAnalyticsRouter.get("/customer-analytics/restaurant-views", getAdminRestaurantViewStatsController)

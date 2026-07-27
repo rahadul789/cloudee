@@ -25,6 +25,8 @@ export const platformContent = {
         buttonStyle: "pill",
         imageUrl: "",
         imagePublicId: "",
+        carouselAutoPlayEnabled: false,
+        carouselIntervalSeconds: 5,
         carouselImageUrls: [],
         carouselImages: [],
         ctaLabel: "Browse offers",
@@ -36,6 +38,14 @@ export const platformContent = {
       myOfferSection: {
         enabled: true,
         activeFrom: "",
+      },
+      // Home "Deals for you" section: a curated, admin-controlled showcase of up to 3
+      // platform offers (auto-applied or coupon) so customers notice them and order more.
+      // Area-based comes from each offer's own area scope (only area-valid ones render).
+      dealsSection: {
+        enabled: false,
+        title: "Deals for you",
+        offerIds: [] as string[],
       },
       homeCategories: {
         isActive: true,

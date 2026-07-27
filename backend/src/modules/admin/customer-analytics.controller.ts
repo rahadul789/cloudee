@@ -11,6 +11,7 @@ import {
   getAdminCustomerAnalyticsFunnels,
   getAdminCustomerAnalyticsOverview,
   getAdminCustomerAnalyticsPayments,
+  getAdminRestaurantViewStats,
 } from "./customer-analytics.service"
 
 const analyticsPresetSchema = z.enum([
@@ -156,6 +157,22 @@ export const getAdminCustomerAnalyticsActorDetailController = asyncHandler(
       anonymousId: normalizeOptionalString(req.query.anonymousId),
     })
     const data = await getAdminCustomerAnalyticsActorDetail(query)
+    return sendSuccess(res, { data })
+  },
+)
+
+const restaurantViewStatsQuerySchema = z.object({
+  restaurantId: z.string().trim().min(1).max(120),
+  window: z.enum(["5m", "10m", "20m", "1h", "24h", "today"]).optional(),
+})
+
+export const getAdminRestaurantViewStatsController = asyncHandler(
+  async (req: Request, res: Response) => {
+    const query = restaurantViewStatsQuerySchema.parse({
+      restaurantId: normalizeOptionalString(req.query.restaurantId),
+      window: normalizeOptionalString(req.query.window),
+    })
+    const data = await getAdminRestaurantViewStats(query)
     return sendSuccess(res, { data })
   },
 )

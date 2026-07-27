@@ -43,6 +43,14 @@ function trimString(value: string, maxLength: number) {
   return value.length > maxLength ? value.slice(0, maxLength) : value
 }
 
+// Promote the in-app navigation source (sent by the app inside metadata.source) to a normalized,
+// lowercase top-level column so restaurant-view attribution is a first-class, indexable field.
+function extractSource(metadata: Record<string, unknown> = {}) {
+  const raw = metadata.source
+  if (typeof raw !== "string") return ""
+  return trimString(raw.trim().toLowerCase(), 40)
+}
+
 function sanitizeMetadataValue(value: unknown): unknown {
   if (value === null || value === undefined) return value
   if (typeof value === "string") return trimString(value, 200)
@@ -107,6 +115,7 @@ async function recordCustomerAnalyticsEvent(params: {
     screenName: trimString(input.screenName ?? "", 120),
     entityType: trimString(input.entityType ?? "", 80),
     entityId: trimString(input.entityId ?? "", 120),
+    source: extractSource(input.metadata),
     metadata: sanitizeMetadata(input.metadata),
     userAgent: trimString(req.header("user-agent") ?? "", 300),
     ipHash: hashIpAddress(getClientIp(req)),

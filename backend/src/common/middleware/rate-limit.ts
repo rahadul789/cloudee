@@ -546,6 +546,23 @@ export function createCouponAttemptLimiter(): RequestHandler {
   });
 }
 
+export function createReferralApplyLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "referral.apply",
+    label: "Referral apply attempts",
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    settingKey: "referralApplyPerWindow",
+    keyStrategy: "user",
+    skip: (req) => {
+      const body = req.body as Record<string, unknown> | undefined;
+      return typeof body?.referralCode !== "string" || !body.referralCode.trim();
+    },
+    message: "Too many referral code attempts. Please try again later.",
+    event: "referral.apply.rate_limited",
+  });
+}
+
 export function createOrderPlaceLimiter(): RequestHandler {
   return buildLimiter({
     id: "order.place",

@@ -105,9 +105,9 @@ export default function FavoriteRestaurantsScreen() {
 
   const isInitialLoading =
     favoriteRestaurantsQuery.isLoading && !restaurants.length;
-  const isRefreshing =
-    favoriteRestaurantsQuery.isRefetching &&
-    !favoriteRestaurantsQuery.isFetching;
+  // Manual pull only. (The previous `isRefetching && !isFetching` was always false — the spinner
+  // never showed on pull — while a plain isRefetching binding would show it on background refetches.)
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const emptyStateMinHeight = Math.max(360, height - 440);
 
   const handleToggleFavorite = useCallback(
@@ -158,7 +158,9 @@ export default function FavoriteRestaurantsScreen() {
         onToggleFavorite={() => {
           void handleToggleFavorite(item._id);
         }}
-        onPress={() => router.push(`/restaurants/${item._id}` as never)}
+        onPress={() =>
+          router.push(`/restaurants/${item._id}?source=favorites` as never)
+        }
       />
     ),
     [
@@ -227,11 +229,16 @@ export default function FavoriteRestaurantsScreen() {
             </View>
           )
         }
-        onRefresh={() => {
-          void Promise.all([
-            favoriteRestaurantsQuery.refetch(),
-            favoriteRestaurantIdsQuery.refetch(),
-          ]);
+        onRefresh={async () => {
+          setIsRefreshing(true);
+          try {
+            await Promise.all([
+              favoriteRestaurantsQuery.refetch(),
+              favoriteRestaurantIdsQuery.refetch(),
+            ]);
+          } finally {
+            setIsRefreshing(false);
+          }
         }}
         refreshing={isRefreshing}
         drawDistance={700}

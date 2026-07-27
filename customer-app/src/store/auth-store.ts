@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { secureStateStorage } from "@/src/lib/secure-storage";
+import { authSplitStorage } from "@/src/lib/secure-storage";
 
 type CustomerProfile = {
   id: string;
@@ -95,7 +95,7 @@ export const useCustomerAuthStore = create<AuthStore>()(
     }),
     {
       name: "customer-auth-session",
-      storage: createJSONStorage(() => secureStateStorage),
+      storage: createJSONStorage(() => authSplitStorage),
       partialize: (state) => ({
         customer: state.customer,
         accessToken: state.accessToken,

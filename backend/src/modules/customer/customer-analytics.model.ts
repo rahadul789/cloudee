@@ -42,6 +42,10 @@ const customerAnalyticsEventSchema = new Schema(
     screenName: { type: String, default: "", trim: true },
     entityType: { type: String, default: "", index: true },
     entityId: { type: String, default: "", index: true },
+    // In-app navigation source ("carousel" | "featured" | "deals" | "search" | "browse" | ...) —
+    // promoted to a top-level field (from metadata.source) so restaurant-view attribution can be
+    // grouped/queried as a first-class column rather than reaching into the Mixed metadata blob.
+    source: { type: String, default: "", trim: true, index: true },
     metadata: { type: Schema.Types.Mixed, default: {} },
     userAgent: { type: String, default: "", trim: true },
     ipHash: { type: String, default: "", index: true },
@@ -52,6 +56,13 @@ const customerAnalyticsEventSchema = new Schema(
 
 customerAnalyticsEventSchema.index({ eventType: 1, occurredAt: -1 })
 customerAnalyticsEventSchema.index({ eventType: 1, entityId: 1, occurredAt: -1 })
+// Restaurant-view attribution: per-restaurant, per-source, time-windowed counts.
+customerAnalyticsEventSchema.index({
+  eventType: 1,
+  entityId: 1,
+  source: 1,
+  occurredAt: -1,
+})
 customerAnalyticsEventSchema.index({ eventType: 1, sessionId: 1, occurredAt: -1 })
 customerAnalyticsEventSchema.index({ actorType: 1, occurredAt: -1 })
 customerAnalyticsEventSchema.index({ customerId: 1, occurredAt: -1 })

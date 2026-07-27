@@ -524,6 +524,12 @@ export const styles = StyleSheet.create({
   },
   summaryTotals: {
     gap: 10,
+    // A hairline + breathing room above the price breakdown so the items and the Subtotal are
+    // clearly separated.
+    marginTop: 6,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
   },
   summaryRow: {
     flexDirection: "row",

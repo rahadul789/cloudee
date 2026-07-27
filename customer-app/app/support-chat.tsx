@@ -145,8 +145,9 @@ export default function SupportChatScreen() {
     createSupportCaseMutation.isPending ||
     postSupportMessageMutation.isPending ||
     isUploading;
-  const isRefreshing =
-    latestCaseQuery.isRefetching || supportCaseQuery.isRefetching;
+  // Manual pull only — binding to isRefetching also fired the spinner on background refetches
+  // (this screen refetches the case), so it showed without the user pulling.
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const canSend = Boolean(draftMessage.trim() || pendingImageUri) && !isSending && isOnline;
   const datedMessages = useMemo(() => {
     let previousLabel = "";
@@ -362,12 +363,17 @@ export default function SupportChatScreen() {
   }
 
   async function handleRefresh() {
-    if (currentCase?.id) {
-      await supportCaseQuery.refetch();
-      return;
-    }
+    setIsRefreshing(true);
+    try {
+      if (currentCase?.id) {
+        await supportCaseQuery.refetch();
+        return;
+      }
 
-    await latestCaseQuery.refetch();
+      await latestCaseQuery.refetch();
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   async function uploadPendingAttachment(imageUri?: string | null) {

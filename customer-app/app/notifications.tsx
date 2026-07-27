@@ -154,7 +154,9 @@ export default function NotificationsScreen() {
     return allNotifications;
   }, [activeTab, allNotifications]);
   const isInitialLoading = notificationsQuery.isLoading && notifications.length === 0;
-  const isRefreshing = notificationsQuery.isRefetching && !notificationsQuery.isFetchingNextPage;
+  // Manual pull only — binding to isRefetching also showed the spinner on background refetches
+  // (on focus / re-mount), so it appeared without the user pulling.
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const targetPath = Array.isArray(params.targetPath) ? params.targetPath[0] : params.targetPath;
   const safePushTargetPath = useMemo(
     () => resolveCustomerPushRoute({ path: targetPath }),
@@ -344,7 +346,14 @@ export default function NotificationsScreen() {
             ]}
             showsVerticalScrollIndicator={false}
             ItemSeparatorComponent={NotificationSeparator}
-            onRefresh={() => notificationsQuery.refetch()}
+            onRefresh={async () => {
+              setIsRefreshing(true);
+              try {
+                await notificationsQuery.refetch();
+              } finally {
+                setIsRefreshing(false);
+              }
+            }}
             refreshing={isRefreshing}
             onEndReachedThreshold={0.35}
             onEndReached={() => {

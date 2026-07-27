@@ -432,7 +432,7 @@ export default function BrowseScreen() {
 
     router.push({
       pathname: "/restaurants/[restaurantId]",
-      params: { restaurantId: restaurant._id },
+      params: { restaurantId: restaurant._id, source: "browse" },
     });
   }, [addRecentSearch, addRecentVisitedRestaurant, router]);
 
@@ -780,7 +780,10 @@ export default function BrowseScreen() {
                           onPress={() =>
                             router.push({
                               pathname: "/restaurants/[restaurantId]",
-                              params: { restaurantId: restaurant.id },
+                              params: {
+                                restaurantId: restaurant.id,
+                                source: "recent",
+                              },
                             })
                           }
                         >

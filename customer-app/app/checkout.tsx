@@ -192,18 +192,24 @@ export default function CheckoutScreen() {
   // device has already used a welcome perk (referral or first-order) — hide the "new to
   // Foodbela" nudge so we never invite a referral that can't add a discount here.
   const deviceWelcomeEligible = referralSummary?.deviceWelcomeEligible !== false;
+  // A referral is only genuinely usable here when the account can still apply one AND this
+  // physical device hasn't already consumed a welcome perk. `canApplyReferralCode` alone is
+  // account-scoped (a fresh phone on a used device reads as eligible), so on a device that has
+  // already delivered/welcomed the backend rejects the code (REFERRAL_DEVICE_ALREADY_REWARDED).
+  // Gate the referral wording AND the apply-attempt on both, so we never invite a referral that
+  // can't work here — the box just behaves as a plain voucher field. (The hint already did this.)
+  const referralUsableHere = canApplyReferralCode && deviceWelcomeEligible;
   const shouldAttemptReferralCode =
-    canApplyReferralCode || referralSummaryQuery.isLoading;
-  const codeInputTitle = canApplyReferralCode
+    referralUsableHere || referralSummaryQuery.isLoading;
+  const codeInputTitle = referralUsableHere
     ? "Voucher or referral code"
     : "Voucher";
-  const codeInputPlaceholder = canApplyReferralCode
+  const codeInputPlaceholder = referralUsableHere
     ? "Enter voucher or referral code"
     : "Enter voucher code";
-  const codeInputHint =
-    canApplyReferralCode && deviceWelcomeEligible
-      ? "New to Foodbela? You can also use a referral code here."
-      : "";
+  const codeInputHint = referralUsableHere
+    ? "New to Foodbela? You can also use a referral code here."
+    : "";
   const incomingReferralCode = useMemo(
     () => sanitizeCheckoutCode(String(params.ref ?? params.referralCode ?? "")),
     [params.ref, params.referralCode],
@@ -1423,7 +1429,10 @@ export default function CheckoutScreen() {
                   onPress={() =>
                     router.push({
                       pathname: "/restaurants/[restaurantId]",
-                      params: { restaurantId: restaurant!.restaurantId },
+                      params: {
+                        restaurantId: restaurant!.restaurantId,
+                        source: "checkout",
+                      },
                     })
                   }
                 >

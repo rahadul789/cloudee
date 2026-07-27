@@ -40,6 +40,7 @@ export const defaultAuthRateLimitSettings = {
   orderActionPerWindow: 10,
   cartQuotePerWindow: 300,
   couponAttemptPerWindow: 20,
+  referralApplyPerWindow: 5,
   supportWritePerWindow: 20,
   analyticsEventsPerWindow: 240,
   riderLocationPerWindow: 900,
@@ -277,11 +278,20 @@ const platformContentSchema = z.object({
         buttonStyle: z.enum(["pill", "soft", "outline", "dark"]),
         imageUrl: z.string().trim(),
         imagePublicId: z.string().trim(),
+        carouselAutoPlayEnabled: z.boolean().optional().default(false),
+        carouselIntervalSeconds: z
+          .number()
+          .int()
+          .min(2)
+          .max(30)
+          .optional()
+          .default(5),
         carouselImageUrls: z.array(z.string().trim()),
         carouselImages: z.array(
           z.object({
             url: z.string().trim(),
             publicId: z.string().trim(),
+            linkEnabled: z.boolean().optional().default(false),
             ctaPath: z.string().trim().optional(),
           })
         ),
@@ -300,6 +310,19 @@ const platformContentSchema = z.object({
         .default({
           enabled: true,
           activeFrom: "",
+        }),
+      dealsSection: z
+        .object({
+          enabled: z.boolean().optional().default(false),
+          title: z.string().trim().optional().default("Deals for you"),
+          // Admin-curated voucher ids to feature (display shows up to 3, in this order).
+          offerIds: z.array(z.string().trim()).optional().default([]),
+        })
+        .optional()
+        .default({
+          enabled: false,
+          title: "Deals for you",
+          offerIds: [],
         }),
       homeCategories: z.object({
         isActive: z.boolean().optional().default(true),
@@ -1000,6 +1023,7 @@ const platformContentSchema = z.object({
         orderActionPerWindow: z.number().int().min(2).max(100).optional().default(10),
         cartQuotePerWindow: z.number().int().min(60).max(1000).optional().default(300),
         couponAttemptPerWindow: z.number().int().min(5).max(200).optional().default(20),
+        referralApplyPerWindow: z.number().int().min(1).max(50).optional().default(5),
         supportWritePerWindow: z.number().int().min(5).max(200).optional().default(20),
         analyticsEventsPerWindow: z.number().int().min(60).max(2000).optional().default(240),
         riderLocationPerWindow: z.number().int().min(120).max(3000).optional().default(900),
@@ -1144,7 +1168,13 @@ function normalizeHomeCmsForRuntime(homeCms: CustomerHomeCms): CustomerHomeCms {
       ? homeCms.offerStrip.carouselImageUrls.filter((url) => url.trim())
       : [],
     carouselImages: Array.isArray(homeCms.offerStrip.carouselImages)
-      ? homeCms.offerStrip.carouselImages.filter((image) => image.url.trim())
+      ? homeCms.offerStrip.carouselImages
+          .filter((image) => image.url.trim())
+          .map((image) => ({
+            ...image,
+            linkEnabled: image.linkEnabled === true,
+            ctaPath: image.ctaPath?.trim() ?? "",
+          }))
       : [],
   }
 
@@ -1285,6 +1315,7 @@ function buildHomeCmsAreaOverride(homeCms: PlatformContent["customerApp"]["homeC
   return {
     offerStrip: normalizedHomeCms.offerStrip,
     myOfferSection: normalizedHomeCms.myOfferSection,
+    dealsSection: normalizedHomeCms.dealsSection,
     homeCategories: normalizedHomeCms.homeCategories,
     restaurantSections: normalizedHomeCms.restaurantSections,
     timeBasedSection: normalizedHomeCms.timeBasedSection,

@@ -21,7 +21,9 @@ import {
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
+import { useQuery } from "@tanstack/react-query"
 
+import { listAdminVouchers } from "@/lib/admin-api"
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning"
 import {
   deleteAdminMedia,
@@ -368,6 +370,8 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
     buttonStyle: "pill",
     imageUrl: "",
     imagePublicId: "",
+    carouselAutoPlayEnabled: false,
+    carouselIntervalSeconds: 5,
     carouselImageUrls: [],
     carouselImages: [],
     ctaLabel: "Browse offers",
@@ -379,6 +383,11 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
   myOfferSection: {
     enabled: true,
     activeFrom: "",
+  },
+  dealsSection: {
+    enabled: false,
+    title: "Deals for you",
+    offerIds: [],
   },
   homeCategories: {
     isActive: true,
@@ -821,6 +830,16 @@ function arrayOrDefault<T>(value: unknown, fallback: T[]) {
   return Array.isArray(value) ? (value as T[]) : fallback
 }
 
+const NO_CAROUSEL_LINK = "__none"
+const CUSTOM_CAROUSEL_LINK = "__custom"
+
+function getRestaurantIdFromCustomerPath(path?: string | null) {
+  const match = path
+    ?.trim()
+    .match(/^\/restaurants\/([A-Za-z0-9_-]+)(?:[?#].*)?$/)
+  return match?.[1] ?? ""
+}
+
 function normalizeHomeRestaurantSection(
   value: unknown,
   fallback: HomeRestaurantSection
@@ -855,6 +874,9 @@ function normalizeContentForCms(content: PlatformContent | null) {
   >
   const myOfferSection = (homeCms.myOfferSection ?? {}) as Partial<
     NonNullable<PlatformContent["customerApp"]["homeCms"]["myOfferSection"]>
+  >
+  const dealsSection = (homeCms.dealsSection ?? {}) as Partial<
+    NonNullable<PlatformContent["customerApp"]["homeCms"]["dealsSection"]>
   >
   const modal = (homeCms.modal ?? {}) as Partial<
     PlatformContent["customerApp"]["homeCms"]["modal"]
@@ -911,6 +933,19 @@ function normalizeContentForCms(content: PlatformContent | null) {
           activeFrom:
             myOfferSection.activeFrom ||
             (myOfferSection.enabled === false ? "" : new Date().toISOString()),
+        },
+        dealsSection: {
+          ...DEFAULT_HOME_CMS.dealsSection,
+          ...dealsSection,
+          enabled: dealsSection.enabled ?? false,
+          title:
+            dealsSection.title ||
+            DEFAULT_HOME_CMS.dealsSection?.title ||
+            "Deals for you",
+          offerIds: arrayOrDefault(
+            dealsSection.offerIds,
+            DEFAULT_HOME_CMS.dealsSection?.offerIds ?? []
+          ),
         },
         homeCategories: {
           ...DEFAULT_HOME_CMS.homeCategories,
@@ -1109,6 +1144,14 @@ export function CustomerHomeCmsSection({
   )
   const [draftContent, setDraftContent] =
     React.useState<PlatformContent | null>(normalizedContent)
+
+  // Active vouchers/offers the admin can feature in the home "Deals for you" section.
+  const dealsVouchersQuery = useQuery({
+    queryKey: ["admin", "deals-vouchers"],
+    queryFn: () => listAdminVouchers({ lifecycle: "Active", pageSize: 100 }),
+    staleTime: 60_000,
+  })
+  const dealsVouchers = dealsVouchersQuery.data?.items ?? []
   const [uploadingKey, setUploadingKey] = React.useState("")
   const [scheduledAtInput, setScheduledAtInput] = React.useState("")
   const [testCustomerId, setTestCustomerId] = React.useState("")
@@ -1214,6 +1257,35 @@ export function CustomerHomeCmsSection({
         [key]: value,
       },
     })
+  }
+
+  function updateDealsSection<
+    K extends keyof NonNullable<typeof currentCms.dealsSection>
+  >(key: K, value: NonNullable<typeof currentCms.dealsSection>[K]) {
+    const currentSection = (currentCms.dealsSection ??
+      DEFAULT_HOME_CMS.dealsSection ??
+      {}) as Partial<NonNullable<typeof currentCms.dealsSection>>
+    updateCms({
+      ...currentCms,
+      dealsSection: {
+        enabled: currentSection.enabled ?? false,
+        title: currentSection.title ?? "Deals for you",
+        offerIds: currentSection.offerIds ?? [],
+        [key]: value,
+      },
+    })
+  }
+
+  function toggleDealsOffer(offerId: string) {
+    const current = currentCms.dealsSection?.offerIds ?? []
+    const isSelected = current.includes(offerId)
+    // Max 6 featured; toggling off removes, toggling on appends (ignored past 6).
+    const next = isSelected
+      ? current.filter((id) => id !== offerId)
+      : current.length >= 6
+        ? current
+        : [...current, offerId]
+    updateDealsSection("offerIds", next)
   }
 
   function updateHomeCategories(
@@ -1446,7 +1518,7 @@ export function CustomerHomeCmsSection({
           ...currentCms.offerStrip,
           carouselImages: [
             ...currentCms.offerStrip.carouselImages,
-            { ...asset, ctaPath: currentCms.offerStrip.ctaPath },
+            { ...asset, linkEnabled: false, ctaPath: "" },
           ],
           carouselImageUrls: [
             ...currentCms.offerStrip.carouselImageUrls,
@@ -1592,6 +1664,22 @@ export function CustomerHomeCmsSection({
       howToOrderGuide: {
         ...currentCms.howToOrderGuide,
         ...preset,
+      },
+    })
+  }
+
+  function updateCarouselImage(
+    index: number,
+    patch: Partial<(typeof currentCms.offerStrip.carouselImages)[number]>
+  ) {
+    updateCms({
+      ...currentCms,
+      offerStrip: {
+        ...currentCms.offerStrip,
+        carouselImages: currentCms.offerStrip.carouselImages.map(
+          (image, itemIndex) =>
+            itemIndex === index ? { ...image, ...patch } : image
+        ),
       },
     })
   }
@@ -2586,9 +2674,63 @@ export function CustomerHomeCmsSection({
                 ) : null}
                 {cms.offerStrip.mode === "promo_block" ? (
                   <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                    Promo text, image, and carousel blocks are static in the
-                    customer app. Tapping them will not open a modal or
-                    redirect.
+                    Text and image promo blocks stay static in the customer app.
+                    Carousel slides can autoplay and open a link only when a
+                    slide link is enabled below.
+                  </div>
+                ) : null}
+                {cms.offerStrip.mode === "promo_block" &&
+                cms.offerStrip.variant === "carousel" ? (
+                  <div className="grid gap-3 rounded-lg border p-3 lg:col-span-3 md:grid-cols-3">
+                    <div className="flex items-center justify-between gap-3 md:col-span-2">
+                      <div>
+                        <Label>Carousel autoplay</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Runs only while the customer home screen is visible.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={cms.offerStrip.carouselAutoPlayEnabled === true}
+                        onCheckedChange={(checked) =>
+                          updateOfferStrip("carouselAutoPlayEnabled", checked)
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Seconds per slide</Label>
+                      <Input
+                        type="number"
+                        min={2}
+                        max={30}
+                        disabled={cms.offerStrip.carouselAutoPlayEnabled !== true}
+                        value={cms.offerStrip.carouselIntervalSeconds ?? 5}
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value || 5)
+                          updateOfferStrip(
+                            "carouselIntervalSeconds",
+                            Math.max(
+                              2,
+                              Math.min(
+                                30,
+                                Number.isFinite(nextValue)
+                                  ? Math.floor(nextValue)
+                                  : 5
+                              )
+                            )
+                          )
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-3">
+                      <Label>Slide button label</Label>
+                      <Input
+                        value={cms.offerStrip.ctaLabel}
+                        onChange={(event) =>
+                          updateOfferStrip("ctaLabel", event.target.value)
+                        }
+                        placeholder="View restaurant"
+                      />
+                    </div>
                   </div>
                 ) : null}
                 {cms.offerStrip.mode === "promo_block" &&
@@ -2691,34 +2833,133 @@ export function CustomerHomeCmsSection({
                   <div className="space-y-2 lg:col-span-3">
                     <Label>Carousel blocks</Label>
                     <div className="grid gap-2">
-                      {cms.offerStrip.carouselImages.map((image, index) => (
-                        <div
-                          key={`${image.publicId}-${index}`}
-                          className="flex items-center justify-between gap-3 rounded-lg border p-3"
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
+                      {cms.offerStrip.carouselImages.map((image, index) => {
+                        const linkEnabled = image.linkEnabled === true
+                        const selectedRestaurantId =
+                          getRestaurantIdFromCustomerPath(image.ctaPath)
+                        const hasSelectedRestaurant = restaurantTargetOptions.some(
+                          (restaurant) => restaurant.id === selectedRestaurantId
+                        )
+                        const linkSelectValue = !linkEnabled
+                          ? NO_CAROUSEL_LINK
+                          : selectedRestaurantId && hasSelectedRestaurant
+                            ? selectedRestaurantId
+                            : image.ctaPath?.trim()
+                              ? CUSTOM_CAROUSEL_LINK
+                              : NO_CAROUSEL_LINK
+
+                        return (
+                          <div
+                            key={`${image.publicId || image.url}-${index}`}
+                            className="grid gap-3 rounded-lg border p-3 lg:grid-cols-[auto_1fr_auto]"
+                          >
                             <img
                               src={image.url}
                               alt=""
-                              className="h-14 w-20 rounded-md object-cover"
+                              className="h-16 w-24 rounded-md object-cover"
                             />
-                            <div className="min-w-0">
-                              <p className="font-medium">Slide {index + 1}</p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {image.publicId || image.url}
-                              </p>
+                            <div className="min-w-0 space-y-3">
+                              <div className="min-w-0">
+                                <p className="font-medium">Slide {index + 1}</p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {image.publicId || image.url}
+                                </p>
+                              </div>
+                              <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2">
+                                <div>
+                                  <Label>Slide link</Label>
+                                  <p className="text-xs text-muted-foreground">
+                                    Optional; button appears only when enabled.
+                                  </p>
+                                </div>
+                                <Switch
+                                  checked={linkEnabled}
+                                  onCheckedChange={(checked) =>
+                                    updateCarouselImage(index, {
+                                      linkEnabled: checked,
+                                    })
+                                  }
+                                />
+                              </div>
+                              {linkEnabled ? (
+                                <div className="grid gap-2 md:grid-cols-2">
+                                  <div className="space-y-1.5">
+                                    <Label>Restaurant link</Label>
+                                    <Select
+                                      value={linkSelectValue}
+                                      onValueChange={(value) => {
+                                        if (value === NO_CAROUSEL_LINK) {
+                                          updateCarouselImage(index, {
+                                            linkEnabled: false,
+                                            ctaPath: "",
+                                          })
+                                          return
+                                        }
+                                        if (value === CUSTOM_CAROUSEL_LINK) {
+                                          updateCarouselImage(index, {
+                                            linkEnabled: true,
+                                            ctaPath: image.ctaPath ?? "",
+                                          })
+                                          return
+                                        }
+                                        updateCarouselImage(index, {
+                                          linkEnabled: true,
+                                          ctaPath: `/restaurants/${value}`,
+                                        })
+                                      }}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value={NO_CAROUSEL_LINK}>
+                                          No link
+                                        </SelectItem>
+                                        <SelectItem value={CUSTOM_CAROUSEL_LINK}>
+                                          Custom path
+                                        </SelectItem>
+                                        {restaurantTargetOptions.map(
+                                          (restaurant) => (
+                                            <SelectItem
+                                              key={restaurant.id}
+                                              value={restaurant.id}
+                                            >
+                                              {restaurant.name}
+                                            </SelectItem>
+                                          )
+                                        )}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <Label>Customer app path</Label>
+                                    <Input
+                                      value={image.ctaPath ?? ""}
+                                      onChange={(event) =>
+                                        updateCarouselImage(index, {
+                                          linkEnabled: true,
+                                          ctaPath: event.target.value,
+                                        })
+                                      }
+                                      placeholder="/restaurants/restaurantId"
+                                    />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="flex items-start justify-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void removeCarouselImage(index)}
+                              >
+                                Remove
+                              </Button>
                             </div>
                           </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void removeCarouselImage(index)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ))}
+                        )
+                      })}
                       <Input
                         type="file"
                         accept="image/*"
@@ -2814,6 +3055,115 @@ export function CustomerHomeCmsSection({
               </div>
             </CmsDetailsCard>
           </div>
+
+          <CmsDetailsCard
+            title="Deals for you"
+            description="A curated home showcase of up to 6 offers (auto-applied or coupon), high on the home screen so customers notice and order more. Only offers valid in a customer's area appear; use the scope selector above to control it per district/zone."
+            icon={<Gift className="size-5" />}
+            summary={
+              <div className="hidden items-center gap-2 sm:flex">
+                <Badge variant={cms.dealsSection?.enabled ? "default" : "outline"}>
+                  {cms.dealsSection?.enabled ? "Shown" : "Hidden"}
+                </Badge>
+                <Badge variant="secondary">
+                  {(cms.dealsSection?.offerIds ?? []).length}/6
+                </Badge>
+              </div>
+            }
+          >
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label>Show &quot;Deals for you&quot; on home</Label>
+                <p className="text-xs text-muted-foreground">
+                  A noticeable offers section near the top of the home screen.
+                </p>
+              </div>
+              <Switch
+                checked={cms.dealsSection?.enabled ?? false}
+                onCheckedChange={(checked) =>
+                  updateDealsSection("enabled", checked)
+                }
+              />
+            </div>
+            <div className="mt-3 space-y-2 rounded-lg border p-3">
+              <Label>Section title</Label>
+              <Input
+                value={cms.dealsSection?.title ?? "Deals for you"}
+                onChange={(event) =>
+                  updateDealsSection("title", event.target.value)
+                }
+                placeholder="Deals for you"
+              />
+            </div>
+            <div className="mt-3 space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between">
+                <Label>Featured offers (max 6)</Label>
+                <Badge variant="secondary">
+                  {(cms.dealsSection?.offerIds ?? []).length} selected
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Pick the offers to feature. Display order follows selection order.
+              </p>
+              {dealsVouchersQuery.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading offers…</p>
+              ) : dealsVouchers.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No active offers found. Create vouchers/offers first.
+                </p>
+              ) : (
+                <div className="max-h-64 space-y-2 overflow-y-auto">
+                  {dealsVouchers.map((voucher) => {
+                    const selectedIds = cms.dealsSection?.offerIds ?? []
+                    const selected = selectedIds.includes(voucher._id)
+                    const atLimit = !selected && selectedIds.length >= 6
+                    const discountText =
+                      voucher.type === "percentage"
+                        ? `${voucher.discountValue ?? 0}% off`
+                        : String(voucher.type).includes("free")
+                          ? "Free delivery"
+                          : `৳${voucher.discountValue ?? 0} off`
+                    return (
+                      <label
+                        key={voucher._id}
+                        className={`flex items-start gap-3 rounded-md border p-2 ${
+                          atLimit ? "opacity-50" : "cursor-pointer"
+                        }`}
+                      >
+                        <Checkbox
+                          checked={selected}
+                          disabled={atLimit}
+                          onCheckedChange={() => toggleDealsOffer(voucher._id)}
+                          className="mt-0.5"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {voucher.name || "Untitled offer"}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 text-[10px]"
+                            >
+                              {voucher.mode === "auto"
+                                ? "Auto"
+                                : voucher.code || "Coupon"}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {discountText}
+                            {voucher.minimumOrderAmount
+                              ? ` · min ৳${voucher.minimumOrderAmount}`
+                              : ""}
+                          </p>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </CmsDetailsCard>
 
           <CmsDetailsCard
             title="Home food categories"

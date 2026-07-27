@@ -50,6 +50,13 @@ import type {
   CustomerVoucherOffer,
 } from "@/src/types/restaurant";
 
+// Recommended add-ons strip sizing: cards are sized so RECO_VISIBLE fit fully and the next one
+// peeks by ~RECO_PEEK px, so the row visibly overflows and reads as horizontally scrollable on any
+// screen width (fixed-width cards fit exactly on some phones, hiding that it scrolls).
+const RECO_GAP = 10;
+const RECO_VISIBLE = 3;
+const RECO_PEEK = 30;
+
 function formatSelectedOptions(
   options: { groupName: string; optionLabel: string }[],
 ) {
@@ -176,6 +183,17 @@ export default function CartScreen() {
   const [isWaitingForLocationQuote, setIsWaitingForLocationQuote] =
     useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [recoRowWidth, setRecoRowWidth] = useState(0);
+  // Derive a card width that shows RECO_VISIBLE cards + a peek of the next once the row is measured.
+  const recommendationCardWidth =
+    recoRowWidth > 0
+      ? Math.max(
+          72,
+          Math.floor(
+            (recoRowWidth - RECO_PEEK - RECO_VISIBLE * RECO_GAP) / RECO_VISIBLE,
+          ),
+        )
+      : 88;
 
   const quoteQuery = useCustomerCartQuoteQuery({
     restaurantId: isCartFocused ? restaurant?.restaurantId : undefined,
@@ -239,7 +257,7 @@ export default function CartScreen() {
   const minimumOrder = quoteQuery.data?.minimumOrder;
   const belowMinimumOrder = minimumOrder ? minimumOrder.isMet === false : false;
   const minimumOrderMessage = belowMinimumOrder
-    ? `Minimum order TK${minimumOrder!.amount} — add TK${minimumOrder!.amountShort} more to checkout`
+    ? `Minimum order TK ${minimumOrder!.amount} — Add TK ${minimumOrder!.amountShort} more to checkout`
     : null;
   const checkoutDisabled =
     isCheckingDeliveryArea ||
@@ -580,6 +598,7 @@ export default function CartScreen() {
         pathname: "/restaurants/[restaurantId]",
         params: {
           restaurantId: restaurant.restaurantId,
+          source: "cart",
           ...(item?._id ? { itemId: item._id } : {}),
         },
       });
@@ -1090,86 +1109,90 @@ export default function CartScreen() {
                     <Text style={styles.addMoreButtonText}>Add more</Text>
                   </Pressable>
                 ) : null}
-              </View>
 
-              {recommendedItems.length > 0 ? (
-                <View style={styles.recommendationSection}>
-                  <View style={styles.recommendationHeader}>
-                    <View style={styles.recommendationTitleWrap}>
-                      <Text style={styles.recommendationTitle}>
-                        {cartRecommendationConfig?.title ||
-                          "Recommended add-ons"}
-                      </Text>
-                      <Text style={styles.recommendationSubtitle}>
-                        {cartRecommendationConfig?.subtitle ||
-                          "Small extras that go well with this cart."}
-                      </Text>
+                {recommendedItems.length > 0 ? (
+                  <View style={styles.recommendationSection}>
+                    <View style={styles.recommendationHeader}>
+                      <View style={styles.recommendationTitleWrap}>
+                        <Text style={styles.recommendationTitle}>
+                          {cartRecommendationConfig?.title ||
+                            "Recommended add-ons"}
+                        </Text>
+                        <Text style={styles.recommendationSubtitle}>
+                          {cartRecommendationConfig?.subtitle ||
+                            "Small extras that go well with this cart."}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.recommendationRow}
-                  >
-                    {recommendedItems.map((item) => {
-                      const customizable = hasCustomizations(item);
-                      return (
-                        <Pressable
-                          key={item._id}
-                          style={({ pressed }) => [
-                            styles.recommendationCard,
-                            pressed ? styles.recommendationCardPressed : null,
-                          ]}
-                          onPress={() => handleRecommendedItemPress(item)}
-                        >
-                          <RemoteImage
-                            uri={item.images?.[0]?.url}
-                            style={styles.recommendationImage}
-                            fallbackIcon="fast-food-outline"
-                            fallbackIconSize={18}
-                            fallbackTint={palette.primary}
-                            accessibilityLabel={`${item.name} recommended food photo`}
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.recommendationRow}
+                      onLayout={(event) =>
+                        setRecoRowWidth(event.nativeEvent.layout.width)
+                      }
+                    >
+                      {recommendedItems.map((item) => {
+                        const customizable = hasCustomizations(item);
+                        return (
+                          <Pressable
+                            key={item._id}
+                            style={({ pressed }) => [
+                              styles.recommendationCard,
+                              { width: recommendationCardWidth },
+                              pressed ? styles.recommendationCardPressed : null,
+                            ]}
+                            onPress={() => handleRecommendedItemPress(item)}
                           >
-                            {item.isPopular ? (
-                              <View style={styles.recommendationPopularIcon}>
+                            <RemoteImage
+                              uri={item.images?.[0]?.url}
+                              style={styles.recommendationImage}
+                              fallbackIcon="fast-food-outline"
+                              fallbackIconSize={18}
+                              fallbackTint={palette.primary}
+                              accessibilityLabel={`${item.name} recommended food photo`}
+                            >
+                              {item.isPopular ? (
+                                <View style={styles.recommendationPopularIcon}>
+                                  <Ionicons
+                                    name="flame"
+                                    size={11}
+                                    color="#FFFFFF"
+                                  />
+                                </View>
+                              ) : null}
+                              <View style={styles.recommendationAction}>
                                 <Ionicons
-                                  name="flame"
-                                  size={12}
-                                  color="#FFFFFF"
+                                  name={customizable ? "options-outline" : "add"}
+                                  size={13}
+                                  color="#fff"
                                 />
                               </View>
-                            ) : null}
-                            <View style={styles.recommendationAction}>
-                              <Ionicons
-                                name={customizable ? "options-outline" : "add"}
-                                size={14}
-                                color="#fff"
-                              />
+                            </RemoteImage>
+                            <View style={styles.recommendationCopy}>
+                              <Text
+                                style={styles.recommendationName}
+                                numberOfLines={2}
+                              >
+                                {item.name}
+                              </Text>
+                              <Text
+                                style={styles.recommendationPrice}
+                                numberOfLines={1}
+                              >
+                                {customizable
+                                  ? `From ${formatCurrency(buildStartingPrice(item))}`
+                                  : formatCurrency(item.basePrice)}
+                              </Text>
                             </View>
-                          </RemoteImage>
-                          <View style={styles.recommendationCopy}>
-                            <Text
-                              style={styles.recommendationName}
-                              numberOfLines={2}
-                            >
-                              {item.name}
-                            </Text>
-                            <Text
-                              style={styles.recommendationPrice}
-                              numberOfLines={1}
-                            >
-                              {customizable
-                                ? `From ${formatCurrency(buildStartingPrice(item))}`
-                                : formatCurrency(item.basePrice)}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                    <View style={styles.recommendationEndSpacer} />
-                  </ScrollView>
-                </View>
-              ) : null}
+                          </Pressable>
+                        );
+                      })}
+                      <View style={styles.recommendationEndSpacer} />
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
 
               <View style={styles.summaryCard}>
                 {offerProgress

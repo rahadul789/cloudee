@@ -9,6 +9,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test": "jest",
     "perf:test": "node scripts/perf-load-test.mjs"
   },
   "dependencies": {
@@ -21,7 +22,7 @@
     "@sentry/react-native": "~7.2.0",
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "^5.99.0",
-    "expo": "~54.0.35",
+    "expo": "~54.0.36",
     "expo-application": "~7.0.7",
     "expo-constants": "~18.0.13",
     "expo-device": "~8.0.10",
@@ -38,7 +39,7 @@
     "expo-status-bar": "~3.0.9",
     "expo-symbols": "~1.0.8",
     "expo-system-ui": "~6.0.9",
-    "expo-updates": "~29.0.18",
+    "expo-updates": "~29.0.19",
     "expo-web-browser": "~15.0.11",
     "lottie-react-native": "~7.3.1",
     "react": "19.1.0",
@@ -56,9 +57,12 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
     "typescript": "~5.9.2"
   },
   "overrides": {

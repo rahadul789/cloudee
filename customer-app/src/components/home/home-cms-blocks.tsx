@@ -1,10 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Easing,
   Linking,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,7 +19,10 @@ import {
 
 import { RemoteImage } from "@/src/components/remote-image";
 import { apiPostWithOptionalAuth } from "@/src/lib/api";
-import { resolveCustomerRoute } from "@/src/lib/customer-routes";
+import {
+  resolveCustomerRoute,
+  withRestaurantViewSource,
+} from "@/src/lib/customer-routes";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import type {
   CustomerCampaignPlacement,
@@ -48,6 +55,10 @@ export function recordHomeCmsEvent(
   void apiPostWithOptionalAuth("/public/content/customer-home-event", {
     eventType,
   }).catch(() => undefined);
+}
+
+function isExternalHttpUrl(value?: string | null) {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim());
 }
 
 export function getBannerToneStyle(
@@ -119,7 +130,9 @@ export function CampaignPlacementCard({
       onOpenModal(campaign);
       return;
     }
-    if (ctaPath) router.push(ctaPath as never);
+    if (ctaPath) {
+      router.push(withRestaurantViewSource(ctaPath, "carousel") as never);
+    }
   };
 
   return (
@@ -187,16 +200,193 @@ export function CampaignPlacementCard({
   );
 }
 
-export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
+// Memoized so the home re-rendering (scroll, countdown ticks, query updates) doesn't re-render the
+// carousel when its `cms` prop is unchanged — the carousel already re-renders itself on its own
+// autoplay tick, which is enough.
+function HomeCmsPromoBlockBase({ cms }: { cms: CustomerHomeCms }) {
   const block = cms.offerStrip;
+  const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const { width: windowWidth } = useWindowDimensions();
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const carouselImages: { url: string; ctaPath?: string }[] =
-    block.carouselImages?.filter((item) => item.url) ??
-    block.carouselImageUrls.map((url) => ({ url })) ??
-    [];
-  const visibleCarouselImages = carouselImages.slice(0, 5);
+  const carouselScrollRef = useRef<ScrollView | null>(null);
+  const activeSlideIndexRef = useRef(0);
+  const pageIndexRef = useRef(0);
+  const pauseAutoPlayUntilRef = useRef(0);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+  const [isAppActive, setIsAppActive] = useState(
+    () => AppState.currentState === "active",
+  );
+  const carouselImages = useMemo(() => {
+    const structuredImages =
+      block.carouselImages?.filter((item) => item.url.trim()) ?? [];
+    if (structuredImages.length) return structuredImages;
+
+    return (block.carouselImageUrls ?? [])
+      .filter((url) => url.trim())
+      .map((url) => ({ url, linkEnabled: false, ctaPath: "" }));
+  }, [block.carouselImageUrls, block.carouselImages]);
+  const visibleCarouselImages = useMemo(
+    () => carouselImages.slice(0, 5),
+    [carouselImages],
+  );
+  const loopEnabled = visibleCarouselImages.length > 1;
+  const renderedCarouselImages = useMemo(() => {
+    if (!loopEnabled) return visibleCarouselImages;
+    return [
+      visibleCarouselImages[visibleCarouselImages.length - 1],
+      ...visibleCarouselImages,
+      visibleCarouselImages[0],
+    ];
+  }, [loopEnabled, visibleCarouselImages]);
   const slideWidth = Math.max(320, windowWidth);
+  const autoPlayIntervalMs =
+    Math.max(
+      2,
+      Math.min(30, Math.floor(block.carouselIntervalSeconds ?? 5)),
+    ) * 1000;
+  const autoPlayEnabled =
+    block.carouselAutoPlayEnabled === true && loopEnabled;
+
+  const getRealSlideIndexFromPage = useCallback(
+    (pageIndex: number) => {
+      const slideCount = visibleCarouselImages.length;
+      if (!slideCount) return 0;
+      if (!loopEnabled) {
+        return Math.max(0, Math.min(slideCount - 1, pageIndex));
+      }
+      if (pageIndex <= 0) return slideCount - 1;
+      if (pageIndex >= slideCount + 1) return 0;
+      return pageIndex - 1;
+    },
+    [loopEnabled, visibleCarouselImages.length],
+  );
+
+  const scrollToCarouselPage = useCallback(
+    (pageIndex: number, animated: boolean) => {
+      carouselScrollRef.current?.scrollTo({
+        x: pageIndex * slideWidth,
+        animated,
+      });
+    },
+    [slideWidth],
+  );
+
+  const pauseAutoPlay = useCallback(() => {
+    pauseAutoPlayUntilRef.current =
+      Date.now() + Math.max(autoPlayIntervalMs, 5000);
+  }, [autoPlayIntervalMs]);
+
+  const openCarouselTarget = useCallback(
+    async (target?: string | null) => {
+      const safeRoute = resolveCustomerRoute(target, null);
+      if (safeRoute) {
+        router.push(safeRoute as never);
+        return;
+      }
+
+      const externalUrl = target?.trim() ?? "";
+      if (isExternalHttpUrl(externalUrl)) {
+        await Linking.openURL(externalUrl);
+      }
+    },
+    [router],
+  );
+
+  const handleCarouselMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const slideCount = visibleCarouselImages.length;
+      if (!slideCount) return;
+
+      const rawPageIndex = Math.round(
+        event.nativeEvent.contentOffset.x / slideWidth,
+      );
+      const realSlideIndex = getRealSlideIndexFromPage(rawPageIndex);
+      let nextPageIndex = rawPageIndex;
+
+      if (loopEnabled && rawPageIndex <= 0) {
+        nextPageIndex = slideCount;
+      } else if (loopEnabled && rawPageIndex >= slideCount + 1) {
+        nextPageIndex = 1;
+      }
+
+      activeSlideIndexRef.current = realSlideIndex;
+      pageIndexRef.current = nextPageIndex;
+      setActiveSlideIndex(realSlideIndex);
+
+      if (nextPageIndex !== rawPageIndex) {
+        requestAnimationFrame(() => {
+          scrollToCarouselPage(nextPageIndex, false);
+        });
+      }
+    },
+    [
+      getRealSlideIndexFromPage,
+      loopEnabled,
+      scrollToCarouselPage,
+      slideWidth,
+      visibleCarouselImages.length,
+    ],
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      setIsAppActive(state === "active");
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const slideCount = visibleCarouselImages.length;
+    const nextActiveIndex = slideCount
+      ? Math.min(activeSlideIndexRef.current, slideCount - 1)
+      : 0;
+    const nextPageIndex = loopEnabled ? nextActiveIndex + 1 : nextActiveIndex;
+
+    activeSlideIndexRef.current = nextActiveIndex;
+    pageIndexRef.current = nextPageIndex;
+    setActiveSlideIndex(nextActiveIndex);
+
+    const frame = requestAnimationFrame(() => {
+      scrollToCarouselPage(nextPageIndex, false);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loopEnabled, scrollToCarouselPage, visibleCarouselImages.length]);
+
+  useEffect(() => {
+    if (!autoPlayEnabled || !isScreenFocused || !isAppActive) return;
+
+    const timer = setInterval(() => {
+      if (Date.now() < pauseAutoPlayUntilRef.current) return;
+
+      const slideCount = visibleCarouselImages.length;
+      const currentPageIndex =
+        loopEnabled && pageIndexRef.current >= slideCount + 1
+          ? 1
+          : pageIndexRef.current;
+      if (currentPageIndex !== pageIndexRef.current) {
+        pageIndexRef.current = currentPageIndex;
+        scrollToCarouselPage(currentPageIndex, false);
+      }
+
+      const nextPageIndex = currentPageIndex + 1;
+      const realSlideIndex = getRealSlideIndexFromPage(nextPageIndex);
+      pageIndexRef.current = nextPageIndex;
+      activeSlideIndexRef.current = realSlideIndex;
+      setActiveSlideIndex(realSlideIndex);
+      scrollToCarouselPage(nextPageIndex, true);
+    }, autoPlayIntervalMs);
+
+    return () => clearInterval(timer);
+  }, [
+    autoPlayEnabled,
+    autoPlayIntervalMs,
+    getRealSlideIndexFromPage,
+    isAppActive,
+    isScreenFocused,
+    loopEnabled,
+    scrollToCarouselPage,
+    visibleCarouselImages.length,
+  ]);
 
   if (!block.isActive || block.mode !== "promo_block") return null;
   if (block.variant === "carousel" && !visibleCarouselImages.length) return null;
@@ -205,7 +395,8 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
   if (block.variant === "carousel") {
     return (
       <View style={styles.cmsCarouselOnly}>
-        <Animated.ScrollView
+        <ScrollView
+          ref={carouselScrollRef}
           horizontal
           pagingEnabled
           snapToInterval={slideWidth}
@@ -213,56 +404,81 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
           decelerationRate="fast"
           disableIntervalMomentum
           showsHorizontalScrollIndicator={false}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-            { useNativeDriver: false },
-          )}
+          onMomentumScrollEnd={handleCarouselMomentumEnd}
+          onScrollBeginDrag={pauseAutoPlay}
           scrollEventThrottle={16}
         >
-          {visibleCarouselImages.map((imageUrl) => (
-            <View
-              key={imageUrl.url}
-              style={[styles.cmsCarouselOnlySlide, { width: slideWidth }]}
-            >
-              <RemoteImage
-                uri={imageUrl.url}
-                style={styles.cmsCarouselOnlyImage}
-                fallbackIcon="pricetag-outline"
-                skeletonVariant="home-image"
-                targetWidth={slideWidth}
-                accessibilityLabel="Foodbela offer banner"
-              />
-            </View>
-          ))}
-        </Animated.ScrollView>
-        <View style={styles.cmsCarouselDots}>
-          {visibleCarouselImages.map((imageUrl, index) => {
-            const inputRange = [
-              (index - 1) * slideWidth,
-              index * slideWidth,
-              (index + 1) * slideWidth,
-            ];
-            const dotWidth = scrollX.interpolate({
-              inputRange,
-              outputRange: [6, 24, 6],
-              extrapolate: "clamp",
-            });
-            const dotOpacity = scrollX.interpolate({
-              inputRange,
-              outputRange: [0.36, 1, 0.36],
-              extrapolate: "clamp",
-            });
+          {renderedCarouselImages.map((image, index) => {
+            const target = image.linkEnabled === true ? image.ctaPath : "";
+            const hasAction = Boolean(
+              resolveCustomerRoute(target, null) ||
+                (target?.trim() ? isExternalHttpUrl(target) : false),
+            );
 
             return (
-              <Animated.View
-                key={`${imageUrl.url}-dot`}
-                style={[
-                  styles.cmsCarouselDot,
-                  { width: dotWidth, opacity: dotOpacity },
-                ]}
-              />
+              <View
+                key={`${image.url}-${index}`}
+                style={[styles.cmsCarouselOnlySlide, { width: slideWidth }]}
+              >
+                <Pressable
+                  disabled={!hasAction}
+                  style={({ pressed }) => [
+                    styles.cmsCarouselOnlyPressable,
+                    pressed && hasAction
+                      ? styles.cmsCarouselOnlyPressed
+                      : null,
+                  ]}
+                  onPress={
+                    hasAction
+                      ? () => {
+                          recordHomeCmsEvent("block_click");
+                          void openCarouselTarget(target);
+                        }
+                      : undefined
+                  }
+                >
+                  <RemoteImage
+                    uri={image.url}
+                    style={styles.cmsCarouselOnlyImage}
+                    fallbackIcon="pricetag-outline"
+                    skeletonVariant="home-image"
+                    targetWidth={slideWidth}
+                    accessibilityLabel="Foodbela offer banner"
+                  />
+                  {hasAction ? (
+                    <View
+                      style={[
+                        styles.cmsCarouselButton,
+                        { backgroundColor: block.accentColor || "#FF5C93" },
+                      ]}
+                    >
+                      <Text style={styles.cmsCarouselButtonText}>
+                        {block.ctaLabel || "View restaurant"}
+                      </Text>
+                      <Ionicons
+                        name="arrow-forward"
+                        size={13}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                  ) : null}
+                </Pressable>
+              </View>
             );
           })}
+        </ScrollView>
+        <View style={styles.cmsCarouselDots}>
+          {visibleCarouselImages.map((image, index) => (
+            <View
+              key={`${image.url}-${index}-dot`}
+              style={[
+                styles.cmsCarouselDot,
+                index === activeSlideIndex
+                  ? styles.cmsCarouselDotActive
+                  : null,
+              ]}
+            />
+          ))}
         </View>
       </View>
     );
@@ -342,6 +558,8 @@ export function HomeCmsPromoBlock({ cms }: { cms: CustomerHomeCms }) {
     </View>
   );
 }
+
+export const HomeCmsPromoBlock = memo(HomeCmsPromoBlockBase);
 
 export function HowToOrderGuideBlock({
   cms,
@@ -646,11 +864,42 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     overflow: "hidden",
   },
+  cmsCarouselOnlyPressable: {
+    position: "relative",
+    borderRadius: 16,
+  },
+  cmsCarouselOnlyPressed: {
+    opacity: 0.94,
+  },
   cmsCarouselOnlyImage: {
     width: "100%",
     height: 112,
     borderRadius: 16,
     backgroundColor: "#FFF0F6",
+  },
+  cmsCarouselButton: {
+    position: "absolute",
+    right: 12,
+    top: 12,
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    shadowColor: "#111827",
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  cmsCarouselButtonText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: "#FFFFFF",
   },
   cmsCarouselDots: {
     position: "absolute",

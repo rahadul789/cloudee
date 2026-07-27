@@ -433,6 +433,10 @@ export default function OffersScreen() {
   const isInitialLoading =
     (offersQuery.isLoading && offers.length === 0) || customOfferSummaryQuery.isLoading;
 
+  // Manual pull only — binding the RefreshControl to isRefetching also showed the spinner on
+  // background refetches (on focus / re-mount), so it appeared without the user pulling.
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
   const refreshAll = useCallback(() => {
     void customOfferSummaryQuery.refetch();
     void offersQuery.refetch();
@@ -549,11 +553,18 @@ export default function OffersScreen() {
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
-                refreshing={
-                  (offersQuery.isRefetching || customOfferSummaryQuery.isRefetching) &&
-                  !offersQuery.isFetchingNextPage
-                }
-                onRefresh={refreshAll}
+                refreshing={isManualRefreshing}
+                onRefresh={async () => {
+                  setIsManualRefreshing(true);
+                  try {
+                    await Promise.all([
+                      customOfferSummaryQuery.refetch(),
+                      offersQuery.refetch(),
+                    ]);
+                  } finally {
+                    setIsManualRefreshing(false);
+                  }
+                }}
                 tintColor={palette.primary}
               />
             }

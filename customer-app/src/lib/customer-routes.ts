@@ -95,6 +95,23 @@ export function resolveCustomerRoute(
   return fallback;
 }
 
+const restaurantDetailsRoutePattern = /^\/restaurants\/[A-Za-z0-9_-]+$/
+
+// Append `?source=<source>` to a resolved route ONLY when it points at a restaurant details page,
+// so path-based navigations (home banner, CMS carousel, promo CTAs) attribute their restaurant
+// views the same way the in-app card taps do. Non-restaurant routes pass through untouched.
+export function withRestaurantViewSource(
+  route: string | null | undefined,
+  source: string,
+) {
+  if (typeof route !== "string" || !route) return route ?? null
+  if (!restaurantDetailsRoutePattern.test(getPathWithoutQuery(route))) {
+    return route
+  }
+  const separator = route.includes("?") ? "&" : "?"
+  return `${route}${separator}source=${encodeURIComponent(source)}`
+}
+
 export function resolveCustomerPushRoute(data?: Record<string, unknown> | null) {
   const type = getStringValue(data?.type);
   const campaignId = getRouteSegment(data?.campaignId ?? data?.campaign_id);

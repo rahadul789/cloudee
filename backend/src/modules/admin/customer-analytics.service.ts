@@ -1,3 +1,5 @@
+import { isValidObjectId } from "mongoose"
+
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache"
 import { CustomerAnalyticsEventModel } from "../customer/customer-analytics.model"
 import { CustomerModel } from "../customer/customer.model"
@@ -2493,6 +2495,306 @@ export async function getAdminCustomerAnalyticsActorDetail(
     params.anonymousId ?? "",
   )
   return actorDetailCache.getOrSet(key, () => buildActorDetail(params))
+}
+
+// ---------------------------------------------------------------------------
+// Restaurant view analytics — per-restaurant, time-windowed counts + in-app
+// source attribution (carousel / featured / others) + a daily series.
+// ---------------------------------------------------------------------------
+
+const RESTAURANT_VIEW_WINDOWS = [
+  { key: "5m", label: "Last 5 min" },
+  { key: "10m", label: "Last 10 min" },
+  { key: "20m", label: "Last 20 min" },
+  { key: "1h", label: "Last 1 hour" },
+  { key: "24h", label: "Last 24 hours" },
+  { key: "today", label: "Today" },
+] as const
+
+export type RestaurantViewWindowKey =
+  (typeof RESTAURANT_VIEW_WINDOWS)[number]["key"]
+
+const DHAKA_OFFSET_MS = 6 * 60 * 60_000
+const RESTAURANT_VIEW_DATE_DAYS = 14
+const DAY_MS = 24 * 60 * 60_000
+
+const RESTAURANT_VIEW_SOURCE_LABELS: Record<string, string> = {
+  carousel: "Carousel",
+  featured: "Featured",
+  deals: "Deals",
+  live_section: "Live section",
+  home_nearby: "Home (nearby)",
+  home: "Home",
+  search: "Search",
+  browse: "Browse all",
+  reorder: "Reorder",
+  direct: "Direct / link",
+}
+
+function restaurantViewSourceLabel(source: string) {
+  const key = source.trim().toLowerCase()
+  if (!key) return "Unknown"
+  return (
+    RESTAURANT_VIEW_SOURCE_LABELS[key] ??
+    key.charAt(0).toUpperCase() + key.slice(1)
+  )
+}
+
+// Start of "today" in Asia/Dhaka (UTC+6, no DST), expressed as the equivalent UTC instant.
+function dhakaStartOfToday(now: Date) {
+  const shifted = new Date(now.getTime() + DHAKA_OFFSET_MS)
+  const midnightUtc = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+  )
+  return new Date(midnightUtc - DHAKA_OFFSET_MS)
+}
+
+function dhakaDateKey(date: Date) {
+  const shifted = new Date(date.getTime() + DHAKA_OFFSET_MS)
+  const year = shifted.getUTCFullYear()
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(shifted.getUTCDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+type RestaurantViewWindowRow = {
+  key: RestaurantViewWindowKey
+  label: string
+  views: number
+  visitors: number
+}
+
+type RestaurantViewSourceRow = {
+  source: string
+  label: string
+  views: number
+  visitors: number
+  sharePct: number
+}
+
+type RestaurantViewDateRow = {
+  date: string
+  views: number
+  visitors: number
+}
+
+export type RestaurantViewStatsResponse = {
+  restaurantId: string
+  restaurantName: string
+  generatedAt: string
+  window: { key: RestaurantViewWindowKey; label: string }
+  totals: { views: number; visitors: number }
+  windows: RestaurantViewWindowRow[]
+  bySource: RestaurantViewSourceRow[]
+  byDate: RestaurantViewDateRow[]
+}
+
+const restaurantViewStatsCache =
+  createInMemoryAsyncCache<RestaurantViewStatsResponse>({
+    ttlMs: 8_000,
+    staleWhileRevalidateMs: 20_000,
+    maxEntries: 60,
+  })
+
+async function buildRestaurantViewStats(
+  restaurantId: string,
+  windowKey: RestaurantViewWindowKey,
+): Promise<RestaurantViewStatsResponse> {
+  const now = new Date()
+  const startOfToday = dhakaStartOfToday(now)
+  const boundaries: Record<RestaurantViewWindowKey, Date> = {
+    "5m": new Date(now.getTime() - 5 * 60_000),
+    "10m": new Date(now.getTime() - 10 * 60_000),
+    "20m": new Date(now.getTime() - 20 * 60_000),
+    "1h": new Date(now.getTime() - 60 * 60_000),
+    "24h": new Date(now.getTime() - DAY_MS),
+    today: startOfToday,
+  }
+  // The overall match covers the widest range needed (the daily series); the facet branches then
+  // narrow to each window. One restaurant's views over 14 days is a small, indexed set.
+  const byDateStart = new Date(
+    startOfToday.getTime() - (RESTAURANT_VIEW_DATE_DAYS - 1) * DAY_MS,
+  )
+  const windowStart = boundaries[windowKey] ?? boundaries["24h"]
+
+  // Build the window facet dynamically: views (count) + visitors (distinct, via a null-sentinel
+  // set that we strip with $setDifference) for each window in one $group.
+  const windowGroup: Record<string, unknown> = { _id: null }
+  const windowProject: Record<string, unknown> = { _id: 0 }
+  for (const win of RESTAURANT_VIEW_WINDOWS) {
+    const boundary = boundaries[win.key]
+    windowGroup[`${win.key}_views`] = {
+      $sum: { $cond: [{ $gte: ["$occurredAt", boundary] }, 1, 0] },
+    }
+    windowGroup[`${win.key}_visitors`] = {
+      $addToSet: {
+        $cond: [{ $gte: ["$occurredAt", boundary] }, "$visitorKey", null],
+      },
+    }
+    windowProject[`${win.key}_views`] = 1
+    windowProject[`${win.key}_visitors`] = {
+      $size: { $setDifference: [`$${win.key}_visitors`, [null, ""]] },
+    }
+  }
+
+  const pipeline: any[] = [
+    {
+      $match: {
+        eventType: "restaurant_view",
+        entityId: restaurantId,
+        occurredAt: { $gte: byDateStart },
+      },
+    },
+    {
+      // A person = their persistent device id (anonymousId), falling back to the session id.
+      $addFields: {
+        visitorKey: {
+          $cond: [
+            { $gt: [{ $strLenCP: { $ifNull: ["$anonymousId", ""] } }, 0] },
+            "$anonymousId",
+            { $ifNull: ["$sessionId", ""] },
+          ],
+        },
+      },
+    },
+    {
+      $facet: {
+        windows: [{ $group: windowGroup }, { $project: windowProject }],
+        bySource: [
+          { $match: { occurredAt: { $gte: windowStart } } },
+          {
+            $group: {
+              _id: "$source",
+              views: { $sum: 1 },
+              visitors: { $addToSet: "$visitorKey" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              source: "$_id",
+              views: 1,
+              visitors: {
+                $size: { $setDifference: ["$visitors", [null, ""]] },
+              },
+            },
+          },
+          { $sort: { views: -1 } },
+        ],
+        byDate: [
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  format: "%Y-%m-%d",
+                  date: "$occurredAt",
+                  timezone: "Asia/Dhaka",
+                },
+              },
+              views: { $sum: 1 },
+              visitors: { $addToSet: "$visitorKey" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              date: "$_id",
+              views: 1,
+              visitors: {
+                $size: { $setDifference: ["$visitors", [null, ""]] },
+              },
+            },
+          },
+        ],
+      },
+    },
+  ]
+
+  const [restaurant, aggregateResult] = await Promise.all([
+    isValidObjectId(restaurantId)
+      ? RestaurantModel.findById(restaurantId).select("name").lean()
+      : null,
+    CustomerAnalyticsEventModel.aggregate(pipeline),
+  ])
+
+  const facet = (aggregateResult[0] ?? {}) as {
+    windows?: Record<string, number>[]
+    bySource?: { source?: string; views?: number; visitors?: number }[]
+    byDate?: { date?: string; views?: number; visitors?: number }[]
+  }
+
+  const windowsRaw = facet.windows?.[0] ?? {}
+  const windows: RestaurantViewWindowRow[] = RESTAURANT_VIEW_WINDOWS.map(
+    (win) => ({
+      key: win.key,
+      label: win.label,
+      views: countValue(windowsRaw[`${win.key}_views`]),
+      visitors: countValue(windowsRaw[`${win.key}_visitors`]),
+    }),
+  )
+
+  const sourceRows = facet.bySource ?? []
+  const sourceViewTotal = sourceRows.reduce(
+    (sum, row) => sum + countValue(row.views),
+    0,
+  )
+  const bySource: RestaurantViewSourceRow[] = sourceRows.map((row) => {
+    const source = stringValue(row.source)
+    const views = countValue(row.views)
+    return {
+      source: source || "unknown",
+      label: restaurantViewSourceLabel(source),
+      views,
+      visitors: countValue(row.visitors),
+      sharePct:
+        sourceViewTotal > 0
+          ? Math.round((views / sourceViewTotal) * 1000) / 10
+          : 0,
+    }
+  })
+
+  const byDateMap = new Map(
+    (facet.byDate ?? []).map((row) => [stringValue(row.date), row]),
+  )
+  const byDate: RestaurantViewDateRow[] = []
+  for (let index = 0; index < RESTAURANT_VIEW_DATE_DAYS; index += 1) {
+    const day = new Date(startOfToday.getTime() - index * DAY_MS)
+    const key = dhakaDateKey(day)
+    const row = byDateMap.get(key)
+    byDate.push({
+      date: key,
+      views: countValue(row?.views),
+      visitors: countValue(row?.visitors),
+    })
+  }
+
+  const selected =
+    windows.find((win) => win.key === windowKey) ?? windows[windows.length - 1]
+
+  return {
+    restaurantId,
+    restaurantName: stringValue((restaurant as { name?: string } | null)?.name),
+    generatedAt: now.toISOString(),
+    window: { key: selected.key, label: selected.label },
+    totals: { views: selected.views, visitors: selected.visitors },
+    windows,
+    bySource,
+    byDate,
+  }
+}
+
+export async function getAdminRestaurantViewStats(params: {
+  restaurantId: string
+  window?: RestaurantViewWindowKey
+}) {
+  const restaurantId = params.restaurantId.trim()
+  const windowKey: RestaurantViewWindowKey = params.window ?? "24h"
+  const key = buildCacheKey("restaurant-views", restaurantId, windowKey)
+  return restaurantViewStatsCache.getOrSet(key, () =>
+    buildRestaurantViewStats(restaurantId, windowKey),
+  )
 }
 
 

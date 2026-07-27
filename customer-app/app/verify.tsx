@@ -1368,11 +1368,12 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   secondaryButton: {
+    // Pink so "Resend code" clearly reads as a tappable button (it's the resend action).
     minHeight: 54,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#F7F5F3",
+    borderColor: "rgba(255, 43, 133, 0.32)",
+    backgroundColor: "#FFF0F6",
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
@@ -1385,7 +1386,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     fontSize: 14,
-    fontWeight: "700",
-    color: palette.foreground,
+    fontWeight: "800",
+    color: palette.secondary,
   },
 });

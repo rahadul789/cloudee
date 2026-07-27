@@ -4312,8 +4312,15 @@ export type PlatformContent = {
         buttonStyle: "pill" | "soft" | "outline" | "dark"
         imageUrl: string
         imagePublicId: string
+        carouselAutoPlayEnabled?: boolean
+        carouselIntervalSeconds?: number
         carouselImageUrls: string[]
-        carouselImages: Array<{ url: string; publicId: string; ctaPath?: string }>
+        carouselImages: Array<{
+          url: string
+          publicId: string
+          linkEnabled?: boolean
+          ctaPath?: string
+        }>
         ctaLabel: string
         ctaPath: string
         backgroundColor: string
@@ -4323,6 +4330,11 @@ export type PlatformContent = {
       myOfferSection?: {
         enabled: boolean
         activeFrom?: string
+      }
+      dealsSection?: {
+        enabled: boolean
+        title: string
+        offerIds: string[]
       }
       homeCategories?: {
         isActive: boolean

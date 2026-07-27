@@ -14,6 +14,7 @@ import {
   createCartQuoteLimiter,
   createFavoriteToggleLimiter,
   createCouponAttemptLimiter,
+  createReferralApplyLimiter,
   createCustomerOrderReadLimiter
 } from "../../common/middleware/rate-limit"
 
@@ -129,7 +130,7 @@ customerRouter.post(
 customerRouter.post("/auth/google", signinCustomerGoogle)
 customerRouter.get("/profile", requireAuth, requireRole("customer"), getCustomerProfileSummary)
 customerRouter.get("/referrals/summary", requireAuth, requireRole("customer"), getCustomerReferralSummaryController)
-customerRouter.post("/referrals/apply", requireAuth, requireRole("customer"), postCustomerReferralApplyController)
+customerRouter.post("/referrals/apply", requireAuth, requireRole("customer"), createReferralApplyLimiter(), postCustomerReferralApplyController)
 customerRouter.get(
   "/offers/custom-summary",
   requireAuth,

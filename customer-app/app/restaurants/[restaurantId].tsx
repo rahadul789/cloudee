@@ -53,7 +53,11 @@ import {
 } from "@/src/components/restaurant-details/restaurant-menu-components";
 import { Screen } from "@/src/components/screen";
 import { DELIVERY_RADIUS_KM } from "@/src/config/service-area";
-import { useCustomerRestaurantDetailsQuery } from "@/src/hooks/use-customer-api";
+import {
+  useCustomerFavoriteRestaurantIdsQuery,
+  useCustomerRestaurantDetailsQuery,
+  useCustomerToggleFavoriteRestaurantMutation,
+} from "@/src/hooks/use-customer-api";
 import { useSafeTimeout } from "@/src/hooks/use-safe-timeout";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { applyCurrentLocation } from "@/src/lib/current-location";
@@ -69,6 +73,7 @@ import {
 } from "@/src/lib/restaurant-menu";
 import { useLocationStore } from "@/src/store/location-store";
 import { useCartStore, type CartItem } from "@/src/store/cart-store";
+import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 import type {
   CustomerMenuAddOnGroup,
@@ -163,11 +168,15 @@ export default function RestaurantDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
-  const { restaurantId, itemId } = useLocalSearchParams<{
+  const { restaurantId, itemId, source } = useLocalSearchParams<{
     restaurantId: string;
     itemId?: string;
+    source?: string;
   }>();
   const routedItemId = typeof itemId === "string" ? itemId : undefined;
+  // Where the customer tapped in from (carousel / featured / deals / search / browse / ...), used
+  // for restaurant-view attribution. Defaults to "direct" when opened without a source (deep link).
+  const viewSource = typeof source === "string" && source ? source : "direct";
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const isLocationHydrated = useLocationStore((state) => state.isHydrated);
   const activeCartItems = useCartStore(
@@ -208,11 +217,36 @@ export default function RestaurantDetailsScreen() {
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [showStickyControls, setShowStickyControls] = useState(false);
   const [isInfoSheetVisible, setInfoSheetVisible] = useState(false);
+  // Drives the pull-to-refresh spinner. Bound to an explicit user-pull only — NOT to
+  // detailsQuery.isFetching, which is also true for background refetches (on focus / when
+  // re-opening a cached restaurant), and that made the spinner appear without the user pulling.
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [selectedOffer, setSelectedOffer] =
     useState<CustomerVoucherOffer | null>(null);
   const [cartConflictItem, setCartConflictItem] =
     useState<PendingCartAdd | null>(null);
-  const [isFavorite, setIsFavorite] = useState(false);
+
+  // Real favourite state (same source as the restaurant cards) — the heart reflects and toggles the
+  // customer's saved favourites, not a local mock.
+  const favoriteIdsQuery = useCustomerFavoriteRestaurantIdsQuery();
+  const toggleFavoriteMutation = useCustomerToggleFavoriteRestaurantMutation();
+  const isFavorite = Boolean(
+    restaurantId && (favoriteIdsQuery.data ?? []).includes(restaurantId),
+  );
+  const handleToggleFavorite = useCallback(() => {
+    void Haptics.selectionAsync();
+    // Read auth freshly so a stale signed-out value never blocks the tap after sign-in.
+    if (!useCustomerAuthStore.getState().accessToken) {
+      router.push({
+        pathname: "/sign-in",
+        params: { redirectTo: `/restaurants/${restaurantId}` },
+      });
+      return;
+    }
+    if (!restaurantId || toggleFavoriteMutation.isPending) return;
+    // Optimistic + rollback + silent 429 all live in the mutation; ignore the rejection here.
+    toggleFavoriteMutation.mutateAsync(restaurantId).catch(() => {});
+  }, [restaurantId, router, toggleFavoriteMutation]);
   const [customQuantityBurstKey, setCustomQuantityBurstKey] = useState(0);
   const handleCustomQuantityBurstComplete = useCallback(
     (finishedKey: number) => {
@@ -239,12 +273,57 @@ export default function RestaurantDetailsScreen() {
     () => detailsQuery.data?.categories ?? [],
     [detailsQuery.data?.categories],
   );
+  // Smooth open without a layout shift: the menu itself renders immediately (the FlatList windows
+  // it — only `initialNumToRender` cards mount up front — so it's cheap and the list `data` never
+  // flips [] → rows, which was causing the content to reflow/jump on load). We defer ONLY the one
+  // genuinely heavy, render-independent computation — `searchableMenuItems`, which builds a search
+  // string per item incl. every variant/add-on label and is used solely by the menu search — until
+  // the navigation transition settles. That was the real cost that stuttered the revisit transition.
+  const [menuMounted, setMenuMounted] = useState(false);
+  useEffect(() => {
+    let done = false;
+    const mount = () => {
+      if (done) return;
+      done = true;
+      setMenuMounted(true);
+    };
+    const handle = InteractionManager.runAfterInteractions(mount);
+    const safety = setTimeout(mount, 350); // never let the search index stay unbuilt
+    return () => {
+      handle.cancel();
+      clearTimeout(safety);
+    };
+  }, []);
+
   const allMenuItems = useMemo(
     () => detailsQuery.data?.menuItems ?? [],
     [detailsQuery.data?.menuItems],
   );
   const restaurant = detailsQuery.data?.restaurant;
   const detailsData = detailsQuery.data;
+
+  // Fire a single restaurant_view per opened restaurant (once its id resolves), tagged with the
+  // in-app source so admin can see how many views each restaurant gets and where they came from.
+  // The ref guards against re-firing on re-renders / query refetches for the same restaurant.
+  const viewTrackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const viewedId = restaurant?._id;
+    if (!viewedId || viewTrackedRef.current === viewedId) {
+      return;
+    }
+    viewTrackedRef.current = viewedId;
+    void trackCustomerEvent({
+      eventType: "restaurant_view",
+      path: `/restaurants/${viewedId}`,
+      screenName: "restaurant-details",
+      entityType: "restaurant",
+      entityId: viewedId,
+      metadata: {
+        source: viewSource,
+        restaurantName: restaurant?.name,
+      },
+    });
+  }, [restaurant?._id, restaurant?.name, viewSource]);
   const deliveryRadiusKm = restaurant?.deliveryRadiusKm ?? DELIVERY_RADIUS_KM;
   const isResolvingServiceability = Boolean(
     selectedLocation &&
@@ -303,25 +382,29 @@ export default function RestaurantDetailsScreen() {
   const normalizedMenuSearch = deferredMenuSearch.trim().toLowerCase();
   const searchableMenuItems = useMemo(
     () =>
-      allMenuItems.map((item) => ({
-        item,
-        searchText: [
-          item.name,
-          item.description,
-          ...(item.variants?.map((group) => group.name) ?? []),
-          ...(item.variants?.flatMap((group) =>
-            group.options.map((option) => option.label),
-          ) ?? []),
-          ...(item.addOnGroups?.map((group) => group.name) ?? []),
-          ...(item.addOnGroups?.flatMap((group) =>
-            group.options.map((option) => option.label),
-          ) ?? []),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase(),
-      })),
-    [allMenuItems],
+      // Deferred until after the transition (menuMounted) — this per-item search-string build is the
+      // heavy part, and it's only needed once the user actually types in the menu search.
+      !menuMounted
+        ? []
+        : allMenuItems.map((item) => ({
+            item,
+            searchText: [
+              item.name,
+              item.description,
+              ...(item.variants?.map((group) => group.name) ?? []),
+              ...(item.variants?.flatMap((group) =>
+                group.options.map((option) => option.label),
+              ) ?? []),
+              ...(item.addOnGroups?.map((group) => group.name) ?? []),
+              ...(item.addOnGroups?.flatMap((group) =>
+                group.options.map((option) => option.label),
+              ) ?? []),
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase(),
+          })),
+    [menuMounted, allMenuItems],
   );
   const menuItemsByCategory = useMemo(
     () =>
@@ -949,48 +1032,23 @@ export default function RestaurantDetailsScreen() {
     },
   );
 
-  const [contentReady, setContentReady] = useState(false);
-  useEffect(() => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      setContentReady(true);
-    };
-    // Mount the heavy content once the navigation transition/interactions settle, with a
-    // 400ms safety net so it can never stay hidden even if interactions never quiesce.
-    const interaction = InteractionManager.runAfterInteractions(finish);
-    const timer = setTimeout(finish, 400);
-    return () => {
-      interaction.cancel();
-      clearTimeout(timer);
-    };
-  }, []);
-
-  // The cart pre-fetches this restaurant's details, so on arrival the data is warm and the
-  // full (heavy) menu list would otherwise mount ON the navigation animation frames — the
-  // janky cart→details transition. Hold the skeleton until the transition settles (or a
-  // 400ms safety net), then mount the real content. The skeleton always renders in the
-  // meantime, so there is never a blank screen and it can never get stuck.
-  if (detailsQuery.isLoading || !contentReady) {
+  // Only fall back to the full skeleton (or the error card) when there is no header to show at all
+  // — a cold deep-link still loading, or a genuinely failed load.
+  if (!restaurant) {
     return (
       <Screen>
-        <RestaurantDetailsSkeleton />
-      </Screen>
-    );
-  }
-
-  if (!restaurant || detailsQuery.isError) {
-    return (
-      <Screen>
-        <View style={styles.centerState}>
-          <EmptyStateCard
-            title="We could not load this restaurant"
-            description="Please go back and try again."
-            actionLabel="Retry"
-            onPress={() => detailsQuery.refetch()}
-          />
-        </View>
+        {detailsQuery.isError ? (
+          <View style={styles.centerState}>
+            <EmptyStateCard
+              title="We could not load this restaurant"
+              description="Please go back and try again."
+              actionLabel="Retry"
+              onPress={() => detailsQuery.refetch()}
+            />
+          </View>
+        ) : (
+          <RestaurantDetailsSkeleton />
+        )}
       </Screen>
     );
   }
@@ -1004,15 +1062,24 @@ export default function RestaurantDetailsScreen() {
         initialNumToRender={4}
         maxToRenderPerBatch={8}
         windowSize={8}
-        removeClippedSubviews
+        // removeClippedSubviews is intentionally OFF: on Android it re-measures/clips rows without a
+        // getItemLayout, which nudged the content position on load for menus with many items.
+        removeClippedSubviews={false}
         contentContainerStyle={[styles.listContent, styles.listContentWithCart]}
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={detailsQuery.isFetching && !detailsQuery.isLoading}
-            onRefresh={() => detailsQuery.refetch()}
+            refreshing={isManualRefreshing}
+            onRefresh={async () => {
+              setIsManualRefreshing(true);
+              try {
+                await detailsQuery.refetch();
+              } finally {
+                setIsManualRefreshing(false);
+              }
+            }}
             tintColor={palette.secondary}
           />
         }
@@ -1112,10 +1179,14 @@ export default function RestaurantDetailsScreen() {
                 <View style={styles.heroActionGroup}>
                   <Pressable
                     style={styles.heroButton}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setIsFavorite((current) => !current);
-                    }}
+                    onPress={handleToggleFavorite}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isFavorite
+                        ? "Remove from favourites"
+                        : "Add to favourites"
+                    }
+                    hitSlop={8}
                   >
                     <Ionicons
                       name={isFavorite ? "heart" : "heart-outline"}
@@ -1245,7 +1316,9 @@ export default function RestaurantDetailsScreen() {
 
               {restaurant.isOpen === false ? (
                 <View style={{ marginTop: 12 }}>
-                  <RestaurantClosedBanner availability={restaurant.availability} />
+                  <RestaurantClosedBanner
+                    availability={restaurant.availability}
+                  />
                 </View>
               ) : null}
 
@@ -1353,14 +1426,31 @@ export default function RestaurantDetailsScreen() {
                     Most ordered right now
                   </Text>
                 </View>
-                <ScrollView
+                <FlatList
                   horizontal
+                  data={item.items}
+                  keyExtractor={(popularItem: CustomerRestaurantMenuItem) =>
+                    popularItem._id
+                  }
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.popularRow}
-                >
-                  {item.items.map((popularItem: CustomerRestaurantMenuItem) => (
+                  // Windowed instead of a ScrollView: this "Popular" rail used to render EVERY
+                  // popular card synchronously, and since it is list index 0 (always inside the
+                  // vertical list's initialNumToRender) a big popular set blocked the navigation
+                  // transition on cached re-opens — the "laggy reopen when the menu has many items".
+                  // A horizontal FlatList mounts only the first few cards, so this mount cost no
+                  // longer scales with the menu size. (Horizontal-in-vertical nesting is the
+                  // supported pattern — different orientation, so no nested-VirtualizedList warning.)
+                  initialNumToRender={4}
+                  maxToRenderPerBatch={4}
+                  windowSize={5}
+                  removeClippedSubviews={false}
+                  renderItem={({
+                    item: popularItem,
+                  }: {
+                    item: CustomerRestaurantMenuItem;
+                  }) => (
                     <ConnectedPopularItemCard
-                      key={popularItem._id}
                       item={popularItem}
                       quantity={cartQuantitiesByItemId[popularItem._id] ?? 0}
                       isRestaurantOpen={
@@ -1370,8 +1460,8 @@ export default function RestaurantDetailsScreen() {
                       onPressDecrease={handleDecrease}
                       onPressCard={openCustomizer}
                     />
-                  ))}
-                </ScrollView>
+                  )}
+                />
               </View>
             );
           }
@@ -1715,10 +1805,7 @@ export default function RestaurantDetailsScreen() {
           <View style={styles.infoSheetChipWrap}>
             {[
               ...new Set(
-                [
-                  ...(restaurant.cuisineTypes ?? []),
-                  ...(restaurant.tags ?? []),
-                ]
+                [...(restaurant.cuisineTypes ?? []), ...(restaurant.tags ?? [])]
                   .map((entry) => entry.trim())
                   .filter(Boolean),
               ),
@@ -1914,8 +2001,7 @@ export default function RestaurantDetailsScreen() {
                     </Text>
                   </View>
                   <Text style={styles.simpleItemBody}>
-                    No options to choose — just pick a quantity and add it to
-                    your cart.
+                    Quick add — just pick a quantity and add it to your cart.
                   </Text>
                 </View>
               ) : null}

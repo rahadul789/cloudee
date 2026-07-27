@@ -192,8 +192,15 @@ export type CustomerHomeCms = {
     buttonStyle?: "pill" | "soft" | "outline" | "dark";
     imageUrl: string;
     imagePublicId?: string;
+    carouselAutoPlayEnabled?: boolean;
+    carouselIntervalSeconds?: number;
     carouselImageUrls: string[];
-    carouselImages?: { url: string; publicId?: string; ctaPath?: string }[];
+    carouselImages?: {
+      url: string;
+      publicId?: string;
+      linkEnabled?: boolean;
+      ctaPath?: string;
+    }[];
     ctaLabel: string;
     ctaPath: string;
     backgroundColor: string;
@@ -330,8 +337,25 @@ export type CustomerActivePoll = {
   endsAt: string | null;
 };
 
+export type CustomerHomeDealOffer = {
+  id: string;
+  name: string;
+  discountLabel: string;
+  conditionLabel: string;
+  type: "auto" | "coupon";
+  code: string;
+  minimumOrderAmount: number;
+};
+
+export type CustomerHomeDealsSection = {
+  enabled: boolean;
+  title: string;
+  offers: CustomerHomeDealOffer[];
+};
+
 export type CustomerDiscoveryHome = {
   homeBanner: CustomerHomeBanner | null;
+  dealsSection?: CustomerHomeDealsSection;
   areaServiceWindow?: AreaServiceWindow;
   activePoll?: CustomerActivePoll | null;
   homeCms?: CustomerHomeCms;

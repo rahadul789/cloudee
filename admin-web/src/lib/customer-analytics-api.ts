@@ -462,6 +462,49 @@ export async function getAdminCustomerAnalyticsEvents(params?: AdminCustomerAnal
   return response.data
 }
 
+export type AdminRestaurantViewWindowKey =
+  | "5m"
+  | "10m"
+  | "20m"
+  | "1h"
+  | "24h"
+  | "today"
+
+export type AdminRestaurantViewStatsResponse = {
+  restaurantId: string
+  restaurantName: string
+  generatedAt: string
+  window: { key: AdminRestaurantViewWindowKey; label: string }
+  totals: { views: number; visitors: number }
+  windows: Array<{
+    key: AdminRestaurantViewWindowKey
+    label: string
+    views: number
+    visitors: number
+  }>
+  bySource: Array<{
+    source: string
+    label: string
+    views: number
+    visitors: number
+    sharePct: number
+  }>
+  byDate: Array<{ date: string; views: number; visitors: number }>
+}
+
+export async function getAdminRestaurantViewStats(params: {
+  restaurantId: string
+  window?: AdminRestaurantViewWindowKey
+}) {
+  const searchParams = new URLSearchParams()
+  searchParams.set("restaurantId", params.restaurantId)
+  if (params.window) searchParams.set("window", params.window)
+  const response = await adminRequest<AdminRestaurantViewStatsResponse>(
+    `/admin/customer-analytics/restaurant-views?${searchParams.toString()}`,
+  )
+  return response.data
+}
+
 export async function getAdminCustomerAnalyticsActorDetail(params: AdminCustomerAnalyticsQueryParams & {
   customerId?: string
   anonymousId?: string

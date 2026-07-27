@@ -33,6 +33,7 @@ import {
   HowToOrderGuideBlock,
   recordHomeCmsEvent,
 } from "@/src/components/home/home-cms-blocks";
+import { HomeDealsSection } from "@/src/components/home/home-deals-section";
 import { HomePollModal } from "@/src/components/home/home-poll-modal";
 import { styles } from "@/src/components/home/home-screen.styles";
 import { RemoteImage } from "@/src/components/remote-image";
@@ -52,7 +53,10 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 import { trackCustomerEvent } from "@/src/lib/analytics";
-import { resolveCustomerRoute } from "@/src/lib/customer-routes";
+import {
+  resolveCustomerRoute,
+  withRestaurantViewSource,
+} from "@/src/lib/customer-routes";
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
@@ -911,7 +915,10 @@ export default function HomeScreen() {
     }
   };
 
-  const goToRestaurant = (restaurant: DiscoverableRestaurant) => {
+  const goToRestaurant = (
+    restaurant: DiscoverableRestaurant,
+    source = "home",
+  ) => {
     addRecentVisitedRestaurant({
       id: restaurant._id,
       name: restaurant.name,
@@ -928,7 +935,7 @@ export default function HomeScreen() {
 
     router.push({
       pathname: "/restaurants/[restaurantId]",
-      params: { restaurantId: restaurant._id },
+      params: { restaurantId: restaurant._id, source },
     });
   };
 
@@ -983,7 +990,7 @@ export default function HomeScreen() {
   const openCustomerTarget = async (target?: string | null) => {
     const safeRoute = resolveCustomerRoute(target, null);
     if (safeRoute) {
-      router.push(safeRoute as never);
+      router.push(withRestaurantViewSource(safeRoute, "promo") as never);
       return;
     }
 
@@ -1013,7 +1020,15 @@ export default function HomeScreen() {
   const closedTimerActive = isHomeFocused && isAppActive;
 
   const areaWindow = !isSearching ? (homeFeed?.areaServiceWindow ?? null) : null;
-  const isAreaClosed = areaWindow?.isOpen === false;
+  // Only trust an area-CLOSED window once we actually know the user's location. On a fresh
+  // install the first home fetch has no selectedLocation yet, so the backend falls back to the
+  // global "All areas" window — never render that as the user's area status, or a wrong
+  // "your area is closed" hero flashes before the located refetch corrects it. (The backend
+  // guards this too by reporting open when it has no coordinates; this is belt-and-suspenders.)
+  const hasResolvedLocation =
+    typeof selectedLocation?.latitude === "number" &&
+    typeof selectedLocation?.longitude === "number";
+  const isAreaClosed = hasResolvedLocation && areaWindow?.isOpen === false;
   // When the area's service window opens, auto-refetch the home feed so restaurants flip
   // from closed to open on their own — no manual pull-to-refresh or app restart needed.
   useReopenAutoRefresh(isAreaClosed ? areaWindow?.opensAtEpochMs : null, () => {
@@ -1127,6 +1142,10 @@ export default function HomeScreen() {
             </View>
           </View>
 
+          {!isSearching ? (
+            <HomeDealsSection section={homeFeed?.dealsSection} />
+          ) : null}
+
           <View style={styles.searchCategoryPanel}>
             <Pressable
               style={styles.searchBar}
@@ -1238,7 +1257,9 @@ export default function HomeScreen() {
               disabled={!resolveCustomerRoute(homeBanner.ctaPath, null)}
               onPress={() => {
                 const path = resolveCustomerRoute(homeBanner.ctaPath, null);
-                if (path) router.push(path as never);
+                if (path) {
+                  router.push(withRestaurantViewSource(path, "banner") as never);
+                }
               }}
             >
               <View style={styles.bannerCopy}>
@@ -1310,7 +1331,10 @@ export default function HomeScreen() {
                     if (offer.restaurantId) {
                       router.push({
                         pathname: "/restaurants/[restaurantId]",
-                        params: { restaurantId: offer.restaurantId },
+                        params: {
+                          restaurantId: offer.restaurantId,
+                          source: "offer_strip",
+                        },
                       });
                     }
                   }}
@@ -1403,7 +1427,7 @@ export default function HomeScreen() {
                     onToggleFavorite={() =>
                       handleToggleFavorite(restaurant._id)
                     }
-                    onPress={() => goToRestaurant(restaurant)}
+                    onPress={() => goToRestaurant(restaurant, "search")}
                   />
                 ))}
               </View>
@@ -1486,7 +1510,7 @@ export default function HomeScreen() {
                         styles.timeCompactCard,
                         pressed ? styles.timeCompactCardPressed : null,
                       ]}
-                      onPress={() => goToRestaurant(restaurant)}
+                      onPress={() => goToRestaurant(restaurant, "live_section")}
                     >
                       <View style={styles.timeCompactImage}>
                         <RemoteImage
@@ -1619,7 +1643,7 @@ export default function HomeScreen() {
                           onToggleFavorite={() =>
                             handleToggleFavorite(restaurant._id)
                           }
-                          onPress={() => goToRestaurant(restaurant)}
+                          onPress={() => goToRestaurant(restaurant, "featured")}
                         />
                       </View>
                     ))}
@@ -1694,7 +1718,7 @@ export default function HomeScreen() {
                           onToggleFavorite={() =>
                             handleToggleFavorite(restaurant._id)
                           }
-                          onPress={() => goToRestaurant(restaurant)}
+                          onPress={() => goToRestaurant(restaurant, "offers")}
                         />
                       </View>
                     ))}
@@ -1764,7 +1788,7 @@ export default function HomeScreen() {
                           onToggleFavorite={() =>
                             handleToggleFavorite(restaurant._id)
                           }
-                          onPress={() => goToRestaurant(restaurant)}
+                          onPress={() => goToRestaurant(restaurant, "discover_new")}
                         />
                       </View>
                     ))}
@@ -1834,7 +1858,7 @@ export default function HomeScreen() {
                           onToggleFavorite={() =>
                             handleToggleFavorite(restaurant._id)
                           }
-                          onPress={() => goToRestaurant(restaurant)}
+                          onPress={() => goToRestaurant(restaurant, "popular")}
                         />
                       </View>
                     ))}
@@ -1933,7 +1957,7 @@ export default function HomeScreen() {
                         onToggleFavorite={() =>
                           handleToggleFavorite(restaurant._id)
                         }
-                        onPress={() => goToRestaurant(restaurant)}
+                        onPress={() => goToRestaurant(restaurant, "home_nearby")}
                       />
                     ))}
                   </View>

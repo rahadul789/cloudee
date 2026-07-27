@@ -195,7 +195,7 @@ export default function CustomerSearchScreen() {
     });
     router.push({
       pathname: "/restaurants/[restaurantId]",
-      params: { restaurantId: restaurant._id },
+      params: { restaurantId: restaurant._id, source: "search" },
     });
   };
 
@@ -395,7 +395,10 @@ export default function CustomerSearchScreen() {
                           onPress={() =>
                             router.push({
                               pathname: "/restaurants/[restaurantId]",
-                              params: { restaurantId: restaurant.id },
+                              params: {
+                                restaurantId: restaurant.id,
+                                source: "recent",
+                              },
                             })
                           }
                         >

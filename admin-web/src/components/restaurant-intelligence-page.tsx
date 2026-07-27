@@ -34,6 +34,7 @@ import {
 import { useNavigate, useParams } from "react-router-dom"
 
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
+import { RestaurantViewStatsPanel } from "@/components/restaurant-view-stats-panel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -91,6 +92,7 @@ type AvailabilityReasonFilter =
 type AvailabilityRiskFilter = "all" | "offline_with_live_orders"
 type IntelligenceTab =
   | "overview"
+  | "liveViews"
   | "availability"
   | "performance"
   | "sales"
@@ -1107,6 +1109,7 @@ export function RestaurantIntelligencePage() {
           >
             <TabsList className="flex h-auto flex-wrap justify-start">
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="liveViews">Live views</TabsTrigger>
               <TabsTrigger value="availability">Availability</TabsTrigger>
               <TabsTrigger value="performance">Performance</TabsTrigger>
               <TabsTrigger value="sales">Sales</TabsTrigger>
@@ -1242,6 +1245,10 @@ export function RestaurantIntelligencePage() {
                   </CardContent>
                 </Card>
               </div>
+            </TabsContent>
+
+            <TabsContent value="liveViews" className="space-y-4">
+              <RestaurantViewStatsPanel restaurantId={restaurantId} />
             </TabsContent>
 
             <TabsContent value="availability" className="space-y-4">

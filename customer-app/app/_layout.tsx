@@ -1,18 +1,28 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 
 import { AppBootstrapGate } from "@/src/components/app-bootstrap-gate";
 import { CustomerAnalyticsBridge } from "@/src/components/customer-analytics-bridge";
 import { DeferredMount } from "@/src/components/deferred-mount";
 import { OtaUpdateGate } from "@/src/components/ota-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
-import { Sentry, initSentry } from "@/src/lib/sentry";
+import { Sentry, initSentry, setSentryUser } from "@/src/lib/sentry";
+import { useCustomerAuthStore } from "@/src/store/auth-store";
 
 // Wire crash reporting before the first render, so even a startup crash is captured.
 // No-op unless EXPO_PUBLIC_SENTRY_DSN is configured (preview/production builds).
 initSentry();
 
 function RootLayout() {
+  // Keep the crash-report user in sync with the signed-in customer (id only, no PII).
+  useEffect(() => {
+    setSentryUser(useCustomerAuthStore.getState().customer?.id ?? null);
+    return useCustomerAuthStore.subscribe((state) =>
+      setSentryUser(state.customer?.id ?? null),
+    );
+  }, []);
+
   return (
     <AppProviders>
       <StatusBar style="dark" />
