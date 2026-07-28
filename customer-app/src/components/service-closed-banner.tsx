@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useRef, type Ref } from "react";
 import {
   Animated,
@@ -5,9 +6,14 @@ import {
   Text,
   View,
   type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 
-import { useCountdownMs } from "@/src/lib/restaurant-availability";
+import {
+  useClosingSoonMs,
+  useCountdownMs,
+} from "@/src/lib/restaurant-availability";
 import type { AreaServiceWindow } from "@/src/types/restaurant";
 
 // Deep-red "classic closed" palette. Kept local to this component — it is a deliberate
@@ -211,7 +217,81 @@ export function ServiceClosedStickyPill({
   );
 }
 
+const CLOSING = {
+  bg: "#FFF4E5",
+  border: "#F6C77A",
+  text: "#8A4B00",
+  textDim: "#B4732B",
+  dot: "#E8590C",
+} as const;
+
+/**
+ * Compact amber "Closing in Xm Ys · order soon" urgency banner shown on home while the area is
+ * OPEN but its service window closes within 30 min. It SELF-GATES: `useClosingSoonMs` returns
+ * null (→ renders nothing) until we're inside that window, and only then ticks per-second — and
+ * only while `active` (home focused + app active). So the parent can mount it unconditionally
+ * whenever the area is open; it stays invisible + near-free until the last half hour matters.
+ */
+export function ClosingSoonBanner({
+  closesAtEpochMs,
+  active = true,
+  style,
+}: {
+  closesAtEpochMs?: number | null;
+  active?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const remaining = useClosingSoonMs(closesAtEpochMs, active);
+  if (remaining == null) return null;
+  const { minutes, seconds } = splitTime(remaining);
+  const time = minutes > 0 ? `${minutes}m ${pad(seconds)}s` : `${seconds}s`;
+  return (
+    <View style={[styles.closingBanner, style]}>
+      <View style={styles.closingDot} />
+      <Ionicons name="time-outline" size={16} color={CLOSING.text} />
+      <Text style={styles.closingText} numberOfLines={1}>
+        Foodbela is closing in <Text style={styles.closingTime}>{time}</Text>
+        <Text style={styles.closingSub}> · order soon</Text>
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  closingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 6,
+    marginBottom: 2,
+    backgroundColor: CLOSING.bg,
+    borderWidth: 1,
+    borderColor: CLOSING.border,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  closingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: CLOSING.dot,
+  },
+  closingText: {
+    flexShrink: 1,
+    color: CLOSING.text,
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  closingTime: {
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  closingSub: {
+    color: CLOSING.textDim,
+    fontSize: 12.5,
+    fontWeight: "600",
+  },
   hero: {
     overflow: "hidden",
     backgroundColor: CLOSED.bg,

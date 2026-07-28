@@ -261,7 +261,22 @@
       "Bash(awk '/summaryTotals: \\\\{/,/\\\\},/' src/components/checkout/checkout.styles.ts)",
       "Bash(awk '/secondaryButton: \\\\{/,/\\\\},/' app/verify.tsx)",
       "Bash(awk '/secondaryButtonText: \\\\{/,/\\\\},/' app/verify.tsx)",
-      "Bash(node -e \"console.log\\('expo:', require\\('expo/package.json'\\).version\\); console.log\\('expo-updates:', require\\('expo-updates/package.json'\\).version\\)\")"
+      "Bash(node -e \"console.log\\('expo:', require\\('expo/package.json'\\).version\\); console.log\\('expo-updates:', require\\('expo-updates/package.json'\\).version\\)\")",
+      "Bash(awk 'NR>=1 && /export function useCustomerRestaurantDetailsQuery/{f=1} f{print NR\": \"$0} f && /^}/{c++; if\\(c>=1\\) exit}' src/hooks/use-customer-api.ts)",
+      "Bash(awk '/function findCachedRestaurantDetailsSeed/{f=1} f{print NR\": \"$0} f&&/^}/{exit}' src/hooks/use-customer-api.ts)",
+      "Bash(awk '/DiscoverableRestaurantsPage = \\\\{|type DiscoverableRestaurantsPage/{f=1} f{print} f&&/\\\\}/{exit}' src/hooks/use-customer-api.ts)",
+      "Bash(awk '/function buildRestaurantDetailsSeed/{f=1} f{print NR\": \"$0} f&&/^}/{exit}' src/hooks/use-customer-api.ts)",
+      "Bash(awk '/addRecentVisitedRestaurant/{f=1} f{print NR\": \"$0} f&&/^      \\\\}\\\\\\),|^    \\\\}\\\\\\),/{c++; if\\(c>=1\\) exit}' src/store/browse-history-store.ts)",
+      "Bash(awk '/RestaurantDetailsSkeleton/{f=1} f{print NR\": \"$0} f&&/^\\\\}\\\\\\)?;?$|^export \\(function|const\\) [A-Z]/ && NR>2 {c++; if\\(c>=2\\) exit}' src/components/restaurant-details/restaurant-menu-components.tsx)",
+      "Bash(awk '/detailsTitleStack: \\\\{|detailsTitle: \\\\{|detailsSubtitle: \\\\{/{f=1;n=0} f{print NR\": \"$0; n++} f&&/\\\\},/{f=0}' src/components/loading-skeleton.tsx)",
+      "Bash(awk '/infoCopy: \\\\{|^  title: \\\\{|infoTopRow: \\\\{|infoBadgeRow: \\\\{/{f=1} f{print NR\": \"$0} f&&/\\\\},/{f=0}' src/components/restaurant-details/restaurant-details.styles.ts)",
+      "Bash(awk '/ConnectedRestaurantCartFooter = memo/{f=1} f{print NR\": \"$0} f&&/^\\\\}\\\\\\);/{exit}' src/components/restaurant-details/restaurant-menu-components.tsx)",
+      "Bash(grep -n \"\\\\\"@/\\\\|paths\" tsconfig.json)",
+      "Bash(awk '/menuCard: \\\\{|menuImage: \\\\{|menuItemWrap: \\\\{|mediaColumn: \\\\{/{f=1} f{print NR\": \"$0} f&&/\\\\},/{f=0}' src/components/restaurant-details/restaurant-details.styles.ts)",
+      "Bash(grep -n \"row.availability = \\\\|availability = live\\\\|isOpen: true,$\\\\|closedReason: null,\" src/modules/customer/customer.service.ts)",
+      "Bash(echo \"BACKEND_TSC_DONE exit=$?\")",
+      "Read(//tmp/**)",
+      "Bash(awk '/AreaServiceWindow = \\\\{|type AreaServiceWindow/{f=1} f{print NR\": \"$0} f&&/\\\\}/{exit}' src/types/restaurant.ts)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

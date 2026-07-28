@@ -2163,6 +2163,7 @@ function applyLiveRestaurantAvailability(
           closedReason: null,
           opensAtLabel: null,
           opensAtEpochMs: null,
+          closesAtEpochMs: live.closesAtEpochMs,
         }
       : live;
   }
@@ -2234,12 +2235,14 @@ async function applyLiveHomeAvailability(
       isOpen: areaAvailability.isOpen,
       opensAtLabel: areaAvailability.opensAtLabel,
       opensAtEpochMs: areaAvailability.opensAtEpochMs,
+      closesAtEpochMs: areaAvailability.closesAtEpochMs,
     };
   } else {
     record.areaServiceWindow = {
       isOpen: true,
       opensAtLabel: null,
       opensAtEpochMs: null,
+      closesAtEpochMs: null,
     };
   }
 
@@ -3714,6 +3717,7 @@ export async function getCustomerDiscoveryHome(params?: {
           isOpen: areaAvailability.isOpen,
           opensAtLabel: areaAvailability.opensAtLabel,
           opensAtEpochMs: areaAvailability.opensAtEpochMs,
+          closesAtEpochMs: areaAvailability.closesAtEpochMs,
         },
         activePoll,
         homeCms,

@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
+  ClosingSoonBanner,
   ServiceClosedHero,
   ServiceClosedStickyPill,
 } from "@/src/components/service-closed-banner";
@@ -60,7 +61,10 @@ import {
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
-import { useReopenAutoRefresh } from "@/src/lib/restaurant-availability";
+import {
+  useCloseAutoRefresh,
+  useReopenAutoRefresh,
+} from "@/src/lib/restaurant-availability";
 import { hasVotedPoll } from "@/src/lib/poll-vote-storage";
 import type {
   CustomerHomeCms,
@@ -1029,9 +1033,17 @@ export default function HomeScreen() {
     typeof selectedLocation?.latitude === "number" &&
     typeof selectedLocation?.longitude === "number";
   const isAreaClosed = hasResolvedLocation && areaWindow?.isOpen === false;
+  // Area is confirmed OPEN — lets the closing-soon urgency banner mount. It self-gates on the
+  // 30-min window, so mounting it here whenever the area is open is safe + near-free until then.
+  const isAreaOpen = hasResolvedLocation && areaWindow?.isOpen === true;
   // When the area's service window opens, auto-refetch the home feed so restaurants flip
   // from closed to open on their own — no manual pull-to-refresh or app restart needed.
   useReopenAutoRefresh(isAreaClosed ? areaWindow?.opensAtEpochMs : null, () => {
+    void homeQuery.refetch();
+  });
+  // ...and the mirror: when the window CLOSES, auto-refetch so the area flips open→closed on its
+  // own and the "Opens in …" countdown starts right away (no stale "open" hanging around).
+  useCloseAutoRefresh(isAreaOpen ? areaWindow?.closesAtEpochMs : null, () => {
     void homeQuery.refetch();
   });
 
@@ -1249,6 +1261,13 @@ export default function HomeScreen() {
                 timerActive={closedTimerActive}
               />
             </View>
+          ) : null}
+
+          {isAreaOpen && areaWindow ? (
+            <ClosingSoonBanner
+              closesAtEpochMs={areaWindow.closesAtEpochMs}
+              active={closedTimerActive}
+            />
           ) : null}
 
           {homeBanner ? (

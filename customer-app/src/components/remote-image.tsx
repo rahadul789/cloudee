@@ -1,9 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useIsFocused } from "@react-navigation/native";
 import { Image, type ImageContentFit } from "expo-image";
 import {
-  useEffect,
-  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -23,10 +20,6 @@ import { palette } from "@/src/theme/palette";
 
 const IMAGE_SKELETON_COLOR = "#FFF0F6";
 const HOME_IMAGE_SKELETON_COLOR = "#FFF0F6";
-// How long a screen must stay blurred before we release its image bitmaps. Long
-// enough that the tab/stack transition has finished (so we never unmount images
-// mid-animation) but short enough to free memory before you scroll the next screen.
-const IMAGE_MEMORY_RELEASE_DELAY = 700;
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -84,42 +77,13 @@ export function RemoteImage({
   const [loadedUri, setLoadedUri] = useState<string | null>(null);
   const [erroredUri, setErroredUri] = useState<string | null>(null);
 
-  // Free image memory for screens you are not looking at. A frozen (blurred)
-  // screen keeps its <Image> views mounted, so their decoded bitmaps stay in RAM
-  // — dozens of them on Home — which starves the screen you actually scrolled to
-  // (the confirmed Home→Browse jank). When the screen has been blurred long
-  // enough for its transition to finish, we drop the bitmap; on return it reloads
-  // instantly from the disk cache. Net effect: RAM only holds the visible screen.
-  const isScreenFocused = useIsFocused();
-  const [isReleased, setIsReleased] = useState(false);
-  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (releaseTimerRef.current) {
-      clearTimeout(releaseTimerRef.current);
-      releaseTimerRef.current = null;
-    }
-
-    if (isScreenFocused) {
-      setIsReleased(false);
-      return;
-    }
-
-    releaseTimerRef.current = setTimeout(
-      () => setIsReleased(true),
-      IMAGE_MEMORY_RELEASE_DELAY,
-    );
-
-    return () => {
-      if (releaseTimerRef.current) {
-        clearTimeout(releaseTimerRef.current);
-        releaseTimerRef.current = null;
-      }
-    };
-  }, [isScreenFocused]);
-
+  // NOTE: intentionally NO focus-based bitmap release. It used to unmount the <Image> on blur
+  // (700ms timer + an isReleased flip) to free RAM, but that per-image mount/unmount on every
+  // navigation caused app-wide churn AND a Fabric "child already has a parent" crash under rapid
+  // navigation (the details↔cart loop). expo-image's memory-disk cache manages RAM; keeping the
+  // image mounted is far stabler and cheaper.
   const hasFailed = normalizedUri == null || erroredUri === normalizedUri;
-  const shouldShowImage = normalizedUri != null && !hasFailed && !isReleased;
+  const shouldShowImage = normalizedUri != null && !hasFailed;
   const isLoaded = normalizedUri != null && loadedUri === normalizedUri;
   const shouldShowSkeleton = showSkeleton && shouldShowImage && !isLoaded;
   // Identity key for the <Image> element. Using it as a React `key` (not just

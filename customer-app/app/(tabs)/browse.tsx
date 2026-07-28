@@ -17,6 +17,7 @@ import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
 import { RestaurantFilterSheet } from "@/src/components/restaurant-filter-sheet";
 import {
+  ClosingSoonBanner,
   ServiceClosedHero,
   ServiceClosedStickyPill,
 } from "@/src/components/service-closed-banner";
@@ -38,7 +39,10 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useBrowseHistoryStore } from "@/src/store/browse-history-store";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
-import { useReopenAutoRefresh } from "@/src/lib/restaurant-availability";
+import {
+  useCloseAutoRefresh,
+  useReopenAutoRefresh,
+} from "@/src/lib/restaurant-availability";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 import type { CustomerVoucherOffer, DiscoverableRestaurant } from "@/src/types/restaurant";
@@ -261,9 +265,15 @@ export default function BrowseScreen() {
     nearbyRestaurantsQuery.data?.pages[0]?.areaHasRestaurants ?? false;
   const areaWindow = homeDiscoveryQuery.data?.areaServiceWindow ?? null;
   const isAreaClosed = areaWindow?.isOpen === false;
+  const isAreaOpen = areaWindow?.isOpen === true;
   // When the area's service window opens, auto-refetch the feed + nearby list so restaurants
   // flip closed→open on their own — no manual pull-to-refresh or app restart needed.
   useReopenAutoRefresh(isAreaClosed ? areaWindow?.opensAtEpochMs : null, () => {
+    void homeDiscoveryQuery.refetch();
+    if (hasSelectedCoordinates) void nearbyRestaurantsQuery.refetch();
+  });
+  // Mirror for the CLOSE boundary: flip open→closed on its own so the reopen countdown starts.
+  useCloseAutoRefresh(isAreaOpen ? areaWindow?.closesAtEpochMs : null, () => {
     void homeDiscoveryQuery.refetch();
     if (hasSelectedCoordinates) void nearbyRestaurantsQuery.refetch();
   });
@@ -679,6 +689,12 @@ export default function BrowseScreen() {
                   }}
                 />
               </View>
+            ) : null}
+            {isAreaOpen && areaWindow ? (
+              <ClosingSoonBanner
+                closesAtEpochMs={areaWindow.closesAtEpochMs}
+                active={isBrowseFocused}
+              />
             ) : null}
             <View style={styles.headerCard}>
               {!isOnline ? (

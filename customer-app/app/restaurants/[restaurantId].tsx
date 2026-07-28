@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -39,6 +40,7 @@ import {
 import { RemoteImage } from "@/src/components/remote-image";
 import { styles } from "@/src/components/restaurant-details/restaurant-details.styles";
 import { RestaurantClosedBanner } from "@/src/components/restaurant-details/restaurant-closed-banner";
+import { ClosingSoonBanner } from "@/src/components/service-closed-banner";
 import { getClosedCopy } from "@/src/lib/restaurant-availability";
 import {
   CategoryRail,
@@ -167,6 +169,7 @@ function buildOfferExplanation(offer: CustomerVoucherOffer) {
 export default function RestaurantDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isDetailsFocused = useIsFocused();
   const scrollY = useRef(new Animated.Value(0)).current;
   const { restaurantId, itemId, source } = useLocalSearchParams<{
     restaurantId: string;
@@ -1320,7 +1323,13 @@ export default function RestaurantDetailsScreen() {
                     availability={restaurant.availability}
                   />
                 </View>
-              ) : null}
+              ) : (
+                <ClosingSoonBanner
+                  closesAtEpochMs={restaurant.availability?.closesAtEpochMs}
+                  active={isDetailsFocused}
+                  style={{ marginTop: 12, marginBottom: 0 }}
+                />
+              )}
 
               <View style={styles.infoBadgeRow}>
                 {importantFacts.map((fact) => (

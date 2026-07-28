@@ -11,12 +11,16 @@ export type RestaurantAvailability = {
   opensAtLabel: string | null;
   /** Absolute reopen instant; countdown = opensAtEpochMs - Date.now(). null if unknown. */
   opensAtEpochMs: number | null;
+  /** Absolute instant the current OPEN window closes; drives the "Closing in …" countdown. null unless open + bounded window. */
+  closesAtEpochMs?: number | null;
 };
 
 export type AreaServiceWindow = {
   isOpen: boolean;
   opensAtLabel: string | null;
   opensAtEpochMs: number | null;
+  /** Absolute instant the current OPEN window closes; drives the "Closing in …" countdown. null unless open + bounded window. */
+  closesAtEpochMs?: number | null;
 };
 
 export type DiscoverableRestaurant = {

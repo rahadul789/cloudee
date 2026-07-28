@@ -47,6 +47,51 @@ export function useReopenAutoRefresh(
 }
 
 /**
+ * The mirror of `useReopenAutoRefresh` for the CLOSE boundary: fires `onClose` the moment the
+ * current open window's close instant passes, so the caller refetches and the feed flips
+ * open→closed on its own — which is what makes the "Opens in …" countdown start automatically
+ * right after closing (otherwise the cached `isOpen: true` sticks and no reopen time is shown).
+ *
+ * Efficient by design: a recursive setTimeout that sleeps ~30s while the close is far off and
+ * tightens to 1s only in the final minute — so it costs almost nothing during normal open hours
+ * (no all-day per-second timer) yet still fires promptly at the boundary. It does NO setState, so
+ * it never re-renders the caller; the refetch it triggers does the update. A short burst of
+ * retries absorbs device/server clock skew, then the flip nulls the target and tears this down.
+ */
+export function useCloseAutoRefresh(
+  closesAtEpochMs: number | null | undefined,
+  onClose: () => void,
+) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (typeof closesAtEpochMs !== "number") return;
+
+    let timer: ReturnType<typeof setTimeout>;
+    let fires = 0;
+    const tick = () => {
+      const remaining = closesAtEpochMs - Date.now();
+      if (remaining > 0) {
+        // Far off → coarse 30s checks; final minute → 1s so we catch the boundary tightly.
+        timer = setTimeout(tick, remaining > 60_000 ? 30_000 : 1_000);
+        return;
+      }
+      // Past close: refetch, then retry a few times ~4s apart (skew safety). Once the area truly
+      // flips closed the caller re-renders with a null target and this effect is torn down.
+      onCloseRef.current();
+      fires += 1;
+      if (fires < 4) timer = setTimeout(tick, 4_000);
+    };
+    tick();
+
+    return () => clearTimeout(timer);
+  }, [closesAtEpochMs]);
+}
+
+/**
  * Live-ticking remaining milliseconds until an absolute reopen instant. Because the
  * backend hands us an ABSOLUTE `opensAtEpochMs`, this stays correct across response
  * caching and device timezones — we only diff against the device clock.
@@ -72,6 +117,59 @@ export function useCountdownMs(
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [targetEpochMs, active]);
+
+  return remaining;
+}
+
+const CLOSING_SOON_WINDOW_MS = 30 * 60 * 1000; // show the "Closing in …" countdown only in the last 30 min
+
+/** Ms until close if we're inside the last `windowMs`; null otherwise (nothing to show). */
+function closingRemaining(
+  closesAtEpochMs: number | null | undefined,
+  windowMs: number,
+): number | null {
+  if (typeof closesAtEpochMs !== "number") return null;
+  const ms = closesAtEpochMs - Date.now();
+  return ms > 0 && ms <= windowMs ? ms : null;
+}
+
+/**
+ * Ms remaining until the current OPEN window closes — but ONLY once we're inside the last
+ * `windowMs` (30 min); null otherwise. Performance: it ticks every SECOND only inside that window;
+ * while the close is still further away it just re-checks every 30s (a null→null no-op re-render),
+ * so an open period that's hours from closing costs almost nothing — no per-second work, and no
+ * single long timer (which RN throttles/GCs). Absolute epoch (`closesAtEpochMs`) → correct across
+ * response caching + timezone.
+ *
+ * `active` only gates the per-second TICKING (screen focused + app active). When it goes false we
+ * FREEZE at the current value rather than blanking to null — blanking on focus-loss made the banner
+ * vanish and the cards jump up the instant a card was tapped (mid-navigation the home is still
+ * visible). Frozen → the banner holds its place; on refocus it resumes ticking.
+ */
+export function useClosingSoonMs(
+  closesAtEpochMs: number | null | undefined,
+  active = true,
+  windowMs = CLOSING_SOON_WINDOW_MS,
+): number | null {
+  const [remaining, setRemaining] = useState<number | null>(() =>
+    closingRemaining(closesAtEpochMs, windowMs),
+  );
+
+  useEffect(() => {
+    // Recompute once now — correct on mount, and freezes at the right value when we go inactive.
+    setRemaining(closingRemaining(closesAtEpochMs, windowMs));
+    if (typeof closesAtEpochMs !== "number" || !active) return;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const value = closingRemaining(closesAtEpochMs, windowMs);
+      setRemaining(value);
+      // Inside the window → tick every second; outside → a cheap 30s re-check to catch entering it.
+      timer = setTimeout(tick, value != null ? 1000 : 30000);
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [closesAtEpochMs, active, windowMs]);
 
   return remaining;
 }

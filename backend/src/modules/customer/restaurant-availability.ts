@@ -50,6 +50,12 @@ export type RestaurantAvailability = {
    * differences — the app just does `opensAtEpochMs - Date.now()` for its countdown.
    */
   opensAtEpochMs: number | null
+  /**
+   * Absolute epoch-ms of when the CURRENT open window closes — set only while open (else null),
+   * and only for a real bounded window (a per-zone service window that isn't 24h/always-open).
+   * Drives the "Closing in Xm Ys" urgency countdown; same absolute-epoch design as opensAtEpochMs.
+   */
+  closesAtEpochMs: number | null
 }
 
 type LooseTimeSlot = { startTime?: unknown; endTime?: unknown }
@@ -237,7 +243,7 @@ export function computeRestaurantAvailability(params: {
   const now = params.now ?? new Date()
 
   if (params.restricted) {
-    return { isOpen: false, closedReason: "restricted", opensAtLabel: null, opensAtEpochMs: null }
+    return { isOpen: false, closedReason: "restricted", opensAtLabel: null, opensAtEpochMs: null, closesAtEpochMs: null }
   }
 
   const windowOpen =
@@ -257,11 +263,27 @@ export function computeRestaurantAvailability(params: {
       opensAtEpochMs:
         now.getTime() +
         secondsUntilDhakaMinute(params.serviceHours.openMinute, now) * 1000,
+      closesAtEpochMs: null,
     }
   }
 
   if (params.isOnline) {
-    return { isOpen: true, closedReason: null, opensAtLabel: null, opensAtEpochMs: null }
+    // Open now — surface when THIS window closes so the app can show a "Closing in …" urgency
+    // countdown. Only for a real bounded service window (enabled and not 24h/always-open, where
+    // openMinute === closeMinute means always-open); otherwise there is no close instant.
+    const closesAtEpochMs =
+      params.serviceHours.enabled &&
+      params.serviceHours.openMinute !== params.serviceHours.closeMinute
+        ? now.getTime() +
+          secondsUntilDhakaMinute(params.serviceHours.closeMinute, now) * 1000
+        : null
+    return {
+      isOpen: true,
+      closedReason: null,
+      opensAtLabel: null,
+      opensAtEpochMs: null,
+      closesAtEpochMs,
+    }
   }
 
   // Window is open but the owner is offline. Predict the reopen from the schedule when
@@ -276,8 +298,9 @@ export function computeRestaurantAvailability(params: {
         schedule.nextOpen.dayOffset,
       ),
       opensAtEpochMs: now.getTime() + schedule.nextOpen.secondsUntil * 1000,
+      closesAtEpochMs: null,
     }
   }
 
-  return { isOpen: false, closedReason: "owner_busy", opensAtLabel: null, opensAtEpochMs: null }
+  return { isOpen: false, closedReason: "owner_busy", opensAtLabel: null, opensAtEpochMs: null, closesAtEpochMs: null }
 }
