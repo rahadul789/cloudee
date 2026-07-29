@@ -163,19 +163,24 @@ function RestaurantHeroCardComponent({
 
         {!isOpen ? (
           <View style={styles.closedOverlayContent}>
-            <View
-              style={[
-                styles.closedOverlayBadge,
-                closedCopy.hasReopen ? styles.closedOverlayBadgeOpens : null,
-              ]}
-            >
+            {/* Centered "Closed" chip. For a restaurant closed on its OWN hours we show the
+                reopen time right under it (on the cover), so the customer sees when THIS
+                place opens without cluttering the card body. Platform/zone-wide closures
+                skip the time here — the top "closed" banner already shows it. */}
+            <View style={styles.closedTag}>
               <Ionicons
-                name={closedCopy.hasReopen ? "time" : "time-outline"}
-                size={15}
-                color={palette.surface}
+                name="lock-closed"
+                size={13}
+                color={palette.foreground}
               />
-              <Text style={styles.closedOverlayText}>{closedCopy.title}</Text>
+              <Text style={styles.closedTagText}>Closed</Text>
             </View>
+            {availability?.closedReason === "schedule" &&
+            closedCopy.opensAtLabel ? (
+              <Text style={styles.closedOpensText}>
+                Opens at {closedCopy.opensAtLabel}
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -467,27 +472,38 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
+    gap: 7,
     paddingHorizontal: 18,
   },
-  closedOverlayBadge: {
+  // Centered "Closed" chip on the dimmed cover — white pill + dark text, same family as the
+  // time-based rail's closed badge but a touch larger so it reads clearly on the cover.
+  closedTag: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: "rgba(20, 24, 35, 0.72)",
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
   },
-  // "Opens 11:00 AM" reads as inviting (brand coral) rather than a dead grey badge.
-  closedOverlayBadgeOpens: {
-    backgroundColor: "rgba(255, 122, 89, 0.94)",
-  },
-  closedOverlayText: {
-    fontSize: 12,
+  closedTagText: {
+    fontSize: 13,
     lineHeight: 16,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    color: palette.foreground,
+  },
+  // Reopen time shown under the "Closed" chip (restaurant's own hours only). White on the
+  // dimmed cover, with a soft shadow so it stays legible over any photo.
+  closedOpensText: {
+    fontSize: 10.5,
+    lineHeight: 14,
     fontWeight: "700",
     letterSpacing: 0.2,
-    color: palette.surface,
+    color: "#FFFFFF",
+    textShadowColor: "rgba(0, 0, 0, 0.55)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   topRow: {
     position: "absolute",

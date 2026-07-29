@@ -101,6 +101,13 @@ export const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.92)",
     ...subtleButtonShadow,
   },
+  // Subtle press feedback for the hero action buttons (favourite / info) — a small dip +
+  // scale so the tap feels responsive without being flashy.
+  heroButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.93 }],
+    backgroundColor: "rgba(255,255,255,0.98)",
+  },
   heroBottomRow: {
     position: "absolute",
     left: 14,

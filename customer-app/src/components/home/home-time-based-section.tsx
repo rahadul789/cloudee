@@ -106,7 +106,7 @@ export function HomeTimeBasedSection({
                 <View style={styles.timeCompactClosedOverlay}>
                   <View style={styles.timeCompactClosedBadge}>
                     <Ionicons
-                      name="moon"
+                      name="lock-closed"
                       size={11}
                       color={palette.foreground}
                     />

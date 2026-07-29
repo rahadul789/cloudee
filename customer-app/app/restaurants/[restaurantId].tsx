@@ -1219,7 +1219,10 @@ export default function RestaurantDetailsScreen() {
                 </Pressable>
                 <View style={styles.heroActionGroup}>
                   <Pressable
-                    style={styles.heroButton}
+                    style={({ pressed }) => [
+                      styles.heroButton,
+                      pressed ? styles.heroButtonPressed : null,
+                    ]}
                     onPress={handleToggleFavorite}
                     accessibilityRole="button"
                     accessibilityLabel={
@@ -1238,7 +1241,10 @@ export default function RestaurantDetailsScreen() {
                     />
                   </Pressable>
                   <Pressable
-                    style={styles.heroButton}
+                    style={({ pressed }) => [
+                      styles.heroButton,
+                      pressed ? styles.heroButtonPressed : null,
+                    ]}
                     onPress={() => {
                       void Haptics.selectionAsync();
                       setInfoSheetVisible(true);
