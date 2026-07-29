@@ -17,7 +17,10 @@ import { ErrorRetryCard } from "@/src/components/error-retry-card";
 import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
-import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
+import {
+  getRestaurantCustomBadge,
+  RestaurantHeroCard,
+} from "@/src/components/restaurant-hero-card";
 import {
   RestaurantFilterSheet,
   DEFAULT_RESTAURANT_FILTER_VALUES,
@@ -473,6 +476,7 @@ export default function CustomerSearchScreen() {
               onToggleFavorite={() => handleToggleFavorite(item._id)}
               compact
               variant="nearby"
+              customBadge={getRestaurantCustomBadge(item)}
               onPress={() => openRestaurant(item)}
             />
           )}

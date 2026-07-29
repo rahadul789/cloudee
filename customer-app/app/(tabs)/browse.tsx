@@ -27,7 +27,10 @@ import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { styles } from "@/src/components/browse/browse-screen.styles";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
-import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
+import {
+  getRestaurantCustomBadge,
+  RestaurantHeroCard,
+} from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
 import {
   useCustomerDiscoveryHomeQuery,
@@ -478,6 +481,7 @@ export default function BrowseScreen() {
       compact
       flat
       variant={isFeaturedRestaurant(item) ? "featured" : "nearby"}
+      customBadge={getRestaurantCustomBadge(item)}
       onPress={() => openRestaurant(item)}
     />
   ), [

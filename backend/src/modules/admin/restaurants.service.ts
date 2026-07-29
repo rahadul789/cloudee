@@ -1909,6 +1909,10 @@ export async function getAdminRestaurantDetails(
           ? restaurant.discovery.featuredSortOrder
           : null,
       isSponsored: restaurant.discovery?.isSponsored === true,
+      customBadge: {
+        enabled: restaurant.discovery?.customBadge?.enabled === true,
+        label: trimLimitedString(restaurant.discovery?.customBadge?.label, "", 24),
+      },
       customerNote: getRestaurantCustomerNoteSetting(restaurant),
     },
     discovery: {
@@ -4991,6 +4995,11 @@ export async function updateAdminRestaurantMerchandising(params: {
   isFeatured: boolean;
   featuredPosition: number | null;
   isSponsored?: boolean;
+  // Admin-set custom marketing badge shown on this restaurant's customer card.
+  customBadge?: {
+    enabled?: boolean;
+    label?: string;
+  };
   customerNote?: {
     enabled?: boolean;
     label?: string;
@@ -4998,6 +5007,7 @@ export async function updateAdminRestaurantMerchandising(params: {
   };
 }) {
   const restaurant = await getRestaurantOrThrow(params.restaurantId);
+  const currentCustomBadge = restaurant.discovery?.customBadge ?? {};
   restaurant.discovery = {
     ...(restaurant.discovery ?? {}),
     isFeatured: params.isFeatured,
@@ -5008,6 +5018,17 @@ export async function updateAdminRestaurantMerchandising(params: {
       params.isSponsored === undefined
         ? restaurant.discovery?.isSponsored === true
         : params.isSponsored,
+    // Custom badge: admin picks the label + whether it shows. Preserve on omit.
+    customBadge:
+      params.customBadge === undefined
+        ? {
+            enabled: currentCustomBadge.enabled === true,
+            label: trimLimitedString(currentCustomBadge.label, "", 24),
+          }
+        : {
+            enabled: params.customBadge.enabled === true,
+            label: trimLimitedString(params.customBadge.label, "", 24),
+          },
   };
   if (params.customerNote) {
     const currentSettings =
@@ -5041,6 +5062,10 @@ export async function updateAdminRestaurantMerchandising(params: {
         ? restaurant.discovery.featuredSortOrder
         : null,
     isSponsored: restaurant.discovery?.isSponsored === true,
+    customBadge: {
+      enabled: restaurant.discovery?.customBadge?.enabled === true,
+      label: trimLimitedString(restaurant.discovery?.customBadge?.label, "", 24),
+    },
     customerNote: getRestaurantCustomerNoteSetting(restaurant),
     updatedAt: serializeDate(restaurant.updatedAt),
   };

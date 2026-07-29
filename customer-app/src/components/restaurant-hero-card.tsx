@@ -16,6 +16,19 @@ import { getClosedCopy } from "@/src/lib/restaurant-availability";
 import { palette } from "@/src/theme/palette";
 import type { RestaurantAvailability } from "@/src/types/restaurant";
 
+// Admin-set marketing badge label for a restaurant card — only when enabled + non-empty.
+export function getRestaurantCustomBadge(
+  restaurant:
+    | { discovery?: { customBadge?: { enabled?: boolean; label?: string } } }
+    | null
+    | undefined,
+): string | undefined {
+  const badge = restaurant?.discovery?.customBadge;
+  if (badge?.enabled !== true) return undefined;
+  const label = badge.label?.trim();
+  return label && label.length > 0 ? label : undefined;
+}
+
 type Props = {
   name: string;
   subtitle?: string;
@@ -37,6 +50,8 @@ type Props = {
   variant?: "default" | "featured" | "offer" | "nearby";
   badge?: "featured" | "nearby" | "none";
   sponsored?: boolean;
+  /** Admin-set marketing badge label; shown on the card when non-empty. */
+  customBadge?: string | null;
 };
 
 function RestaurantHeroCardComponent({
@@ -60,7 +75,10 @@ function RestaurantHeroCardComponent({
   variant = "default",
   badge,
   sponsored = false,
+  customBadge,
 }: Props) {
+  const customBadgeLabel = customBadge?.trim() ?? "";
+  const hasCustomBadge = customBadgeLabel.length > 0;
   const isFeaturedVariant = variant === "featured";
   const isOfferVariant = variant === "offer";
   const isNearbyVariant = variant === "nearby";
@@ -92,15 +110,7 @@ function RestaurantHeroCardComponent({
           textStyle: styles.sectionBadgeTextFeatured,
           iconColor: "#7A3E00",
         }
-      : badgeType === "nearby"
-        ? {
-            icon: "navigate" as const,
-            label: "Near you",
-            style: styles.sectionBadgeNearby,
-            textStyle: styles.sectionBadgeTextNearby,
-            iconColor: "#3858A8",
-          }
-        : null;
+      : null;
 
   const handleFavoritePress = (event: GestureResponderEvent) => {
     event.stopPropagation();
@@ -218,7 +228,16 @@ function RestaurantHeroCardComponent({
           </Pressable>
         </View>
 
-        {sectionBadge ? (
+        {hasCustomBadge ? (
+          <View style={[styles.sectionBadge, styles.customBadge]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.sectionBadgeText, styles.customBadgeText]}
+            >
+              {customBadgeLabel}
+            </Text>
+          </View>
+        ) : sectionBadge ? (
           <View style={[styles.sectionBadge, sectionBadge.style]}>
             <Ionicons
               name={sectionBadge.icon}
@@ -347,7 +366,8 @@ function arePropsEqual(prev: Props, next: Props) {
     prev.flat === next.flat &&
     prev.variant === next.variant &&
     prev.badge === next.badge &&
-    prev.sponsored === next.sponsored
+    prev.sponsored === next.sponsored &&
+    prev.customBadge === next.customBadge
   );
 }
 
@@ -605,6 +625,19 @@ const styles = StyleSheet.create({
   },
   sectionBadgeTextNearby: {
     color: "#3858A8",
+  },
+  // Admin-set marketing badge — a solid coral pill so it reads as a highlight, distinct
+  // from the gold "Featured pick" and the pink offer badge.
+  customBadge: {
+    maxWidth: "62%",
+    backgroundColor: palette.primary,
+    borderColor: "rgba(255,255,255,0.72)",
+  },
+  customBadgeText: {
+    color: "#fff",
+    fontSize: 9.5,
+    lineHeight: 12,
+    fontWeight: "900",
   },
   offerBadge: {
     position: "absolute",

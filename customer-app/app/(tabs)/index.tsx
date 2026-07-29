@@ -39,7 +39,10 @@ import { HomePollModal } from "@/src/components/home/home-poll-modal";
 import { styles } from "@/src/components/home/home-screen.styles";
 import { HomeTimeBasedSection } from "@/src/components/home/home-time-based-section";
 import { RemoteImage } from "@/src/components/remote-image";
-import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
+import {
+  getRestaurantCustomBadge,
+  RestaurantHeroCard,
+} from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
 import { SectionHeader } from "@/src/components/section-header";
 import {
@@ -1453,6 +1456,7 @@ export default function HomeScreen() {
                     }
                     isOpen={restaurant.isOpen !== false}
                     availability={restaurant.availability}
+                    customBadge={getRestaurantCustomBadge(restaurant)}
                     distanceKm={restaurant.distanceKm}
                     avgRating={restaurant.avgRating}
                     reviewCount={restaurant.reviewCount}
@@ -1543,6 +1547,7 @@ export default function HomeScreen() {
                           }
                           isOpen={restaurant.isOpen !== false}
                           availability={restaurant.availability}
+                          customBadge={getRestaurantCustomBadge(restaurant)}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1628,6 +1633,7 @@ export default function HomeScreen() {
                           }
                           isOpen={restaurant.isOpen !== false}
                           availability={restaurant.availability}
+                          customBadge={getRestaurantCustomBadge(restaurant)}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1703,6 +1709,7 @@ export default function HomeScreen() {
                           }
                           isOpen={restaurant.isOpen !== false}
                           availability={restaurant.availability}
+                          customBadge={getRestaurantCustomBadge(restaurant)}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1773,6 +1780,7 @@ export default function HomeScreen() {
                           }
                           isOpen={restaurant.isOpen !== false}
                           availability={restaurant.availability}
+                          customBadge={getRestaurantCustomBadge(restaurant)}
                           distanceKm={restaurant.distanceKm}
                           avgRating={restaurant.avgRating}
                           reviewCount={restaurant.reviewCount}
@@ -1872,6 +1880,7 @@ export default function HomeScreen() {
                         }
                         isOpen={restaurant.isOpen !== false}
                         availability={restaurant.availability}
+                        customBadge={getRestaurantCustomBadge(restaurant)}
                         distanceKm={restaurant.distanceKm}
                         avgRating={restaurant.avgRating}
                         reviewCount={restaurant.reviewCount}

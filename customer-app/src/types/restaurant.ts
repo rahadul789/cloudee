@@ -50,6 +50,11 @@ export type DiscoverableRestaurant = {
     isFeatured?: boolean;
     featuredSortOrder?: number;
     isSponsored?: boolean;
+    // Admin-set marketing badge shown on this restaurant's card (when enabled + labelled).
+    customBadge?: {
+      enabled?: boolean;
+      label?: string;
+    };
   };
   preparationTimeMinutes?: number | null;
   lowestMenuPrice?: number | null;

@@ -13,7 +13,10 @@ import { FlashList } from "@shopify/flash-list";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ErrorRetryCard } from "@/src/components/error-retry-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
-import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
+import {
+  getRestaurantCustomBadge,
+  RestaurantHeroCard,
+} from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
 import {
   useCustomerFavoriteRestaurantIdsQuery,
@@ -155,6 +158,7 @@ export default function FavoriteRestaurantsScreen() {
         lowestMenuPrice={item.lowestMenuPrice}
         isFavorite={favoriteRestaurantIdsSet.has(item._id)}
         favoriteDisabled={pendingFavoriteIds.includes(item._id)}
+        customBadge={getRestaurantCustomBadge(item)}
         onToggleFavorite={() => {
           void handleToggleFavorite(item._id);
         }}

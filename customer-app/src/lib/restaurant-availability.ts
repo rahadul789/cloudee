@@ -257,7 +257,7 @@ export function getClosedCopy(
     availability.opensAtLabel
   ) {
     return {
-      title: `Opens ${availability.opensAtLabel}`,
+      title: `Opens at ${availability.opensAtLabel}`,
       hasReopen: true,
       opensAtLabel: availability.opensAtLabel,
       opensAtEpochMs: availability.opensAtEpochMs,

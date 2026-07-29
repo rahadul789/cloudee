@@ -1672,6 +1672,9 @@ function RestaurantDetailsSheet({
     React.useState("Order note")
   const [customerNotePlaceholderDraft, setCustomerNotePlaceholderDraft] =
     React.useState("Cake name, message, or any restaurant instruction")
+  const [customBadgeEnabledDraft, setCustomBadgeEnabledDraft] =
+    React.useState(false)
+  const [customBadgeLabelDraft, setCustomBadgeLabelDraft] = React.useState("")
   const [payoutActionTarget, setPayoutActionTarget] = React.useState<{
     payoutId: string
     status: "completed" | "failed"
@@ -1738,6 +1741,8 @@ function RestaurantDetailsSheet({
       details.merchandising.customerNote.placeholder ||
         "Cake name, message, or any restaurant instruction"
     )
+    setCustomBadgeEnabledDraft(details.merchandising.customBadge?.enabled === true)
+    setCustomBadgeLabelDraft(details.merchandising.customBadge?.label ?? "")
   }, [details])
 
   React.useEffect(() => {
@@ -1977,6 +1982,19 @@ function RestaurantDetailsSheet({
     })
   }
 
+  function updateCustomBadgeSetting(enabled = customBadgeEnabledDraft) {
+    merchandisingMutation.mutate({
+      restaurantId,
+      isFeatured: details?.isFeatured === true,
+      featuredPosition:
+        details?.isFeatured === true ? getFeaturedPositionDraftValue() : null,
+      customBadge: {
+        enabled,
+        label: customBadgeLabelDraft.trim(),
+      },
+    })
+  }
+
   function openPayoutStatusAction(
     payoutId: string,
     status: "processing" | "completed" | "failed",
@@ -2096,6 +2114,9 @@ function RestaurantDetailsSheet({
               setCustomerNoteLabelDraft={setCustomerNoteLabelDraft}
               customerNotePlaceholderDraft={customerNotePlaceholderDraft}
               setCustomerNotePlaceholderDraft={setCustomerNotePlaceholderDraft}
+              customBadgeEnabledDraft={customBadgeEnabledDraft}
+              customBadgeLabelDraft={customBadgeLabelDraft}
+              setCustomBadgeLabelDraft={setCustomBadgeLabelDraft}
               reconcilePending={reconcileMutation.isPending}
               payoutStatusPending={payoutStatusMutation.isPending}
               enforcementPending={enforcementMutation.isPending}
@@ -2131,6 +2152,11 @@ function RestaurantDetailsSheet({
               onCustomerNoteToggle={(enabled) => {
                 setCustomerNoteEnabledDraft(enabled)
                 updateCustomerNoteSetting(enabled)
+              }}
+              onCustomBadgeSave={() => updateCustomBadgeSetting()}
+              onCustomBadgeToggle={(enabled) => {
+                setCustomBadgeEnabledDraft(enabled)
+                updateCustomBadgeSetting(enabled)
               }}
               onCommissionSave={updateCommission}
               onDeliveryPricingSave={() =>
@@ -3899,6 +3925,9 @@ function RestaurantDetailsContent({
   setCustomerNoteLabelDraft,
   customerNotePlaceholderDraft,
   setCustomerNotePlaceholderDraft,
+  customBadgeEnabledDraft,
+  customBadgeLabelDraft,
+  setCustomBadgeLabelDraft,
   reconcilePending,
   payoutStatusPending,
   enforcementPending,
@@ -3908,6 +3937,8 @@ function RestaurantDetailsContent({
   onSponsoredChange,
   onCustomerNoteSave,
   onCustomerNoteToggle,
+  onCustomBadgeSave,
+  onCustomBadgeToggle,
   onCommissionSave,
   onDeliveryPricingSave,
   onDeliveryPricingToggle,
@@ -3945,6 +3976,9 @@ function RestaurantDetailsContent({
   setCustomerNoteLabelDraft: (value: string) => void
   customerNotePlaceholderDraft: string
   setCustomerNotePlaceholderDraft: (value: string) => void
+  customBadgeEnabledDraft: boolean
+  customBadgeLabelDraft: string
+  setCustomBadgeLabelDraft: (value: string) => void
   reconcilePending: boolean
   payoutStatusPending: boolean
   enforcementPending: boolean
@@ -3966,6 +4000,8 @@ function RestaurantDetailsContent({
   onSponsoredChange: (isSponsored: boolean) => void
   onCustomerNoteSave: () => void
   onCustomerNoteToggle: (enabled: boolean) => void
+  onCustomBadgeSave: () => void
+  onCustomBadgeToggle: (enabled: boolean) => void
   onCommissionSave: () => void
   onDeliveryPricingSave: () => void
   onDeliveryPricingToggle: (enabled: boolean) => void
@@ -4355,6 +4391,59 @@ function RestaurantDetailsContent({
                     onClick={onCustomerNoteSave}
                   >
                     Save note setting
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-lg border bg-background p-3 xl:col-span-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">Custom card badge</p>
+                      <Badge
+                        variant="outline"
+                        className={
+                          customBadgeEnabledDraft
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                        }
+                      >
+                        {customBadgeEnabledDraft ? "Shown on card" : "Hidden"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      A short marketing badge shown on this restaurant&rsquo;s card in
+                      the customer app (e.g. &ldquo;New&rdquo;, &ldquo;Popular&rdquo;,
+                      &ldquo;Try now&rdquo;). Set the title, then toggle it on only for
+                      the restaurants you want.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={customBadgeEnabledDraft}
+                    disabled={merchandisingPending}
+                    onCheckedChange={onCustomBadgeToggle}
+                  />
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="detail-custom-badge-label">Badge title</Label>
+                    <Input
+                      id="detail-custom-badge-label"
+                      maxLength={24}
+                      value={customBadgeLabelDraft}
+                      onChange={(event) =>
+                        setCustomBadgeLabelDraft(event.target.value)
+                      }
+                      placeholder="e.g. New, Popular"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <Button
+                    variant="outline"
+                    disabled={merchandisingPending}
+                    onClick={onCustomBadgeSave}
+                  >
+                    Save badge
                   </Button>
                 </div>
               </div>

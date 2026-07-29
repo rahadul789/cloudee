@@ -144,6 +144,12 @@ const merchandisingSchema = z.object({
   isFeatured: z.boolean(),
   featuredPosition: z.number().int().positive().nullable().optional(),
   isSponsored: z.boolean().optional(),
+  customBadge: z
+    .object({
+      enabled: z.boolean(),
+      label: z.string().trim().max(24).optional(),
+    })
+    .optional(),
   customerNote: z
     .object({
       enabled: z.boolean(),
@@ -365,6 +371,7 @@ export const patchAdminRestaurantMerchandising = asyncHandler(
       isFeatured: payload.isFeatured,
       featuredPosition: payload.featuredPosition ?? null,
       isSponsored: payload.isSponsored,
+      customBadge: payload.customBadge,
       customerNote: payload.customerNote,
     });
 

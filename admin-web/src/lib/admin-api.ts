@@ -1332,6 +1332,10 @@ export type AdminRestaurantDetails = AdminRestaurantSummary & {
     isFeatured: boolean
     featuredPosition: number | null
     isSponsored: boolean
+    customBadge: {
+      enabled: boolean
+      label: string
+    }
     customerNote: {
       enabled: boolean
       label: string
@@ -2461,6 +2465,10 @@ export type AdminRestaurantMerchandisingUpdate = {
   isFeatured: boolean
   featuredPosition: number | null
   isSponsored: boolean
+  customBadge: {
+    enabled: boolean
+    label: string
+  }
   customerNote: {
     enabled: boolean
     label: string
@@ -7270,6 +7278,10 @@ export async function updateAdminRestaurantMerchandising(params: {
   isFeatured: boolean
   featuredPosition: number | null
   isSponsored?: boolean
+  customBadge?: {
+    enabled: boolean
+    label: string
+  }
   customerNote?: {
     enabled: boolean
     label: string
@@ -7287,6 +7299,7 @@ export async function updateAdminRestaurantMerchandising(params: {
         isFeatured: params.isFeatured,
         featuredPosition: params.featuredPosition,
         isSponsored: params.isSponsored,
+        customBadge: params.customBadge,
         customerNote: params.customerNote,
       }),
     }
