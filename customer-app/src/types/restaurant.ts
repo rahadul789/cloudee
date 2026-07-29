@@ -204,6 +204,9 @@ export type CustomerHomeCms = {
       publicId?: string;
       linkEnabled?: boolean;
       ctaPath?: string;
+      /** "Sponsored" ad-label badge; shows only while enabled and before `sponsoredUntil`. */
+      sponsored?: boolean;
+      sponsoredUntil?: string;
     }[];
     ctaLabel: string;
     ctaPath: string;
@@ -223,6 +226,9 @@ export type CustomerHomeCms = {
       id?: string;
       label: string;
       searchQuery: string;
+      /** Optional Cloudinary image; empty → app falls back to `icon` on `color`. */
+      imageUrl?: string;
+      imagePublicId?: string;
       icon?: string;
       color?: string;
       position?: number;
@@ -325,6 +331,8 @@ export type CustomerHomeTimeBasedSection = {
   accentColor?: string;
   layout?: "horizontal" | "vertical";
   position?: number;
+  /** Whether the section renders above or below the Featured restaurants row. */
+  placement?: "above_featured" | "below_featured";
   maxItems?: number;
   restaurants: DiscoverableRestaurant[];
 };

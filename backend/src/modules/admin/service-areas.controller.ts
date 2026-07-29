@@ -70,7 +70,18 @@ const zonePayloadSchema = z.object({
       surchargeAmountTaka: z.coerce.number().min(0).nullable().optional(),
       maxRestaurantDistanceKm: z.coerce.number().min(0).nullable().optional(),
       rainSurchargeEnabled: z.boolean().optional(),
-      rainSurchargeTaka: z.coerce.number().min(0).optional()
+      rainSurchargeTaka: z.coerce.number().min(0).optional(),
+      platformFee: z
+        .object({
+          override: z.boolean().optional(),
+          enabled: z.boolean().optional(),
+          mode: z.enum(["flat", "percentage", "optional"]).optional(),
+          amountTaka: z.coerce.number().min(0).optional(),
+          percentage: z.coerce.number().min(0).max(100).optional(),
+          label: z.string().trim().max(60).optional(),
+          note: z.string().trim().max(160).optional()
+        })
+        .optional()
     })
     .optional(),
   dispatch: z

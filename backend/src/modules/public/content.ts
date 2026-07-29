@@ -56,6 +56,8 @@ export const platformContent = {
             id: "biryani",
             label: "Biryani",
             searchQuery: "biryani",
+            // Starter placeholder image (keyword-based). Admin uploads a real Cloudinary image to override.
+            imageUrl: "https://loremflickr.com/240/240/biryani?lock=1",
             icon: "restaurant-outline",
             color: "#FFF0F6",
             position: 1,
@@ -65,6 +67,7 @@ export const platformContent = {
             id: "burger",
             label: "Burger",
             searchQuery: "burger",
+            imageUrl: "https://loremflickr.com/240/240/burger?lock=2",
             icon: "fast-food-outline",
             color: "#FFF5D8",
             position: 2,
@@ -74,6 +77,7 @@ export const platformContent = {
             id: "grill-chicken",
             label: "Grill chicken",
             searchQuery: "grill chicken",
+            imageUrl: "https://loremflickr.com/240/240/grilled,chicken?lock=3",
             icon: "flame-outline",
             color: "#FFE8EA",
             position: 3,
@@ -83,6 +87,7 @@ export const platformContent = {
             id: "chicken",
             label: "Chicken",
             searchQuery: "chicken",
+            imageUrl: "https://loremflickr.com/240/240/chicken,curry?lock=4",
             icon: "flame-outline",
             color: "#EAF8F2",
             position: 4,
@@ -92,6 +97,7 @@ export const platformContent = {
             id: "pizza",
             label: "Pizza",
             searchQuery: "pizza",
+            imageUrl: "https://loremflickr.com/240/240/pizza?lock=5",
             icon: "pizza-outline",
             color: "#EDF4FF",
             position: 5,
@@ -101,6 +107,7 @@ export const platformContent = {
             id: "fast-food",
             label: "Fast food",
             searchQuery: "fast food",
+            imageUrl: "https://loremflickr.com/240/240/fries,fastfood?lock=6",
             icon: "fast-food-outline",
             color: "#FFEAF3",
             position: 6,
@@ -474,6 +481,7 @@ export const platformContent = {
         category: 90,
       },
     },
+    showRiderPhoneToCustomer: true,
     serviceArea: {
       name: "Netrokona service area",
       centerLatitude: 24.8771096,
@@ -486,6 +494,15 @@ export const platformContent = {
       surchargeStartsAfterKm: 2,
       surchargeStepMeters: 500,
       surchargeAmountTaka: 5,
+    },
+    // Admin-set customer-facing extra fee (off by default). See content.service.ts schema.
+    platformFee: {
+      enabled: false,
+      mode: "flat",
+      amountTaka: 0,
+      percentage: 0,
+      label: "Platform fee",
+      note: "",
     },
     // Platform-wide minimum order amount (Taka) on the customer's item subtotal. 0 = no
     // minimum. Per-restaurant overrides live on restaurant.commercial.minimumOrderAmount.

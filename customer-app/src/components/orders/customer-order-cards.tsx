@@ -409,10 +409,11 @@ export const OrderCard = memo(function OrderCard({
                       <Text style={styles.activeEtaLabel}>
                         {estimate.rangeLabel}
                       </Text>
-                      <Text style={styles.activeEtaMeta} numberOfLines={1}>
-                        {estimate.supportingText ||
-                          "Based on the restaurant's live prep timer."}
-                      </Text>
+                      {estimate.supportingText ? (
+                        <Text style={styles.activeEtaMeta} numberOfLines={1}>
+                          {estimate.supportingText}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
                 ) : null

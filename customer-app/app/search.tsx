@@ -36,6 +36,7 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useBrowseHistoryStore } from "@/src/store/browse-history-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
+import { RemoteImage } from "@/src/components/remote-image";
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import type { CustomerVoucherOffer, DiscoverableRestaurant } from "@/src/types/restaurant";
 
@@ -343,18 +344,27 @@ export default function CustomerSearchScreen() {
                       {homeCategoryItems.map((item, index) => (
                         <Pressable
                           key={item.id || `${item.label}-${index}`}
-                          style={[
-                            styles.categoryChip,
-                            { backgroundColor: item.color || "#FFF0F6" },
+                          style={({ pressed }) => [
+                            styles.categoryCard,
+                            pressed ? styles.categoryCardPressed : null,
                           ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${item.label} category`}
                           onPress={() => runSuggestedSearch(item.searchQuery || item.label)}
                         >
-                          <Ionicons
-                            name={(item.icon || "restaurant-outline") as keyof typeof Ionicons.glyphMap}
-                            size={15}
-                            color={palette.foreground}
-                          />
-                          <Text style={styles.categoryChipText} numberOfLines={1}>
+                          <View style={styles.categoryImageWrap}>
+                            <RemoteImage
+                              uri={item.imageUrl}
+                              style={styles.categoryImage}
+                              fallbackIcon={(item.icon || "restaurant-outline") as keyof typeof Ionicons.glyphMap}
+                              fallbackIconSize={21}
+                              fallbackTint={palette.primary}
+                              fallbackBackground={item.color || "#FFF0F6"}
+                              targetWidth={120}
+                              accessibilityLabel={`${item.label} category`}
+                            />
+                          </View>
+                          <Text style={styles.categoryName} numberOfLines={2}>
                             {item.label}
                           </Text>
                         </Pressable>
@@ -615,24 +625,42 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
   },
-  categoryChip: {
-    width: "31.6%",
-    minHeight: 76,
-    borderRadius: 18,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-    justifyContent: "center",
+  // Squircle image card (image on top, name below) — matches the home categories row.
+  categoryCard: {
+    width: "17.6%",
     alignItems: "center",
     gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(31,36,48,0.06)",
+    paddingVertical: 2,
   },
-  categoryChipText: {
+  categoryCardPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.95 }],
+  },
+  categoryImageWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    shadowColor: "rgba(17, 17, 26, 0.16)",
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  categoryImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(17, 17, 26, 0.06)",
+  },
+  categoryName: {
     width: "100%",
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    color: palette.foreground,
+    fontSize: 10.5,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.1,
+    color: "#2E2E38",
     textAlign: "center",
   },
   recentRow: {

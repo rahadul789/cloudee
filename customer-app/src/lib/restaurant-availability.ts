@@ -92,6 +92,48 @@ export function useCloseAutoRefresh(
 }
 
 /**
+ * false until the absolute instant `epoch` passes, then true — with a SINGLE re-render at the
+ * boundary (no per-second ticking). Lets a screen flip a restaurant to "closed" the moment its
+ * service window's close instant arrives (disabling add-to-cart) WITHOUT a refetch. Adaptive timer:
+ * coarse ~30s checks while far off, tightening to land exactly on the boundary. `active` (screen
+ * focused) stops it while hidden; on refocus it re-checks. Absolute epoch → correct across caching.
+ */
+export function useHasPassed(
+  epoch: number | null | undefined,
+  active = true,
+): boolean {
+  const [passed, setPassed] = useState(
+    () => typeof epoch === "number" && Date.now() >= epoch,
+  );
+
+  useEffect(() => {
+    if (typeof epoch !== "number") {
+      setPassed(false);
+      return;
+    }
+    if (Date.now() >= epoch) {
+      setPassed(true);
+      return;
+    }
+    setPassed(false);
+    if (!active) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const remaining = epoch - Date.now();
+      if (remaining <= 0) {
+        setPassed(true);
+        return;
+      }
+      timer = setTimeout(tick, Math.min(30_000, remaining));
+    };
+    tick();
+    return () => clearTimeout(timer);
+  }, [epoch, active]);
+
+  return passed;
+}
+
+/**
  * Live-ticking remaining milliseconds until an absolute reopen instant. Because the
  * backend hands us an ABSOLUTE `opensAtEpochMs`, this stays correct across response
  * caching and device timezones — we only diff against the device clock.

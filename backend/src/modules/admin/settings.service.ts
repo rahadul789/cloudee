@@ -532,6 +532,9 @@ export async function updateAdminPlatformSettings(params: {
           customOffers: params.settings.operations.customOffers,
           // Platform-level (not per-zone), so it persists from any settings scope.
           minimumOrderAmount: params.settings.operations.minimumOrderAmount,
+          // Global platform-fee default. Per-zone overrides live on the service zone
+          // (Service Areas), so this global value persists from any settings scope.
+          platformFee: params.settings.operations.platformFee,
         }
   const nextContent: PlatformContent = {
     ...currentContent,
@@ -543,7 +546,14 @@ export async function updateAdminPlatformSettings(params: {
     legal: params.settings.legal,
   }
 
-  if (scope.zoneIds.length) {
+  // Only an explicitly-scoped (zone/district) save writes to service zones.
+  // Global is a fallback used ONLY when a zone has no override (see settings scope
+  // copy), so a global save must never touch per-zone values. Previously the
+  // "all"/global scope also carried every zone id here, so ANY global settings
+  // save (even an unrelated change) silently reset every zone's per-zone delivery
+  // pricing — e.g. distanceSurchargeEnabled — back to the global default (false),
+  // which looked like an admin's zone surcharge toggle "auto-disabling" itself.
+  if (scope.settingsMode !== "global" && scope.zoneIds.length) {
     const zoneUpdate = buildServiceZoneUpdateFromSettings(params.settings)
     await ServiceZoneModel.updateMany(
       { _id: { $in: scope.zoneIds }, status: { $ne: "archived" } },

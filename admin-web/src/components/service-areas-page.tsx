@@ -78,6 +78,13 @@ type ZoneFormState = {
   maxRestaurantDistanceKm: string
   rainSurchargeEnabled: boolean
   rainSurchargeTaka: string
+  platformFeeOverride: boolean
+  platformFeeEnabled: boolean
+  platformFeeMode: "flat" | "percentage" | "optional"
+  platformFeeAmountTaka: string
+  platformFeePercentage: string
+  platformFeeLabel: string
+  platformFeeNote: string
   autoAssignEnabled: boolean
   dispatchMode: "fleet" | "primary_rider"
   primaryRiderId: string
@@ -98,13 +105,23 @@ const defaultZoneForm: ZoneFormState = {
   longitude: "90.7249078",
   radiusKm: "5.5",
   baseFeeTaka: "45",
-  distanceSurchargeEnabled: true,
+  // Default OFF: a new zone must not silently enable a per-distance surcharge. The
+  // platform default is also OFF (operations.deliveryPricing), so a zone left untouched
+  // matches it. Admin opts in explicitly.
+  distanceSurchargeEnabled: false,
   surchargeStartsAfterKm: "2",
   surchargeStepMeters: "1000",
   surchargeAmountTaka: "10",
   maxRestaurantDistanceKm: "7",
   rainSurchargeEnabled: false,
   rainSurchargeTaka: "20",
+  platformFeeOverride: false,
+  platformFeeEnabled: false,
+  platformFeeMode: "flat",
+  platformFeeAmountTaka: "0",
+  platformFeePercentage: "0",
+  platformFeeLabel: "Platform fee",
+  platformFeeNote: "",
   autoAssignEnabled: true,
   dispatchMode: "fleet",
   primaryRiderId: "",
@@ -135,7 +152,11 @@ function zoneToForm(zone: AdminServiceZone): ZoneFormState {
     longitude: String(zone.center?.longitude ?? ""),
     radiusKm: String(zone.radiusKm ?? ""),
     baseFeeTaka: String(zone.delivery?.baseFeeTaka ?? ""),
-    distanceSurchargeEnabled: zone.delivery?.distanceSurchargeEnabled !== false,
+    // Only ON when the zone was EXPLICITLY set to true. null/undefined means "inherit"
+    // (the zone never opted in) → the effective state is the global default (OFF), so the
+    // toggle must read OFF, not default to ON. This is the fix for the surcharge that
+    // looked like it "auto-disabled": the toggle used to show ON for never-set zones.
+    distanceSurchargeEnabled: zone.delivery?.distanceSurchargeEnabled === true,
     surchargeStartsAfterKm: String(zone.delivery?.surchargeStartsAfterKm ?? ""),
     surchargeStepMeters: String(zone.delivery?.surchargeStepMeters ?? ""),
     surchargeAmountTaka: String(zone.delivery?.surchargeAmountTaka ?? ""),
@@ -144,6 +165,17 @@ function zoneToForm(zone: AdminServiceZone): ZoneFormState {
     ),
     rainSurchargeEnabled: Boolean(zone.delivery?.rainSurchargeEnabled),
     rainSurchargeTaka: String(zone.delivery?.rainSurchargeTaka ?? ""),
+    platformFeeOverride: zone.delivery?.platformFee?.override === true,
+    platformFeeEnabled: zone.delivery?.platformFee?.enabled === true,
+    platformFeeMode:
+      zone.delivery?.platformFee?.mode === "percentage" ||
+      zone.delivery?.platformFee?.mode === "optional"
+        ? zone.delivery.platformFee.mode
+        : "flat",
+    platformFeeAmountTaka: String(zone.delivery?.platformFee?.amountTaka ?? "0"),
+    platformFeePercentage: String(zone.delivery?.platformFee?.percentage ?? "0"),
+    platformFeeLabel: zone.delivery?.platformFee?.label ?? "Platform fee",
+    platformFeeNote: zone.delivery?.platformFee?.note ?? "",
     autoAssignEnabled: zone.dispatch?.autoAssignEnabled !== false,
     dispatchMode:
       zone.dispatch?.dispatchMode === "primary_rider"
@@ -192,6 +224,18 @@ function buildZonePayload(form: ZoneFormState) {
       maxRestaurantDistanceKm: toNumber(form.maxRestaurantDistanceKm, 0),
       rainSurchargeEnabled: form.rainSurchargeEnabled,
       rainSurchargeTaka: toNumber(form.rainSurchargeTaka, 0),
+      platformFee: {
+        override: form.platformFeeOverride,
+        enabled: form.platformFeeEnabled,
+        mode: form.platformFeeMode,
+        amountTaka: Math.max(0, Math.round(toNumber(form.platformFeeAmountTaka, 0))),
+        percentage: Math.max(
+          0,
+          Math.min(100, toNumber(form.platformFeePercentage, 0)),
+        ),
+        label: form.platformFeeLabel.trim() || "Platform fee",
+        note: form.platformFeeNote.trim(),
+      },
     },
     dispatch: {
       autoAssignEnabled: form.autoAssignEnabled,
@@ -317,9 +361,9 @@ function ZoneCard({
           icon={MapPin}
           label="Distance step"
           value={
-            zone.delivery?.distanceSurchargeEnabled === false
-              ? "OFF"
-              : `${zone.delivery?.surchargeAmountTaka ?? 0} tk / ${zone.delivery?.surchargeStepMeters ?? 1000}m`
+            zone.delivery?.distanceSurchargeEnabled === true
+              ? `${zone.delivery?.surchargeAmountTaka ?? 0} tk / ${zone.delivery?.surchargeStepMeters ?? 1000}m`
+              : "OFF"
           }
         />
         <ServiceMetric
@@ -834,6 +878,123 @@ export function ServiceAreasPage() {
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Override platform fee for this zone</Label>
+                    <p className="text-xs text-muted-foreground">
+                      When off, this zone uses the global platform fee (Settings). Turn
+                      on to set a different fee just for this area.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={zoneForm.platformFeeOverride}
+                    onCheckedChange={(checked) =>
+                      setZoneForm((current) => ({
+                        ...current,
+                        platformFeeOverride: checked,
+                      }))
+                    }
+                  />
+                </div>
+                {zoneForm.platformFeeOverride ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
+                      <Label>Charge platform fee in this zone</Label>
+                      <Switch
+                        checked={zoneForm.platformFeeEnabled}
+                        onCheckedChange={(checked) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            platformFeeEnabled: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fee type</Label>
+                      <NativeSelect
+                        className="w-full"
+                        value={zoneForm.platformFeeMode}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            platformFeeMode: event.target
+                              .value as ZoneFormState["platformFeeMode"],
+                          }))
+                        }
+                      >
+                        <NativeSelectOption value="flat">
+                          Flat amount
+                        </NativeSelectOption>
+                        <NativeSelectOption value="percentage">
+                          Percentage
+                        </NativeSelectOption>
+                        <NativeSelectOption value="optional">
+                          Optional (opt-in)
+                        </NativeSelectOption>
+                      </NativeSelect>
+                    </div>
+                    {zoneForm.platformFeeMode === "percentage" ? (
+                      <div className="space-y-2">
+                        <Label>Percentage (%)</Label>
+                        <Input
+                          value={zoneForm.platformFeePercentage}
+                          onChange={(event) =>
+                            setZoneForm((current) => ({
+                              ...current,
+                              platformFeePercentage: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>
+                          {zoneForm.platformFeeMode === "optional"
+                            ? "Suggested amount (৳)"
+                            : "Amount (৳)"}
+                        </Label>
+                        <Input
+                          value={zoneForm.platformFeeAmountTaka}
+                          onChange={(event) =>
+                            setZoneForm((current) => ({
+                              ...current,
+                              platformFeeAmountTaka: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Label shown to customer</Label>
+                      <Input
+                        value={zoneForm.platformFeeLabel}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            platformFeeLabel: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Note shown to customer (optional)</Label>
+                      <Textarea
+                        value={zoneForm.platformFeeNote}
+                        rows={2}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            platformFeeNote: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <Separator />

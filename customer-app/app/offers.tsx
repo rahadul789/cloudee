@@ -565,7 +565,8 @@ export default function OffersScreen() {
                     setIsManualRefreshing(false);
                   }
                 }}
-                tintColor={palette.primary}
+                tintColor={palette.secondary}
+                colors={[palette.secondary]}
               />
             }
             onEndReachedThreshold={0.25}

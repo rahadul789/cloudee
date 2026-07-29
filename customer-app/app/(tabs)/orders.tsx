@@ -388,8 +388,8 @@ export default function OrdersScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
-            tintColor={palette.primary}
-            colors={[palette.primary, palette.secondary, "#FF5C93"]}
+            tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
       >

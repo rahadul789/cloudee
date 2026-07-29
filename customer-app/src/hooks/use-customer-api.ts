@@ -13,6 +13,8 @@ import {
   clearRegisteredCustomerPushToken,
   getRegisteredCustomerPushToken,
 } from "@/src/lib/customer-push-token-store";
+import type { CustomerDeliveryBreakdown } from "@/src/lib/delivery-breakdown";
+import type { CustomerPlatformFeeInfo } from "@/src/lib/platform-fee";
 import { buildQueryString, compactQueryParams } from "@/src/lib/query-params";
 import type { SavedLocationServiceArea } from "@/src/types/location";
 import type {
@@ -923,10 +925,13 @@ export type CartQuoteResponse = {
     menuMarkdownAmount?: number;
     deliveryFee: number;
     rainSurcharge?: number;
+    platformFee?: number;
     discountAmount: number;
     firstOrderDiscountAmount?: number;
     total: number;
   };
+  // Admin-set platform fee display info (label/note/mode + charged/suggested amount).
+  platformFeeInfo?: CustomerPlatformFeeInfo;
   // How the delivery fee splits, for a transparent "why this fee" breakdown in the cart.
   deliveryBreakdown?: {
     distanceKm: number | null;
@@ -974,6 +979,8 @@ export function useCustomerCartQuoteQuery(params: {
   latitude?: number;
   longitude?: number;
   requiresLocation?: boolean;
+  // Opt into the optional platform fee — re-quotes so pricing.total stays authoritative.
+  platformFeeOptedIn?: boolean;
 }) {
   const itemsKey = JSON.stringify(params.items);
   const accessToken = useCustomerAuthStore((state) => state.accessToken);
@@ -991,6 +998,7 @@ export function useCustomerCartQuoteQuery(params: {
       itemsKey,
       Boolean(accessToken),
       Boolean(params.requiresLocation),
+      Boolean(params.platformFeeOptedIn),
     ],
     enabled:
       Boolean(params.restaurantId) &&
@@ -1007,6 +1015,7 @@ export function useCustomerCartQuoteQuery(params: {
         voucherCode: params.voucherCode,
         latitude: typeof params.latitude === "number" ? params.latitude : undefined,
         longitude: typeof params.longitude === "number" ? params.longitude : undefined,
+        platformFeeOptedIn: params.platformFeeOptedIn === true,
       });
       return response.data;
     },
@@ -1068,9 +1077,14 @@ type CustomerOrderResponse = {
     subtotal?: number;
     deliveryFee?: number;
     rainSurcharge?: number;
+    platformFee?: number;
     discountAmount?: number;
     firstOrderDiscountAmount?: number;
     total?: number;
+    // Delivery-fee split persisted at order creation (older orders lack it).
+    deliveryBreakdown?: CustomerDeliveryBreakdown;
+    // Platform-fee display info persisted at order creation (older orders lack it).
+    platformFeeInfo?: CustomerPlatformFeeInfo;
   };
   riderSnapshot?: {
     id?: string;
@@ -1078,6 +1092,9 @@ type CustomerOrderResponse = {
     phone?: string;
     vehicleType?: string;
   };
+  // Admin-controlled: when false the rider phone is hidden on the tracking screen
+  // (backend also blanks riderSnapshot.phone). Undefined = visible (legacy).
+  riderPhoneVisible?: boolean;
   riderTracking?: {
     isActive?: boolean;
     isFocused?: boolean;
@@ -1672,6 +1689,7 @@ export function useCustomerPlaceOrderMutation() {
         walletNumber?: string;
       };
       note?: string;
+      platformFeeOptedIn?: boolean;
       deliveryAddress: {
         label: string;
         addressLine: string;
@@ -1718,6 +1736,7 @@ export function useBkashInitiateMutation() {
       voucherCode?: string;
       note?: string;
       walletNumber: string;
+      platformFeeOptedIn?: boolean;
       deliveryAddress: {
         label: string;
         addressLine: string;

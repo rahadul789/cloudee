@@ -3610,6 +3610,7 @@ export async function getCustomerDiscoveryHome(params?: {
               accentColor: activeWindow.accentColor ?? "#FF5C93",
               layout: timeBasedConfig?.layout ?? "horizontal",
               position: Number(timeBasedConfig?.position ?? 1),
+              placement: timeBasedConfig?.placement ?? "above_featured",
               maxItems: timeLimit,
               restaurants: windowRestaurants,
             };
@@ -4955,6 +4956,8 @@ export async function placeCustomerOrder(params: {
   };
   note?: string;
   deliveryAddress: CustomerDeliveryAddressInput;
+  // Customer opted into the optional platform fee at checkout (only affects "optional" mode).
+  platformFeeOptedIn?: boolean;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   const customer = await getCustomerById(customerId);
@@ -4977,6 +4980,9 @@ export async function placeCustomerOrder(params: {
     customerId,
     latitude: params.deliveryAddress.latitude,
     longitude: params.deliveryAddress.longitude,
+    // Authoritative: the opted-in platform fee (optional mode) is priced server-side, so
+    // the stored order total can never disagree with what the app showed.
+    platformFeeOptedIn: params.platformFeeOptedIn === true,
   });
 
   // Minimum-order enforcement — defense behind the app's disabled checkout button.
@@ -5196,7 +5202,17 @@ export async function placeCustomerOrder(params: {
             paymentMethod: params.paymentMethod,
             paymentStatus,
             paymentSnapshot,
-            pricing: quote.pricing,
+            pricing: {
+              ...quote.pricing,
+              // Persist the delivery-fee split ("why this fee") on the order so
+              // placed-order screens (tracking, success, order card) can show the
+              // same breakdown the cart/checkout shows. Nested under pricing so it
+              // rides the existing "pricing" projection with no schema/select change.
+              deliveryBreakdown: quote.deliveryBreakdown,
+              // Persist the platform-fee display info (label/note/mode) so placed-order
+              // screens can show the same fee line. Amount is already in quote.pricing.platformFee.
+              platformFeeInfo: quote.platformFeeInfo,
+            },
             appliedVouchers: quote.appliedVouchers ?? [],
             serviceAreaSnapshot: quote.serviceArea ?? {},
             customerSnapshot: {
@@ -5788,6 +5804,7 @@ export async function initiateBkashPayment(params: {
   note?: string;
   walletNumber: string;
   deliveryAddress: CustomerDeliveryAddressInput;
+  platformFeeOptedIn?: boolean;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   await getCustomerById(customerId);
@@ -5819,6 +5836,7 @@ export async function initiateBkashPayment(params: {
     customerId,
     latitude: params.deliveryAddress.latitude,
     longitude: params.deliveryAddress.longitude,
+    platformFeeOptedIn: params.platformFeeOptedIn === true,
   });
 
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -5832,6 +5850,8 @@ export async function initiateBkashPayment(params: {
     note: orderNote,
     deliveryAddress: params.deliveryAddress,
     serviceArea: quote.serviceArea ?? null,
+    // Carry the opt-in so the order created on payment success is priced identically.
+    platformFeeOptedIn: params.platformFeeOptedIn === true,
   };
   const session = await BkashSandboxPaymentSessionModel.create({
     customerId,
@@ -6029,6 +6049,8 @@ async function finalizeConfirmedBkashSessionOrder(session: any) {
         walletNumber: session.walletNumber,
       },
       deliveryAddress: checkoutSnapshot.deliveryAddress,
+      platformFeeOptedIn:
+        (checkoutSnapshot as Record<string, any>).platformFeeOptedIn === true,
     });
     return String(result.order?._id ?? result.order?.id ?? "");
   } catch (error) {
@@ -6602,6 +6624,9 @@ export async function getCustomerOrderDetails(params: {
   const restaurant = await RestaurantModel.findById(order.restaurantId).lean();
   const queuedTrackingMeta = await buildQueuedDeliveryTrackingMeta(orderObject);
   const paymentSettings = await getPaymentMethodSettings();
+  const orderPlatformContent = await getPlatformContent();
+  const riderPhoneVisibleToCustomer =
+    orderPlatformContent.operations.showRiderPhoneToCustomer !== false;
 
   // Real road route + ETA for the live map. Before pickup we preview the
   // restaurant -> customer leg; once picked up we route from the rider's live
@@ -6637,6 +6662,14 @@ export async function getCustomerOrderDetails(params: {
   return {
     ...orderObject,
     note: getCustomerOrderNote(orderObject),
+    // Admin-controlled visibility of the assigned rider's phone on the customer
+    // tracking screen. The flag rides through socket merges (socket payloads omit
+    // it, so the app keeps this REST-provided value) and stays the display gate.
+    riderSnapshot:
+      orderObject.riderSnapshot && !riderPhoneVisibleToCustomer
+        ? { ...orderObject.riderSnapshot, phone: "" }
+        : orderObject.riderSnapshot,
+    riderPhoneVisible: riderPhoneVisibleToCustomer,
     paymentSnapshot,
     preparationTiming: buildOrderPreparationTiming({
       order: orderObject,

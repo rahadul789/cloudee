@@ -140,7 +140,12 @@ type CustomerSort =
   | "highestSpend"
   | "repeatFirst"
 type CustomerTierFilter = "all" | AdminCustomerTier
-type CustomerCustomOfferFilter = "all" | "eligible" | "requested" | "ready" | "locked"
+type CustomerCustomOfferFilter =
+  | "all"
+  | "eligible"
+  | "requested"
+  | "ready"
+  | "locked"
 type CustomerStatus = AdminCustomerSummary["status"]
 type CustomerStatusTargetCustomer = Pick<
   AdminCustomerSummary,
@@ -220,7 +225,8 @@ function formatShortDate(value?: string | null) {
   return date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    year:
+      date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
   })
 }
 
@@ -257,14 +263,20 @@ function CustomOfferBadge({
   }
   if (offer.status === "requested") {
     return (
-      <Badge variant="outline" className="h-5 border-pink-200 bg-pink-50 px-1.5 text-[10px] text-pink-700">
+      <Badge
+        variant="outline"
+        className="h-5 border-pink-200 bg-pink-50 px-1.5 text-[10px] text-pink-700"
+      >
         Offer requested
       </Badge>
     )
   }
   if (offer.status === "ready") {
     return (
-      <Badge variant="outline" className="h-5 border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700">
+      <Badge
+        variant="outline"
+        className="h-5 border-emerald-200 bg-emerald-50 px-1.5 text-[10px] text-emerald-700"
+      >
         Offer ready
       </Badge>
     )
@@ -291,7 +303,7 @@ function formatOfferTimeLeft(expiresAt?: string | null) {
   const hours = Math.floor(diff / 3_600_000)
   if (hours >= 1) return `${hours} hour${hours > 1 ? "s" : ""} left`
   const minutes = Math.max(1, Math.floor(diff / 60_000))
-  return `${minutes} min left`
+  return `${minutes}min left`
 }
 
 function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
@@ -303,11 +315,15 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
     mutationFn: deleteAdminCustomerPersonalOffer,
     onSuccess: async () => {
       toast.success("Personal offer removed")
-      await queryClient.invalidateQueries({ queryKey: ["admin-customer-details", details.id] })
+      await queryClient.invalidateQueries({
+        queryKey: ["admin-customer-details", details.id],
+      })
       await queryClient.invalidateQueries({ queryKey: ["admin-vouchers"] })
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to remove offer")
+      toast.error(
+        error instanceof Error ? error.message : "Failed to remove offer"
+      )
     },
   })
 
@@ -334,7 +350,8 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
                 <p className="font-semibold">My offer request</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Customer completed {customOfferRequest.lastRequestOrderCount}/
-                  {customOfferRequest.targetOrderCount} delivered orders and requested a personal voucher.
+                  {customOfferRequest.targetOrderCount} delivered orders and
+                  requested a personal voucher.
                 </p>
               </div>
               <Badge
@@ -349,15 +366,25 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
               </Badge>
             </div>
             <div className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
-              <InfoRow label="Requested" value={formatDate(customOfferRequest.requestedAt)} />
-              <InfoRow label="Target response" value={formatDate(customOfferRequest.expectedReadyAt)} />
+              <InfoRow
+                label="Requested"
+                value={formatDate(customOfferRequest.requestedAt)}
+              />
+              <InfoRow
+                label="Target response"
+                value={formatDate(customOfferRequest.expectedReadyAt)}
+              />
               <InfoRow
                 label="Preferred code"
                 value={customOfferRequest.requestedCode || "No preference"}
               />
               <InfoRow
                 label="Current voucher"
-                value={customOfferRequest.voucherCode || customOfferRequest.voucherLabel || "Not assigned"}
+                value={
+                  customOfferRequest.voucherCode ||
+                  customOfferRequest.voucherLabel ||
+                  "Not assigned"
+                }
               />
             </div>
             <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
@@ -399,10 +426,15 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
           </div>
         ) : null}
         {offers.map((offer, index) => (
-          <div key={`${offer.campaignId || offer.title}-${index}`} className="rounded-lg border p-4">
+          <div
+            key={`${offer.campaignId || offer.title}-${index}`}
+            className="rounded-lg border p-4"
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-semibold">{offer.voucherLabel || offer.title}</p>
+                <p className="font-semibold">
+                  {offer.voucherLabel || offer.title}
+                </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {offer.description}
                 </p>
@@ -425,7 +457,10 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
             <div className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
               <InfoRow
                 label="Code"
-                value={offer.voucherCode?.trim() || (offer.voucherId ? "Auto applied" : "N/A")}
+                value={
+                  offer.voucherCode?.trim() ||
+                  (offer.voucherId ? "Auto applied" : "N/A")
+                }
               />
               <InfoRow
                 label={
@@ -454,7 +489,8 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
-                Sent {formatDate(offer.createdAt)} - {offer.isRead ? "Opened" : "Not opened"}
+                Sent {formatDate(offer.createdAt)} -{" "}
+                {offer.isRead ? "Opened" : "Not opened"}
               </p>
               <Button
                 type="button"
@@ -463,7 +499,7 @@ function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
                 disabled={deleteMutation.isPending}
                 onClick={() => {
                   const confirmed = window.confirm(
-                    "Remove this personal offer from the customer? The source voucher will stay unchanged.",
+                    "Remove this personal offer from the customer? The source voucher will stay unchanged."
                   )
                   if (!confirmed) return
                   deleteMutation.mutate({
@@ -533,9 +569,18 @@ const CUSTOMER_TIER_META: Record<
   AdminCustomerTier,
   { label: string; className: string }
 > = {
-  new: { label: "New", className: "border-slate-200 bg-slate-50 text-slate-600" },
-  repeat: { label: "Repeat", className: "border-sky-200 bg-sky-50 text-sky-700" },
-  vip: { label: "VIP", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  new: {
+    label: "New",
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+  },
+  repeat: {
+    label: "Repeat",
+    className: "border-sky-200 bg-sky-50 text-sky-700",
+  },
+  vip: {
+    label: "VIP",
+    className: "border-amber-200 bg-amber-50 text-amber-700",
+  },
   at_risk: {
     label: "At risk",
     className: "border-rose-200 bg-rose-50 text-rose-700",
@@ -631,13 +676,33 @@ function CustomerBehaviorCard({
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trend} margin={{ left: 4, right: 8, top: 12 }}>
                 <defs>
-                  <linearGradient id="newCustomersFill" x1="0" x2="0" y1="0" y2="1">
+                  <linearGradient
+                    id="newCustomersFill"
+                    x1="0"
+                    x2="0"
+                    y1="0"
+                    y2="1"
+                  >
                     <stop offset="0%" stopColor="#ec4899" stopOpacity={0.28} />
-                    <stop offset="100%" stopColor="#ec4899" stopOpacity={0.02} />
+                    <stop
+                      offset="100%"
+                      stopColor="#ec4899"
+                      stopOpacity={0.02}
+                    />
                   </linearGradient>
-                  <linearGradient id="repeatCustomersFill" x1="0" x2="0" y1="0" y2="1">
+                  <linearGradient
+                    id="repeatCustomersFill"
+                    x1="0"
+                    x2="0"
+                    y1="0"
+                    y2="1"
+                  >
                     <stop offset="0%" stopColor="#0f172a" stopOpacity={0.24} />
-                    <stop offset="100%" stopColor="#0f172a" stopOpacity={0.02} />
+                    <stop
+                      offset="100%"
+                      stopColor="#0f172a"
+                      stopOpacity={0.02}
+                    />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1147,7 +1212,8 @@ function CustomerDetailsSheet({
                       <CardHeader>
                         <CardTitle>Current area</CardTitle>
                         <CardDescription>
-                          Last delivery point captured from app login or location changes.
+                          Last delivery point captured from app login or
+                          location changes.
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3 text-sm">
@@ -1165,7 +1231,9 @@ function CustomerDetailsSheet({
                         />
                         <InfoRow
                           label="Updated"
-                          value={formatDate(details.lastKnownLocation?.updatedAt)}
+                          value={formatDate(
+                            details.lastKnownLocation?.updatedAt
+                          )}
                         />
                       </CardContent>
                     </Card>
@@ -1394,8 +1462,8 @@ function CustomerSuspiciousTab({ customerId }: { customerId: string }) {
       <CardHeader>
         <CardTitle>Suspicious activity</CardTitle>
         <CardDescription>
-          Accounts, phone numbers and welcome-perk redemptions traced to the same
-          physical device as this customer.
+          Accounts, phone numbers and welcome-perk redemptions traced to the
+          same physical device as this customer.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1427,16 +1495,36 @@ function CustomerSuspiciousTab({ customerId }: { customerId: string }) {
             )}
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <DeviceIntelStat label="Accounts on device" value={intel.accountCount} />
-              <DeviceIntelStat label="Phone numbers" value={intel.distinctPhoneCount} />
-              <DeviceIntelStat label="Referrals applied" value={intel.referralAppliedCount} />
-              <DeviceIntelStat label="Referee vouchers" value={intel.refereeVoucherCount} />
-              <DeviceIntelStat label="First-order redeemed" value={intel.firstOrderRedeemedCount} />
-              <DeviceIntelStat label="First-order attempts" value={intel.firstOrderClaimCount} />
+              <DeviceIntelStat
+                label="Accounts on device"
+                value={intel.accountCount}
+              />
+              <DeviceIntelStat
+                label="Phone numbers"
+                value={intel.distinctPhoneCount}
+              />
+              <DeviceIntelStat
+                label="Referrals applied"
+                value={intel.referralAppliedCount}
+              />
+              <DeviceIntelStat
+                label="Referee vouchers"
+                value={intel.refereeVoucherCount}
+              />
+              <DeviceIntelStat
+                label="First-order redeemed"
+                value={intel.firstOrderRedeemedCount}
+              />
+              <DeviceIntelStat
+                label="First-order attempts"
+                value={intel.firstOrderClaimCount}
+              />
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-medium">Accounts sharing this device</p>
+              <p className="text-sm font-medium">
+                Accounts sharing this device
+              </p>
               {intel.accounts.map((account) => (
                 <div
                   key={account.id}
@@ -1444,7 +1532,9 @@ function CustomerSuspiciousTab({ customerId }: { customerId: string }) {
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{account.name}</span>
-                    <span className="text-muted-foreground">{account.phone}</span>
+                    <span className="text-muted-foreground">
+                      {account.phone}
+                    </span>
                     {account.isCurrent ? (
                       <Badge variant="outline">This customer</Badge>
                     ) : null}
@@ -2066,11 +2156,17 @@ export function UsersPage() {
     const requestedTab = searchParams.get("tab")?.trim()
     setCustomerDetailsInitialTab(
       requestedTab &&
-        ["overview", "orders", "reviews", "account", "offers", "devices", "audit"].includes(
-          requestedTab,
-        )
+        [
+          "overview",
+          "orders",
+          "reviews",
+          "account",
+          "offers",
+          "devices",
+          "audit",
+        ].includes(requestedTab)
         ? requestedTab
-        : "overview",
+        : "overview"
     )
     setSelectedCustomerId(customerId)
     setSearchParams({}, { replace: true })
@@ -2107,7 +2203,8 @@ export function UsersPage() {
         status,
         tier,
         customOffer: customOfferFilter,
-        customerGroupKey: customerGroupKey === "none" ? undefined : customerGroupKey,
+        customerGroupKey:
+          customerGroupKey === "none" ? undefined : customerGroupKey,
         sortBy,
         preset: behaviorPreset,
         from: behaviorFrom,
@@ -2117,7 +2214,11 @@ export function UsersPage() {
       }),
   })
   const groupMembersQuery = useQuery({
-    queryKey: ["admin-customer-group-members", adminScopeKey, groupMembersTarget?.id],
+    queryKey: [
+      "admin-customer-group-members",
+      adminScopeKey,
+      groupMembersTarget?.id,
+    ],
     enabled: Boolean(groupMembersTarget),
     queryFn: () =>
       listAdminCustomers({
@@ -2154,13 +2255,19 @@ export function UsersPage() {
       setSaveGroupOpen(false)
       setGroupName("")
       setGroupDescription("")
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-groups"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-groups"],
+      })
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Group save failed"),
   })
   const updateGroupMutation = useMutation({
-    mutationFn: (payload: { groupId: string; name: string; description: string }) =>
+    mutationFn: (payload: {
+      groupId: string
+      name: string
+      description: string
+    }) =>
       updateAdminCustomerGroup(payload.groupId, {
         name: payload.name,
         description: payload.description,
@@ -2171,10 +2278,14 @@ export function UsersPage() {
       setEditingGroup(null)
       setGroupName("")
       setGroupDescription("")
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-groups"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-groups"],
+      })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Group update failed"),
+      toast.error(
+        error instanceof Error ? error.message : "Group update failed"
+      ),
   })
   const deleteGroupMutation = useMutation({
     mutationFn: deleteAdminCustomerGroup,
@@ -2187,11 +2298,15 @@ export function UsersPage() {
         setGroupMembersTarget(null)
       }
       setDeleteGroupTarget(null)
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-groups"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-groups"],
+      })
       void queryClient.invalidateQueries({ queryKey: ["admin-customers"] })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Group delete failed"),
+      toast.error(
+        error instanceof Error ? error.message : "Group delete failed"
+      ),
   })
   const addMemberMutation = useMutation({
     mutationFn: addAdminCustomerGroupMembers,
@@ -2199,8 +2314,12 @@ export function UsersPage() {
       toast.success("Member added to group")
       setGroupMembersTarget(group)
       setGroupMemberSearch("")
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-groups"] })
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-group-members"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-groups"],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-group-members"],
+      })
       void queryClient.invalidateQueries({
         queryKey: ["admin-customer-group-member-candidates"],
       })
@@ -2213,14 +2332,20 @@ export function UsersPage() {
     onSuccess: (group) => {
       toast.success("Member removed from group")
       setGroupMembersTarget(group)
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-groups"] })
-      void queryClient.invalidateQueries({ queryKey: ["admin-customer-group-members"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-groups"],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-customer-group-members"],
+      })
       void queryClient.invalidateQueries({
         queryKey: ["admin-customer-group-member-candidates"],
       })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Member remove failed"),
+      toast.error(
+        error instanceof Error ? error.message : "Member remove failed"
+      ),
   })
 
   const customers = customersQuery.data?.items ?? []
@@ -2345,42 +2470,42 @@ export function UsersPage() {
 
       <div className="space-y-3 rounded-md border bg-background p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h2 className="flex items-center gap-2 text-base font-semibold">
-                <UsersRound className="size-4" />
-                New vs repeat customers
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Uses the selected top-nav area, current customer filters, and
-                selected timeframe.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <AdminDateRangeFilter<CustomerBehaviorPreset>
-                value={behaviorPreset}
-                from={behaviorFrom}
-                to={behaviorTo}
-                label="Customer behavior range"
-                onPresetChange={setBehaviorPreset}
-                onRangeChange={(range) => {
-                  setBehaviorFrom(range.from)
-                  setBehaviorTo(range.to)
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setBehaviorPreset("last30Days")
-                  setBehaviorFrom("")
-                  setBehaviorTo("")
-                }}
-              >
-                <RotateCcw className="size-4" />
-                Reset
-              </Button>
-            </div>
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+              <UsersRound className="size-4" />
+              New vs repeat customers
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Uses the selected top-nav area, current customer filters, and
+              selected timeframe.
+            </p>
           </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <AdminDateRangeFilter<CustomerBehaviorPreset>
+              value={behaviorPreset}
+              from={behaviorFrom}
+              to={behaviorTo}
+              label="Customer behavior range"
+              onPresetChange={setBehaviorPreset}
+              onRangeChange={(range) => {
+                setBehaviorFrom(range.from)
+                setBehaviorTo(range.to)
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setBehaviorPreset("last30Days")
+                setBehaviorFrom("")
+                setBehaviorTo("")
+              }}
+            >
+              <RotateCcw className="size-4" />
+              Reset
+            </Button>
+          </div>
+        </div>
         <CustomerBehaviorCard behavior={behavior} />
       </div>
 
@@ -2397,7 +2522,11 @@ export function UsersPage() {
                 them for promotional notifications.
               </CardDescription>
             </div>
-            <Button type="button" variant="outline" onClick={openCreateGroupDialog}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openCreateGroupDialog}
+            >
               <Save className="size-4" />
               Save current filter
             </Button>
@@ -2406,63 +2535,65 @@ export function UsersPage() {
         <CardContent>
           {(customerGroupsQuery.data?.items ?? []).length ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {(customerGroupsQuery.data?.items ?? []).slice(0, 6).map((group) => (
-                <div
-                  key={group.id}
-                  className="rounded-xl border bg-muted/20 p-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{group.name}</p>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {group.description || "Manual saved customer group"}
-                      </p>
+              {(customerGroupsQuery.data?.items ?? [])
+                .slice(0, 6)
+                .map((group) => (
+                  <div
+                    key={group.id}
+                    className="rounded-xl border bg-muted/20 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{group.name}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {group.description || "Manual saved customer group"}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{group.memberCount}</Badge>
                     </div>
-                    <Badge variant="outline">{group.memberCount}</Badge>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openMembersDrawer(group)}
+                      >
+                        <Eye className="size-4" />
+                        Members
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setCustomerGroupKey(`manual:${group.id}`)
+                          setPage(1)
+                        }}
+                      >
+                        Use filter
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => openEditGroupDialog(group)}
+                        aria-label={`Edit ${group.name}`}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteGroupTarget(group)}
+                        aria-label={`Delete ${group.name}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openMembersDrawer(group)}
-                    >
-                      <Eye className="size-4" />
-                      Members
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setCustomerGroupKey(`manual:${group.id}`)
-                        setPage(1)
-                      }}
-                    >
-                      Use filter
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      onClick={() => openEditGroupDialog(group)}
-                      aria-label={`Edit ${group.name}`}
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setDeleteGroupTarget(group)}
-                      aria-label={`Delete ${group.name}`}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           ) : (
             <div className="rounded-xl border border-dashed bg-muted/20 p-6 text-center">
@@ -2568,7 +2699,10 @@ export function UsersPage() {
                   <SelectItem value="locked">Not eligible</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={customerGroupKey} onValueChange={setCustomerGroupKey}>
+              <Select
+                value={customerGroupKey}
+                onValueChange={setCustomerGroupKey}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Audience group" />
                 </SelectTrigger>
@@ -2584,7 +2718,10 @@ export function UsersPage() {
                       <SelectLabel>Saved groups</SelectLabel>
                       {(customerGroupsQuery.data?.items ?? []).map(
                         (group: AdminCustomerGroup) => (
-                          <SelectItem key={group.id} value={`manual:${group.id}`}>
+                          <SelectItem
+                            key={group.id}
+                            value={`manual:${group.id}`}
+                          >
                             {group.name} ({group.memberCount})
                           </SelectItem>
                         )
@@ -2666,7 +2803,7 @@ export function UsersPage() {
                       (summary.tierBreakdown?.repeat ?? 0) +
                       (summary.tierBreakdown?.vip ?? 0) +
                       (summary.tierBreakdown?.at_risk ?? 0)
-                    : summary.tierBreakdown?.[chip.key] ?? 0
+                    : (summary.tierBreakdown?.[chip.key] ?? 0)
                 const isActive = tier === chip.key
                 return (
                   <button
@@ -2694,15 +2831,11 @@ export function UsersPage() {
                   {columnVisibility.status ? (
                     <TableHead>Status</TableHead>
                   ) : null}
-                  {columnVisibility.area ? (
-                    <TableHead>Area</TableHead>
-                  ) : null}
+                  {columnVisibility.area ? <TableHead>Area</TableHead> : null}
                   {columnVisibility.orders ? (
                     <TableHead>Orders</TableHead>
                   ) : null}
-                  {columnVisibility.spend ? (
-                    <TableHead>Spend</TableHead>
-                  ) : null}
+                  {columnVisibility.spend ? <TableHead>Spend</TableHead> : null}
                   {columnVisibility.account ? (
                     <TableHead>Account</TableHead>
                   ) : null}
@@ -2760,12 +2893,18 @@ export function UsersPage() {
                     {columnVisibility.area ? (
                       <TableCell>
                         <div className="max-w-[190px]">
-                          <Badge variant="outline" className="max-w-full truncate">
+                          <Badge
+                            variant="outline"
+                            className="max-w-full truncate"
+                          >
                             {formatCustomerArea(customer.serviceArea)}
                           </Badge>
                           {customer.lastKnownLocation?.updatedAt ? (
                             <div className="mt-1 text-xs text-muted-foreground">
-                              Updated {formatShortDate(customer.lastKnownLocation.updatedAt)}
+                              Updated{" "}
+                              {formatShortDate(
+                                customer.lastKnownLocation.updatedAt
+                              )}
                             </div>
                           ) : null}
                         </div>
@@ -2953,7 +3092,9 @@ export function UsersPage() {
       >
         <SheetContent className="flex h-full w-full max-w-none! flex-col overflow-hidden p-0 sm:max-w-3xl! md:max-w-6xl!">
           <SheetHeader className="border-b px-6 py-5">
-            <SheetTitle>{groupMembersTarget?.name ?? "Group members"}</SheetTitle>
+            <SheetTitle>
+              {groupMembersTarget?.name ?? "Group members"}
+            </SheetTitle>
             <SheetDescription>
               Add, remove, and review customers inside this manual audience
               group.
@@ -2968,7 +3109,8 @@ export function UsersPage() {
                       {groupMembersTarget?.memberCount ?? 0} members
                     </div>
                     <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                      {groupMembersTarget?.description || "No description added."}
+                      {groupMembersTarget?.description ||
+                        "No description added."}
                     </p>
                   </div>
                   {groupMembersTarget ? (
@@ -3040,7 +3182,9 @@ export function UsersPage() {
                       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                         <Badge
                           variant="outline"
-                          className={getCustomerStatusBadgeClass(customer.status)}
+                          className={getCustomerStatusBadgeClass(
+                            customer.status
+                          )}
                         >
                           {customer.status}
                         </Badge>
@@ -3049,7 +3193,8 @@ export function UsersPage() {
                           size="sm"
                           variant="outline"
                           disabled={
-                            removeMemberMutation.isPending || !groupMembersTarget
+                            removeMemberMutation.isPending ||
+                            !groupMembersTarget
                           }
                           onClick={() => {
                             if (groupMembersTarget) {
@@ -3100,7 +3245,9 @@ export function UsersPage() {
                   <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={groupMemberSearch}
-                    onChange={(event) => setGroupMemberSearch(event.target.value)}
+                    onChange={(event) =>
+                      setGroupMemberSearch(event.target.value)
+                    }
                     placeholder="Search by name or phone"
                     className="pl-8"
                   />
@@ -3210,7 +3357,7 @@ export function UsersPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="text-destructive-foreground bg-destructive hover:bg-destructive/90"
               disabled={deleteGroupMutation.isPending}
               onClick={() => {
                 if (deleteGroupTarget) {

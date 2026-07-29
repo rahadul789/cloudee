@@ -208,7 +208,7 @@ export const styles = StyleSheet.create({
     color: palette.secondary,
   },
   homeCategoryRow: {
-    gap: 8,
+    gap: 11,
     paddingRight: 4,
   },
   homeCategoryChip: {
@@ -250,6 +250,61 @@ export const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 3,
+  },
+  // Squircle image card: image on top, name below (Uber-Eats-style food categories).
+  homeCategoryCard: {
+    width: 56,
+    alignItems: "center",
+    gap: 7,
+  },
+  homeCategoryCardPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.95 }],
+  },
+  // Shadow lives here (no overflow) while the RemoteImage inside clips the squircle.
+  homeCategoryImageWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    shadowColor: "rgba(17, 17, 26, 0.16)",
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  homeCategoryImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    // Hairline ring so white-background food photos still read as a crisp squircle.
+    borderWidth: 1,
+    borderColor: "rgba(17, 17, 26, 0.06)",
+  },
+  homeCategoryMoreWrap: {
+    backgroundColor: palette.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderColor: "transparent",
+  },
+  homeCategoryName: {
+    width: "100%",
+    fontSize: 10.5,
+    lineHeight: 13,
+    fontWeight: "600",
+    letterSpacing: 0.1,
+    color: "#2E2E38",
+    textAlign: "center",
+  },
+  // Skeleton mirrors the squircle cards so nothing shifts when the real categories load.
+  homeCategorySkeletonRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  homeCategorySkeletonName: {
+    width: 36,
+    height: 9,
+    borderRadius: 5,
   },
   clearButton: {
     width: 28,

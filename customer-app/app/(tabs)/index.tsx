@@ -37,6 +37,7 @@ import {
 import { HomeDealsSection } from "@/src/components/home/home-deals-section";
 import { HomePollModal } from "@/src/components/home/home-poll-modal";
 import { styles } from "@/src/components/home/home-screen.styles";
+import { HomeTimeBasedSection } from "@/src/components/home/home-time-based-section";
 import { RemoteImage } from "@/src/components/remote-image";
 import { RestaurantHeroCard } from "@/src/components/restaurant-hero-card";
 import { Screen } from "@/src/components/screen";
@@ -709,6 +710,9 @@ export default function HomeScreen() {
   }, [isSearching, selectedLocation, timeBasedSectionData]);
   const shouldShowTimeBasedSection = timeBasedRestaurants.length > 0;
   const timeSectionAccent = timeBasedSectionData?.accentColor || palette.secondary;
+  // Admin-controlled: does the time-based rail sit above or below the Featured row? (default above)
+  const timeBasedPlacement =
+    timeBasedSectionData?.placement ?? "above_featured";
 
   const nearbyRestaurantsForSection = useMemo(() => {
     if (!isHomeRestaurantSectionActive(nearbySectionConfig)) return [];
@@ -1075,8 +1079,8 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
-            tintColor={palette.primary}
-            colors={[palette.primary, palette.secondary, "#FF5C93"]}
+            tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
       >
@@ -1186,62 +1190,79 @@ export default function HomeScreen() {
                   {homeCategoryPreviewItems.map((item, index) => (
                     <Pressable
                       key={item.id || `${item.label}-${index}`}
-                      style={[
-                        styles.homeCategoryChip,
-                        { backgroundColor: item.color || "#FFF0F6" },
+                      style={({ pressed }) => [
+                        styles.homeCategoryCard,
+                        pressed ? styles.homeCategoryCardPressed : null,
                       ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.label} category`}
                       onPress={() =>
                         openSearchScreen(item.searchQuery || item.label)
                       }
                     >
-                      <View style={styles.homeCategoryIconWrap}>
-                        <Ionicons
-                          name={
+                      <View style={styles.homeCategoryImageWrap}>
+                        <RemoteImage
+                          uri={item.imageUrl}
+                          style={styles.homeCategoryImage}
+                          fallbackIcon={
                             (item.icon ||
                               "restaurant-outline") as keyof typeof Ionicons.glyphMap
                           }
-                          size={14}
-                          color={palette.foreground}
+                          fallbackIconSize={21}
+                          fallbackTint={palette.primary}
+                          fallbackBackground={item.color || "#FFF0F6"}
+                          targetWidth={120}
+                          accessibilityLabel={`${item.label} category`}
                         />
                       </View>
-                      <Text
-                        style={styles.homeCategoryChipText}
-                        numberOfLines={1}
-                      >
+                      <Text style={styles.homeCategoryName} numberOfLines={2}>
                         {item.label}
                       </Text>
                     </Pressable>
                   ))}
                   {canToggleHomeCategories ? (
                     <Pressable
-                      style={styles.homeCategoryMoreChip}
+                      style={({ pressed }) => [
+                        styles.homeCategoryCard,
+                        pressed ? styles.homeCategoryCardPressed : null,
+                      ]}
                       accessibilityRole="button"
                       accessibilityLabel="Show more categories"
                       onPress={() => openSearchScreen()}
                     >
-                      <Ionicons
-                        name="arrow-forward"
-                        size={17}
-                        color={palette.surface}
-                      />
+                      <View
+                        style={[
+                          styles.homeCategoryImageWrap,
+                          styles.homeCategoryMoreWrap,
+                        ]}
+                      >
+                        <Ionicons
+                          name="arrow-forward"
+                          size={20}
+                          color={palette.surface}
+                        />
+                      </View>
+                      <Text style={styles.homeCategoryName} numberOfLines={1}>
+                        View all
+                      </Text>
                     </Pressable>
                   ) : null}
                 </ScrollView>
               </View>
             ) : shouldShowHomeFeedSkeleton ? (
-              <View style={styles.skeletonChipRow}>
-                <ShimmerBlock
-                  translateX={shimmerTranslateX}
-                  style={styles.skeletonChipWide}
-                />
-                <ShimmerBlock
-                  translateX={shimmerTranslateX}
-                  style={styles.skeletonChip}
-                />
-                <ShimmerBlock
-                  translateX={shimmerTranslateX}
-                  style={styles.skeletonChipSmall}
-                />
+              <View style={styles.homeCategorySkeletonRow}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <View key={i} style={styles.homeCategoryCard}>
+                    <ShimmerBlock
+                      translateX={shimmerTranslateX}
+                      style={styles.homeCategoryImage}
+                    />
+                    <ShimmerBlock
+                      translateX={shimmerTranslateX}
+                      style={styles.homeCategorySkeletonName}
+                    />
+                  </View>
+                ))}
               </View>
             ) : null}
           </View>
@@ -1468,135 +1489,17 @@ export default function HomeScreen() {
               />
             ) : null}
 
-            {shouldShowTimeBasedSection ? (
-              <View style={styles.section}>
-                <View style={styles.timeSectionHeader}>
-                  <View style={styles.timeSectionTitleRow}>
-                    {timeBasedSectionData?.emoji ? (
-                      <Text style={styles.timeSectionEmoji}>
-                        {timeBasedSectionData.emoji}
-                      </Text>
-                    ) : (
-                      <Ionicons
-                        name={
-                          (timeBasedSectionData?.icon ||
-                            "time-outline") as keyof typeof Ionicons.glyphMap
-                        }
-                        size={18}
-                        color={timeSectionAccent}
-                      />
-                    )}
-                    <Text style={styles.timeSectionTitle} numberOfLines={1}>
-                      {timeBasedSectionData?.title}
-                    </Text>
-                    <View
-                      style={[
-                        styles.timeSectionLivePill,
-                        { backgroundColor: withAlpha(timeSectionAccent, 0.14) },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.timeSectionLiveDot,
-                          { backgroundColor: timeSectionAccent },
-                        ]}
-                      />
-                      <Text
-                        style={[
-                          styles.timeSectionLiveText,
-                          { color: timeSectionAccent },
-                        ]}
-                      >
-                        Live
-                      </Text>
-                    </View>
-                  </View>
-                  {timeBasedSectionData?.subtitle ? (
-                    <Text style={styles.timeSectionSubtitle} numberOfLines={1}>
-                      {timeBasedSectionData.subtitle}
-                    </Text>
-                  ) : null}
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.timeCompactRow}
-                >
-                  {timeBasedRestaurants.map((restaurant) => (
-                    <Pressable
-                      key={restaurant._id}
-                      style={({ pressed }) => [
-                        styles.timeCompactCard,
-                        pressed ? styles.timeCompactCardPressed : null,
-                      ]}
-                      onPress={() => goToRestaurant(restaurant, "live_section")}
-                    >
-                      <View style={styles.timeCompactImage}>
-                        <RemoteImage
-                          uri={
-                            restaurant.coverImage?.url ||
-                            restaurant.logo?.url ||
-                            null
-                          }
-                          style={{ width: "100%", height: "100%" }}
-                          fallbackIcon="restaurant-outline"
-                          accessibilityLabel={restaurant.name}
-                        />
-                        {restaurant.isOpen === false ? (
-                          <View style={styles.timeCompactClosedOverlay}>
-                            <View style={styles.timeCompactClosedBadge}>
-                              <Ionicons
-                                name="moon"
-                                size={11}
-                                color={palette.foreground}
-                              />
-                              <Text style={styles.timeCompactClosedBadgeText}>
-                                Closed
-                              </Text>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-                      <View style={styles.timeCompactCopy}>
-                        <Text
-                          style={[
-                            styles.timeCompactName,
-                            restaurant.isOpen === false
-                              ? styles.timeCompactNameClosed
-                              : null,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {restaurant.name}
-                        </Text>
-                        <View style={styles.timeCompactMetaRow}>
-                          {typeof restaurant.avgRating === "number" &&
-                          restaurant.avgRating > 0 ? (
-                            <>
-                              <Ionicons
-                                name="star"
-                                size={11}
-                                color={palette.amber}
-                              />
-                              <Text style={styles.timeCompactMetaText}>
-                                {restaurant.avgRating.toFixed(1)}
-                              </Text>
-                              {typeof restaurant.distanceKm === "number" ? (
-                                <Text style={styles.timeCompactDot}>·</Text>
-                              ) : null}
-                            </>
-                          ) : null}
-                          {typeof restaurant.distanceKm === "number" ? (
-                            <Text style={styles.timeCompactMetaText}>
-                              {restaurant.distanceKm.toFixed(1)} km
-                            </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
+            {timeBasedSectionData &&
+            shouldShowTimeBasedSection &&
+            timeBasedPlacement === "above_featured" ? (
+              <HomeTimeBasedSection
+                data={timeBasedSectionData}
+                restaurants={timeBasedRestaurants}
+                accent={timeSectionAccent}
+                onPress={(restaurant) =>
+                  goToRestaurant(restaurant, "live_section")
+                }
+              />
             ) : null}
 
             {featuredRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
@@ -1669,6 +1572,19 @@ export default function HomeScreen() {
                   </ScrollView>
                 )}
               </View>
+            ) : null}
+
+            {timeBasedSectionData &&
+            shouldShowTimeBasedSection &&
+            timeBasedPlacement === "below_featured" ? (
+              <HomeTimeBasedSection
+                data={timeBasedSectionData}
+                restaurants={timeBasedRestaurants}
+                accent={timeSectionAccent}
+                onPress={(restaurant) =>
+                  goToRestaurant(restaurant, "live_section")
+                }
+              />
             ) : null}
 
             {offerRestaurants.length > 0 ? (

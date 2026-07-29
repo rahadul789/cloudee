@@ -41,13 +41,15 @@ import { RemoteImage } from "@/src/components/remote-image";
 import { styles } from "@/src/components/restaurant-details/restaurant-details.styles";
 import { RestaurantClosedBanner } from "@/src/components/restaurant-details/restaurant-closed-banner";
 import { ClosingSoonBanner } from "@/src/components/service-closed-banner";
-import { getClosedCopy } from "@/src/lib/restaurant-availability";
+import {
+  getClosedCopy,
+  useHasPassed,
+} from "@/src/lib/restaurant-availability";
 import {
   CategoryRail,
   ConnectedPopularItemCard,
   ConnectedRestaurantCartFooter,
   FactChip,
-  InfoMiniCard,
   InfoSheetRow,
   MenuCard,
   MenuSearchBar,
@@ -276,24 +278,39 @@ export default function RestaurantDetailsScreen() {
     () => detailsQuery.data?.categories ?? [],
     [detailsQuery.data?.categories],
   );
-  // Smooth open without a layout shift: the menu itself renders immediately (the FlatList windows
-  // it — only `initialNumToRender` cards mount up front — so it's cheap and the list `data` never
-  // flips [] → rows, which was causing the content to reflow/jump on load). We defer ONLY the one
-  // genuinely heavy, render-independent computation — `searchableMenuItems`, which builds a search
-  // string per item incl. every variant/add-on label and is used solely by the menu search — until
-  // the navigation transition settles. That was the real cost that stuttered the revisit transition.
-  const [menuMounted, setMenuMounted] = useState(false);
+  // Every open shows the full skeleton until the navigation transition settles, then swaps to the real
+  // content in one go — the same smooth path a first visit takes. A cached open renders instantly right
+  // after (the data is already here), but never DURING the slide-in, so no heavy/partial render competes
+  // with the animation — that competition was the old cause of the janky, top-shifting re-open.
+  // `contentReady` also gates the one genuinely heavy, render-independent computation —
+  // `searchableMenuItems` (a per-item search string incl. every variant/add-on label, used only by the
+  // menu search) — for the same reason.
+  const [contentReady, setContentReady] = useState(false);
   useEffect(() => {
-    let done = false;
-    const mount = () => {
-      if (done) return;
-      done = true;
-      setMenuMounted(true);
+    // Reveal content only once BOTH are true: the navigation transition has settled
+    // (runAfterInteractions) AND a minimum skeleton window has elapsed. The old code flipped on
+    // whichever came FIRST — so on a warm cached re-open runAfterInteractions fired almost
+    // immediately, the skeleton barely showed, and the heavy list mounted instantly and stuttered.
+    // Gating on the LATER of the two guarantees the skeleton always covers the whole open and the
+    // content mounts only afterwards, so a cached re-open can never lag.
+    let interactionsDone = false;
+    let minElapsed = false;
+    const reveal = () => {
+      if (interactionsDone && minElapsed) setContentReady(true);
     };
-    const handle = InteractionManager.runAfterInteractions(mount);
-    const safety = setTimeout(mount, 350); // never let the search index stay unbuilt
+    const handle = InteractionManager.runAfterInteractions(() => {
+      interactionsDone = true;
+      reveal();
+    });
+    const minTimer = setTimeout(() => {
+      minElapsed = true;
+      reveal();
+    }, 400);
+    // Absolute cap: never let the skeleton linger if interactions somehow never settle.
+    const safety = setTimeout(() => setContentReady(true), 1200);
     return () => {
       handle.cancel();
+      clearTimeout(minTimer);
       clearTimeout(safety);
     };
   }, []);
@@ -304,6 +321,14 @@ export default function RestaurantDetailsScreen() {
   );
   const restaurant = detailsQuery.data?.restaurant;
   const detailsData = detailsQuery.data;
+  // Client-side close: the moment the current open window's close instant passes, treat the
+  // restaurant as closed (disables add-to-cart) WITHOUT a refetch — one re-render at the boundary,
+  // no per-second ticking. Reopen still needs a real refetch, so it isn't handled here.
+  const closedByTime = useHasPassed(
+    restaurant?.availability?.closesAtEpochMs ?? null,
+    isDetailsFocused,
+  );
+  const isRestaurantOpenNow = restaurant?.isOpen !== false && !closedByTime;
 
   // Fire a single restaurant_view per opened restaurant (once its id resolves), tagged with the
   // in-app source so admin can see how many views each restaurant gets and where they came from.
@@ -385,9 +410,9 @@ export default function RestaurantDetailsScreen() {
   const normalizedMenuSearch = deferredMenuSearch.trim().toLowerCase();
   const searchableMenuItems = useMemo(
     () =>
-      // Deferred until after the transition (menuMounted) — this per-item search-string build is the
+      // Deferred until after the transition (contentReady) — this per-item search-string build is the
       // heavy part, and it's only needed once the user actually types in the menu search.
-      !menuMounted
+      !contentReady
         ? []
         : allMenuItems.map((item) => ({
             item,
@@ -407,7 +432,7 @@ export default function RestaurantDetailsScreen() {
               .join(" ")
               .toLowerCase(),
           })),
-    [menuMounted, allMenuItems],
+    [contentReady, allMenuItems],
   );
   const menuItemsByCategory = useMemo(
     () =>
@@ -756,7 +781,7 @@ export default function RestaurantDetailsScreen() {
   const attemptAddToCart = useCallback(
     (payload: PendingCartAdd): CartAddResult => {
       if (!restaurant) return "blocked";
-      if (!canAddFromRestaurant) {
+      if (!isRestaurantOpenNow || !canAddFromRestaurant) {
         return "blocked";
       }
 
@@ -810,7 +835,7 @@ export default function RestaurantDetailsScreen() {
       });
       return "added";
     },
-    [addItem, canAddFromRestaurant, restaurant],
+    [addItem, canAddFromRestaurant, isRestaurantOpenNow, restaurant],
   );
 
   function handleConfirmReplaceCart() {
@@ -861,7 +886,7 @@ export default function RestaurantDetailsScreen() {
     (item: CustomerRestaurantMenuItem) => {
       if (
         item.availability === "unavailable" ||
-        restaurant?.isOpen === false ||
+        !isRestaurantOpenNow ||
         !canAddFromRestaurant
       )
         return false;
@@ -886,7 +911,7 @@ export default function RestaurantDetailsScreen() {
     },
     [
       canAddFromRestaurant,
-      restaurant?.isOpen,
+      isRestaurantOpenNow,
       openCustomizer,
       attemptAddToCart,
     ],
@@ -1035,12 +1060,24 @@ export default function RestaurantDetailsScreen() {
     },
   );
 
-  // Only fall back to the full skeleton (or the error card) when there is no header to show at all
-  // — a cold deep-link still loading, or a genuinely failed load.
-  if (!restaurant) {
+  // Show the full skeleton (or the error card) until we're ready to reveal REAL content in one clean
+  // swap — the smooth first-visit path, now taken by every open. Three cases hold the skeleton:
+  //   • !restaurant            — cold deep-link with nothing cached yet.
+  //   • !contentReady          — the navigation transition is still animating; never render the heavy
+  //                              content DURING the slide-in (that competition caused the top-shift jank).
+  //   • seed with no menu       — findCachedRestaurantDetailsSeed gives a header but empty menu
+  //     (dataUpdatedAt === 0 && !hasMenuData); holding here avoids the partial→full reflow when the
+  //     fetch lands. A recent re-open (real cached menu, dataUpdatedAt > 0) or a placeholder that
+  //     already has a menu skips this and, once contentReady, shows instantly.
+  const hasMenuData = categories.length > 0 || allMenuItems.length > 0;
+  if (
+    !restaurant ||
+    !contentReady ||
+    (detailsQuery.dataUpdatedAt === 0 && !hasMenuData)
+  ) {
     return (
       <Screen>
-        {detailsQuery.isError ? (
+        {detailsQuery.isError && !hasMenuData ? (
           <View style={styles.centerState}>
             <EmptyStateCard
               title="We could not load this restaurant"
@@ -1084,6 +1121,7 @@ export default function RestaurantDetailsScreen() {
               }
             }}
             tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
         viewabilityConfig={{ itemVisiblePercentThreshold: 40 }}
@@ -1218,20 +1256,20 @@ export default function RestaurantDetailsScreen() {
                 <View
                   style={[
                     styles.statePill,
-                    restaurant.isOpen === false ? styles.statePillClosed : null,
+                    !isRestaurantOpenNow ? styles.statePillClosed : null,
                   ]}
                 >
                   <Text
                     style={[
                       styles.statePillText,
-                      restaurant.isOpen === false
-                        ? styles.statePillTextClosed
-                        : null,
+                      !isRestaurantOpenNow ? styles.statePillTextClosed : null,
                     ]}
                   >
-                    {restaurant.isOpen === false
-                      ? getClosedCopy(restaurant.availability).title
-                      : "Open now"}
+                    {isRestaurantOpenNow
+                      ? "Open now"
+                      : restaurant.isOpen === false
+                        ? getClosedCopy(restaurant.availability).title
+                        : "Closed now"}
                   </Text>
                 </View>
                 {detailsData?.activeOffers[0] ? (
@@ -1262,7 +1300,7 @@ export default function RestaurantDetailsScreen() {
                     {
                       translateY: scrollY.interpolate({
                         inputRange: [-60, 0, 160],
-                        outputRange: [-6, 0, 18],
+                        outputRange: [-6, 0, 8],
                         extrapolate: "clamp",
                       }),
                     },
@@ -1463,7 +1501,7 @@ export default function RestaurantDetailsScreen() {
                       item={popularItem}
                       quantity={cartQuantitiesByItemId[popularItem._id] ?? 0}
                       isRestaurantOpen={
-                        restaurant.isOpen !== false && canAddFromRestaurant
+                        isRestaurantOpenNow && canAddFromRestaurant
                       }
                       onPressIncrease={handleIncrease}
                       onPressDecrease={handleDecrease}
@@ -1494,7 +1532,7 @@ export default function RestaurantDetailsScreen() {
                 item={item.item}
                 quantity={cartQuantitiesByItemId[item.item._id] ?? 0}
                 isRestaurantOpen={
-                  restaurant.isOpen !== false && canAddFromRestaurant
+                  isRestaurantOpenNow && canAddFromRestaurant
                 }
                 onPressIncrease={handleIncrease}
                 onPressDecrease={handleDecrease}
@@ -1528,7 +1566,7 @@ export default function RestaurantDetailsScreen() {
         <SearchResultsOverlay
           topInset={insets.top}
           restaurantId={restaurant._id}
-          isRestaurantOpen={restaurant.isOpen !== false && canAddFromRestaurant}
+          isRestaurantOpen={isRestaurantOpenNow && canAddFromRestaurant}
           inputRef={stickySearchInputRef}
           value={menuSearch}
           onChangeText={handleMenuSearchChange}
@@ -1733,43 +1771,14 @@ export default function RestaurantDetailsScreen() {
         <View style={styles.infoSheetCard}>
           <Text style={styles.infoSheetSectionTitle}>Quick facts</Text>
           <View style={styles.infoSheetMetricsGrid}>
-            <InfoMiniCard
-              icon="star-outline"
-              label="Rating"
-              value={
-                typeof restaurant.avgRating === "number" &&
-                (restaurant.reviewCount ?? 0) > 0
-                  ? `${restaurant.avgRating} / 5`
-                  : "No ratings yet"
-              }
-            />
-            <InfoMiniCard
-              icon="time-outline"
-              label="Preparation"
-              value={
-                typeof restaurant.preparationTimeMinutes === "number"
-                  ? formatDurationMinutes(restaurant.preparationTimeMinutes)
-                  : "Kitchen updates soon"
-              }
-            />
-            <InfoMiniCard
-              icon="pricetag-outline"
-              label="Starts from"
-              value={
-                typeof restaurant.lowestMenuPrice === "number"
-                  ? formatCurrency(restaurant.lowestMenuPrice)
-                  : "Checking price"
-              }
-            />
-            <InfoMiniCard
-              icon="navigate-outline"
-              label="Distance"
-              value={
-                typeof restaurant.distanceKm === "number"
-                  ? `${restaurant.distanceKm.toFixed(1)} km away`
-                  : "Delivery area"
-              }
-            />
+            {importantFacts.map((fact) => (
+              <FactChip
+                key={fact.key}
+                icon={fact.icon}
+                label={fact.label}
+                value={fact.value}
+              />
+            ))}
           </View>
         </View>
 
@@ -1877,21 +1886,27 @@ export default function RestaurantDetailsScreen() {
       >
         {selectedOffer ? (
           <>
-            <View style={styles.offerSheetHero}>
-              <View style={styles.offerSheetIcon}>
-                <Ionicons
-                  name={
-                    selectedOffer.mode === "auto" ? "flash" : "ticket-outline"
-                  }
-                  size={22}
-                  color={palette.secondary}
-                />
-              </View>
-              <View style={styles.offerSheetCopy}>
-                <Text style={styles.offerSheetTitle}>{selectedOffer.name}</Text>
-                <Text style={styles.offerSheetSubtitle}>
-                  {buildOfferExplanation(selectedOffer)}
-                </Text>
+            <View style={styles.offerSheetHeroShadow}>
+              <View style={styles.offerSheetHero}>
+                <View style={styles.offerSheetHeroOrb} />
+                <View style={styles.offerSheetHeroOrbSmall} />
+                <View style={styles.offerSheetIcon}>
+                  <Ionicons
+                    name={
+                      selectedOffer.mode === "auto" ? "flash" : "ticket-outline"
+                    }
+                    size={22}
+                    color={palette.secondary}
+                  />
+                </View>
+                <View style={styles.offerSheetCopy}>
+                  <Text style={styles.offerSheetTitle}>
+                    {selectedOffer.name}
+                  </Text>
+                  <Text style={styles.offerSheetSubtitle}>
+                    {buildOfferExplanation(selectedOffer)}
+                  </Text>
+                </View>
               </View>
             </View>
 

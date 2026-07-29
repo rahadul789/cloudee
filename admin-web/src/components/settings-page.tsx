@@ -570,6 +570,25 @@ function ensureServiceHoursSettings(content: PlatformContent) {
   return content.operations.serviceHours
 }
 
+const defaultPlatformFeeSettings: NonNullable<
+  PlatformContent["operations"]["platformFee"]
+> = {
+  enabled: false,
+  mode: "flat",
+  amountTaka: 0,
+  percentage: 0,
+  label: "Platform fee",
+  note: "",
+}
+
+function ensurePlatformFeeSettings(content: PlatformContent) {
+  content.operations.platformFee = {
+    ...defaultPlatformFeeSettings,
+    ...(content.operations.platformFee ?? {}),
+  }
+  return content.operations.platformFee
+}
+
 function ensureCustomOfferSettings(content: PlatformContent) {
   content.operations.customOffers = {
     ...defaultCustomOfferSettings,
@@ -1782,6 +1801,10 @@ export function SettingsPage() {
     ...defaultServiceHoursSettings,
     ...(draft.operations.serviceHours ?? {}),
   }
+  const platformFee = {
+    ...defaultPlatformFeeSettings,
+    ...(draft.operations.platformFee ?? {}),
+  }
   const minimumOrderAmount =
     typeof draft.operations.minimumOrderAmount === "number"
       ? draft.operations.minimumOrderAmount
@@ -2226,6 +2249,150 @@ export function SettingsPage() {
                       }
                     />
                   </SettingRow>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="size-4" />
+                    Customer platform fee
+                  </CardTitle>
+                  <CardDescription>
+                    An extra fee added to orders and shown to the customer as its own
+                    line (default OFF). This is the platform-wide default — a service
+                    zone can override it in Service Areas. Turn it on <b>after</b> the new
+                    customer app build reaches users, or older apps will show a higher
+                    total without the fee line.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Enable platform fee"
+                    description="When off, no extra fee is charged."
+                  >
+                    <Switch
+                      checked={platformFee.enabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensurePlatformFeeSettings(content).enabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Fee type"
+                    description="Flat = fixed ৳/order · Percentage = % of item subtotal · Optional = customer opts in at checkout."
+                  >
+                    <Select
+                      value={platformFee.mode}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          ensurePlatformFeeSettings(content).mode = value as NonNullable<
+                            PlatformContent["operations"]["platformFee"]
+                          >["mode"]
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="flat">Flat amount</SelectItem>
+                        <SelectItem value="percentage">Percentage</SelectItem>
+                        <SelectItem value="optional">Optional (opt-in)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  {platformFee.mode === "percentage" ? (
+                    <SettingRow
+                      title="Percentage (%)"
+                      description="Percent of the customer's item subtotal."
+                    >
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.5}
+                        className="w-32"
+                        value={platformFee.percentage}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensurePlatformFeeSettings(content).percentage = clampNumber(
+                              numberFromInput(
+                                event.target.value,
+                                platformFee.percentage,
+                              ),
+                              0,
+                              100,
+                            )
+                          })
+                        }
+                      />
+                    </SettingRow>
+                  ) : (
+                    <SettingRow
+                      title={
+                        platformFee.mode === "optional"
+                          ? "Suggested amount (৳)"
+                          : "Amount (৳)"
+                      }
+                      description={
+                        platformFee.mode === "optional"
+                          ? "The add-on the customer can opt into at checkout."
+                          : "Fixed fee added to every order."
+                      }
+                    >
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100000}
+                        step={1}
+                        className="w-32"
+                        value={platformFee.amountTaka}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensurePlatformFeeSettings(content).amountTaka = clampNumber(
+                              Math.round(
+                                numberFromInput(
+                                  event.target.value,
+                                  platformFee.amountTaka,
+                                ),
+                              ),
+                              0,
+                              100000,
+                            )
+                          })
+                        }
+                      />
+                    </SettingRow>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label>Label shown to customer</Label>
+                    <Input
+                      value={platformFee.label}
+                      placeholder="Platform fee"
+                      maxLength={60}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensurePlatformFeeSettings(content).label = event.target.value
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Note shown to customer (optional)</Label>
+                    <Input
+                      value={platformFee.note}
+                      placeholder="e.g. Helps us keep improving the app."
+                      maxLength={160}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensurePlatformFeeSettings(content).note = event.target.value
+                        })
+                      }
+                    />
+                  </div>
                 </CardContent>
               </Card>
 
@@ -4646,6 +4813,19 @@ export function SettingsPage() {
                     updateDraft((content) => {
                       ensureOwnerAppSettings(content).showCustomerPhoneNumbers =
                         checked
+                    })
+                  }
+                />
+              </SettingRow>
+              <SettingRow
+                title="Show rider phone to customers"
+                description="When off, the customer app hides the assigned rider's phone number on the order tracking screen."
+              >
+                <Switch
+                  checked={draft.operations.showRiderPhoneToCustomer !== false}
+                  onCheckedChange={(checked) =>
+                    updateDraft((content) => {
+                      content.operations.showRiderPhoneToCustomer = checked
                     })
                   }
                 />

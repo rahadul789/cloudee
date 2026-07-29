@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 
-import { usePreferencesStore, type AppLanguage } from "@/src/store/preferences-store";
+import {
+  usePreferencesStore,
+  type AppLanguage,
+} from "@/src/store/preferences-store";
 
 const copy = {
   en: {
@@ -32,7 +35,8 @@ const copy = {
     },
     map: {
       eyebrow: "Live pickup map",
-      activeRestaurants: (count: number) => `${count} active restaurant${count === 1 ? "" : "s"}`,
+      activeRestaurants: (count: number) =>
+        `${count} active restaurant${count === 1 ? "" : "s"}`,
       noActivePickup: "No active pickup",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
@@ -45,7 +49,8 @@ const copy = {
       previewing: (name: string) => `Previewing: ${name}`,
       dropOffFirst: (name: string) => `Drop-off first: ${name}`,
       suggestedNext: (name: string) => `Suggested next: ${name}`,
-      distanceAway: (state: string, distance: string) => `${state} - ${distance} away`,
+      distanceAway: (state: string, distance: string) =>
+        `${state} - ${distance} away`,
       noActiveNearby: "No active pickup nearby",
       emptyHint: "Accepted, preparing, or ready orders will appear here.",
       restaurantLocation: "Restaurant location",
@@ -105,19 +110,22 @@ const copy = {
       searchPlaceholder: "Search active trips",
       noMatchingTitle: "No matching trips",
       noMatchingText: "Try another search to find the trip you need.",
-      tripsCount: (count: number) => `${count} ${count === 1 ? "active trip" : "active trips"}`,
+      tripsCount: (count: number) =>
+        `${count} ${count === 1 ? "active trip" : "active trips"}`,
     },
     available: {
       title: "Ready for pickup",
       subtitle: "Orders waiting for a cycle rider.",
       emptyTitle: "No pickups right now",
       emptyOnline: "New ready orders will show up here automatically.",
-      emptyOffline: "You are offline. Go online from Profile to receive new pickup orders.",
+      emptyOffline:
+        "You are offline. Go online from Profile to receive new pickup orders.",
       locationPending: "Customer location pending",
       searchPlaceholder: "Search pickups",
       noMatchingTitle: "No matching pickups",
       noMatchingText: "Try another search to find a pickup faster.",
-      pickupsCount: (count: number) => `${count} ${count === 1 ? "pickup" : "pickups"}`,
+      pickupsCount: (count: number) =>
+        `${count} ${count === 1 ? "pickup" : "pickups"}`,
     },
     history: {
       title: "Completed history",
@@ -126,7 +134,8 @@ const copy = {
       cancelled: "Cancelled",
       earnings: "Trips",
       noTripsTitle: "No trips for this filter",
-      noTripsText: "Try another status or date range to see your completed deliveries.",
+      noTripsText:
+        "Try another status or date range to see your completed deliveries.",
       earningLine: "Customer",
       searchPlaceholder: "Search orders",
       filterTitle: "Filter trips",
@@ -141,7 +150,8 @@ const copy = {
       applyFilters: "Apply filters",
       noMatchingTitle: "No matching trips",
       noMatchingText: "Try another search or adjust your filters.",
-      tripsCount: (count: number) => `${count} ${count === 1 ? "trip" : "trips"}`,
+      tripsCount: (count: number) =>
+        `${count} ${count === 1 ? "trip" : "trips"}`,
     },
     profile: {
       title: "Rider profile",
@@ -157,7 +167,8 @@ const copy = {
       toggleDescription:
         "Go online to receive rider assignments. Offline riders stay hidden from assignment flow and live map.",
       toggleHint: "You are currently offline for dispatching.",
-      toggleWarning: "Finish your active assigned orders before switching offline.",
+      toggleWarning:
+        "Finish your active assigned orders before switching offline.",
       languageTitle: "Language",
       locationPermissionTitle: "Location permission needed",
       locationPermissionText:
@@ -243,10 +254,13 @@ const copy = {
         `${count} queued update${count === 1 ? "" : "s"} will be retried automatically`,
       trackingWeakConnection:
         "Connection is weak. Live delivery updates will resume automatically.",
-      trackingPermissionError: "Location permission is required for live delivery tracking.",
-      trackingWaitingFirstLocation: "Waiting for the first live location from this device.",
+      trackingPermissionError:
+        "Location permission is required for live delivery tracking.",
+      trackingWaitingFirstLocation:
+        "Waiting for the first live location from this device.",
       trackingStartError: "Live location could not be started on this device.",
-      pickupSavedWaiting: "Pickup saved. Waiting for the first live location from this device.",
+      pickupSavedWaiting:
+        "Pickup saved. Waiting for the first live location from this device.",
       riderLocationWarning:
         "Turn on rider location while online to see your live approach to the restaurant before pickup.",
       warningOfflineAccept:
@@ -295,9 +309,11 @@ const copy = {
       previewing: (name: string) => `প্রিভিউ: ${name}`,
       dropOffFirst: (name: string) => `আগে ড্রপ: ${name}`,
       suggestedNext: (name: string) => `পরের সাজেশন: ${name}`,
-      distanceAway: (state: string, distance: string) => `${state} - ${distance} দূরে`,
+      distanceAway: (state: string, distance: string) =>
+        `${state} - ${distance} দূরে`,
       noActiveNearby: "আশেপাশে সক্রিয় পিকআপ নেই",
-      emptyHint: "অ্যাকসেপ্টেড, প্রস্তুত হচ্ছে, বা রেডি অর্ডার এখানে দেখা যাবে।",
+      emptyHint:
+        "অ্যাকসেপ্টেড, প্রস্তুত হচ্ছে, বা রেডি অর্ডার এখানে দেখা যাবে।",
       restaurantLocation: "রেস্টুরেন্ট লোকেশন",
       reachCustomer: "কাস্টমারে পৌঁছান",
       reachRestaurant: "রেস্টুরেন্টে পৌঁছান",
@@ -342,7 +358,8 @@ const copy = {
     },
     verify: {
       title: "রাইডার ওটিপি যাচাই করুন",
-      subtitle: (phone: string) => `${phone} নম্বরে পাঠানো ৪ ডিজিটের কোড লিখুন।`,
+      subtitle: (phone: string) =>
+        `${phone} নম্বরে পাঠানো ৪ ডিজিটের কোড লিখুন।`,
       placeholder: "1234",
       action: "যাচাই করে এগিয়ে যান",
       error: "ওটিপি যাচাই করা যায়নি।",
@@ -358,7 +375,8 @@ const copy = {
       subtitle: "সাইকেল রাইডারের অপেক্ষায় থাকা অর্ডারগুলো।",
       emptyTitle: "এই মুহূর্তে কোনো পিকআপ নেই",
       emptyOnline: "নতুন রেডি অর্ডার এখানে নিজে থেকেই দেখা যাবে।",
-      emptyOffline: "আপনি অফলাইন আছেন। নতুন পিকআপ পেতে প্রোফাইল থেকে অনলাইন হোন।",
+      emptyOffline:
+        "আপনি অফলাইন আছেন। নতুন পিকআপ পেতে প্রোফাইল থেকে অনলাইন হোন।",
       locationPending: "কাস্টমারের লোকেশন অপেক্ষমাণ",
     },
     history: {
@@ -460,13 +478,17 @@ const copy = {
         count > 0
           ? `${count}টি লোকেশন আপডেট পাঠানোর অপেক্ষায় আছে`
           : "সর্বশেষ লোকেশন এখন পাঠানো হচ্ছে",
-      queuedRetry: (count: number) => `${count}টি কিউড আপডেট পরে আবার চেষ্টা করা হবে`,
+      queuedRetry: (count: number) =>
+        `${count}টি কিউড আপডেট পরে আবার চেষ্টা করা হবে`,
       trackingWeakConnection:
         "নেটওয়ার্ক দুর্বল। লাইভ ডেলিভারি আপডেট স্বয়ংক্রিয়ভাবে আবার চালু হবে।",
-      trackingPermissionError: "লাইভ ডেলিভারি ট্র্যাকিংয়ের জন্য লোকেশন পারমিশন প্রয়োজন।",
-      trackingWaitingFirstLocation: "এই ডিভাইস থেকে প্রথম লাইভ লোকেশনের জন্য অপেক্ষা করা হচ্ছে।",
+      trackingPermissionError:
+        "লাইভ ডেলিভারি ট্র্যাকিংয়ের জন্য লোকেশন পারমিশন প্রয়োজন।",
+      trackingWaitingFirstLocation:
+        "এই ডিভাইস থেকে প্রথম লাইভ লোকেশনের জন্য অপেক্ষা করা হচ্ছে।",
       trackingStartError: "এই ডিভাইসে লাইভ লোকেশন চালু করা যায়নি।",
-      pickupSavedWaiting: "পিকআপ সেভ হয়েছে। প্রথম লাইভ লোকেশনের জন্য অপেক্ষা করা হচ্ছে।",
+      pickupSavedWaiting:
+        "পিকআপ সেভ হয়েছে। প্রথম লাইভ লোকেশনের জন্য অপেক্ষা করা হচ্ছে।",
       riderLocationWarning:
         "রেস্টুরেন্টে যাওয়ার লাইভ অ্যাপ্রোচ দেখতে অনলাইনে থেকে রাইডার লোকেশন চালু রাখুন।",
       warningOfflineAccept:

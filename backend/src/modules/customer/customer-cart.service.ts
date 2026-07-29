@@ -77,6 +77,7 @@ function buildCustomerCartQuoteCacheKey(params: {
   customerId?: string;
   latitude?: number;
   longitude?: number;
+  platformFeeOptedIn?: boolean;
 }) {
   return buildCacheKey("customer-cart-quote", {
     restaurantId: normalizeCacheString(params.restaurantId),
@@ -84,6 +85,7 @@ function buildCustomerCartQuoteCacheKey(params: {
     voucherCode: normalizeCacheString(params.voucherCode),
     latitude: roundCacheCoordinate(params.latitude),
     longitude: roundCacheCoordinate(params.longitude),
+    platformFeeOptedIn: params.platformFeeOptedIn === true,
     items: params.items.map((item) => ({
       itemId: normalizeCacheString(item.itemId),
       quantity: item.quantity,
@@ -177,6 +179,83 @@ function buildDeliveryFeeBreakdown(params: {
     surchargeStepMeters: Math.max(1, params.config.surchargeStepMeters ?? 0),
     surchargeAmountTaka: roundCurrencyAmount(params.config.surchargeAmountTaka ?? 0),
     totalFee,
+  };
+}
+
+type PlatformFeeMode = "flat" | "percentage" | "optional";
+type PlatformFeeConfig = {
+  enabled: boolean;
+  mode: PlatformFeeMode;
+  amountTaka: number;
+  percentage: number;
+  label: string;
+  note: string;
+};
+
+const DEFAULT_PLATFORM_FEE_LABEL = "Platform fee";
+
+// Effective platform-fee config. A service zone can override the global default
+// (operations.platformFee) when its `override` flag is on; otherwise the global applies.
+function resolvePlatformFeeConfig(params: {
+  platformContent: Awaited<ReturnType<typeof getPlatformContent>>;
+  serviceAreaSnapshot: Record<string, any> | null;
+}): PlatformFeeConfig {
+  const globalFee =
+    ((params.platformContent.operations as Record<string, any>).platformFee as
+      | Record<string, any>
+      | undefined) ?? {};
+  const zoneFee =
+    (params.serviceAreaSnapshot as Record<string, any> | null)?.delivery
+      ?.platformFee ?? null;
+  const source =
+    zoneFee && zoneFee.override === true ? zoneFee : globalFee;
+  const mode: PlatformFeeMode =
+    source.mode === "percentage" || source.mode === "optional"
+      ? source.mode
+      : "flat";
+  const label =
+    typeof source.label === "string" && source.label.trim()
+      ? source.label.trim()
+      : DEFAULT_PLATFORM_FEE_LABEL;
+  return {
+    enabled: source.enabled === true,
+    mode,
+    amountTaka: Math.max(0, roundCurrencyAmount(Number(source.amountTaka) || 0)),
+    percentage: Math.max(0, Math.min(100, Number(source.percentage) || 0)),
+    label,
+    note: typeof source.note === "string" ? source.note.trim() : "",
+  };
+}
+
+// Fee actually charged + display info. "optional" is charged only when the customer opts
+// in at checkout; "flat"/"percentage" are always charged while enabled. `amount` in the
+// returned info is the charged amount (flat/percentage) or the suggested add-on (optional).
+function computePlatformFee(params: {
+  config: PlatformFeeConfig;
+  subtotal: number;
+  optedIn: boolean;
+}) {
+  const { config, subtotal, optedIn } = params;
+  const grossAmount =
+    config.mode === "percentage"
+      ? Math.max(0, roundCurrencyAmount((subtotal * config.percentage) / 100))
+      : config.amountTaka;
+  const isCharged =
+    config.enabled &&
+    grossAmount > 0 &&
+    (config.mode !== "optional" || optedIn === true);
+  return {
+    amount: isCharged ? grossAmount : 0,
+    info: {
+      enabled: config.enabled,
+      mode: config.mode,
+      label: config.label,
+      note: config.note,
+      amount: grossAmount,
+      percentage: config.percentage,
+      optional: config.mode === "optional",
+      charged: isCharged,
+    },
   };
 }
 
@@ -339,6 +418,9 @@ export async function quoteCustomerCart(params: {
   installId?: string;
   latitude?: number;
   longitude?: number;
+  // Optional platform fee: only charged when the customer opts in (checkout toggle).
+  // Ignored for the mandatory flat/percentage modes.
+  platformFeeOptedIn?: boolean;
 }): Promise<CustomerCartQuoteResult> {
   const baseQuote = await customerCartQuoteCache.getOrSet(
     buildCustomerCartQuoteCacheKey(params),
@@ -585,6 +667,20 @@ export async function quoteCustomerCart(params: {
               ),
             )
           : 0;
+      // Admin-set platform fee ("App / Platform fee"). Global default, overridable per
+      // zone. Kept separate from delivery + subtotal so it's its own line and a
+      // free-delivery voucher never waives it. "optional" mode only charges when the
+      // customer opts in at checkout (params.platformFeeOptedIn).
+      const platformFeeConfig = resolvePlatformFeeConfig({
+        platformContent,
+        serviceAreaSnapshot,
+      });
+      const platformFeeResult = computePlatformFee({
+        config: platformFeeConfig,
+        subtotal: customerSubtotal,
+        optedIn: params.platformFeeOptedIn === true,
+      });
+      const platformFee = platformFeeResult.amount;
       // Markdown is applied first; coupons then evaluate against the reduced subtotal so the
       // two never double-count and minimum-order checks reflect what the customer pays.
       const vouchers: CustomerCacheRecord[] = await resolveActiveVoucher({
@@ -612,7 +708,7 @@ export async function quoteCustomerCart(params: {
       }, 0);
 
       const total = Math.max(
-        customerSubtotal + deliveryFee + rainSurcharge - discountAmount,
+        customerSubtotal + deliveryFee + rainSurcharge + platformFee - discountAmount,
         0,
       );
       const ownerDiscountCost = vouchers.reduce((totalOwnerCost, voucher) => {
@@ -663,6 +759,7 @@ export async function quoteCustomerCart(params: {
           menuMarkdownAmount,
           deliveryFee,
           rainSurcharge,
+          platformFee,
           discountAmount,
           ownerDiscountCost,
           platformDiscountCost,
@@ -674,6 +771,9 @@ export async function quoteCustomerCart(params: {
           distanceKm: deliveryDistanceKm,
           deliveryFee,
         }),
+        // Admin-set platform fee display info (label/note/mode + charged vs suggested
+        // amount). Lets the app render its own line + the opt-in toggle for "optional".
+        platformFeeInfo: platformFeeResult.info,
         appliedVouchers: summarizeAppliedVouchers(
           vouchers.map((voucher) => ({
             id: String(voucher._id),

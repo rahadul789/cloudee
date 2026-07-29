@@ -2,6 +2,8 @@ export type FoodCategorySuggestion = {
   id: string;
   label: string;
   searchQuery: string;
+  /** Optional category image; when absent the UI falls back to `icon` on `color`. */
+  imageUrl?: string;
   icon: string;
   color: string;
 };
@@ -11,6 +13,7 @@ export function normalizeFoodCategorySuggestions<
     id?: string;
     label: string;
     searchQuery?: string;
+    imageUrl?: string;
     icon?: string;
     color?: string;
   },
@@ -31,6 +34,7 @@ export function normalizeFoodCategorySuggestions<
       id: item.id || label.toLowerCase().replace(/\s+/g, "-"),
       label,
       searchQuery,
+      imageUrl: item.imageUrl?.trim() || undefined,
       icon: item.icon || "restaurant-outline",
       color: item.color || "#FFF0F6",
     });

@@ -176,7 +176,9 @@ function TabIcon({
     >
       <Ionicons name={name} size={22} color={color} />
       {emphasized ? (
-        <View style={[styles.cartSpark, focused ? styles.cartSparkActive : null]}>
+        <View
+          style={[styles.cartSpark, focused ? styles.cartSparkActive : null]}
+        >
           <Text style={styles.cartSparkText}>+</Text>
         </View>
       ) : null}

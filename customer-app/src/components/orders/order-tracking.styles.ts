@@ -821,7 +821,7 @@ export const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "800",
-    color: palette.primary,
+    color: palette.secondary,
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
@@ -991,7 +991,7 @@ export const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: palette.primary,
+    backgroundColor: palette.secondary,
   },
   routeLine: {
     width: 2,
@@ -1018,7 +1018,7 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
     textTransform: "uppercase",
     letterSpacing: 0.8,
-    color: palette.primary,
+    color: palette.secondary,
   },
   routeStopTitle: {
     fontSize: 15,
@@ -1788,6 +1788,25 @@ export const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "800",
     color: palette.successText,
+  },
+  // Delivery fee shown as base + "+extra" surcharge, and the "why this fee" note — same
+  // transparent breakdown as the cart/checkout.
+  paymentDeliveryValueStack: {
+    alignItems: "flex-end",
+  },
+  paymentDeliveryExtra: {
+    marginTop: -2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  paymentDeliveryNote: {
+    marginTop: -6,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: palette.mutedForeground,
   },
   paymentValueStrong: {
     fontSize: 16,

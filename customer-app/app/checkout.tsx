@@ -17,6 +17,14 @@ import {
 } from "react-native-safe-area-context";
 
 import { styles } from "@/src/components/checkout/checkout.styles";
+import {
+  buildDeliveryWhyText,
+  hasDeliveryDistanceSurcharge,
+} from "@/src/lib/delivery-breakdown";
+import {
+  canOptIntoPlatformFee,
+  platformFeeLabel,
+} from "@/src/lib/platform-fee";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import {
   useBkashInitiateMutation,
@@ -113,7 +121,8 @@ export default function CheckoutScreen() {
   } | null>(null);
   const [isApplyingVoucher, setIsApplyingVoucher] = useState(false);
   const [isUsingCurrentLocation, setIsUsingCurrentLocation] = useState(false);
-  const [isWaitingForLocationQuote, setIsWaitingForLocationQuote] = useState(false);
+  const [isWaitingForLocationQuote, setIsWaitingForLocationQuote] =
+    useState(false);
   const [paymentError, setPaymentError] = useState("");
   const hasCompletedCheckoutRef = useRef(false);
   const checkoutTrackedKeyRef = useRef("");
@@ -135,6 +144,12 @@ export default function CheckoutScreen() {
   const clearCart = useCartStore((state) => state.clearCart);
   const setReorderContext = useCartStore((state) => state.setReorderContext);
   const syncPricing = useCartStore((state) => state.syncPricing);
+  // Optional platform-fee opt-in, shared with the cart via the store so the choice carries
+  // over. Re-quotes so pricing.total stays authoritative.
+  const platformFeeOptedIn = useCartStore((state) => state.platformFeeOptedIn);
+  const setPlatformFeeOptedIn = useCartStore(
+    (state) => state.setPlatformFeeOptedIn,
+  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const selectedDeliveryAddress = useMemo(
     () => formatDeliveryAddress(selectedLocation),
@@ -191,7 +206,8 @@ export default function CheckoutScreen() {
   // Would a referral actually grant a welcome voucher on THIS device? False once the
   // device has already used a welcome perk (referral or first-order) — hide the "new to
   // Foodbela" nudge so we never invite a referral that can't add a discount here.
-  const deviceWelcomeEligible = referralSummary?.deviceWelcomeEligible !== false;
+  const deviceWelcomeEligible =
+    referralSummary?.deviceWelcomeEligible !== false;
   // A referral is only genuinely usable here when the account can still apply one AND this
   // physical device hasn't already consumed a welcome perk. `canApplyReferralCode` alone is
   // account-scoped (a fresh phone on a used device reads as eligible), so on a device that has
@@ -224,11 +240,11 @@ export default function CheckoutScreen() {
   const visiblePaymentOptions = useMemo(
     () =>
       paymentOptions
-        .filter(
-          (option) =>
-            option.id === "Cash"
-              ? paymentSettings.cashOnDeliveryEnabled || !paymentSettings.bkashEnabled
-              : paymentSettings.bkashEnabled,
+        .filter((option) =>
+          option.id === "Cash"
+            ? paymentSettings.cashOnDeliveryEnabled ||
+              !paymentSettings.bkashEnabled
+            : paymentSettings.bkashEnabled,
         )
         .map((option) =>
           option.id === "Bkash"
@@ -248,7 +264,10 @@ export default function CheckoutScreen() {
   );
 
   useEffect(() => {
-    if (paymentSettingsQuery.isLoading || hasInitializedPaymentMethodRef.current) {
+    if (
+      paymentSettingsQuery.isLoading ||
+      hasInitializedPaymentMethodRef.current
+    ) {
       return;
     }
 
@@ -257,7 +276,7 @@ export default function CheckoutScreen() {
     );
     const nextPaymentMethod = preferredIsAvailable
       ? preferredPaymentMethod
-      : visiblePaymentOptions[0]?.id ?? "Cash";
+      : (visiblePaymentOptions[0]?.id ?? "Cash");
 
     setPaymentMethod(nextPaymentMethod);
     hasInitializedPaymentMethodRef.current = true;
@@ -279,6 +298,7 @@ export default function CheckoutScreen() {
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
     requiresLocation: true,
+    platformFeeOptedIn,
   });
 
   useEffect(() => {
@@ -305,6 +325,23 @@ export default function CheckoutScreen() {
 
   const localSubtotal = getCartSubtotal(items);
   const pricing = quoteQuery.data?.pricing;
+  // "Why this delivery fee" split from the live quote, shown the same way as the cart.
+  const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
+  const deliveryWhyText = useMemo(
+    () => buildDeliveryWhyText(deliveryBreakdown),
+    [deliveryBreakdown],
+  );
+  // Admin-set platform fee. Charged amount (flat/percentage or opted-in optional) lands in
+  // pricing.platformFee; the opt-in control shows only for the optional mode.
+  const platformFeeInfo = quoteQuery.data?.platformFeeInfo;
+  const showPlatformFeeOptIn = canOptIntoPlatformFee(platformFeeInfo);
+  // If the fee stops being opt-in-able (mode/zone changed mid-session), drop the opt-in so
+  // we never keep charging a fee the customer can no longer see a toggle for.
+  useEffect(() => {
+    if (!showPlatformFeeOptIn && platformFeeOptedIn) {
+      setPlatformFeeOptedIn(false);
+    }
+  }, [showPlatformFeeOptIn, platformFeeOptedIn, setPlatformFeeOptedIn]);
   const restaurantNoteSetting = quoteQuery.data?.restaurant.orderNote;
   const shouldShowRestaurantNote = restaurantNoteSetting?.enabled === true;
   const restaurantNoteLabel =
@@ -355,12 +392,12 @@ export default function CheckoutScreen() {
   const isPrimaryActionDisabled =
     isCheckingDeliveryArea ||
     (!shouldUsePrimaryActionForLocation &&
-    (placeOrderMutation.isPending ||
-      bkashInitiateMutation.isPending ||
-      quoteQuery.isLoading ||
-      (hasQuoteIssues && !isServiceabilityBlocked) ||
-      !isOnline ||
-      paymentSettingsQuery.isLoading));
+      (placeOrderMutation.isPending ||
+        bkashInitiateMutation.isPending ||
+        quoteQuery.isLoading ||
+        (hasQuoteIssues && !isServiceabilityBlocked) ||
+        !isOnline ||
+        paymentSettingsQuery.isLoading));
   const isApplyingCode = isApplyingVoucher || applyReferralMutation.isPending;
 
   const itemPayload = useMemo(
@@ -737,6 +774,7 @@ export default function CheckoutScreen() {
         voucherCode: appliedVoucherCode || undefined,
         note: sanitizedRestaurantOrderNote || undefined,
         walletNumber: bkashWalletNumber,
+        platformFeeOptedIn,
         deliveryAddress: {
           label: selectedLocation.label,
           addressLine: selectedDeliveryAddressLine,
@@ -867,6 +905,7 @@ export default function CheckoutScreen() {
         paymentMethod,
         voucherCode: appliedVoucherCode || undefined,
         note: sanitizedRestaurantOrderNote || undefined,
+        platformFeeOptedIn,
         paymentReference:
           paymentMethod === "Bkash"
             ? {
@@ -1032,7 +1071,9 @@ export default function CheckoutScreen() {
                     </Text>
                   </Pressable>
                   <Pressable
-                    disabled={isUsingCurrentLocation || isWaitingForLocationQuote}
+                    disabled={
+                      isUsingCurrentLocation || isWaitingForLocationQuote
+                    }
                     style={({ pressed }) => [
                       styles.networkAction,
                       isUsingCurrentLocation || isWaitingForLocationQuote
@@ -1045,7 +1086,10 @@ export default function CheckoutScreen() {
                     }}
                   >
                     {isUsingCurrentLocation || isWaitingForLocationQuote ? (
-                      <ActivityIndicator size="small" color={palette.foreground} />
+                      <ActivityIndicator
+                        size="small"
+                        color={palette.foreground}
+                      />
                     ) : (
                       <Ionicons
                         name="navigate-circle-outline"
@@ -1237,7 +1281,8 @@ export default function CheckoutScreen() {
             {appliedReferralCode ? (
               <View style={styles.voucherAppliedRow}>
                 <Text style={styles.voucherAppliedText}>
-                  Referral{appliedReferralName ? ` from ${appliedReferralName}` : ""}{" "}
+                  Referral
+                  {appliedReferralName ? ` from ${appliedReferralName}` : ""}{" "}
                   applied ✓ · welcome reward saved to your offers
                 </Text>
               </View>
@@ -1330,7 +1375,9 @@ export default function CheckoutScreen() {
                 <View style={styles.restaurantNoteCopy}>
                   <Text style={styles.restaurantNoteTitle}>
                     {restaurantNoteLabel}{" "}
-                    <Text style={styles.restaurantNoteOptional}>(optional)</Text>
+                    <Text style={styles.restaurantNoteOptional}>
+                      (optional)
+                    </Text>
                   </Text>
                   <Text style={styles.restaurantNoteHint}>
                     The restaurant will see this with your order.
@@ -1339,7 +1386,9 @@ export default function CheckoutScreen() {
               </View>
               <TextInput
                 value={restaurantOrderNote}
-                onChangeText={(value) => setRestaurantOrderNote(value.slice(0, 240))}
+                onChangeText={(value) =>
+                  setRestaurantOrderNote(value.slice(0, 240))
+                }
                 placeholder={restaurantNotePlaceholder}
                 placeholderTextColor={palette.mutedForeground}
                 multiline
@@ -1423,7 +1472,9 @@ export default function CheckoutScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.firstOrderBanner,
-                    pressed && canOpenRestaurant && styles.firstOrderBannerPressed,
+                    pressed &&
+                      canOpenRestaurant &&
+                      styles.firstOrderBannerPressed,
                   ]}
                   disabled={!canOpenRestaurant}
                   onPress={() =>
@@ -1444,8 +1495,8 @@ export default function CheckoutScreen() {
                       </Text>
                       <Text style={styles.firstOrderBannerSubtitle}>
                         On your first order over{" "}
-                        {formatCurrency(firstOrder.minimumOrderAmount)}. Tap to add
-                        more items.
+                        {formatCurrency(firstOrder.minimumOrderAmount)}. Tap to
+                        add more items.
                       </Text>
                     </View>
                     {canOpenRestaurant ? (
@@ -1480,15 +1531,78 @@ export default function CheckoutScreen() {
                   highlight
                 />
               ) : null}
-              <CheckoutSummaryRow
-                label="Delivery fee"
-                value={formatCurrency(pricing?.deliveryFee ?? 0)}
-              />
+              <View style={styles.summaryDeliveryGroup}>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryRowLabel}>Delivery fee</Text>
+                  {hasDeliveryDistanceSurcharge(deliveryBreakdown) ? (
+                    <View style={styles.summaryDeliveryValueStack}>
+                      <Text style={styles.summaryRowValue}>
+                        {formatCurrency(deliveryBreakdown.baseFee)}
+                      </Text>
+                      <Text style={styles.summaryDeliveryExtra}>
+                        +{formatCurrency(deliveryBreakdown.extraDistanceFee)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.summaryRowValue}>
+                      {formatCurrency(pricing?.deliveryFee ?? 0)}
+                    </Text>
+                  )}
+                </View>
+                {deliveryWhyText ? (
+                  <Text style={styles.summaryDeliveryNote}>
+                    {deliveryWhyText}
+                  </Text>
+                ) : null}
+              </View>
               {(pricing?.rainSurcharge ?? 0) > 0 ? (
                 <CheckoutSummaryRow
                   label="Rain surcharge"
                   value={formatCurrency(pricing?.rainSurcharge ?? 0)}
                 />
+              ) : null}
+              {(pricing?.platformFee ?? 0) > 0 ? (
+                <View style={styles.summaryDeliveryGroup}>
+                  <CheckoutSummaryRow
+                    label={platformFeeLabel(platformFeeInfo)}
+                    value={formatCurrency(pricing?.platformFee ?? 0)}
+                  />
+                  {platformFeeInfo?.note ? (
+                    <Text style={styles.summaryDeliveryNote}>
+                      {platformFeeInfo.note}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
+              {showPlatformFeeOptIn ? (
+                <Pressable
+                  onPress={() => setPlatformFeeOptedIn(!platformFeeOptedIn)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: platformFeeOptedIn }}
+                  style={styles.platformFeeOptInRow}
+                >
+                  <View style={styles.platformFeeOptInCopy}>
+                    <Text style={styles.platformFeeOptInLabel}>
+                      {platformFeeLabel(platformFeeInfo)} +
+                      {formatCurrency(platformFeeInfo.amount)}
+                    </Text>
+                    {platformFeeInfo.note ? (
+                      <Text style={styles.platformFeeOptInNote}>
+                        {platformFeeInfo.note}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View
+                    style={[
+                      styles.platformFeeCheck,
+                      platformFeeOptedIn ? styles.platformFeeCheckOn : null,
+                    ]}
+                  >
+                    {platformFeeOptedIn ? (
+                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                    ) : null}
+                  </View>
+                </Pressable>
               ) : null}
               <CheckoutSummaryRow
                 label="Discount"
@@ -1540,7 +1654,9 @@ export default function CheckoutScreen() {
             style={({ pressed }) => [
               styles.placeOrderButtonLift,
               isPrimaryActionDisabled && styles.placeOrderButtonLiftDisabled,
-              pressed && !isPrimaryActionDisabled ? styles.checkoutButtonPressed : null,
+              pressed && !isPrimaryActionDisabled
+                ? styles.checkoutButtonPressed
+                : null,
             ]}
             disabled={isPrimaryActionDisabled}
             onPress={handlePrimaryAction}
@@ -1561,18 +1677,18 @@ export default function CheckoutScreen() {
                   {isCheckingDeliveryArea
                     ? "Checking..."
                     : shouldUsePrimaryActionForLocation
-                    ? "Change location"
-                    : hasQuoteIssues
-                      ? "Fix cart"
-                      : !isOnline
-                        ? "Reconnect"
-                        : paymentSettingsQuery.isLoading
-                          ? "Loading..."
-                          : quoteQuery.isLoading
-                            ? "Checking..."
-                            : paymentMethod === "Bkash"
-                              ? "Pay with bKash"
-                              : "Place order"}
+                      ? "Change location"
+                      : hasQuoteIssues
+                        ? "Fix cart"
+                        : !isOnline
+                          ? "Reconnect"
+                          : paymentSettingsQuery.isLoading
+                            ? "Loading..."
+                            : quoteQuery.isLoading
+                              ? "Checking..."
+                              : paymentMethod === "Bkash"
+                                ? "Pay with bKash"
+                                : "Place order"}
                 </Text>
               )}
             </View>

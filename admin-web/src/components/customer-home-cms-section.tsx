@@ -106,6 +106,23 @@ function getAudienceLabel(value?: string) {
   return "All users"
 }
 
+// <input type="datetime-local"> works in local time with a "YYYY-MM-DDTHH:mm" value; we store an
+// absolute ISO string, so convert both ways.
+function toDateTimeLocal(iso?: string): string {
+  if (!iso) return ""
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ""
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function fromDateTimeLocal(value: string): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toISOString()
+}
+
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-3">
@@ -1308,6 +1325,41 @@ export function CustomerHomeCmsSection({
         itemIndex === index ? { ...item, ...patch } : item
       ),
     })
+  }
+
+  async function uploadHomeCategoryImage(index: number, file?: File | null) {
+    if (!file) return
+    const currentCategories =
+      currentCms.homeCategories ?? DEFAULT_HOME_CMS.homeCategories!
+    const previousPublicId = currentCategories.items[index]?.imagePublicId
+    setUploadingKey(`category-image-${index}`)
+    try {
+      if (previousPublicId) {
+        await deleteAdminMedia(previousPublicId).catch(() => undefined)
+      }
+      const asset = await uploadAdminMedia(file)
+      updateHomeCategoryItem(index, {
+        imageUrl: asset.url,
+        imagePublicId: asset.publicId,
+      })
+      toast.success("Category image uploaded")
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Image upload failed"
+      )
+    } finally {
+      setUploadingKey("")
+    }
+  }
+
+  async function removeHomeCategoryImage(index: number) {
+    const currentCategories =
+      currentCms.homeCategories ?? DEFAULT_HOME_CMS.homeCategories!
+    const publicId = currentCategories.items[index]?.imagePublicId
+    if (publicId) {
+      await deleteAdminMedia(publicId).catch(() => undefined)
+    }
+    updateHomeCategoryItem(index, { imageUrl: "", imagePublicId: "" })
   }
 
   function updateRestaurantSection<
@@ -2946,6 +2998,43 @@ export function CustomerHomeCmsSection({
                                   </div>
                                 </div>
                               ) : null}
+                              <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2">
+                                <div>
+                                  <Label>Sponsored badge</Label>
+                                  <p className="text-xs text-muted-foreground">
+                                    Shows a "Sponsored" label (top-right) on this
+                                    slide.
+                                  </p>
+                                </div>
+                                <Switch
+                                  checked={image.sponsored === true}
+                                  onCheckedChange={(checked) =>
+                                    updateCarouselImage(index, {
+                                      sponsored: checked,
+                                    })
+                                  }
+                                />
+                              </div>
+                              {image.sponsored === true ? (
+                                <div className="space-y-1.5">
+                                  <Label>Show sponsored until</Label>
+                                  <Input
+                                    type="datetime-local"
+                                    value={toDateTimeLocal(image.sponsoredUntil)}
+                                    onChange={(event) =>
+                                      updateCarouselImage(index, {
+                                        sponsoredUntil: fromDateTimeLocal(
+                                          event.target.value
+                                        ),
+                                      })
+                                    }
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Leave empty for no expiry — the badge hides
+                                    automatically after this date/time.
+                                  </p>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="flex items-start justify-end">
                               <Button
@@ -3211,8 +3300,49 @@ export function CustomerHomeCmsSection({
                 {(cms.homeCategories?.items ?? []).map((item, index) => (
                   <div
                     key={item.id || `${item.label}-${index}`}
-                    className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:grid-cols-[1fr_1fr_150px_90px_84px_auto] md:items-end"
+                    className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:grid-cols-[76px_1fr_1fr_140px_84px_78px_auto] md:items-end"
                   >
+                    <div className="space-y-1.5">
+                      <Label>Image</Label>
+                      <label
+                        className="relative flex h-11 w-11 cursor-pointer items-center justify-center overflow-hidden rounded-lg border"
+                        style={{ backgroundColor: item.color || "#FFF0F6" }}
+                        title="Upload category image (optional — falls back to the icon)"
+                      >
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-[9px] font-medium text-muted-foreground">
+                            Add
+                          </span>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploadingKey === `category-image-${index}`}
+                          onChange={(event) =>
+                            void uploadHomeCategoryImage(
+                              index,
+                              event.target.files?.[0]
+                            )
+                          }
+                        />
+                      </label>
+                      {item.imageUrl ? (
+                        <button
+                          type="button"
+                          className="text-[10px] text-muted-foreground underline"
+                          onClick={() => void removeHomeCategoryImage(index)}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
                     <div className="space-y-1.5">
                       <Label>Label</Label>
                       <Input
@@ -3754,6 +3884,32 @@ export function CustomerHomeCmsSection({
                   <SelectContent>
                     <SelectItem value="horizontal">Horizontal</SelectItem>
                     <SelectItem value="vertical">Vertical</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Placement</Label>
+                <Select
+                  value={cms.timeBasedSection?.placement ?? "above_featured"}
+                  onValueChange={(value) =>
+                    updateTimeBasedSection(
+                      "placement",
+                      value as NonNullable<
+                        typeof cms.timeBasedSection
+                      >["placement"]
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="above_featured">
+                      Above Featured restaurants
+                    </SelectItem>
+                    <SelectItem value="below_featured">
+                      Below Featured restaurants
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -272,7 +272,7 @@ export function MenuPopularSkeleton() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.menuPopularRowSkeleton}
       >
-        {Array.from({ length: 3 }, (_, index) => (
+        {Array.from({ length: 2 }, (_, index) => (
           <View key={index} style={styles.popularCardSkeleton}>
             <ShimmerBlock style={styles.popularCardImageSkeleton} />
             <ShimmerBlock style={styles.popularCardBadgeSkeleton} />
@@ -348,18 +348,14 @@ export function RestaurantDetailsSkeleton() {
           <ShimmerBlock style={styles.detailsFact} />
         </View>
       </View>
-      <ScrollView
-        horizontal
-        scrollEnabled={false}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categorySkeletonRow}
-      >
-        <ShimmerBlock style={styles.categoryChipWide} />
-        <ShimmerBlock style={styles.categoryChip} />
-        <ShimmerBlock style={styles.categoryChipSmall} />
-        <ShimmerBlock style={styles.categoryChip} />
-        <ShimmerBlock style={styles.categoryChipSmall} />
-      </ScrollView>
+      {/* Search bar + category rail sit together in the real header (controlsStack, gap 10). */}
+      <View style={styles.detailsControls}>
+        <ShimmerBlock style={styles.detailsSearchBar} />
+        <MenuCategoryChipsSkeleton />
+      </View>
+      {/* Reuse the SAME popular sub-skeleton the header/list use → every skeleton on this screen is
+          identical, and its 287px rail matches the real one so the menu doesn't jump when it fills. */}
+      <MenuPopularSkeleton />
       <View style={styles.menuSkeletonList}>
         <ShimmerBlock style={styles.menuSectionTitle} />
         <ShimmerBlock style={styles.menuItem} />
@@ -804,6 +800,17 @@ const styles = StyleSheet.create({
     minWidth: "47%",
     flex: 1,
     height: 56,
+    borderRadius: 18,
+  },
+  detailsControls: {
+    gap: 10,
+    // + the detailsContent gap (14) matches the real controlsWrap's marginTop 12 + paddingTop 8 (20),
+    // so the skeleton's search bar sits exactly where the real one does — no shift on swap.
+    marginTop: 6,
+  },
+  detailsSearchBar: {
+    height: 44,
+    marginHorizontal: 20,
     borderRadius: 18,
   },
   categorySkeletonRow: {

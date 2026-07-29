@@ -62,7 +62,28 @@ const serviceZoneSchema = new Schema(
           surchargeAmountTaka: { type: Number, default: null, min: 0 },
           maxRestaurantDistanceKm: { type: Number, default: null, min: 0 },
           rainSurchargeEnabled: { type: Boolean, default: false },
-          rainSurchargeTaka: { type: Number, default: 0, min: 0 }
+          rainSurchargeTaka: { type: Number, default: 0, min: 0 },
+          // Per-zone override of the global operations.platformFee. `override:true`
+          // makes this zone use these values; otherwise the global default applies.
+          platformFee: {
+            type: new Schema(
+              {
+                override: { type: Boolean, default: false },
+                enabled: { type: Boolean, default: false },
+                mode: {
+                  type: String,
+                  enum: ["flat", "percentage", "optional"],
+                  default: "flat"
+                },
+                amountTaka: { type: Number, default: 0, min: 0 },
+                percentage: { type: Number, default: 0, min: 0, max: 100 },
+                label: { type: String, default: "Platform fee", trim: true },
+                note: { type: String, default: "", trim: true }
+              },
+              { _id: false }
+            ),
+            default: () => ({})
+          }
         },
         { _id: false }
       ),

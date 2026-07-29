@@ -250,7 +250,7 @@ export function ClosingSoonBanner({
       <View style={styles.closingDot} />
       <Ionicons name="time-outline" size={16} color={CLOSING.text} />
       <Text style={styles.closingText} numberOfLines={1}>
-        Foodbela is closing in <Text style={styles.closingTime}>{time}</Text>
+        Foodbela closes in <Text style={styles.closingTime}>{time}</Text>
         <Text style={styles.closingSub}> · order soon</Text>
       </Text>
     </View>

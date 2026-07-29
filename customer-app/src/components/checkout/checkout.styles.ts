@@ -554,6 +554,69 @@ export const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.foreground,
   },
+  // Delivery fee row + its "why this fee" note, kept together so the note sits right
+  // under the fee (matches the cart's transparent breakdown).
+  summaryDeliveryGroup: {
+    gap: 4,
+  },
+  // Right-aligned stack: base fee on top, the "+extra" surcharge quietly under it.
+  summaryDeliveryValueStack: {
+    alignItems: "flex-end",
+  },
+  summaryDeliveryExtra: {
+    marginTop: -2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  summaryDeliveryNote: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: palette.mutedForeground,
+  },
+  // Optional platform-fee opt-in control (a tappable row with a check box on the right).
+  platformFeeOptInRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  platformFeeOptInCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  platformFeeOptInLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  platformFeeOptInNote: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.mutedForeground,
+  },
+  platformFeeCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: palette.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surface,
+  },
+  platformFeeCheckOn: {
+    backgroundColor: palette.secondary,
+    borderColor: palette.secondary,
+  },
   divider: {
     height: 1,
     backgroundColor: palette.border,

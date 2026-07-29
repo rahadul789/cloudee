@@ -293,6 +293,10 @@ const platformContentSchema = z.object({
             publicId: z.string().trim(),
             linkEnabled: z.boolean().optional().default(false),
             ctaPath: z.string().trim().optional(),
+            // "Sponsored" ad-label badge (top-right). Shows only while enabled AND before
+            // `sponsoredUntil` (empty = no expiry). ISO datetime string.
+            sponsored: z.boolean().optional().default(false),
+            sponsoredUntil: z.string().trim().optional().default(""),
           })
         ),
         ctaLabel: z.string().trim(),
@@ -334,6 +338,9 @@ const platformContentSchema = z.object({
               id: z.string().trim().optional(),
               label: z.string().trim(),
               searchQuery: z.string().trim(),
+              // Optional Cloudinary image; when empty the app falls back to `icon` on `color`.
+              imageUrl: z.string().trim().optional().default(""),
+              imagePublicId: z.string().trim().optional().default(""),
               icon: z.string().trim().optional().default("restaurant-outline"),
               color: z.string().trim().optional().default("#FFF0F6"),
               position: z.number().optional().default(1),
@@ -420,6 +427,12 @@ const platformContentSchema = z.object({
           source: z.enum(["auto", "manual"]).optional().default("auto"),
           layout: z.enum(["horizontal", "vertical"]).optional().default("horizontal"),
           position: z.number().int().min(1).max(20).optional().default(1),
+          // Whether the section sits above or below the Featured restaurants row on home.
+          // Default "above_featured" preserves the current (hardcoded) order.
+          placement: z
+            .enum(["above_featured", "below_featured"])
+            .optional()
+            .default("above_featured"),
           maxItems: z.number().int().min(1).max(20).optional().default(8),
           windows: z
             .array(
@@ -449,6 +462,7 @@ const platformContentSchema = z.object({
           source: "auto",
           layout: "horizontal",
           position: 1,
+          placement: "above_featured",
           maxItems: 8,
           windows: [],
         }),
@@ -661,6 +675,9 @@ const platformContentSchema = z.object({
         showCustomerPhoneNumbers: true,
         catalogDescriptionLimits: DEFAULT_CATALOG_DESCRIPTION_LIMITS,
       }),
+    // When false, the customer app hides the assigned rider's phone number on the
+    // order tracking screen. Default true preserves the current behaviour.
+    showRiderPhoneToCustomer: z.boolean().optional().default(true),
     serviceArea: z.object({
       name: z.string().trim().min(1),
       centerLatitude: z.number().min(-90).max(90),
@@ -674,6 +691,31 @@ const platformContentSchema = z.object({
       surchargeStepMeters: z.number().int().min(100).max(10000).optional().default(500),
       surchargeAmountTaka: z.number().int().min(0).max(5000).optional().default(5),
     }),
+    // Admin-set extra fee shown to the customer (e.g. an "App / Platform fee"). OFF by
+    // default. mode: "flat" = fixed amountTaka per order; "percentage" = percent of the
+    // item subtotal; "optional" = not charged unless the customer opts in at checkout
+    // (amountTaka is the suggested add-on). label/note are the customer-facing text. This
+    // is the platform-wide default; a service zone can override it via
+    // ServiceZone.delivery.platformFee (override flag). Kept separate from delivery fee so
+    // free-delivery vouchers never waive it.
+    platformFee: z
+      .object({
+        enabled: z.boolean().optional().default(false),
+        mode: z.enum(["flat", "percentage", "optional"]).optional().default("flat"),
+        amountTaka: z.number().int().min(0).max(100000).optional().default(0),
+        percentage: z.number().min(0).max(100).optional().default(0),
+        label: z.string().trim().max(60).optional().default("Platform fee"),
+        note: z.string().trim().max(160).optional().default(""),
+      })
+      .optional()
+      .default({
+        enabled: false,
+        mode: "flat",
+        amountTaka: 0,
+        percentage: 0,
+        label: "Platform fee",
+        note: "",
+      }),
     // Platform-wide minimum order amount (Taka) applied to the customer item subtotal.
     // 0 = no minimum. restaurant.commercial.minimumOrderAmount overrides per restaurant.
     minimumOrderAmount: z.number().int().min(0).max(100000).optional().default(0),

@@ -343,6 +343,15 @@ export type AdminServiceZone = {
     maxRestaurantDistanceKm?: number | null
     rainSurchargeEnabled?: boolean
     rainSurchargeTaka?: number
+    platformFee?: {
+      override?: boolean
+      enabled?: boolean
+      mode?: "flat" | "percentage" | "optional"
+      amountTaka?: number
+      percentage?: number
+      label?: string
+      note?: string
+    }
   }
   dispatch: {
     autoAssignEnabled?: boolean
@@ -4282,6 +4291,7 @@ export type PlatformContentTimeBasedSection = {
   source?: "auto" | "manual"
   layout?: "horizontal" | "vertical"
   position?: number
+  placement?: "above_featured" | "below_featured"
   maxItems?: number
   windows?: PlatformContentTimeBasedWindow[]
 }
@@ -4320,6 +4330,8 @@ export type PlatformContent = {
           publicId: string
           linkEnabled?: boolean
           ctaPath?: string
+          sponsored?: boolean
+          sponsoredUntil?: string
         }>
         ctaLabel: string
         ctaPath: string
@@ -4344,6 +4356,8 @@ export type PlatformContent = {
           id?: string
           label: string
           searchQuery: string
+          imageUrl?: string
+          imagePublicId?: string
           icon?: string
           color?: string
           position?: number
@@ -4525,6 +4539,7 @@ export type PlatformContent = {
         category: number
       }
     }
+    showRiderPhoneToCustomer?: boolean
     serviceArea: {
       name: string
       centerLatitude: number
@@ -4537,6 +4552,14 @@ export type PlatformContent = {
       surchargeStartsAfterKm: number
       surchargeStepMeters: number
       surchargeAmountTaka: number
+    }
+    platformFee?: {
+      enabled: boolean
+      mode: "flat" | "percentage" | "optional"
+      amountTaka: number
+      percentage: number
+      label: string
+      note: string
     }
     minimumOrderAmount: number
     serviceHours: {

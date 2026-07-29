@@ -662,14 +662,68 @@ export const styles = StyleSheet.create({
   summaryHighlight: {
     color: palette.successText,
   },
-  // Sits directly under the "Delivery fee" row (the summaryCard gap is 10, so the negative
-  // top margin pulls this caption up to hug it) — explains WHY the fee is what it is.
+  // Right-aligned stack for the delivery fee: base fee on top, the "+extra" surcharge under it.
+  summaryDeliveryValueStack: {
+    alignItems: "flex-end",
+  },
+  // The "+extra" surcharge that sits UNDER the base delivery fee — small + muted so the base fee
+  // stays the headline number and the surcharge reads as a quiet add-on.
+  summaryDeliveryExtra: {
+    marginTop: -2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  // Sits directly under the "Delivery fee" row (the summaryCard gap is 10, so the negative top
+  // margin cancels it and pulls this caption right under the fee) — explains WHY the fee is what it is.
   summaryDeliveryNote: {
-    marginTop: -6,
+    marginTop: -10,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
     color: palette.mutedForeground,
+  },
+  // Optional platform-fee opt-in control (tappable row with a check box on the right).
+  platformFeeOptInRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  platformFeeOptInCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  platformFeeOptInLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  platformFeeOptInNote: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.mutedForeground,
+  },
+  platformFeeCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: palette.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surface,
+  },
+  platformFeeCheckOn: {
+    backgroundColor: palette.secondary,
+    borderColor: palette.secondary,
   },
   summaryStrong: {
     fontSize: 14,

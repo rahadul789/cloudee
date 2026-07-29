@@ -655,8 +655,8 @@ export default function BrowseScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleBrowseRefresh}
-            tintColor={palette.primary}
-            colors={[palette.primary, palette.secondary, "#FF5C93"]}
+            tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
         onEndReachedThreshold={0.35}

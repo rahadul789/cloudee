@@ -26,6 +26,11 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
+import { buildDeliveryWhyText } from "@/src/lib/delivery-breakdown";
+import {
+  canOptIntoPlatformFee,
+  platformFeeLabel,
+} from "@/src/lib/platform-fee";
 import { computeOfferProgress, type OfferTier } from "@/src/lib/offer-progress";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import {
@@ -175,6 +180,10 @@ export default function CartScreen() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const syncPricing = useCartStore((state) => state.syncPricing);
+  const platformFeeOptedIn = useCartStore((state) => state.platformFeeOptedIn);
+  const setPlatformFeeOptedIn = useCartStore(
+    (state) => state.setPlatformFeeOptedIn,
+  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const customer = useCustomerAuthStore((state) => state.customer);
   const isOnline = useIsOnline();
@@ -205,6 +214,7 @@ export default function CartScreen() {
     })),
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
+    platformFeeOptedIn,
   });
 
   const itemCount = getCartItemCount(items);
@@ -396,6 +406,7 @@ export default function CartScreen() {
 
     const deliveryFee = pricing?.deliveryFee ?? 0;
     const rainSurcharge = pricing?.rainSurcharge ?? 0;
+    const platformFee = pricing?.platformFee ?? 0;
     const discountAmount = estimateAutoDiscount(
       bestApplicableOffer,
       localSubtotal,
@@ -406,11 +417,16 @@ export default function CartScreen() {
       subtotal: localSubtotal,
       deliveryFee,
       rainSurcharge,
+      platformFee,
       discountAmount,
       firstOrderDiscountAmount: 0,
       total: Math.max(
         0,
-        localSubtotal + deliveryFee + rainSurcharge - discountAmount,
+        localSubtotal +
+          deliveryFee +
+          rainSurcharge +
+          platformFee -
+          discountAmount,
       ),
     };
   }, [bestApplicableOffer, localSubtotal, pricing, shouldUseQuotedPricing]);
@@ -421,29 +437,20 @@ export default function CartScreen() {
   // Backend-supplied "why this delivery fee" breakdown (base + distance surcharge + km).
   // Only present with a real quote, so the note appears once pricing is verified.
   const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
-  const deliveryWhyText = useMemo(() => {
-    if (!deliveryBreakdown) return null;
-    const { distanceKm, baseFee, extraDistanceFee, extraDistanceKm } =
-      deliveryBreakdown;
-    const distanceLabel =
-      typeof distanceKm === "number" ? `${distanceKm} km` : null;
-    // Distance surcharge in effect (extra charged beyond the base): spell it out.
-    if (extraDistanceFee > 0) {
-      const extra =
-        extraDistanceKm > 0
-          ? `${extraDistanceKm} km extra ${formatCurrency(extraDistanceFee)}`
-          : `distance ${formatCurrency(extraDistanceFee)}`;
-      const base = `Base ${formatCurrency(baseFee)}`;
-      return distanceLabel
-        ? `${distanceLabel} · ${base} + ${extra}`
-        : `${base} + ${extra}`;
+  // Admin-set platform fee display info (label/note). For flat/percentage it's already
+  // in pricing.platformFee; for the optional mode the customer opts in via the toggle
+  // below (shared with checkout through the cart store).
+  const platformFeeInfo = quoteQuery.data?.platformFeeInfo;
+  const showPlatformFeeOptIn = canOptIntoPlatformFee(platformFeeInfo);
+  useEffect(() => {
+    if (!showPlatformFeeOptIn && platformFeeOptedIn) {
+      setPlatformFeeOptedIn(false);
     }
-    // Flat fee (current setup — no per-distance charge): still show the distance so the
-    // fee never reads as arbitrary.
-    return distanceLabel
-      ? `Flat fee · ${distanceLabel} from the restaurant`
-      : null;
-  }, [deliveryBreakdown]);
+  }, [showPlatformFeeOptIn, platformFeeOptedIn, setPlatformFeeOptedIn]);
+  const deliveryWhyText = useMemo(
+    () => buildDeliveryWhyText(deliveryBreakdown),
+    [deliveryBreakdown],
+  );
   const firstOrderMeta = quoteQuery.data?.firstOrderDiscount;
   const offerProgress = useMemo(() => {
     const subtotal = displayPricing.subtotal;
@@ -670,8 +677,8 @@ export default function CartScreen() {
                 <RefreshControl
                   refreshing={isRefreshing}
                   onRefresh={handleRefresh}
-                  tintColor={palette.primary}
-                  colors={[palette.primary, palette.secondary, "#FF5C93"]}
+                  tintColor={palette.secondary}
+                  colors={[palette.secondary]}
                 />
               }
             >
@@ -1163,7 +1170,9 @@ export default function CartScreen() {
                               ) : null}
                               <View style={styles.recommendationAction}>
                                 <Ionicons
-                                  name={customizable ? "options-outline" : "add"}
+                                  name={
+                                    customizable ? "options-outline" : "add"
+                                  }
                                   size={13}
                                   color="#fff"
                                 />
@@ -1330,9 +1339,21 @@ export default function CartScreen() {
                 ) : null}
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Delivery fee</Text>
-                  <Text style={styles.summaryValue}>
-                    {formatCurrency(displayPricing.deliveryFee)}
-                  </Text>
+                  {deliveryBreakdown &&
+                  deliveryBreakdown.extraDistanceFee > 0 ? (
+                    <View style={styles.summaryDeliveryValueStack}>
+                      <Text style={styles.summaryValue}>
+                        {formatCurrency(deliveryBreakdown.baseFee)}
+                      </Text>
+                      <Text style={styles.summaryDeliveryExtra}>
+                        +{formatCurrency(deliveryBreakdown.extraDistanceFee)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.summaryValue}>
+                      {formatCurrency(displayPricing.deliveryFee)}
+                    </Text>
+                  )}
                 </View>
                 {deliveryWhyText ? (
                   <Text style={styles.summaryDeliveryNote}>
@@ -1346,6 +1367,53 @@ export default function CartScreen() {
                       {formatCurrency(displayPricing.rainSurcharge ?? 0)}
                     </Text>
                   </View>
+                ) : null}
+                {(displayPricing.platformFee ?? 0) > 0 ? (
+                  <>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>
+                        {platformFeeLabel(platformFeeInfo)}
+                      </Text>
+                      <Text style={styles.summaryValue}>
+                        {formatCurrency(displayPricing.platformFee ?? 0)}
+                      </Text>
+                    </View>
+                    {platformFeeInfo?.note ? (
+                      <Text style={styles.summaryDeliveryNote}>
+                        {platformFeeInfo.note}
+                      </Text>
+                    ) : null}
+                  </>
+                ) : null}
+                {showPlatformFeeOptIn ? (
+                  <Pressable
+                    onPress={() => setPlatformFeeOptedIn(!platformFeeOptedIn)}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: platformFeeOptedIn }}
+                    style={styles.platformFeeOptInRow}
+                  >
+                    <View style={styles.platformFeeOptInCopy}>
+                      <Text style={styles.platformFeeOptInLabel}>
+                        {platformFeeLabel(platformFeeInfo)} +
+                        {formatCurrency(platformFeeInfo.amount)}
+                      </Text>
+                      {platformFeeInfo.note ? (
+                        <Text style={styles.platformFeeOptInNote}>
+                          {platformFeeInfo.note}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View
+                      style={[
+                        styles.platformFeeCheck,
+                        platformFeeOptedIn ? styles.platformFeeCheckOn : null,
+                      ]}
+                    >
+                      {platformFeeOptedIn ? (
+                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                      ) : null}
+                    </View>
+                  </Pressable>
                 ) : null}
                 <View style={styles.divider} />
                 <View style={styles.summaryRow}>

@@ -39,6 +39,11 @@ import {
 } from "@/src/hooks/use-customer-api";
 import { formatCurrency } from "@/src/lib/currency";
 import {
+  buildDeliveryWhyText,
+  hasDeliveryDistanceSurcharge,
+} from "@/src/lib/delivery-breakdown";
+import { platformFeeLabel } from "@/src/lib/platform-fee";
+import {
   getCustomerOrderStatusMeta,
   getLiveOrderJourneyIndex,
   getLiveOrderTrackingState,
@@ -626,7 +631,20 @@ export default function OrderTrackingScreen() {
     (order.status === "PickedUp"
       ? "Rider on the way"
       : "Waiting for assignment");
-  const riderPhone = order.riderSnapshot?.phone?.trim() || "";
+  // Admin can hide the rider's phone from customers (backend sends
+  // riderPhoneVisible=false and clears the number). Treat undefined as visible so
+  // older payloads keep working.
+  const riderPhone =
+    order.riderPhoneVisible === false
+      ? ""
+      : order.riderSnapshot?.phone?.trim() || "";
+  // Delivery-fee split persisted on the order (older orders lack it → flat fee). Shown
+  // the same way as the cart/checkout for a consistent "why this fee" breakdown.
+  const deliveryBreakdown = order.pricing?.deliveryBreakdown;
+  const deliveryWhyText = buildDeliveryWhyText(deliveryBreakdown);
+  // Admin-set platform fee charged on this order (0/absent on older orders → no line).
+  const platformFeeAmount = order.pricing?.platformFee ?? 0;
+  const platformFeeInfo = order.pricing?.platformFeeInfo;
   const restaurantName = restaurant?.name || "Restaurant";
   const canReviewOrder = order.status === "Delivered" && !order.customerReview;
   const canCancelOrder = canCancelCustomerOrder(order.status);
@@ -709,10 +727,24 @@ export default function OrderTrackingScreen() {
         </View>
         <View style={styles.paymentRow}>
           <Text style={styles.paymentLabel}>Delivery fee</Text>
-          <Text style={styles.paymentValue}>
-            {formatCurrency(order.pricing?.deliveryFee ?? 0)}
-          </Text>
+          {hasDeliveryDistanceSurcharge(deliveryBreakdown) ? (
+            <View style={styles.paymentDeliveryValueStack}>
+              <Text style={styles.paymentValue}>
+                {formatCurrency(deliveryBreakdown.baseFee)}
+              </Text>
+              <Text style={styles.paymentDeliveryExtra}>
+                +{formatCurrency(deliveryBreakdown.extraDistanceFee)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.paymentValue}>
+              {formatCurrency(order.pricing?.deliveryFee ?? 0)}
+            </Text>
+          )}
         </View>
+        {deliveryWhyText ? (
+          <Text style={styles.paymentDeliveryNote}>{deliveryWhyText}</Text>
+        ) : null}
         {(order.pricing?.rainSurcharge ?? 0) > 0 ? (
           <View style={styles.paymentRow}>
             <Text style={styles.paymentLabel}>Rain surcharge</Text>
@@ -720,6 +752,23 @@ export default function OrderTrackingScreen() {
               {formatCurrency(order.pricing?.rainSurcharge ?? 0)}
             </Text>
           </View>
+        ) : null}
+        {platformFeeAmount > 0 ? (
+          <>
+            <View style={styles.paymentRow}>
+              <Text style={styles.paymentLabel}>
+                {platformFeeLabel(platformFeeInfo)}
+              </Text>
+              <Text style={styles.paymentValue}>
+                {formatCurrency(platformFeeAmount)}
+              </Text>
+            </View>
+            {platformFeeInfo?.note ? (
+              <Text style={styles.paymentDeliveryNote}>
+                {platformFeeInfo.note}
+              </Text>
+            ) : null}
+          </>
         ) : null}
         {(order.pricing?.discountAmount ?? 0) > 0 ? (
           <View style={styles.paymentRow}>
@@ -847,8 +896,8 @@ export default function OrderTrackingScreen() {
           <RefreshControl
             refreshing={isManualRefreshing}
             onRefresh={handleManualRefresh}
-            tintColor={palette.primary}
-            colors={[palette.primary, palette.secondary, "#FF5C93"]}
+            tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
       >
@@ -1094,12 +1143,15 @@ export default function OrderTrackingScreen() {
                             )} left`
                           : "Preparing now"}
                     </Text>
-                    <Text style={styles.preparingRangeMeta}>
-                      {estimate?.supportingText ||
-                        (estimate
-                          ? "Based on the restaurant's live prep timer."
-                          : "Live rider updates start after pickup.")}
-                    </Text>
+                    {estimate?.supportingText ? (
+                      <Text style={styles.preparingRangeMeta}>
+                        {estimate.supportingText}
+                      </Text>
+                    ) : !estimate ? (
+                      <Text style={styles.preparingRangeMeta}>
+                        Live rider updates start after pickup.
+                      </Text>
+                    ) : null}
                     {estimate?.state === "delayed" &&
                     estimate.lateByMinutes >= 10 ? (
                       <Pressable
@@ -1122,18 +1174,18 @@ export default function OrderTrackingScreen() {
             </View>
           ) : order.status === "ReadyForPickup" ? (
             <View style={styles.readyPickupCard}>
-              <View style={styles.readyPickupPill}>
-                <Ionicons
-                  name="bicycle-outline"
-                  size={14}
-                  color={palette.primary}
-                />
-                <Text style={styles.readyPickupPillText}>
-                  {hasAssignedRider
-                    ? "Rider assigned for pickup"
-                    : "Waiting for rider assignment"}
-                </Text>
-              </View>
+              {!hasAssignedRider ? (
+                <View style={styles.readyPickupPill}>
+                  <Ionicons
+                    name="bicycle-outline"
+                    size={14}
+                    color={palette.secondary}
+                  />
+                  <Text style={styles.readyPickupPillText}>
+                    Waiting for rider assignment
+                  </Text>
+                </View>
+              ) : null}
               {hasAssignedRider ? (
                 <View style={styles.readyPickupAssignedChip}>
                   <View style={styles.readyPickupAssignedLeft}>
@@ -1148,19 +1200,20 @@ export default function OrderTrackingScreen() {
                     <Text style={styles.readyPickupAssignedLabel}>
                       Assigned rider
                     </Text>
-                    <View style={styles.readyPickupAssignedMetaRow}>
-                      <Text style={styles.readyPickupAssignedValue} numberOfLines={1}>
-                        {order.riderSnapshot?.name || "Rider assigned"}
+                    <Text
+                      style={styles.readyPickupAssignedValue}
+                      numberOfLines={1}
+                    >
+                      {order.riderSnapshot?.name || "Rider assigned"}
+                    </Text>
+                    {riderPhone ? (
+                      <Text
+                        style={styles.readyPickupAssignedPhone}
+                        numberOfLines={1}
+                      >
+                        {riderPhone}
                       </Text>
-                      {riderPhone ? (
-                        <>
-                          <View style={styles.readyPickupAssignedDot} />
-                          <Text style={styles.readyPickupAssignedPhone} numberOfLines={1}>
-                            {riderPhone}
-                          </Text>
-                        </>
-                      ) : null}
-                    </View>
+                    ) : null}
                   </View>
                   </View>
                   {riderPhone ? (

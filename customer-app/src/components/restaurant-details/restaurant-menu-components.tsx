@@ -666,7 +666,7 @@ export function InfoSheetRow({
   return (
     <View style={styles.infoSheetRow}>
       <View style={styles.infoSheetRowIcon}>
-        <Ionicons name={icon} size={16} color={palette.primary} />
+        <Ionicons name={icon} size={16} color={palette.secondary} />
       </View>
       <View style={styles.infoSheetRowCopy}>
         <Text style={styles.infoSheetRowLabel}>{label}</Text>

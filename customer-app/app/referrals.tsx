@@ -314,7 +314,8 @@ export default function ReferralsScreen() {
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={onRefresh}
-            tintColor={palette.primary}
+            tintColor={palette.secondary}
+            colors={[palette.secondary]}
           />
         }
       />

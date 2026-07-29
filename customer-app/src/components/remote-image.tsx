@@ -31,6 +31,8 @@ type Props = {
   fallbackIcon?: IoniconName;
   fallbackIconSize?: number;
   fallbackTint?: string;
+  /** Background behind the fallback icon (defaults to the neutral skeleton tint). */
+  fallbackBackground?: string;
   showSkeleton?: boolean;
   skeletonVariant?: "default" | "home-image";
   transition?: number;
@@ -54,6 +56,7 @@ export function RemoteImage({
   fallbackIcon = "image-outline",
   fallbackIconSize = 24,
   fallbackTint = palette.secondary,
+  fallbackBackground,
   showSkeleton = true,
   skeletonVariant = "default",
   transition = 180,
@@ -124,6 +127,7 @@ export function RemoteImage({
           style={[
             styles.fallback,
             skeletonVariant === "home-image" ? styles.homeImageFallback : null,
+            fallbackBackground ? { backgroundColor: fallbackBackground } : null,
           ]}
         >
           <Ionicons

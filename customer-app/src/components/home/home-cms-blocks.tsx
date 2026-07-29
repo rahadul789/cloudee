@@ -61,6 +61,20 @@ function isExternalHttpUrl(value?: string | null) {
   return typeof value === "string" && /^https?:\/\//i.test(value.trim());
 }
 
+// A carousel image shows the "Sponsored" badge only while it's enabled AND still within its
+// window — an empty `sponsoredUntil` means no expiry, otherwise it's hidden once that instant passes.
+function isCarouselSponsored(image: {
+  url?: string;
+  sponsored?: boolean;
+  sponsoredUntil?: string;
+}) {
+  if (image.sponsored !== true) return false;
+  const until = image.sponsoredUntil?.trim();
+  if (!until) return true;
+  const ts = Date.parse(until);
+  return Number.isNaN(ts) || ts > Date.now();
+}
+
 export function getBannerToneStyle(
   tone?: "sky" | "mint" | "amber" | "rose" | null,
 ) {
@@ -445,6 +459,14 @@ function HomeCmsPromoBlockBase({ cms }: { cms: CustomerHomeCms }) {
                     targetWidth={slideWidth}
                     accessibilityLabel="Foodbela offer banner"
                   />
+                  {isCarouselSponsored(image) ? (
+                    <View style={styles.cmsCarouselSponsored}>
+                      <Ionicons name="megaphone" size={9} color="#F4F6FB" />
+                      <Text style={styles.cmsCarouselSponsoredText}>
+                        Sponsored
+                      </Text>
+                    </View>
+                  ) : null}
                   {hasAction ? (
                     <View
                       style={[
@@ -877,10 +899,33 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#FFF0F6",
   },
+  // "Sponsored" ad-label pill, top-left of the slide (mirrors the Featured card's badge).
+  cmsCarouselSponsored: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    zIndex: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(20, 24, 35, 0.58)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.28)",
+  },
+  cmsCarouselSponsoredText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    color: "#F4F6FB",
+  },
   cmsCarouselButton: {
     position: "absolute",
     right: 12,
-    top: 12,
+    bottom: 12,
     minHeight: 34,
     flexDirection: "row",
     alignItems: "center",

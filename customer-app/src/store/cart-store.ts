@@ -41,6 +41,10 @@ type CartStore = {
   restaurant: RestaurantCartIdentity | null;
   items: CartItem[];
   reorderContext: CartReorderContext | null;
+  // Customer opted into the optional platform fee. Shared by cart + checkout so the choice
+  // (and toggle state) carries across the two screens. Deliberately NOT persisted — it's a
+  // per-session decision that resets with the cart.
+  platformFeeOptedIn: boolean;
   addItem: (input: AddCartItemInput) => void;
   replaceCart: (input: AddCartItemInput) => void;
   setCart: (input: {
@@ -48,6 +52,7 @@ type CartStore = {
     items: Omit<CartItem, "key">[];
   }) => void;
   setReorderContext: (context: CartReorderContext | null) => void;
+  setPlatformFeeOptedIn: (value: boolean) => void;
   syncPricing: (items: { key: string; unitPrice: number }[]) => void;
   updateQuantity: (key: string, quantity: number) => void;
   removeItem: (key: string) => void;
@@ -155,6 +160,7 @@ export const useCartStore = create<CartStore>()(
       restaurant: null,
       items: [],
       reorderContext: null,
+      platformFeeOptedIn: false,
       addItem: ({ restaurant, item }) =>
         set((state) => {
           const key = buildCartItemKey(item);
@@ -193,6 +199,10 @@ export const useCartStore = create<CartStore>()(
       setReorderContext: (context) =>
         set({
           reorderContext: context,
+        }),
+      setPlatformFeeOptedIn: (value) =>
+        set({
+          platformFeeOptedIn: value,
         }),
       syncPricing: (pricedItems) =>
         set((state) => {
@@ -239,7 +249,13 @@ export const useCartStore = create<CartStore>()(
             items: nextItems,
           };
         }),
-      clearCart: () => set({ restaurant: null, items: [], reorderContext: null }),
+      clearCart: () =>
+        set({
+          restaurant: null,
+          items: [],
+          reorderContext: null,
+          platformFeeOptedIn: false,
+        }),
     }),
     {
       name: "customer-cart-state",
