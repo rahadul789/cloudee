@@ -8,6 +8,7 @@ type OrderSeed = Omit<
   | "restaurantNetSales"
   | "customerPaidTotal"
   | "appliedVouchers"
+  | "isUrgent"
 > &
   Partial<
     Pick<
@@ -18,6 +19,7 @@ type OrderSeed = Omit<
       | "restaurantNetSales"
       | "customerPaidTotal"
       | "appliedVouchers"
+      | "isUrgent"
     >
   >
 
@@ -40,6 +42,7 @@ function withFinancialDefaults(order: OrderSeed): Order {
     restaurantNetSales,
     customerPaidTotal,
     appliedVouchers: order.appliedVouchers ?? [],
+    isUrgent: order.isUrgent ?? false,
   }
 }
 
