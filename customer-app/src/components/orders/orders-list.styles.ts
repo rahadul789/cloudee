@@ -241,6 +241,28 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
+  // Clear "this card is tappable → tracking" call-to-action footer.
+  activeTrackCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: "#FFEAF3",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  activeTrackCtaLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  activeTrackCtaText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+    color: palette.secondary,
+  },
   orderBottomRow: {
     flexDirection: "row",
     alignItems: "flex-end",

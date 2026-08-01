@@ -332,7 +332,14 @@ export default function OrdersScreen() {
       >
         <View style={styles.orderTop}>
           <View style={styles.orderMain}>
-            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+            <View style={styles.orderNumberRow}>
+              <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+              {order.isUrgent ? (
+                <View style={styles.urgentPill}>
+                  <Text style={styles.urgentPillText}>⚡ {t("orders.urgent")}</Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={styles.orderMeta}>
               {formatTime(getOrderPlacedAt(order)) || t("orders.justNow")} -{" "}
               {localizeDigits(String(order.itemsSnapshot?.length ?? 0))} {t("today.items")}
@@ -764,11 +771,30 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 6,
   },
+  orderNumberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   orderNumber: {
     fontSize: 17,
     lineHeight: 22,
     fontWeight: "900",
     color: palette.foreground,
+  },
+  urgentPill: {
+    minHeight: 22,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    backgroundColor: palette.warningSoft,
+  },
+  urgentPillText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: palette.warning,
   },
   orderMeta: {
     marginTop: 3,

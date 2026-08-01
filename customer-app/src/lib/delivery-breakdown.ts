@@ -35,7 +35,9 @@ export function buildDeliveryWhyText(
   const { distanceKm, baseFee, extraDistanceFee, extraDistanceKm } = breakdown;
   const distanceLabel =
     typeof distanceKm === "number" ? `${distanceKm} km` : null;
-  // Distance surcharge in effect (extra charged beyond the base): spell it out.
+  // Only explain the fee when a distance surcharge was actually charged on top of the
+  // base — spell out base + extra. A plain flat fee is self-explanatory, so we show NO
+  // note for it (keeps the delivery-fee row clean).
   if (extraDistanceFee > 0) {
     const extra =
       extraDistanceKm > 0
@@ -46,9 +48,5 @@ export function buildDeliveryWhyText(
       ? `${distanceLabel} · ${base} + ${extra}`
       : `${base} + ${extra}`;
   }
-  // Flat fee (current setup — no per-distance charge): still show the distance so the
-  // fee never reads as arbitrary.
-  return distanceLabel
-    ? `Flat fee · ${distanceLabel} from the restaurant`
-    : null;
+  return null;
 }

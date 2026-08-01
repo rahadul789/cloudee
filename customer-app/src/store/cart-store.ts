@@ -45,6 +45,9 @@ type CartStore = {
   // (and toggle state) carries across the two screens. Deliberately NOT persisted — it's a
   // per-session decision that resets with the cart.
   platformFeeOptedIn: boolean;
+  // Customer opted into urgent/priority delivery (checkout toggle). Same not-persisted,
+  // resets-with-cart semantics as the platform-fee opt-in.
+  urgentDeliveryOptedIn: boolean;
   addItem: (input: AddCartItemInput) => void;
   replaceCart: (input: AddCartItemInput) => void;
   setCart: (input: {
@@ -53,6 +56,7 @@ type CartStore = {
   }) => void;
   setReorderContext: (context: CartReorderContext | null) => void;
   setPlatformFeeOptedIn: (value: boolean) => void;
+  setUrgentDeliveryOptedIn: (value: boolean) => void;
   syncPricing: (items: { key: string; unitPrice: number }[]) => void;
   updateQuantity: (key: string, quantity: number) => void;
   removeItem: (key: string) => void;
@@ -161,6 +165,7 @@ export const useCartStore = create<CartStore>()(
       items: [],
       reorderContext: null,
       platformFeeOptedIn: false,
+      urgentDeliveryOptedIn: false,
       addItem: ({ restaurant, item }) =>
         set((state) => {
           const key = buildCartItemKey(item);
@@ -203,6 +208,10 @@ export const useCartStore = create<CartStore>()(
       setPlatformFeeOptedIn: (value) =>
         set({
           platformFeeOptedIn: value,
+        }),
+      setUrgentDeliveryOptedIn: (value) =>
+        set({
+          urgentDeliveryOptedIn: value,
         }),
       syncPricing: (pricedItems) =>
         set((state) => {
@@ -255,6 +264,7 @@ export const useCartStore = create<CartStore>()(
           items: [],
           reorderContext: null,
           platformFeeOptedIn: false,
+          urgentDeliveryOptedIn: false,
         }),
     }),
     {

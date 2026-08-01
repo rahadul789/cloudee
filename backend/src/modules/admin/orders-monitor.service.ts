@@ -2446,7 +2446,10 @@ async function executeAutoDispatchForReadyOrders(params: {
     status: "ReadyForPickup",
     ...buildOrderServiceAreaScopeFilter(params),
   })
-    .sort({ createdAt: 1 })
+    // Urgent orders get a rider FIRST (isUrgent desc puts true → false → missing on top),
+    // then oldest-first within each group — so when several are urgent, the earliest-placed
+    // urgent order is assigned first, but all urgent orders still outrank normal ones.
+    .sort({ isUrgent: -1, createdAt: 1 })
     .lean();
 
   let assigned = 0;
@@ -3213,6 +3216,7 @@ function mapAdminOrderListItem(
     id: String(order._id ?? ""),
     orderNumber: stringValue(order.orderNumber),
     status,
+    isUrgent: order.isUrgent === true,
     restaurantId: String(order.restaurantId ?? ""),
     restaurantName: stringValue(restaurant?.name, "Restaurant"),
     customerId: stringValue(order.customerId),
@@ -3321,6 +3325,7 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
         customerId: 1,
         orderNumber: 1,
         status: 1,
+        isUrgent: 1,
         terminalReason: 1,
         cancelledBy: 1,
         rejectionReason: 1,

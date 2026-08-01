@@ -25,6 +25,7 @@ import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { CardListSkeleton, ShimmerBlock } from "@/src/components/loading-skeleton";
 import { LiveOrderMap } from "@/src/components/orders/live-order-map";
+import { PriorityDeliveryBanner } from "@/src/components/orders/priority-delivery-banner";
 import { styles } from "@/src/components/orders/order-tracking.styles";
 import { PreparationRuntime, type PreparationEstimate } from "@/src/components/orders/preparation-runtime";
 import { ReadyForPickupIcon } from "@/src/components/orders/ready-for-pickup-icon";
@@ -43,6 +44,7 @@ import {
   hasDeliveryDistanceSurcharge,
 } from "@/src/lib/delivery-breakdown";
 import { platformFeeLabel } from "@/src/lib/platform-fee";
+import { isUrgentOrder, urgentDeliveryLabel } from "@/src/lib/urgent-delivery";
 import {
   getCustomerOrderStatusMeta,
   getLiveOrderJourneyIndex,
@@ -645,6 +647,13 @@ export default function OrderTrackingScreen() {
   // Admin-set platform fee charged on this order (0/absent on older orders → no line).
   const platformFeeAmount = order.pricing?.platformFee ?? 0;
   const platformFeeInfo = order.pricing?.platformFeeInfo;
+  const urgentDeliveryAmount = order.pricing?.urgentDeliveryFee ?? 0;
+  const urgentDeliveryInfo = order.pricing?.urgentDeliveryInfo;
+  // Show the priority reassurance only while the order is still in flight — once it is
+  // delivered/cancelled/rejected the priority no longer means anything to the customer.
+  const showPriorityBanner =
+    isUrgentOrder(order) &&
+    !["Delivered", "Cancelled", "Rejected"].includes(order.status);
   const restaurantName = restaurant?.name || "Restaurant";
   const canReviewOrder = order.status === "Delivered" && !order.customerReview;
   const canCancelOrder = canCancelCustomerOrder(order.status);
@@ -744,6 +753,14 @@ export default function OrderTrackingScreen() {
         </View>
         {deliveryWhyText ? (
           <Text style={styles.paymentDeliveryNote}>{deliveryWhyText}</Text>
+        ) : null}
+        {urgentDeliveryAmount > 0 ? (
+          <View style={styles.paymentSubRow}>
+            <Text style={styles.paymentSubLabel}>⚡ Priority</Text>
+            <Text style={styles.paymentSubValue}>
+              +{formatCurrency(urgentDeliveryAmount)}
+            </Text>
+          </View>
         ) : null}
         {(order.pricing?.rainSurcharge ?? 0) > 0 ? (
           <View style={styles.paymentRow}>
@@ -969,6 +986,12 @@ export default function OrderTrackingScreen() {
               </Text>
             </View>
           </View>
+        ) : null}
+
+        {showPriorityBanner ? (
+          <PriorityDeliveryBanner
+            label={urgentDeliveryLabel(urgentDeliveryInfo)}
+          />
         ) : null}
 
         {!isDeliveredOrder ? (

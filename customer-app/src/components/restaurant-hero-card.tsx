@@ -1,7 +1,8 @@
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -123,6 +124,23 @@ function RestaurantHeroCardComponent({
     onToggleFavorite();
   };
 
+  // A satisfying "pop" when the heart becomes a favourite (native-driver only). Tracked
+  // via a ref so already-favourited cards don't pop on mount/scroll.
+  const heartScale = useRef(new Animated.Value(1)).current;
+  const wasFavorite = useRef(isFavorite);
+  useEffect(() => {
+    if (isFavorite && !wasFavorite.current) {
+      heartScale.setValue(1.45);
+      Animated.spring(heartScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 4,
+        tension: 140,
+      }).start();
+    }
+    wasFavorite.current = isFavorite;
+  }, [isFavorite, heartScale]);
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -220,11 +238,13 @@ function RestaurantHeroCardComponent({
             accessibilityState={{ disabled: favoriteDisabled, selected: isFavorite }}
             hitSlop={8}
           >
-            <Ionicons
-              name={isFavorite ? "heart" : "heart-outline"}
-              size={15}
-              color={isFavorite ? "#fff" : palette.foreground}
-            />
+            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+              <Ionicons
+                name={isFavorite ? "heart" : "heart-outline"}
+                size={15}
+                color={isFavorite ? "#fff" : palette.foreground}
+              />
+            </Animated.View>
           </Pressable>
         </View>
 

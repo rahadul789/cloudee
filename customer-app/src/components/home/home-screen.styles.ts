@@ -128,18 +128,29 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  // Dark "neon" panel matching the order-tracking priority (urgent) card: deep ink base +
+  // amber neon border and glow. Static (no animation) so the always-visible panel has zero
+  // perf cost. The search bar (light pill) + category labels sit on top in light colours.
   searchCategoryPanel: {
     gap: 10,
     borderRadius: 24,
     padding: 10,
-    backgroundColor: "rgba(255,255,255,0.82)",
+    backgroundColor: "#211A2E",
     borderWidth: 1,
+    borderColor: "rgba(255,201,77,0.4)",
+    shadowColor: "#FFC94D",
+    shadowOpacity: 0.34,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  // Admin "light" preset — soft white panel (overrides the neon look). Category labels use
+  // the dark variant to stay readable on it.
+  searchCategoryPanelLight: {
+    backgroundColor: "rgba(255,255,255,0.9)",
     borderColor: "rgba(255,224,236,0.92)",
     shadowColor: "rgba(31,36,48,0.10)",
     shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
   },
   searchBar: {
     flexDirection: "row",
@@ -281,20 +292,49 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(17, 17, 26, 0.06)",
   },
-  homeCategoryMoreWrap: {
+  // Soft amber "hot pick" glow halo on the first (lead) category tile — a static shadow
+  // glow, no animation. Matches the featured look the user liked. (No border: the image
+  // fills the wrap and would cover it, so the halo is what reads as the ring.)
+  homeCategoryImageWrapFeatured: {
+    shadowColor: "#FFB020",
+    shadowOpacity: 0.95,
+    shadowRadius: 11,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  // "View all" cell: pulled a little closer to the last category tile.
+  homeCategoryMoreCard: {
+    marginLeft: -4,
+  },
+  // Image-height slot so the round button's label lines up with the category names.
+  homeCategoryMoreSlot: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Small round "view all" button — smaller than the 52px category tiles.
+  homeCategoryMoreButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: palette.secondary,
     alignItems: "center",
     justifyContent: "center",
-    borderColor: "transparent",
   },
   homeCategoryName: {
     width: "100%",
-    fontSize: 10.5,
+    fontSize: 10,
     lineHeight: 13,
-    fontWeight: "600",
+    fontWeight: "800",
     letterSpacing: 0.1,
-    color: "#2E2E38",
+    // Light for the dark neon panel.
+    color: "#ECE7F2",
     textAlign: "center",
+  },
+  // Dark label for the "light" search-panel preset.
+  homeCategoryNameLight: {
+    color: "#2E2E38",
   },
   // Skeleton mirrors the squircle cards so nothing shifts when the real categories load.
   homeCategorySkeletonRow: {

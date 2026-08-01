@@ -167,6 +167,9 @@ export default function OrderDetailsScreen() {
           </View>
           {order ? (
             <View style={styles.headerBadgeStack}>
+              {order.isUrgent ? (
+                <StatusPill label={`⚡ ${t("orders.urgent")}`} tone="warning" />
+              ) : null}
               <StatusPill
                 label={
                   isLate ? t("orders.late") : getLocalizedOrderStatusLabel(order.status, t)

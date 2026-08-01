@@ -45,8 +45,8 @@ export const styles = StyleSheet.create({
     backgroundColor: "#FFEAF3",
   },
   submitButtonPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.9,
+    transform: [{ scale: 0.96 }],
   },
   cardPressed: {
     opacity: 0.94,

@@ -85,6 +85,11 @@ type ZoneFormState = {
   platformFeePercentage: string
   platformFeeLabel: string
   platformFeeNote: string
+  urgentDeliveryOverride: boolean
+  urgentDeliveryEnabled: boolean
+  urgentDeliveryAmountTaka: string
+  urgentDeliveryLabel: string
+  urgentDeliveryNote: string
   autoAssignEnabled: boolean
   dispatchMode: "fleet" | "primary_rider"
   primaryRiderId: string
@@ -122,6 +127,11 @@ const defaultZoneForm: ZoneFormState = {
   platformFeePercentage: "0",
   platformFeeLabel: "Platform fee",
   platformFeeNote: "",
+  urgentDeliveryOverride: false,
+  urgentDeliveryEnabled: false,
+  urgentDeliveryAmountTaka: "0",
+  urgentDeliveryLabel: "Urgent delivery",
+  urgentDeliveryNote: "",
   autoAssignEnabled: true,
   dispatchMode: "fleet",
   primaryRiderId: "",
@@ -176,6 +186,14 @@ function zoneToForm(zone: AdminServiceZone): ZoneFormState {
     platformFeePercentage: String(zone.delivery?.platformFee?.percentage ?? "0"),
     platformFeeLabel: zone.delivery?.platformFee?.label ?? "Platform fee",
     platformFeeNote: zone.delivery?.platformFee?.note ?? "",
+    urgentDeliveryOverride: zone.delivery?.urgentDelivery?.override === true,
+    urgentDeliveryEnabled: zone.delivery?.urgentDelivery?.enabled === true,
+    urgentDeliveryAmountTaka: String(
+      zone.delivery?.urgentDelivery?.amountTaka ?? "0",
+    ),
+    urgentDeliveryLabel:
+      zone.delivery?.urgentDelivery?.label ?? "Urgent delivery",
+    urgentDeliveryNote: zone.delivery?.urgentDelivery?.note ?? "",
     autoAssignEnabled: zone.dispatch?.autoAssignEnabled !== false,
     dispatchMode:
       zone.dispatch?.dispatchMode === "primary_rider"
@@ -235,6 +253,16 @@ function buildZonePayload(form: ZoneFormState) {
         ),
         label: form.platformFeeLabel.trim() || "Platform fee",
         note: form.platformFeeNote.trim(),
+      },
+      urgentDelivery: {
+        override: form.urgentDeliveryOverride,
+        enabled: form.urgentDeliveryEnabled,
+        amountTaka: Math.max(
+          0,
+          Math.round(toNumber(form.urgentDeliveryAmountTaka, 0)),
+        ),
+        label: form.urgentDeliveryLabel.trim() || "Urgent delivery",
+        note: form.urgentDeliveryNote.trim(),
       },
     },
     dispatch: {
@@ -989,6 +1017,80 @@ export function ServiceAreasPage() {
                           setZoneForm((current) => ({
                             ...current,
                             platformFeeNote: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Override urgent delivery for this zone</Label>
+                    <p className="text-xs text-muted-foreground">
+                      When off, this zone uses the global urgent delivery (Settings).
+                      Turn on to set a different fee just for this area.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={zoneForm.urgentDeliveryOverride}
+                    onCheckedChange={(checked) =>
+                      setZoneForm((current) => ({
+                        ...current,
+                        urgentDeliveryOverride: checked,
+                      }))
+                    }
+                  />
+                </div>
+                {zoneForm.urgentDeliveryOverride ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="flex items-center justify-between rounded-md border p-3 sm:col-span-2">
+                      <Label>Enable urgent delivery in this zone</Label>
+                      <Switch
+                        checked={zoneForm.urgentDeliveryEnabled}
+                        onCheckedChange={(checked) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            urgentDeliveryEnabled: checked,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Amount (৳)</Label>
+                      <Input
+                        value={zoneForm.urgentDeliveryAmountTaka}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            urgentDeliveryAmountTaka: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Label shown to customer</Label>
+                      <Input
+                        value={zoneForm.urgentDeliveryLabel}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            urgentDeliveryLabel: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Note shown to customer (optional)</Label>
+                      <Textarea
+                        value={zoneForm.urgentDeliveryNote}
+                        rows={2}
+                        onChange={(event) =>
+                          setZoneForm((current) => ({
+                            ...current,
+                            urgentDeliveryNote: event.target.value,
                           }))
                         }
                       />

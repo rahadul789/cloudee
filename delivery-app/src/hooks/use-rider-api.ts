@@ -25,6 +25,7 @@ export type RiderOrder = {
   id: string;
   orderNumber: string;
   status: string;
+  isUrgent?: boolean;
   paymentMethod: string;
   paymentStatus: string;
   assignmentState?: "unassigned" | "assigned_to_you" | "assigned_to_other";
@@ -142,6 +143,7 @@ export type RiderLiveMapOrder = {
   id: string;
   orderNumber: string;
   status: string;
+  isUrgent?: boolean;
   assignmentState?: "unassigned" | "assigned_to_you" | "assigned_to_other";
   createdAt: string | null;
   updatedAt: string | null;

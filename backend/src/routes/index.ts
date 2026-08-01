@@ -4,6 +4,7 @@ import {
   createAdminWriteLimiter,
   createOwnerWriteLimiter,
 } from "../common/middleware/rate-limit";
+import { adminAccountDeletionRouter } from "../modules/admin/account-deletion.routes";
 import { adminAuthRouter } from "../modules/admin/admin.routes";
 import { adminCategoriesRouter } from "../modules/admin/categories.routes";
 import { adminCustomerAnalyticsRouter } from "../modules/admin/customer-analytics.routes";
@@ -56,6 +57,7 @@ apiRouter.use("/owner", ownerRouter);
 apiRouter.use("/owner", ownerPromotionsRouter);
 apiRouter.use("/admin/auth", adminAuthRouter);
 apiRouter.use("/admin", adminWriteLimiter);
+apiRouter.use("/admin", adminAccountDeletionRouter);
 apiRouter.use("/admin", adminCategoriesRouter);
 apiRouter.use("/admin", adminCustomerAnalyticsRouter);
 apiRouter.use("/admin", adminCustomersRouter);

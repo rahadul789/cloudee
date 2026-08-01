@@ -231,6 +231,9 @@ function homeRestaurantSectionSchema(
       isActive: z.boolean().optional().default(true),
       title: z.string().trim().optional().default(defaultTitle),
       subtitle: z.string().trim().optional().default(defaultSubtitle),
+      // Admin-set header emoji shown before the section title in the customer app
+      // (empty = no emoji). Kept short so it stays a single glyph or two.
+      emoji: z.string().trim().max(8).optional().default(""),
       source: z.enum(["auto", "manual"]).optional().default(defaultSource),
       selectedRestaurantIds: z.array(z.string().trim()).optional().default([]),
       maxItems: z.number().int().min(1).max(20).optional().default(defaultMaxItems),
@@ -243,6 +246,7 @@ function homeRestaurantSectionSchema(
       isActive: true,
       title: defaultTitle,
       subtitle: defaultSubtitle,
+      emoji: "",
       source: defaultSource,
       selectedRestaurantIds: [],
       maxItems: defaultMaxItems,
@@ -369,6 +373,7 @@ const platformContentSchema = z.object({
             isActive: true,
             title: "Featured restaurants",
             subtitle: "Featured picks for you",
+            emoji: "",
             source: "manual",
             selectedRestaurantIds: [],
             maxItems: 6,
@@ -380,6 +385,7 @@ const platformContentSchema = z.object({
             isActive: true,
             title: "Offers for you",
             subtitle: "Places with deals you can use today.",
+            emoji: "",
             source: "auto",
             selectedRestaurantIds: [],
             maxItems: 8,
@@ -391,6 +397,7 @@ const platformContentSchema = z.object({
             isActive: true,
             title: "Discover new places",
             subtitle: "Fresh restaurants you may not have tried yet.",
+            emoji: "",
             source: "auto",
             selectedRestaurantIds: [],
             maxItems: 6,
@@ -402,6 +409,7 @@ const platformContentSchema = z.object({
             isActive: true,
             title: "Popular restaurants",
             subtitle: "Most ordered and top rated places on Foodbela.",
+            emoji: "",
             source: "auto",
             selectedRestaurantIds: [],
             maxItems: 6,
@@ -413,6 +421,7 @@ const platformContentSchema = z.object({
             isActive: true,
             title: "Nearby",
             subtitle: "Places deliver near your selected pin.",
+            emoji: "",
             source: "auto",
             selectedRestaurantIds: [],
             maxItems: 8,
@@ -466,6 +475,33 @@ const platformContentSchema = z.object({
           maxItems: 8,
           windows: [],
         }),
+      // Backend-driven order of the three "top" home sections. The customer app renders
+      // them in exactly this order (any missing key is appended in the default order, so
+      // it is always unambiguous). Default preserves the current layout: time-based above
+      // featured, then offers.
+      topSectionOrder: z
+        .array(z.enum(["featured", "timeBased", "offers"]))
+        .optional()
+        .default(["timeBased", "featured", "offers"]),
+      // Look of the home search + categories panel and the offer cards. `preset` is a colour
+      // preset id (or "custom" with `customColor`); `mode: "random"` rotates presets on a
+      // 5-hour bucket. Defaults keep the current neon look. The app owns the preset palette.
+      searchPanelTheme: z
+        .object({
+          mode: z.enum(["manual", "random"]).optional().default("manual"),
+          preset: z.string().trim().max(30).optional().default("neon"),
+          customColor: z.string().trim().max(20).optional().default("#211A2E"),
+        })
+        .optional()
+        .default({ mode: "manual", preset: "neon", customColor: "#211A2E" }),
+      offerPanelTheme: z
+        .object({
+          mode: z.enum(["manual", "random"]).optional().default("manual"),
+          preset: z.string().trim().max(30).optional().default("neon"),
+          customColor: z.string().trim().max(20).optional().default("#211A2E"),
+        })
+        .optional()
+        .default({ mode: "manual", preset: "neon", customColor: "#211A2E" }),
       cartRecommendations: z
         .object({
           isActive: z.boolean().optional().default(true),
@@ -715,6 +751,37 @@ const platformContentSchema = z.object({
         percentage: 0,
         label: "Platform fee",
         note: "",
+      }),
+    // Urgent/priority delivery: a customer-facing OPT-IN add-on fee (the customer chooses
+    // it at checkout for a faster/prioritised delivery). OFF by default. Global default
+    // here; a service zone can override it (ServiceZone.delivery.urgentDelivery).
+    urgentDelivery: z
+      .object({
+        enabled: z.boolean().optional().default(false),
+        amountTaka: z.number().int().min(0).max(100000).optional().default(0),
+        label: z.string().trim().max(60).optional().default("Urgent delivery"),
+        note: z.string().trim().max(160).optional().default(""),
+      })
+      .optional()
+      .default({
+        enabled: false,
+        amountTaka: 0,
+        label: "Urgent delivery",
+        note: "",
+      }),
+    // Account/data deletion request flow (Google Play compliance). Lets a customer submit
+    // their phone number in-app to request account deletion; the request lands in a review
+    // queue that admins action manually. ON by default so the compliant path always exists;
+    // disabling it hides the in-app section entirely.
+    accountDeletion: z
+      .object({
+        enabled: z.boolean().optional().default(true),
+        reviewDays: z.number().int().min(0).max(90).optional().default(7),
+      })
+      .optional()
+      .default({
+        enabled: true,
+        reviewDays: 7,
       }),
     // Platform-wide minimum order amount (Taka) applied to the customer item subtotal.
     // 0 = no minimum. restaurant.commercial.minimumOrderAmount overrides per restaurant.
@@ -1361,6 +1428,9 @@ function buildHomeCmsAreaOverride(homeCms: PlatformContent["customerApp"]["homeC
     homeCategories: normalizedHomeCms.homeCategories,
     restaurantSections: normalizedHomeCms.restaurantSections,
     timeBasedSection: normalizedHomeCms.timeBasedSection,
+    topSectionOrder: normalizedHomeCms.topSectionOrder,
+    searchPanelTheme: normalizedHomeCms.searchPanelTheme,
+    offerPanelTheme: normalizedHomeCms.offerPanelTheme,
     cartRecommendations: normalizedHomeCms.cartRecommendations,
     modal: normalizedHomeCms.modal,
     howToOrderGuide: normalizedHomeCms.howToOrderGuide,

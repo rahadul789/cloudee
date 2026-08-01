@@ -352,6 +352,13 @@ export type AdminServiceZone = {
       label?: string
       note?: string
     }
+    urgentDelivery?: {
+      override?: boolean
+      enabled?: boolean
+      amountTaka?: number
+      label?: string
+      note?: string
+    }
   }
   dispatch: {
     autoAssignEnabled?: boolean
@@ -3860,6 +3867,7 @@ export type AdminOrderListItem = {
   id: string
   orderNumber: string
   status: string
+  isUrgent: boolean
   restaurantId: string
   restaurantName: string
   customerId: string
@@ -4259,10 +4267,17 @@ export type AdminCustomerStatusUpdate = {
   updatedAt: string | null
 }
 
+export type PlatformContentPanelTheme = {
+  mode?: "manual" | "random"
+  preset?: string
+  customColor?: string
+}
+
 export type PlatformContentHomeRestaurantSection = {
   isActive?: boolean
   title: string
   subtitle: string
+  emoji?: string
   source?: "auto" | "manual"
   selectedRestaurantIds?: string[]
   maxItems?: number
@@ -4380,6 +4395,9 @@ export type PlatformContent = {
         nearby: PlatformContentHomeRestaurantSection
       }
       timeBasedSection?: PlatformContentTimeBasedSection
+      topSectionOrder?: ("featured" | "timeBased" | "offers")[]
+      searchPanelTheme?: PlatformContentPanelTheme
+      offerPanelTheme?: PlatformContentPanelTheme
       cartRecommendations?: PlatformContentCartRecommendations
       modal: {
         isActive: boolean
@@ -4568,6 +4586,16 @@ export type PlatformContent = {
       percentage: number
       label: string
       note: string
+    }
+    urgentDelivery?: {
+      enabled: boolean
+      amountTaka: number
+      label: string
+      note: string
+    }
+    accountDeletion?: {
+      enabled: boolean
+      reviewDays: number
     }
     minimumOrderAmount: number
     serviceHours: {
@@ -7341,6 +7369,75 @@ export async function updateAdminRestaurantMinimumOrder(params: {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ minimumOrderAmount: params.minimumOrderAmount }),
   })
+  return response.data
+}
+
+export type AdminAccountDeletionStatus =
+  | "pending"
+  | "reviewing"
+  | "completed"
+  | "rejected"
+
+export type AdminAccountDeletionRequest = {
+  id: string
+  phone: string
+  customerId: string | null
+  customerName: string
+  reason: string
+  status: AdminAccountDeletionStatus
+  reviewDays: number
+  source: string
+  adminNote: string
+  handledByAdminId: string
+  handledAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type AdminAccountDeletionListResponse = {
+  items: AdminAccountDeletionRequest[]
+  total: number
+  page: number
+  pageSize: number
+  pendingCount: number
+  config: {
+    enabled: boolean
+    reviewDays: number
+  }
+}
+
+export async function fetchAdminAccountDeletionRequests(params?: {
+  status?: "all" | AdminAccountDeletionStatus
+  page?: number
+  pageSize?: number
+}) {
+  const search = new URLSearchParams()
+  if (params?.status) search.set("status", params.status)
+  if (params?.page) search.set("page", String(params.page))
+  if (params?.pageSize) search.set("pageSize", String(params.pageSize))
+  const qs = search.toString()
+  const response = await adminRequest<AdminAccountDeletionListResponse>(
+    `/admin/account-deletion-requests${qs ? `?${qs}` : ""}`,
+  )
+  return response.data
+}
+
+export async function updateAdminAccountDeletionRequest(params: {
+  id: string
+  status: AdminAccountDeletionStatus
+  adminNote?: string
+}) {
+  const response = await adminRequest<AdminAccountDeletionRequest>(
+    `/admin/account-deletion-requests/${params.id}`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        status: params.status,
+        adminNote: params.adminNote,
+      }),
+    },
+  )
   return response.data
 }
 

@@ -119,6 +119,7 @@ export type OwnerOrder = {
   _id: string;
   orderNumber: string;
   status: OwnerOrderStatus;
+  isUrgent?: boolean;
   paymentMethod: string;
   createdAt?: string;
   updatedAt?: string;

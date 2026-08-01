@@ -83,6 +83,20 @@ const serviceZoneSchema = new Schema(
               { _id: false }
             ),
             default: () => ({})
+          },
+          // Per-zone override of the global operations.urgentDelivery (opt-in add-on).
+          urgentDelivery: {
+            type: new Schema(
+              {
+                override: { type: Boolean, default: false },
+                enabled: { type: Boolean, default: false },
+                amountTaka: { type: Number, default: 0, min: 0 },
+                label: { type: String, default: "Urgent delivery", trim: true },
+                note: { type: String, default: "", trim: true }
+              },
+              { _id: false }
+            ),
+            default: () => ({})
           }
         },
         { _id: false }

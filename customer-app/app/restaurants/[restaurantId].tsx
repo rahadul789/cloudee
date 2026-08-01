@@ -2233,6 +2233,7 @@ export default function RestaurantDetailsScreen() {
                   onPressIn={() => {
                     setQuantity((current) => current + 1);
                     setCustomQuantityBurstKey((current) => current + 1);
+                    void Haptics.selectionAsync().catch(() => undefined);
                   }}
                 >
                   <Ionicons name="add" size={16} color={palette.surface} />
@@ -2263,7 +2264,13 @@ export default function RestaurantDetailsScreen() {
                   if (addInFlightRef.current) return;
                   addInFlightRef.current = true;
                   const didAdd = handleAddToCart();
-                  if (!didAdd) {
+                  if (didAdd) {
+                    // Satisfying "added!" confirmation. The action stays on press-in (the
+                    // documented modal-first-tap fix); this is the button's tactile effect.
+                    void Haptics.notificationAsync(
+                      Haptics.NotificationFeedbackType.Success,
+                    ).catch(() => undefined);
+                  } else {
                     addInFlightRef.current = false;
                   }
                 }}

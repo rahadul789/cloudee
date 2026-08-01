@@ -369,13 +369,6 @@ export const OrderCard = memo(function OrderCard({
             </View>
             <View style={styles.activeProgressAmountRow}>
               <Text style={styles.orderTotal}>{card.totalLabel}</Text>
-              <View style={styles.activeOpenCue}>
-                <Ionicons
-                  name="chevron-forward"
-                  size={14}
-                  color={palette.secondary}
-                />
-              </View>
             </View>
           </View>
 
@@ -431,6 +424,16 @@ export const OrderCard = memo(function OrderCard({
               {card.deliveryAddress}
             </Text>
           </View>
+        </View>
+
+        <View style={styles.activeTrackCta}>
+          <View style={styles.activeTrackCtaLeft}>
+            <Ionicons name="navigate" size={15} color={palette.secondary} />
+            <Text style={styles.activeTrackCtaText}>
+              Tap to track your order
+            </Text>
+          </View>
+          <Ionicons name="arrow-forward" size={16} color={palette.secondary} />
         </View>
       </Pressable>
     );

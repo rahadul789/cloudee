@@ -2106,6 +2106,14 @@ export function OrdersPage() {
                           <span className="block text-xs text-muted-foreground">
                             {formatDate(order.createdAt)}
                           </span>
+                          {order.isUrgent ? (
+                            <Badge
+                              variant="outline"
+                              className="mt-1 mr-1 border-amber-300 bg-amber-50 font-semibold text-amber-800"
+                            >
+                              ⚡ Urgent
+                            </Badge>
+                          ) : null}
                           {order.voucherCodes?.length ? (
                             <Badge
                               variant="outline"

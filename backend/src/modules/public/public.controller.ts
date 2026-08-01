@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { AuthenticatedRequest } from "../../common/middleware/auth"
 import { sendSuccess } from "../../common/utils/api-response"
 import { asyncHandler } from "../../common/utils/async-handler"
+import { submitAccountDeletionRequest } from "../customer/account-deletion.service"
 import { getPlatformContent, recordCustomerHomeCmsEvent } from "./content.service"
 
 const homeCmsEventSchema = z.object({
@@ -40,5 +41,16 @@ export const postCustomerHomeCmsEvent = asyncHandler(async (req: AuthenticatedRe
     ...payload,
     customerId: req.user?.role === "customer" ? req.user.id : undefined,
   })
+  return sendSuccess(res, { data })
+})
+
+const accountDeletionRequestSchema = z.object({
+  phone: z.string().trim().min(6).max(32),
+  reason: z.string().trim().max(500).optional(),
+})
+
+export const postAccountDeletionRequest = asyncHandler(async (req: Request, res: Response) => {
+  const payload = accountDeletionRequestSchema.parse(req.body)
+  const data = await submitAccountDeletionRequest(payload)
   return sendSuccess(res, { data })
 })

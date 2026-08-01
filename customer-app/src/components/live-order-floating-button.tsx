@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useCustomerActiveOrderQuery } from "@/src/hooks/use-customer-api";
+import { isUrgentOrder } from "@/src/lib/urgent-delivery";
 
 const LIVE_STATUSES = ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"];
 const BUTTON_SIZE = 54;
@@ -36,6 +37,9 @@ export function LiveOrderFloatingButton() {
   const ignorePressUntilRef = useRef(0);
   const activeOrderQuery = useCustomerActiveOrderQuery();
   const order = activeOrderQuery.data;
+  // A live URGENT order borrows the priority amber + bolt so it matches the tracking
+  // banner (yellow = priority). Normal live orders keep the pink neon.
+  const urgent = isUrgentOrder(order);
   const isTabsScreen = segments[0] === "(tabs)";
   const bottomOffset = isTabsScreen
     ? Math.max(insets.bottom, 12) + 102
@@ -195,6 +199,7 @@ export function LiveOrderFloatingButton() {
         pointerEvents="none"
         style={[
           styles.liveRing,
+          urgent ? styles.liveRingUrgent : null,
           {
             opacity: breatheOpacity,
             transform: [{ scale: breatheScale }],
@@ -204,6 +209,7 @@ export function LiveOrderFloatingButton() {
       <Pressable
         style={({ pressed }) => [
           styles.button,
+          urgent ? styles.buttonUrgent : null,
           pressed ? styles.buttonPressed : null,
         ]}
         onPress={() => {
@@ -217,9 +223,13 @@ export function LiveOrderFloatingButton() {
           });
         }}
       >
-        <View style={styles.buttonSheen} />
-        <View style={styles.iconCore}>
-          <Ionicons name="radio-outline" size={19} color="#FFFFFF" />
+        <View style={[styles.buttonSheen, urgent ? styles.buttonSheenUrgent : null]} />
+        <View style={[styles.iconCore, urgent ? styles.iconCoreUrgent : null]}>
+          <Ionicons
+            name={urgent ? "flash" : "radio-outline"}
+            size={19}
+            color={urgent ? "#1B1426" : "#FFFFFF"}
+          />
         </View>
         <View style={styles.liveDot} />
       </Pressable>
@@ -250,6 +260,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 99, 146, 0.46)",
     backgroundColor: "rgba(255, 255, 255, 0.34)",
   },
+  liveRingUrgent: {
+    borderColor: "rgba(255, 201, 77, 0.6)",
+  },
   button: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
@@ -260,6 +273,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 99, 146, 0.22)",
     overflow: "hidden",
+  },
+  buttonUrgent: {
+    borderColor: "rgba(255, 201, 77, 0.32)",
   },
   buttonPressed: {
     transform: [{ scale: 0.96 }],
@@ -274,6 +290,9 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     backgroundColor: "rgba(255, 99, 146, 0.12)",
   },
+  buttonSheenUrgent: {
+    backgroundColor: "rgba(255, 201, 77, 0.16)",
+  },
   iconCore: {
     width: 35,
     height: 35,
@@ -281,6 +300,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FF6392",
+  },
+  iconCoreUrgent: {
+    backgroundColor: "#FFC94D",
   },
   liveDot: {
     position: "absolute",

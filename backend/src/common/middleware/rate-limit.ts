@@ -446,6 +446,18 @@ export function createSupportWriteLimiter(): RequestHandler {
   });
 }
 
+export function createAccountDeletionLimiter(): RequestHandler {
+  return buildLimiter({
+    id: "account.deletion_request",
+    label: "Account deletion requests",
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    fieldNames: ["phone"],
+    message: "Too many deletion requests. Please try again later.",
+    event: "account.deletion_request.rate_limited",
+  });
+}
+
 export function createPaymentLimiter(): RequestHandler {
   return buildLimiter({
     id: "payment.initiate",

@@ -81,6 +81,15 @@ const zonePayloadSchema = z.object({
           label: z.string().trim().max(60).optional(),
           note: z.string().trim().max(160).optional()
         })
+        .optional(),
+      urgentDelivery: z
+        .object({
+          override: z.boolean().optional(),
+          enabled: z.boolean().optional(),
+          amountTaka: z.coerce.number().min(0).optional(),
+          label: z.string().trim().max(60).optional(),
+          note: z.string().trim().max(160).optional()
+        })
         .optional()
     })
     .optional(),

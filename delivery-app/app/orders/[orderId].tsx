@@ -1161,6 +1161,11 @@ export default function RiderOrderDetailsScreen() {
                 <Text style={styles.peekOrderValue} numberOfLines={1}>
                   {order.orderNumber}
                 </Text>
+                {order.isUrgent ? (
+                  <View style={styles.urgentChip}>
+                    <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
+                  </View>
+                ) : null}
               </View>
               <View
                 style={[
@@ -2121,6 +2126,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "900",
     color: palette.foreground,
+  },
+  urgentChip: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    backgroundColor: palette.warningSoft,
+    borderColor: palette.warning,
+  },
+  urgentChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: palette.warning,
   },
   tripModeChip: {
     maxWidth: 150,

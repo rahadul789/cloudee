@@ -46,6 +46,7 @@ import {
   getAdminZoneScope,
   subscribeAdminZoneScope,
 } from "@/lib/admin-zone-scope"
+import { AccountDeletionRequestsCard } from "@/components/account-deletion-requests-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -587,6 +588,38 @@ function ensurePlatformFeeSettings(content: PlatformContent) {
     ...(content.operations.platformFee ?? {}),
   }
   return content.operations.platformFee
+}
+
+const defaultUrgentDeliverySettings: NonNullable<
+  PlatformContent["operations"]["urgentDelivery"]
+> = {
+  enabled: false,
+  amountTaka: 0,
+  label: "Urgent delivery",
+  note: "",
+}
+
+function ensureUrgentDeliverySettings(content: PlatformContent) {
+  content.operations.urgentDelivery = {
+    ...defaultUrgentDeliverySettings,
+    ...(content.operations.urgentDelivery ?? {}),
+  }
+  return content.operations.urgentDelivery
+}
+
+const defaultAccountDeletionSettings: NonNullable<
+  PlatformContent["operations"]["accountDeletion"]
+> = {
+  enabled: true,
+  reviewDays: 7,
+}
+
+function ensureAccountDeletionSettings(content: PlatformContent) {
+  content.operations.accountDeletion = {
+    ...defaultAccountDeletionSettings,
+    ...(content.operations.accountDeletion ?? {}),
+  }
+  return content.operations.accountDeletion
 }
 
 function ensureCustomOfferSettings(content: PlatformContent) {
@@ -1805,6 +1838,14 @@ export function SettingsPage() {
     ...defaultPlatformFeeSettings,
     ...(draft.operations.platformFee ?? {}),
   }
+  const urgentDelivery = {
+    ...defaultUrgentDeliverySettings,
+    ...(draft.operations.urgentDelivery ?? {}),
+  }
+  const accountDeletion = {
+    ...defaultAccountDeletionSettings,
+    ...(draft.operations.accountDeletion ?? {}),
+  }
   const minimumOrderAmount =
     typeof draft.operations.minimumOrderAmount === "number"
       ? draft.operations.minimumOrderAmount
@@ -2395,6 +2436,152 @@ export function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Coins className="size-4" />
+                    Urgent delivery
+                  </CardTitle>
+                  <CardDescription>
+                    An opt-in &ldquo;faster / priority delivery&rdquo; add-on the customer
+                    can choose at checkout (default OFF). Platform-wide default — a service
+                    zone can override it in Service Areas. <b>Only turn it on once you can
+                    actually prioritise urgent orders</b> (assigned to a rider first,
+                    prepared first), otherwise it&rsquo;s a promise you can&rsquo;t keep.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Enable urgent delivery"
+                    description="When off, the option is hidden at checkout."
+                  >
+                    <Switch
+                      checked={urgentDelivery.enabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureUrgentDeliverySettings(content).enabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Amount (৳)"
+                    description="Extra fee added when the customer opts into urgent delivery."
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100000}
+                      step={1}
+                      className="w-32"
+                      value={urgentDelivery.amountTaka}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureUrgentDeliverySettings(content).amountTaka = clampNumber(
+                            Math.round(
+                              numberFromInput(
+                                event.target.value,
+                                urgentDelivery.amountTaka,
+                              ),
+                            ),
+                            0,
+                            100000,
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <div className="space-y-1.5">
+                    <Label>Label shown to customer</Label>
+                    <Input
+                      value={urgentDelivery.label}
+                      placeholder="Urgent delivery"
+                      maxLength={60}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureUrgentDeliverySettings(content).label =
+                            event.target.value
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Note shown to customer (optional)</Label>
+                    <Input
+                      value={urgentDelivery.note}
+                      placeholder="e.g. We'll prioritise your order for a faster delivery."
+                      maxLength={160}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureUrgentDeliverySettings(content).note =
+                            event.target.value
+                        })
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Trash2 className="size-4" />
+                    Account deletion (Play compliance)
+                  </CardTitle>
+                  <CardDescription>
+                    Lets a customer request account/data deletion from the app&rsquo;s
+                    Privacy screen (required by Google Play). Requests land in{" "}
+                    <b>Account deletion requests</b> for manual review. When disabled, the
+                    in-app deletion section is hidden entirely.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Enable in-app deletion requests"
+                    description="When off, customers won't see the deletion section on the Privacy screen."
+                  >
+                    <Switch
+                      checked={accountDeletion.enabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureAccountDeletionSettings(content).enabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Review period (days)"
+                    description="Shown to the customer as how long their request stays under review."
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={90}
+                      step={1}
+                      className="w-32"
+                      value={accountDeletion.reviewDays}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureAccountDeletionSettings(content).reviewDays =
+                            clampNumber(
+                              Math.round(
+                                numberFromInput(
+                                  event.target.value,
+                                  accountDeletion.reviewDays,
+                                ),
+                              ),
+                              0,
+                              90,
+                            )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                </CardContent>
+              </Card>
+
+              <AccountDeletionRequestsCard />
 
               <Card>
                 <CardHeader>

@@ -814,6 +814,7 @@ export default function BrowseScreen() {
                               fallbackIcon="restaurant-outline"
                               fallbackIconSize={18}
                               fallbackTint={palette.secondary}
+                              targetWidth={96}
                               accessibilityLabel={`${restaurant.name} restaurant photo`}
                             />
                           </View>

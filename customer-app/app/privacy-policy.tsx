@@ -1,9 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "@/src/components/screen";
+import {
+  useCustomerAccountDeletionConfigQuery,
+  useCustomerProfileQuery,
+  useSubmitAccountDeletionRequestMutation,
+} from "@/src/hooks/use-customer-api";
 import { palette } from "@/src/theme/palette";
 
 const privacyItems = [
@@ -39,6 +53,44 @@ const controlItems = [
 export default function PrivacyPolicyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  const deletionConfigQuery = useCustomerAccountDeletionConfigQuery();
+  const profileQuery = useCustomerProfileQuery();
+  const deletionMutation = useSubmitAccountDeletionRequestMutation();
+
+  const [deletionPhone, setDeletionPhone] = useState("");
+  const [deletionReason, setDeletionReason] = useState("");
+  const [deletionSubmitted, setDeletionSubmitted] = useState(false);
+
+  const deletionEnabled = deletionConfigQuery.data?.enabled ?? true;
+  const reviewDays = deletionConfigQuery.data?.reviewDays ?? 7;
+
+  // Prefill with the signed-in customer's number (they can still edit it).
+  useEffect(() => {
+    const profilePhone = profileQuery.data?.phone;
+    if (profilePhone && deletionPhone.length === 0) {
+      setDeletionPhone(profilePhone);
+    }
+  }, [profileQuery.data?.phone, deletionPhone.length]);
+
+  const trimmedPhone = deletionPhone.trim();
+  const canSubmitDeletion =
+    trimmedPhone.replace(/\D/g, "").length >= 6 && !deletionMutation.isPending;
+
+  const handleSubmitDeletion = () => {
+    if (!canSubmitDeletion) return;
+    deletionMutation.mutate(
+      {
+        phone: trimmedPhone,
+        reason: deletionReason.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setDeletionSubmitted(true);
+        },
+      },
+    );
+  };
 
   return (
     <Screen>
@@ -127,6 +179,90 @@ export default function PrivacyPolicyScreen() {
             ))}
           </View>
         </View>
+
+        {deletionEnabled ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Delete your account</Text>
+            {deletionSubmitted ? (
+              <View style={styles.deletionSuccessCard}>
+                <View style={styles.deletionSuccessIcon}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={22}
+                    color={palette.mint}
+                  />
+                </View>
+                <Text style={styles.deletionSuccessTitle}>
+                  Request received
+                </Text>
+                <Text style={styles.deletionSuccessText}>
+                  Your account deletion request is now under review
+                  {reviewDays > 0 ? ` for up to ${reviewDays} days` : ""}. Our team
+                  will verify and process it. You can keep using the app until then.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.deletionPanel}>
+                <Text style={styles.deletionBody}>
+                  Request deletion of your account and personal data. Enter your
+                  registered phone number and we&apos;ll review the request
+                  {reviewDays > 0 ? ` within ${reviewDays} days` : " shortly"}.
+                </Text>
+                <View style={styles.deletionField}>
+                  <Text style={styles.deletionLabel}>Phone number</Text>
+                  <TextInput
+                    style={styles.deletionInput}
+                    value={deletionPhone}
+                    onChangeText={setDeletionPhone}
+                    placeholder="01XXXXXXXXX"
+                    placeholderTextColor={palette.mutedForeground}
+                    keyboardType="phone-pad"
+                    autoCapitalize="none"
+                    editable={!deletionMutation.isPending}
+                  />
+                </View>
+                <View style={styles.deletionField}>
+                  <Text style={styles.deletionLabel}>Reason (optional)</Text>
+                  <TextInput
+                    style={[styles.deletionInput, styles.deletionInputMultiline]}
+                    value={deletionReason}
+                    onChangeText={setDeletionReason}
+                    placeholder="Tell us why (optional)"
+                    placeholderTextColor={palette.mutedForeground}
+                    multiline
+                    maxLength={500}
+                    editable={!deletionMutation.isPending}
+                  />
+                </View>
+                {deletionMutation.isError ? (
+                  <Text style={styles.deletionError}>
+                    Could not submit your request. Please check the number and try
+                    again.
+                  </Text>
+                ) : null}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.deletionButton,
+                    !canSubmitDeletion ? styles.deletionButtonDisabled : null,
+                    pressed && canSubmitDeletion
+                      ? { transform: [{ scale: 0.985 }, { translateY: 1 }], opacity: 0.96 }
+                      : null,
+                  ]}
+                  onPress={handleSubmitDeletion}
+                  disabled={!canSubmitDeletion}
+                >
+                  {deletionMutation.isPending ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.deletionButtonText}>
+                      Request account deletion
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            )}
+          </View>
+        ) : null}
 
         <View style={styles.actionPanel}>
           <View style={styles.actionCopy}>
@@ -298,6 +434,96 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: "600",
     color: palette.foreground,
+  },
+  deletionPanel: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 16,
+    gap: 12,
+  },
+  deletionBody: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "500",
+    color: palette.mutedForeground,
+  },
+  deletionField: {
+    gap: 6,
+  },
+  deletionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  deletionInput: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.background,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontWeight: "600",
+    color: palette.foreground,
+  },
+  deletionInputMultiline: {
+    minHeight: 76,
+    textAlignVertical: "top",
+  },
+  deletionError: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#D6336C",
+  },
+  deletionButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: "#D6336C",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  deletionButtonDisabled: {
+    opacity: 0.5,
+  },
+  deletionButtonText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  deletionSuccessCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#BFEBD5",
+    backgroundColor: palette.successSurface,
+    padding: 18,
+    gap: 8,
+  },
+  deletionSuccessIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#DCF5E9",
+  },
+  deletionSuccessTitle: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  deletionSuccessText: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "500",
+    color: palette.mutedForeground,
   },
   actionPanel: {
     borderRadius: 26,

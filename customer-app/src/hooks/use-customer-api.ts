@@ -15,6 +15,7 @@ import {
 } from "@/src/lib/customer-push-token-store";
 import type { CustomerDeliveryBreakdown } from "@/src/lib/delivery-breakdown";
 import type { CustomerPlatformFeeInfo } from "@/src/lib/platform-fee";
+import type { CustomerUrgentDeliveryInfo } from "@/src/lib/urgent-delivery";
 import { buildQueryString, compactQueryParams } from "@/src/lib/query-params";
 import type { SavedLocationServiceArea } from "@/src/types/location";
 import type {
@@ -89,7 +90,16 @@ type PlatformContentResponse = {
     reviewRequests?: {
       riderReviewEnabled?: boolean;
     };
+    accountDeletion?: {
+      enabled?: boolean;
+      reviewDays?: number;
+    };
   };
+};
+
+export type CustomerAccountDeletionConfig = {
+  enabled: boolean;
+  reviewDays: number;
 };
 
 async function fetchCustomerPlatformContent() {
@@ -611,6 +621,44 @@ export function useCustomerRiderReviewEnabledQuery() {
   });
 }
 
+// Admin-controlled account/data deletion flow (Play compliance). Defaults to ENABLED
+// when the flag is absent so the compliant path always exists unless admins turn it off.
+export function useCustomerAccountDeletionConfigQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content): CustomerAccountDeletionConfig => {
+      const config = content.operations?.accountDeletion ?? {};
+      return {
+        enabled: config.enabled !== false,
+        reviewDays:
+          typeof config.reviewDays === "number" && Number.isFinite(config.reviewDays)
+            ? config.reviewDays
+            : 7,
+      };
+    },
+  });
+}
+
+type AccountDeletionRequestResult = {
+  status: "received";
+  reviewDays: number;
+  alreadyPending: boolean;
+};
+
+export function useSubmitAccountDeletionRequestMutation() {
+  return useMutation({
+    mutationFn: async (payload: { phone: string; reason?: string }) => {
+      const response = await apiPost<AccountDeletionRequestResult>(
+        "/public/account-deletion-request",
+        payload,
+      );
+      return response.data;
+    },
+  });
+}
+
 export function useCustomerMapStyleQuery(context: CustomerMapStyleContext) {
   return useQuery({
     queryKey: ["platform-content"],
@@ -926,12 +974,15 @@ export type CartQuoteResponse = {
     deliveryFee: number;
     rainSurcharge?: number;
     platformFee?: number;
+    urgentDeliveryFee?: number;
     discountAmount: number;
     firstOrderDiscountAmount?: number;
     total: number;
   };
   // Admin-set platform fee display info (label/note/mode + charged/suggested amount).
   platformFeeInfo?: CustomerPlatformFeeInfo;
+  // Admin-set urgent-delivery add-on display info (label/note + suggested/charged amount).
+  urgentDeliveryInfo?: CustomerUrgentDeliveryInfo;
   // How the delivery fee splits, for a transparent "why this fee" breakdown in the cart.
   deliveryBreakdown?: {
     distanceKm: number | null;
@@ -981,6 +1032,8 @@ export function useCustomerCartQuoteQuery(params: {
   requiresLocation?: boolean;
   // Opt into the optional platform fee — re-quotes so pricing.total stays authoritative.
   platformFeeOptedIn?: boolean;
+  // Opt into urgent delivery — re-quotes so pricing.total stays authoritative.
+  urgentDeliveryOptedIn?: boolean;
 }) {
   const itemsKey = JSON.stringify(params.items);
   const accessToken = useCustomerAuthStore((state) => state.accessToken);
@@ -999,6 +1052,7 @@ export function useCustomerCartQuoteQuery(params: {
       Boolean(accessToken),
       Boolean(params.requiresLocation),
       Boolean(params.platformFeeOptedIn),
+      Boolean(params.urgentDeliveryOptedIn),
     ],
     enabled:
       Boolean(params.restaurantId) &&
@@ -1016,6 +1070,7 @@ export function useCustomerCartQuoteQuery(params: {
         latitude: typeof params.latitude === "number" ? params.latitude : undefined,
         longitude: typeof params.longitude === "number" ? params.longitude : undefined,
         platformFeeOptedIn: params.platformFeeOptedIn === true,
+        urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
       });
       return response.data;
     },
@@ -1078,6 +1133,7 @@ type CustomerOrderResponse = {
     deliveryFee?: number;
     rainSurcharge?: number;
     platformFee?: number;
+    urgentDeliveryFee?: number;
     discountAmount?: number;
     firstOrderDiscountAmount?: number;
     total?: number;
@@ -1085,7 +1141,11 @@ type CustomerOrderResponse = {
     deliveryBreakdown?: CustomerDeliveryBreakdown;
     // Platform-fee display info persisted at order creation (older orders lack it).
     platformFeeInfo?: CustomerPlatformFeeInfo;
+    // Urgent-delivery display info persisted at order creation (older orders lack it).
+    urgentDeliveryInfo?: CustomerUrgentDeliveryInfo;
   };
+  // True when the customer paid for urgent/priority delivery.
+  isUrgent?: boolean;
   riderSnapshot?: {
     id?: string;
     name?: string;
@@ -1690,6 +1750,7 @@ export function useCustomerPlaceOrderMutation() {
       };
       note?: string;
       platformFeeOptedIn?: boolean;
+      urgentDeliveryOptedIn?: boolean;
       deliveryAddress: {
         label: string;
         addressLine: string;
@@ -1737,6 +1798,7 @@ export function useBkashInitiateMutation() {
       note?: string;
       walletNumber: string;
       platformFeeOptedIn?: boolean;
+      urgentDeliveryOptedIn?: boolean;
       deliveryAddress: {
         label: string;
         addressLine: string;

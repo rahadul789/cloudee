@@ -40,10 +40,8 @@ describe("buildDeliveryWhyText", () => {
     expect(buildDeliveryWhyText(breakdown({ distanceKm: null }))).toBeNull();
   });
 
-  it("shows a flat-fee note with the distance when no surcharge applies", () => {
-    expect(buildDeliveryWhyText(breakdown())).toBe(
-      "Flat fee · 3 km from the restaurant",
-    );
+  it("shows no note for a flat fee (self-explanatory, keeps the row clean)", () => {
+    expect(buildDeliveryWhyText(breakdown())).toBeNull();
   });
 
   it("spells out base + extra when a distance surcharge was charged", () => {

@@ -603,6 +603,12 @@ export const styles = StyleSheet.create({
     lineHeight: 16,
     color: palette.mutedForeground,
   },
+  platformFeeOptInAmount: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: palette.foreground,
+    marginLeft: "auto",
+  },
   platformFeeCheck: {
     width: 22,
     height: 22,
@@ -635,6 +641,9 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.primarySoft,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    marginBottom: 12,
+  },
+  firstOrderNeonSpacing: {
     marginBottom: 12,
   },
   firstOrderBannerPressed: {

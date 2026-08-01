@@ -148,6 +148,7 @@ export type OwnerOrderResponse = {
   _id: string
   orderNumber: string
   status: OrderStatus
+  isUrgent?: boolean
   paymentMethod: string
   createdAt?: string
   updatedAt?: string
@@ -1574,6 +1575,7 @@ export function mapOwnerOrder(order: OwnerOrderResponse): Order {
   return {
     id: order._id,
     orderNumber: order.orderNumber,
+    isUrgent: order.isUrgent === true,
     customer: {
       name: order.customerSnapshot?.fullName ?? "Customer",
       phone: order.customerSnapshot?.phone ?? "",

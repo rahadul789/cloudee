@@ -504,6 +504,20 @@ export const platformContent = {
       label: "Platform fee",
       note: "",
     },
+    // Opt-in urgent/priority delivery add-on (off by default). See content.service.ts.
+    urgentDelivery: {
+      enabled: false,
+      amountTaka: 0,
+      label: "Urgent delivery",
+      note: "",
+    },
+    // Account/data deletion request flow (Google Play compliance). ON by default so the
+    // in-app "request deletion" path always exists; admins can disable it to hide the
+    // section. reviewDays = how long we tell the customer their request stays in review.
+    accountDeletion: {
+      enabled: true,
+      reviewDays: 7,
+    },
     // Platform-wide minimum order amount (Taka) on the customer's item subtotal. 0 = no
     // minimum. Per-restaurant overrides live on restaurant.commercial.minimumOrderAmount.
     minimumOrderAmount: 0,

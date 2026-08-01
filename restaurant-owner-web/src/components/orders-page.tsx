@@ -279,7 +279,17 @@ function OrdersTable({
                   >
                     <TableCell>
                       <div className="space-y-1">
-                        <div className="font-medium">{order.orderNumber}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{order.orderNumber}</div>
+                          {order.isUrgent ? (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-300 bg-amber-50 font-semibold text-amber-800"
+                            >
+                              ⚡ Urgent
+                            </Badge>
+                          ) : null}
+                        </div>
                         <div className="text-xs text-muted-foreground">
                           {getPaymentMethodLabel(order.paymentMethod)}
                         </div>

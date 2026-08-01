@@ -242,6 +242,7 @@ const cartQuoteSchema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   platformFeeOptedIn: z.boolean().optional(),
+  urgentDeliveryOptedIn: z.boolean().optional(),
 })
 
 const placeOrderSchema = z.object({
@@ -260,6 +261,7 @@ const placeOrderSchema = z.object({
     .optional(),
   note: z.string().trim().max(240).optional(),
   platformFeeOptedIn: z.boolean().optional(),
+  urgentDeliveryOptedIn: z.boolean().optional(),
   deliveryAddress: z.object({
     label: z.string().min(1),
     addressLine: z.string().min(1),
@@ -278,6 +280,7 @@ const bkashInitiateSchema = z.object({
   note: z.string().trim().max(240).optional(),
   walletNumber: z.string().regex(/^01\d{9}$/),
   platformFeeOptedIn: z.boolean().optional(),
+  urgentDeliveryOptedIn: z.boolean().optional(),
   deliveryAddress: z.object({
     label: z.string().min(1),
     addressLine: z.string().min(1),

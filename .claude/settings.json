@@ -294,7 +294,9 @@
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"cust=$?\")",
       "Bash(echo \"backend=$?\")",
-      "Bash(echo \"admin=$?\")"
+      "Bash(echo \"admin=$?\")",
+      "Bash(echo \"tsc_exit=$?\")",
+      "Bash(git -C /d/cloudee status --short -- customer-app)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

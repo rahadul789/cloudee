@@ -1808,6 +1808,28 @@ export const styles = StyleSheet.create({
     fontWeight: "500",
     color: palette.mutedForeground,
   },
+  // Indented "add-on to delivery" sub-line (e.g. ⚡ Priority) so the priority fee reads
+  // as a delivery upgrade, not a second, separate delivery charge.
+  paymentSubRow: {
+    marginTop: -2,
+    paddingLeft: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  paymentSubLabel: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: "#B4791C",
+  },
+  paymentSubValue: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "800",
+    color: "#B4791C",
+  },
   paymentValueStrong: {
     fontSize: 16,
     lineHeight: 22,

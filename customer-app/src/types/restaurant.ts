@@ -189,6 +189,12 @@ export type CustomerHomeBanner = {
   tone: "sky" | "mint" | "amber" | "rose";
 };
 
+export type CustomerPanelThemeConfig = {
+  mode?: "manual" | "random";
+  preset?: string;
+  customColor?: string;
+};
+
 export type CustomerHomeCms = {
   offerStrip: {
     isActive: boolean;
@@ -247,6 +253,11 @@ export type CustomerHomeCms = {
     popularNearYou: CustomerHomeRestaurantSectionConfig;
     nearby: CustomerHomeRestaurantSectionConfig;
   };
+  /** Backend-driven order of the 3 top sections: Featured, Live (time-based), Offers. */
+  topSectionOrder?: ("featured" | "timeBased" | "offers")[];
+  /** Admin colour theme for the search + categories panel and the offer cards. */
+  searchPanelTheme?: CustomerPanelThemeConfig;
+  offerPanelTheme?: CustomerPanelThemeConfig;
   cartRecommendations?: CustomerCartRecommendationConfig;
   modal: {
     isActive: boolean;
@@ -310,6 +321,7 @@ export type CustomerHomeRestaurantSectionConfig = {
   isActive?: boolean;
   title: string;
   subtitle: string;
+  emoji?: string;
   source?: "auto" | "manual";
   selectedRestaurantIds?: string[];
   maxItems?: number;

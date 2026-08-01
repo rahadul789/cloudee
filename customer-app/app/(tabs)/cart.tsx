@@ -27,10 +27,7 @@ import { applyCurrentLocation } from "@/src/lib/current-location";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
 import { buildDeliveryWhyText } from "@/src/lib/delivery-breakdown";
-import {
-  canOptIntoPlatformFee,
-  platformFeeLabel,
-} from "@/src/lib/platform-fee";
+import { platformFeeLabel } from "@/src/lib/platform-fee";
 import { computeOfferProgress, type OfferTier } from "@/src/lib/offer-progress";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import {
@@ -180,10 +177,6 @@ export default function CartScreen() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const syncPricing = useCartStore((state) => state.syncPricing);
-  const platformFeeOptedIn = useCartStore((state) => state.platformFeeOptedIn);
-  const setPlatformFeeOptedIn = useCartStore(
-    (state) => state.setPlatformFeeOptedIn,
-  );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const customer = useCustomerAuthStore((state) => state.customer);
   const isOnline = useIsOnline();
@@ -214,7 +207,6 @@ export default function CartScreen() {
     })),
     latitude: selectedLocation?.latitude,
     longitude: selectedLocation?.longitude,
-    platformFeeOptedIn,
   });
 
   const itemCount = getCartItemCount(items);
@@ -437,16 +429,10 @@ export default function CartScreen() {
   // Backend-supplied "why this delivery fee" breakdown (base + distance surcharge + km).
   // Only present with a real quote, so the note appears once pricing is verified.
   const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
-  // Admin-set platform fee display info (label/note). For flat/percentage it's already
-  // in pricing.platformFee; for the optional mode the customer opts in via the toggle
-  // below (shared with checkout through the cart store).
+  // Admin-set platform fee display info (label/note). Only the MANDATORY modes
+  // (flat/percentage) land in pricing.platformFee here — the optional mode's opt-in lives
+  // on the checkout screen, so the cart stays clean.
   const platformFeeInfo = quoteQuery.data?.platformFeeInfo;
-  const showPlatformFeeOptIn = canOptIntoPlatformFee(platformFeeInfo);
-  useEffect(() => {
-    if (!showPlatformFeeOptIn && platformFeeOptedIn) {
-      setPlatformFeeOptedIn(false);
-    }
-  }, [showPlatformFeeOptIn, platformFeeOptedIn, setPlatformFeeOptedIn]);
   const deliveryWhyText = useMemo(
     () => buildDeliveryWhyText(deliveryBreakdown),
     [deliveryBreakdown],
@@ -1384,36 +1370,6 @@ export default function CartScreen() {
                       </Text>
                     ) : null}
                   </>
-                ) : null}
-                {showPlatformFeeOptIn ? (
-                  <Pressable
-                    onPress={() => setPlatformFeeOptedIn(!platformFeeOptedIn)}
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: platformFeeOptedIn }}
-                    style={styles.platformFeeOptInRow}
-                  >
-                    <View style={styles.platformFeeOptInCopy}>
-                      <Text style={styles.platformFeeOptInLabel}>
-                        {platformFeeLabel(platformFeeInfo)} +
-                        {formatCurrency(platformFeeInfo.amount)}
-                      </Text>
-                      {platformFeeInfo.note ? (
-                        <Text style={styles.platformFeeOptInNote}>
-                          {platformFeeInfo.note}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <View
-                      style={[
-                        styles.platformFeeCheck,
-                        platformFeeOptedIn ? styles.platformFeeCheckOn : null,
-                      ]}
-                    >
-                      {platformFeeOptedIn ? (
-                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                      ) : null}
-                    </View>
-                  </Pressable>
                 ) : null}
                 <View style={styles.divider} />
                 <View style={styles.summaryRow}>

@@ -535,6 +535,10 @@ export async function updateAdminPlatformSettings(params: {
           // Global platform-fee default. Per-zone overrides live on the service zone
           // (Service Areas), so this global value persists from any settings scope.
           platformFee: params.settings.operations.platformFee,
+          // Same for the global urgent-delivery default.
+          urgentDelivery: params.settings.operations.urgentDelivery,
+          // Account-deletion flow is platform-level (not per-zone) → persists from any scope.
+          accountDeletion: params.settings.operations.accountDeletion,
         }
   const nextContent: PlatformContent = {
     ...currentContent,

@@ -203,7 +203,14 @@ export default function AvailableOrdersScreen() {
           return (
             <Pressable style={styles.card} onPress={() => router.push(`/orders/${item.id}`)}>
               <View style={styles.row}>
-                <Text style={styles.orderNumber}>{item.orderNumber}</Text>
+                <View style={styles.orderNumberGroup}>
+                  <Text style={styles.orderNumber}>{item.orderNumber}</Text>
+                  {item.isUrgent ? (
+                    <View style={styles.urgentChip}>
+                      <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <View
                   style={[
                     styles.readyChip,
@@ -297,7 +304,17 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  orderNumberGroup: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
   orderNumber: { fontSize: 16, fontWeight: "800", color: palette.foreground },
+  urgentChip: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    backgroundColor: palette.warningSoft,
+    borderColor: palette.warning,
+  },
+  urgentChipText: { fontSize: 11, fontWeight: "900", color: palette.warning },
   readyChip: {
     borderRadius: 999,
     paddingHorizontal: 10,

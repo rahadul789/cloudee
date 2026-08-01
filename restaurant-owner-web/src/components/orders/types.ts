@@ -108,6 +108,7 @@ export type OrderPreparationTiming = {
 export type Order = {
   id: string
   orderNumber: string
+  isUrgent: boolean
   customer: OrderCustomer
   rider: OrderRider
   items: OrderLineItem[]

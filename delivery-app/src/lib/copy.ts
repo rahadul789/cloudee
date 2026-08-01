@@ -32,6 +32,7 @@ const copy = {
       cancelled: "Cancelled",
       customer: "Customer",
       restaurant: "Restaurant",
+      urgent: "Urgent",
     },
     map: {
       eyebrow: "Live pickup map",
@@ -293,6 +294,7 @@ const copy = {
       cancelled: "বাতিল",
       customer: "কাস্টমার",
       restaurant: "রেস্টুরেন্ট",
+      urgent: "আর্জেন্ট",
     },
     map: {
       eyebrow: "লাইভ পিকআপ ম্যাপ",

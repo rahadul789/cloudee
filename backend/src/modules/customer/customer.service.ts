@@ -4958,6 +4958,8 @@ export async function placeCustomerOrder(params: {
   deliveryAddress: CustomerDeliveryAddressInput;
   // Customer opted into the optional platform fee at checkout (only affects "optional" mode).
   platformFeeOptedIn?: boolean;
+  // Customer opted into urgent/priority delivery at checkout.
+  urgentDeliveryOptedIn?: boolean;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   const customer = await getCustomerById(customerId);
@@ -4983,6 +4985,7 @@ export async function placeCustomerOrder(params: {
     // Authoritative: the opted-in platform fee (optional mode) is priced server-side, so
     // the stored order total can never disagree with what the app showed.
     platformFeeOptedIn: params.platformFeeOptedIn === true,
+    urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
   });
 
   // Minimum-order enforcement — defense behind the app's disabled checkout button.
@@ -5212,7 +5215,12 @@ export async function placeCustomerOrder(params: {
               // Persist the platform-fee display info (label/note/mode) so placed-order
               // screens can show the same fee line. Amount is already in quote.pricing.platformFee.
               platformFeeInfo: quote.platformFeeInfo,
+              // Same for urgent delivery (amount in quote.pricing.urgentDeliveryFee).
+              urgentDeliveryInfo: quote.urgentDeliveryInfo,
             },
+            // Top-level flag so admin/owner/rider can badge + (later) prioritise urgent
+            // orders. True only when urgent was enabled AND the customer opted in.
+            isUrgent: quote.urgentDeliveryInfo?.charged === true,
             appliedVouchers: quote.appliedVouchers ?? [],
             serviceAreaSnapshot: quote.serviceArea ?? {},
             customerSnapshot: {
@@ -5805,6 +5813,7 @@ export async function initiateBkashPayment(params: {
   walletNumber: string;
   deliveryAddress: CustomerDeliveryAddressInput;
   platformFeeOptedIn?: boolean;
+  urgentDeliveryOptedIn?: boolean;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   await getCustomerById(customerId);
@@ -5837,6 +5846,7 @@ export async function initiateBkashPayment(params: {
     latitude: params.deliveryAddress.latitude,
     longitude: params.deliveryAddress.longitude,
     platformFeeOptedIn: params.platformFeeOptedIn === true,
+    urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
   });
 
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -5852,6 +5862,7 @@ export async function initiateBkashPayment(params: {
     serviceArea: quote.serviceArea ?? null,
     // Carry the opt-in so the order created on payment success is priced identically.
     platformFeeOptedIn: params.platformFeeOptedIn === true,
+    urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
   };
   const session = await BkashSandboxPaymentSessionModel.create({
     customerId,
@@ -6051,6 +6062,8 @@ async function finalizeConfirmedBkashSessionOrder(session: any) {
       deliveryAddress: checkoutSnapshot.deliveryAddress,
       platformFeeOptedIn:
         (checkoutSnapshot as Record<string, any>).platformFeeOptedIn === true,
+      urgentDeliveryOptedIn:
+        (checkoutSnapshot as Record<string, any>).urgentDeliveryOptedIn === true,
     });
     return String(result.order?._id ?? result.order?.id ?? "");
   } catch (error) {

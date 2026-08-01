@@ -66,9 +66,9 @@ export function formatDurationRangeMinutes(
     return formatDurationMinutes(minMinutes, fallback);
   }
 
-  // Foodpanda-style compact range with a single unit suffix, e.g. "2-7 min".
+  // Foodpanda-style compact range with a single unit suffix, e.g. "2-7min".
   if (maxMinutes < 60) {
-    return `${minMinutes}-${maxMinutes} min`;
+    return `${minMinutes}-${maxMinutes}min`;
   }
 
   // Ranges spanning the hour mark are rare for prep/delivery; keep them readable.

@@ -78,6 +78,7 @@ function buildCustomerCartQuoteCacheKey(params: {
   latitude?: number;
   longitude?: number;
   platformFeeOptedIn?: boolean;
+  urgentDeliveryOptedIn?: boolean;
 }) {
   return buildCacheKey("customer-cart-quote", {
     restaurantId: normalizeCacheString(params.restaurantId),
@@ -86,6 +87,7 @@ function buildCustomerCartQuoteCacheKey(params: {
     latitude: roundCacheCoordinate(params.latitude),
     longitude: roundCacheCoordinate(params.longitude),
     platformFeeOptedIn: params.platformFeeOptedIn === true,
+    urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
     items: params.items.map((item) => ({
       itemId: normalizeCacheString(item.itemId),
       quantity: item.quantity,
@@ -259,6 +261,62 @@ function computePlatformFee(params: {
   };
 }
 
+type UrgentDeliveryConfig = {
+  enabled: boolean;
+  amountTaka: number;
+  label: string;
+  note: string;
+};
+
+const DEFAULT_URGENT_DELIVERY_LABEL = "Urgent delivery";
+
+// Effective urgent-delivery config. A service zone can override the global default
+// (operations.urgentDelivery) when its `override` flag is on; otherwise the global applies.
+function resolveUrgentDeliveryConfig(params: {
+  platformContent: Awaited<ReturnType<typeof getPlatformContent>>;
+  serviceAreaSnapshot: Record<string, any> | null;
+}): UrgentDeliveryConfig {
+  const globalConfig =
+    ((params.platformContent.operations as Record<string, any>)
+      .urgentDelivery as Record<string, any> | undefined) ?? {};
+  const zoneConfig =
+    (params.serviceAreaSnapshot as Record<string, any> | null)?.delivery
+      ?.urgentDelivery ?? null;
+  const source =
+    zoneConfig && zoneConfig.override === true ? zoneConfig : globalConfig;
+  const label =
+    typeof source.label === "string" && source.label.trim()
+      ? source.label.trim()
+      : DEFAULT_URGENT_DELIVERY_LABEL;
+  return {
+    enabled: source.enabled === true,
+    amountTaka: Math.max(0, roundCurrencyAmount(Number(source.amountTaka) || 0)),
+    label,
+    note: typeof source.note === "string" ? source.note.trim() : "",
+  };
+}
+
+// Urgent delivery is always an OPT-IN add-on: charged only when the customer opts in at
+// checkout. `amount` in the info is the suggested add-on shown before opting in.
+function computeUrgentDeliveryFee(params: {
+  config: UrgentDeliveryConfig;
+  optedIn: boolean;
+}) {
+  const { config, optedIn } = params;
+  const grossAmount = config.amountTaka;
+  const isCharged = config.enabled && grossAmount > 0 && optedIn === true;
+  return {
+    amount: isCharged ? grossAmount : 0,
+    info: {
+      enabled: config.enabled,
+      label: config.label,
+      note: config.note,
+      amount: grossAmount,
+      charged: isCharged,
+    },
+  };
+}
+
 function resolveDeliveryPricingConfig(params: {
   platformContent: Awaited<ReturnType<typeof getPlatformContent>>;
   restaurant: Record<string, any>;
@@ -421,6 +479,8 @@ export async function quoteCustomerCart(params: {
   // Optional platform fee: only charged when the customer opts in (checkout toggle).
   // Ignored for the mandatory flat/percentage modes.
   platformFeeOptedIn?: boolean;
+  // Urgent delivery add-on: only charged when the customer opts in at checkout.
+  urgentDeliveryOptedIn?: boolean;
 }): Promise<CustomerCartQuoteResult> {
   const baseQuote = await customerCartQuoteCache.getOrSet(
     buildCustomerCartQuoteCacheKey(params),
@@ -681,6 +741,17 @@ export async function quoteCustomerCart(params: {
         optedIn: params.platformFeeOptedIn === true,
       });
       const platformFee = platformFeeResult.amount;
+      // Urgent delivery add-on — opt-in only, kept as its own line (never waived by a
+      // voucher). Config resolves global default ↔ per-zone override.
+      const urgentDeliveryConfig = resolveUrgentDeliveryConfig({
+        platformContent,
+        serviceAreaSnapshot,
+      });
+      const urgentDeliveryResult = computeUrgentDeliveryFee({
+        config: urgentDeliveryConfig,
+        optedIn: params.urgentDeliveryOptedIn === true,
+      });
+      const urgentDeliveryFee = urgentDeliveryResult.amount;
       // Markdown is applied first; coupons then evaluate against the reduced subtotal so the
       // two never double-count and minimum-order checks reflect what the customer pays.
       const vouchers: CustomerCacheRecord[] = await resolveActiveVoucher({
@@ -708,7 +779,12 @@ export async function quoteCustomerCart(params: {
       }, 0);
 
       const total = Math.max(
-        customerSubtotal + deliveryFee + rainSurcharge + platformFee - discountAmount,
+        customerSubtotal +
+          deliveryFee +
+          rainSurcharge +
+          platformFee +
+          urgentDeliveryFee -
+          discountAmount,
         0,
       );
       const ownerDiscountCost = vouchers.reduce((totalOwnerCost, voucher) => {
@@ -760,6 +836,7 @@ export async function quoteCustomerCart(params: {
           deliveryFee,
           rainSurcharge,
           platformFee,
+          urgentDeliveryFee,
           discountAmount,
           ownerDiscountCost,
           platformDiscountCost,
@@ -774,6 +851,9 @@ export async function quoteCustomerCart(params: {
         // Admin-set platform fee display info (label/note/mode + charged vs suggested
         // amount). Lets the app render its own line + the opt-in toggle for "optional".
         platformFeeInfo: platformFeeResult.info,
+        // Urgent delivery display info (label/note + suggested/charged amount) — drives the
+        // checkout opt-in toggle and the order line.
+        urgentDeliveryInfo: urgentDeliveryResult.info,
         appliedVouchers: summarizeAppliedVouchers(
           vouchers.map((voucher) => ({
             id: String(voucher._id),

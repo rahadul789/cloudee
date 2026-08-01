@@ -25,6 +25,11 @@ import {
   canOptIntoPlatformFee,
   platformFeeLabel,
 } from "@/src/lib/platform-fee";
+import {
+  canOptIntoUrgentDelivery,
+  urgentDeliveryLabel,
+} from "@/src/lib/urgent-delivery";
+import { NeonStickerCard } from "@/src/components/neon-sticker-card";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import {
   useBkashInitiateMutation,
@@ -149,6 +154,12 @@ export default function CheckoutScreen() {
   const platformFeeOptedIn = useCartStore((state) => state.platformFeeOptedIn);
   const setPlatformFeeOptedIn = useCartStore(
     (state) => state.setPlatformFeeOptedIn,
+  );
+  const urgentDeliveryOptedIn = useCartStore(
+    (state) => state.urgentDeliveryOptedIn,
+  );
+  const setUrgentDeliveryOptedIn = useCartStore(
+    (state) => state.setUrgentDeliveryOptedIn,
   );
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const selectedDeliveryAddress = useMemo(
@@ -299,6 +310,7 @@ export default function CheckoutScreen() {
     longitude: selectedLocation?.longitude,
     requiresLocation: true,
     platformFeeOptedIn,
+    urgentDeliveryOptedIn,
   });
 
   useEffect(() => {
@@ -342,6 +354,14 @@ export default function CheckoutScreen() {
       setPlatformFeeOptedIn(false);
     }
   }, [showPlatformFeeOptIn, platformFeeOptedIn, setPlatformFeeOptedIn]);
+  // Urgent delivery opt-in (same pattern as the optional platform fee).
+  const urgentDeliveryInfo = quoteQuery.data?.urgentDeliveryInfo;
+  const showUrgentDeliveryOptIn = canOptIntoUrgentDelivery(urgentDeliveryInfo);
+  useEffect(() => {
+    if (!showUrgentDeliveryOptIn && urgentDeliveryOptedIn) {
+      setUrgentDeliveryOptedIn(false);
+    }
+  }, [showUrgentDeliveryOptIn, urgentDeliveryOptedIn, setUrgentDeliveryOptedIn]);
   const restaurantNoteSetting = quoteQuery.data?.restaurant.orderNote;
   const shouldShowRestaurantNote = restaurantNoteSetting?.enabled === true;
   const restaurantNoteLabel =
@@ -775,6 +795,7 @@ export default function CheckoutScreen() {
         note: sanitizedRestaurantOrderNote || undefined,
         walletNumber: bkashWalletNumber,
         platformFeeOptedIn,
+        urgentDeliveryOptedIn,
         deliveryAddress: {
           label: selectedLocation.label,
           addressLine: selectedDeliveryAddressLine,
@@ -906,6 +927,7 @@ export default function CheckoutScreen() {
         voucherCode: appliedVoucherCode || undefined,
         note: sanitizedRestaurantOrderNote || undefined,
         platformFeeOptedIn,
+        urgentDeliveryOptedIn,
         paymentReference:
           paymentMethod === "Bkash"
             ? {
@@ -1443,17 +1465,17 @@ export default function CheckoutScreen() {
               const firstOrder = quoteQuery.data?.firstOrderDiscount;
               if (!firstOrder) return null;
 
-              // Discount already unlocked → success banner.
+              // Discount already unlocked → celebratory neon "reward unlocked" sticker.
               if (firstOrder.applied) {
                 return (
-                  <View style={styles.firstOrderBanner}>
-                    <Text style={styles.firstOrderBannerTitle}>
-                      🎁 {firstOrder.title}
-                    </Text>
-                    <Text style={styles.firstOrderBannerSubtitle}>
-                      {firstOrder.subtitle}
-                    </Text>
-                  </View>
+                  <NeonStickerCard
+                    accent="green"
+                    icon="gift"
+                    eyebrow="REWARD UNLOCKED"
+                    title={firstOrder.title}
+                    body={firstOrder.subtitle}
+                    style={styles.firstOrderNeonSpacing}
+                  />
                 );
               }
 
@@ -1561,7 +1583,10 @@ export default function CheckoutScreen() {
                   value={formatCurrency(pricing?.rainSurcharge ?? 0)}
                 />
               ) : null}
-              {(pricing?.platformFee ?? 0) > 0 ? (
+              {/* Mandatory fee (flat/percentage) shows as its own line. The optional mode
+                  is NOT shown here — its opt-in toggle below already shows the amount and
+                  the total reflects it, so a duplicate line would be redundant. */}
+              {(pricing?.platformFee ?? 0) > 0 && !platformFeeInfo?.optional ? (
                 <View style={styles.summaryDeliveryGroup}>
                   <CheckoutSummaryRow
                     label={platformFeeLabel(platformFeeInfo)}
@@ -1583,8 +1608,7 @@ export default function CheckoutScreen() {
                 >
                   <View style={styles.platformFeeOptInCopy}>
                     <Text style={styles.platformFeeOptInLabel}>
-                      {platformFeeLabel(platformFeeInfo)} +
-                      {formatCurrency(platformFeeInfo.amount)}
+                      {platformFeeLabel(platformFeeInfo)}
                     </Text>
                     {platformFeeInfo.note ? (
                       <Text style={styles.platformFeeOptInNote}>
@@ -1592,6 +1616,9 @@ export default function CheckoutScreen() {
                       </Text>
                     ) : null}
                   </View>
+                  <Text style={styles.platformFeeOptInAmount}>
+                    +{formatCurrency(platformFeeInfo.amount)}
+                  </Text>
                   <View
                     style={[
                       styles.platformFeeCheck,
@@ -1599,6 +1626,40 @@ export default function CheckoutScreen() {
                     ]}
                   >
                     {platformFeeOptedIn ? (
+                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                    ) : null}
+                  </View>
+                </Pressable>
+              ) : null}
+              {showUrgentDeliveryOptIn ? (
+                <Pressable
+                  onPress={() =>
+                    setUrgentDeliveryOptedIn(!urgentDeliveryOptedIn)
+                  }
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: urgentDeliveryOptedIn }}
+                  style={styles.platformFeeOptInRow}
+                >
+                  <View style={styles.platformFeeOptInCopy}>
+                    <Text style={styles.platformFeeOptInLabel}>
+                      ⚡ {urgentDeliveryLabel(urgentDeliveryInfo)}
+                    </Text>
+                    {urgentDeliveryInfo.note ? (
+                      <Text style={styles.platformFeeOptInNote}>
+                        {urgentDeliveryInfo.note}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.platformFeeOptInAmount}>
+                    +{formatCurrency(urgentDeliveryInfo.amount)}
+                  </Text>
+                  <View
+                    style={[
+                      styles.platformFeeCheck,
+                      urgentDeliveryOptedIn ? styles.platformFeeCheckOn : null,
+                    ]}
+                  >
+                    {urgentDeliveryOptedIn ? (
                       <Ionicons name="checkmark" size={13} color="#FFFFFF" />
                     ) : null}
                   </View>

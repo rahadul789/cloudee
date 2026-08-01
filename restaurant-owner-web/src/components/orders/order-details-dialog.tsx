@@ -213,6 +213,14 @@ export function OrderDetailsDialog({
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-3">
                 <SheetTitle>Order {currentOrder.orderNumber}</SheetTitle>
+                {currentOrder.isUrgent ? (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-300 bg-amber-50 font-semibold text-amber-800"
+                  >
+                    ⚡ Urgent
+                  </Badge>
+                ) : null}
                 <Badge
                   variant="outline"
                   className={getStatusBadgeClass(currentOrder.currentStatus)}

@@ -2,8 +2,10 @@ import * as React from "react"
 import {
   BarChart3,
   Bell,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock,
   Eye,
   Gift,
@@ -331,7 +333,7 @@ function CmsDetailsCard({
   return (
     <details
       open={defaultOpen}
-      className={`group overflow-hidden rounded-xl border bg-card shadow-sm [&_summary::-webkit-details-marker]:hidden ${className}`}
+      className={`group min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm [&_summary::-webkit-details-marker]:hidden ${className}`}
     >
       <summary className="flex cursor-pointer items-center justify-between gap-4 px-4 py-4 transition hover:bg-muted/35">
         <div className="flex min-w-0 items-center gap-3">
@@ -354,6 +356,113 @@ function CmsDetailsCard({
       </summary>
       <div className="border-t p-4">{children}</div>
     </details>
+  )
+}
+
+// Keep in sync with PANEL_PRESETS in customer-app/src/lib/panel-theme.ts.
+const PANEL_PRESET_OPTIONS = [
+  { id: "neon", label: "Neon (amber)" },
+  { id: "ocean", label: "Ocean" },
+  { id: "sunset", label: "Sunset" },
+  { id: "forest", label: "Forest" },
+  { id: "grape", label: "Grape" },
+  { id: "midnight", label: "Midnight" },
+  { id: "mocha", label: "Mocha" },
+  { id: "light", label: "Light" },
+  { id: "rose", label: "Rose" },
+  { id: "mint", label: "Mint" },
+  { id: "sand", label: "Sand" },
+]
+
+type PanelThemeValue = NonNullable<
+  PlatformContent["customerApp"]["homeCms"]["searchPanelTheme"]
+>
+
+function PanelThemePicker({
+  value,
+  onChange,
+}: {
+  value?: PanelThemeValue
+  onChange: (next: PanelThemeValue) => void
+}) {
+  const theme: PanelThemeValue = value ?? {
+    mode: "manual",
+    preset: "neon",
+    customColor: "#211A2E",
+  }
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Mode</Label>
+          <Select
+            value={theme.mode ?? "manual"}
+            onValueChange={(next) =>
+              onChange({ ...theme, mode: next as "manual" | "random" })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="manual">Manual (pick a colour)</SelectItem>
+              <SelectItem value="random">Random (rotate every 5h)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {theme.mode !== "random" ? (
+          <div className="space-y-1.5">
+            <Label>Colour preset</Label>
+            <Select
+              value={theme.preset ?? "neon"}
+              onValueChange={(next) => onChange({ ...theme, preset: next })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PANEL_PRESET_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">Custom colour</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+      </div>
+      {theme.mode !== "random" && theme.preset === "custom" ? (
+        <div className="space-y-1.5">
+          <Label>Custom background colour</Label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={theme.customColor || "#211A2E"}
+              onChange={(event) =>
+                onChange({ ...theme, customColor: event.target.value })
+              }
+              className="h-9 w-12 cursor-pointer rounded border"
+            />
+            <Input
+              value={theme.customColor || "#211A2E"}
+              onChange={(event) =>
+                onChange({ ...theme, customColor: event.target.value })
+              }
+              className="w-40"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Text + accent colours auto-adjust for contrast.
+          </p>
+        </div>
+      ) : null}
+      {theme.mode === "random" ? (
+        <p className="text-xs text-muted-foreground">
+          Rotates through all presets automatically, changing every 5 hours.
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -1410,6 +1519,41 @@ export function CustomerHomeCmsSection({
     })
   }
 
+  function normalizeTopSectionOrder(
+    order?: ("featured" | "timeBased" | "offers")[]
+  ): ("featured" | "timeBased" | "offers")[] {
+    const keys = ["featured", "timeBased", "offers"] as const
+    const deduped = Array.from(
+      new Set((order ?? []).filter((key) => keys.includes(key)))
+    )
+    for (const key of keys) {
+      if (!deduped.includes(key)) deduped.push(key)
+    }
+    return deduped
+  }
+
+  function moveTopSection(index: number, direction: -1 | 1) {
+    const order = normalizeTopSectionOrder(currentCms.topSectionOrder)
+    const target = index + direction
+    if (target < 0 || target >= order.length) return
+    const next = [...order]
+    ;[next[index], next[target]] = [next[target], next[index]]
+    // Derive the legacy binary placement so the currently-published app (which still reads
+    // `placement`) stays consistent with the new order.
+    const placement =
+      next.indexOf("timeBased") < next.indexOf("featured")
+        ? "above_featured"
+        : "below_featured"
+    updateCms({
+      ...currentCms,
+      topSectionOrder: next,
+      timeBasedSection: {
+        ...(currentCms.timeBasedSection ?? DEFAULT_HOME_CMS.timeBasedSection!),
+        placement,
+      },
+    })
+  }
+
   function updateTimeBasedWindow(
     index: number,
     patch: Partial<
@@ -2298,8 +2442,10 @@ export function CustomerHomeCmsSection({
             modal, and standalone push campaign.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start">
+        <CardContent
+          className={`space-y-4 ${isPreviewVisible ? "xl:pr-[404px]" : ""}`}
+        >
+          <div className="grid gap-4">
             {hidePushCampaign ? (
               <div className="sticky top-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur xl:col-span-2">
                 <div>
@@ -3184,6 +3330,18 @@ export function CustomerHomeCmsSection({
                 placeholder="Deals for you"
               />
             </div>
+            <div className="mt-3 space-y-1.5 rounded-lg border p-3">
+              <Label>Offer cards theme</Label>
+              <p className="mb-1 text-xs text-muted-foreground">
+                Colour look of the offer coupon cards.
+              </p>
+              <PanelThemePicker
+                value={currentCms.offerPanelTheme}
+                onChange={(next) =>
+                  updateCms({ ...currentCms, offerPanelTheme: next })
+                }
+              />
+            </div>
             <div className="mt-3 space-y-2 rounded-lg border p-3">
               <div className="flex items-center justify-between">
                 <Label>Featured offers (max 6)</Label>
@@ -3293,6 +3451,18 @@ export function CustomerHomeCmsSection({
                         DEFAULT_HOME_CMS.homeCategories!),
                       isActive: checked,
                     })
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 rounded-lg border p-3 md:col-span-2">
+                <Label>Search + categories panel theme</Label>
+                <p className="mb-1 text-xs text-muted-foreground">
+                  Background look of the home search bar + categories panel.
+                </p>
+                <PanelThemePicker
+                  value={currentCms.searchPanelTheme}
+                  onChange={(next) =>
+                    updateCms({ ...currentCms, searchPanelTheme: next })
                   }
                 />
               </div>
@@ -3485,6 +3655,61 @@ export function CustomerHomeCmsSection({
               </div>
             }
           >
+            <div className="mb-4 rounded-xl border bg-muted/15 p-4">
+              <Label>Top section order</Label>
+              <p className="mt-1 mb-3 text-xs text-muted-foreground">
+                Order of the three top home sections on the app: Featured, Live
+                (time-based), and Offers for you. The app renders them in exactly
+                this order.
+              </p>
+              <div className="space-y-2">
+                {normalizeTopSectionOrder(currentCms.topSectionOrder).map(
+                  (key, index, order) => {
+                    const label =
+                      key === "featured"
+                        ? "Featured restaurants"
+                        : key === "timeBased"
+                          ? "Live (time-based)"
+                          : "Offers for you"
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between rounded-lg border bg-background px-3 py-2"
+                      >
+                        <span className="text-sm font-medium">
+                          {index + 1}. {label}
+                        </span>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="size-8"
+                            disabled={index === 0}
+                            onClick={() => moveTopSection(index, -1)}
+                            aria-label={`Move ${label} up`}
+                          >
+                            <ChevronUp className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="size-8"
+                            disabled={index === order.length - 1}
+                            onClick={() => moveTopSection(index, 1)}
+                            aria-label={`Move ${label} down`}
+                          >
+                            <ChevronDown className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  }
+                )}
+              </div>
+            </div>
+
             <div className="grid gap-4">
               {restaurantSectionEntries.map((entry) => {
                 const section = homeRestaurantSections[entry.key]
@@ -3530,13 +3755,26 @@ export function CustomerHomeCmsSection({
                           }
                         />
                       </div>
-                      <div className="space-y-1.5 xl:col-span-3">
+                      <div className="space-y-1.5 xl:col-span-2">
                         <Label>Subtitle</Label>
                         <Input
                           value={section.subtitle}
                           onChange={(event) =>
                             updateRestaurantSection(entry.key, {
                               subtitle: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Header emoji</Label>
+                        <Input
+                          value={section.emoji ?? ""}
+                          maxLength={8}
+                          placeholder="e.g. 🔥 (optional)"
+                          onChange={(event) =>
+                            updateRestaurantSection(entry.key, {
+                              emoji: event.target.value,
                             })
                           }
                         />
@@ -3889,29 +4127,10 @@ export function CustomerHomeCmsSection({
               </div>
               <div className="space-y-2">
                 <Label>Placement</Label>
-                <Select
-                  value={cms.timeBasedSection?.placement ?? "above_featured"}
-                  onValueChange={(value) =>
-                    updateTimeBasedSection(
-                      "placement",
-                      value as NonNullable<
-                        typeof cms.timeBasedSection
-                      >["placement"]
-                    )
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="above_featured">
-                      Above Featured restaurants
-                    </SelectItem>
-                    <SelectItem value="below_featured">
-                      Below Featured restaurants
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Set from <b>Top section order</b> in the Home restaurant
+                  sections card above (Featured / Live / Offers).
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Position</Label>

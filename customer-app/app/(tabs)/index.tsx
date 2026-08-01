@@ -1,7 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Animated,
   AppState,
@@ -36,6 +43,8 @@ import {
 } from "@/src/components/home/home-cms-blocks";
 import { HomeDealsSection } from "@/src/components/home/home-deals-section";
 import { HomePollModal } from "@/src/components/home/home-poll-modal";
+import { RotatingSearchPlaceholder } from "@/src/components/home/rotating-search-placeholder";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { styles } from "@/src/components/home/home-screen.styles";
 import { HomeTimeBasedSection } from "@/src/components/home/home-time-based-section";
 import { RemoteImage } from "@/src/components/remote-image";
@@ -65,6 +74,7 @@ import {
 import { normalizeFoodCategorySuggestions } from "@/src/lib/food-categories";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import { openLocationPermissionSettings } from "@/src/lib/location-permissions";
+import { resolvePanelTheme } from "@/src/lib/panel-theme";
 import {
   useCloseAutoRefresh,
   useReopenAutoRefresh,
@@ -98,6 +108,33 @@ function withAlpha(hex: string | undefined, alpha: number) {
     .padStart(2, "0");
   return `#${full}${alphaHex}`;
 }
+
+// Backend-driven order of the 3 "top" home sections. Any missing/invalid key is appended
+// in the default order, so the result is always exactly [featured, timeBased, offers] in
+// some order — never ambiguous. Default preserves the current layout.
+const TOP_SECTION_KEYS = ["featured", "timeBased", "offers"] as const;
+type TopSectionKey = (typeof TOP_SECTION_KEYS)[number];
+function getTopSectionOrder(order?: string[] | null): TopSectionKey[] {
+  const valid = (order ?? []).filter((key): key is TopSectionKey =>
+    (TOP_SECTION_KEYS as readonly string[]).includes(key),
+  );
+  const deduped = Array.from(new Set(valid));
+  for (const key of TOP_SECTION_KEYS) {
+    if (!deduped.includes(key)) deduped.push(key);
+  }
+  return deduped;
+}
+
+// Vibrant per-tile ring colours so the category row reads colourful, not monochrome. The
+// first is amber to match the lead tile's "hot pick" glow.
+const CATEGORY_TINTS = [
+  "#FFB020",
+  "#FF4D8D",
+  "#7C6CFF",
+  "#37B7FF",
+  "#34D399",
+  "#FF6B6B",
+];
 
 function getOfferLabel(offer: CustomerVoucherOffer) {
   let value = "Offer available";
@@ -174,6 +211,8 @@ function getHomeRestaurantSectionText(
   return {
     title: config?.title?.trim() || fallbackTitle,
     subtitle: config?.subtitle?.trim() || fallbackSubtitle,
+    // Admin-set header emoji (empty = none). Falls back to no emoji.
+    emoji: config?.emoji?.trim() || "",
   };
 }
 
@@ -523,6 +562,9 @@ export default function HomeScreen() {
   }, [activePollId]);
   const shouldShowPoll = Boolean(activePoll) && !hasVotedActivePoll;
   const restaurantSections = homeCms?.restaurantSections;
+  // Admin-picked colour themes for the search+categories panel and the offer cards.
+  const searchTheme = resolvePanelTheme(homeCms?.searchPanelTheme);
+  const offerTheme = resolvePanelTheme(homeCms?.offerPanelTheme);
   const featuredSectionConfig = restaurantSections?.featured;
   const offersSectionConfig = restaurantSections?.offers;
   const discoverNewSectionConfig = restaurantSections?.discoverNew;
@@ -571,6 +613,14 @@ export default function HomeScreen() {
     [homeCategoryItems],
   );
   const canToggleHomeCategories = homeCategoryItems.length > 6;
+  // Size the category cards from the measured row width so ~4.6 fit — 4 full plus a clear
+  // peek of the next — making it obvious the row scrolls horizontally (a full-width fit
+  // read as a static grid). Falls back to a sensible width before the first layout.
+  const [homeCategoryRowWidth, setHomeCategoryRowWidth] = useState(0);
+  const homeCategoryCardWidth =
+    homeCategoryRowWidth > 0
+      ? Math.max(60, Math.round(homeCategoryRowWidth / 4.4) - 11)
+      : 66;
   const shouldShowVoucherStrip =
     !isSearching &&
     Boolean(homeOfferStrip && homeOfferStrip.showVoucherStrip !== false);
@@ -714,8 +764,7 @@ export default function HomeScreen() {
   const shouldShowTimeBasedSection = timeBasedRestaurants.length > 0;
   const timeSectionAccent = timeBasedSectionData?.accentColor || palette.secondary;
   // Admin-controlled: does the time-based rail sit above or below the Featured row? (default above)
-  const timeBasedPlacement =
-    timeBasedSectionData?.placement ?? "above_featured";
+  const topSectionOrder = getTopSectionOrder(homeCms?.topSectionOrder);
 
   const nearbyRestaurantsForSection = useMemo(() => {
     if (!isHomeRestaurantSectionActive(nearbySectionConfig)) return [];
@@ -1117,9 +1166,11 @@ export default function HomeScreen() {
             </Pressable>
 
             <View style={styles.actions}>
-              <Pressable
+              <PressableScale
                 onPress={() => router.push("/(tabs)/cart")}
                 style={styles.cartBubble}
+                accessibilityRole="button"
+                accessibilityLabel="Open cart"
               >
                 <Ionicons name="bag-handle-outline" size={18} color="#fff" />
                 {cartItemCount > 0 ? (
@@ -1127,9 +1178,9 @@ export default function HomeScreen() {
                     <Text style={styles.cartCounterText}>{cartItemCount}</Text>
                   </View>
                 ) : null}
-              </Pressable>
+              </PressableScale>
 
-              <Pressable
+              <PressableScale
                 onPress={() => router.push("/(tabs)/profile")}
                 style={[
                   styles.profileBubble,
@@ -1137,6 +1188,8 @@ export default function HomeScreen() {
                     ? styles.profileBubbleSignedIn
                     : null,
                 ]}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile"
               >
                 {customer?.profileImage?.url ? (
                   <RemoteImage
@@ -1157,29 +1210,47 @@ export default function HomeScreen() {
                     color={palette.secondary}
                   />
                 )}
-              </Pressable>
+              </PressableScale>
             </View>
           </View>
 
           {!isSearching ? (
-            <HomeDealsSection section={homeFeed?.dealsSection} />
+            <HomeDealsSection
+              section={homeFeed?.dealsSection}
+              theme={offerTheme}
+            />
           ) : null}
 
-          <View style={styles.searchCategoryPanel}>
-            <Pressable
+          <View
+            style={[
+              styles.searchCategoryPanel,
+              {
+                backgroundColor: searchTheme.bg,
+                borderColor: searchTheme.border,
+                shadowColor: searchTheme.glow,
+              },
+            ]}
+          >
+            <PressableScale
               style={styles.searchBar}
+              scaleTo={0.97}
               onPress={() => openSearchScreen()}
+              accessibilityRole="button"
+              accessibilityLabel="Search food or restaurant"
             >
               <View style={styles.searchIconBubble}>
                 <Ionicons name="search" size={17} color={palette.secondary} />
               </View>
-              <Text style={styles.searchInput}>Search food or restaurant</Text>
+              <RotatingSearchPlaceholder
+                active={isHomeFocused && !isSearching}
+                style={styles.searchInput}
+              />
               <Ionicons
                 name="arrow-forward"
                 size={15}
                 color={palette.placeholder}
               />
-            </Pressable>
+            </PressableScale>
 
             {!isSearching &&
             homeCms?.homeCategories?.isActive !== false &&
@@ -1189,13 +1260,16 @@ export default function HomeScreen() {
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.homeCategoryRow}
+                  onLayout={(event) =>
+                    setHomeCategoryRowWidth(event.nativeEvent.layout.width)
+                  }
                 >
                   {homeCategoryPreviewItems.map((item, index) => (
-                    <Pressable
+                    <PressableScale
                       key={item.id || `${item.label}-${index}`}
-                      style={({ pressed }) => [
+                      style={[
                         styles.homeCategoryCard,
-                        pressed ? styles.homeCategoryCardPressed : null,
+                        { width: homeCategoryCardWidth },
                       ]}
                       accessibilityRole="button"
                       accessibilityLabel={`${item.label} category`}
@@ -1203,10 +1277,24 @@ export default function HomeScreen() {
                         openSearchScreen(item.searchQuery || item.label)
                       }
                     >
-                      <View style={styles.homeCategoryImageWrap}>
+                      <View
+                        style={[
+                          styles.homeCategoryImageWrap,
+                          index === 0
+                            ? styles.homeCategoryImageWrapFeatured
+                            : null,
+                        ]}
+                      >
                         <RemoteImage
                           uri={item.imageUrl}
-                          style={styles.homeCategoryImage}
+                          style={[
+                            styles.homeCategoryImage,
+                            {
+                              borderColor:
+                                CATEGORY_TINTS[index % CATEGORY_TINTS.length],
+                              borderWidth: 2,
+                            },
+                          ]}
                           fallbackIcon={
                             (item.icon ||
                               "restaurant-outline") as keyof typeof Ionicons.glyphMap
@@ -1218,37 +1306,49 @@ export default function HomeScreen() {
                           accessibilityLabel={`${item.label} category`}
                         />
                       </View>
-                      <Text style={styles.homeCategoryName} numberOfLines={2}>
+                      <Text
+                        style={[
+                          styles.homeCategoryName,
+                          { color: searchTheme.text },
+                        ]}
+                        numberOfLines={1}
+                      >
                         {item.label}
                       </Text>
-                    </Pressable>
+                    </PressableScale>
                   ))}
                   {canToggleHomeCategories ? (
-                    <Pressable
-                      style={({ pressed }) => [
+                    <PressableScale
+                      style={[
                         styles.homeCategoryCard,
-                        pressed ? styles.homeCategoryCardPressed : null,
+                        styles.homeCategoryMoreCard,
                       ]}
                       accessibilityRole="button"
                       accessibilityLabel="Show more categories"
                       onPress={() => openSearchScreen()}
                     >
-                      <View
-                        style={[
-                          styles.homeCategoryImageWrap,
-                          styles.homeCategoryMoreWrap,
-                        ]}
-                      >
-                        <Ionicons
-                          name="arrow-forward"
-                          size={20}
-                          color={palette.surface}
-                        />
+                      {/* Button sits in a 52px slot (same height as the category image
+                          tiles) so the "View all" label below lines up with the category
+                          names — no manual centring needed. */}
+                      <View style={styles.homeCategoryMoreSlot}>
+                        <View style={styles.homeCategoryMoreButton}>
+                          <Ionicons
+                            name="arrow-forward"
+                            size={16}
+                            color={palette.surface}
+                          />
+                        </View>
                       </View>
-                      <Text style={styles.homeCategoryName} numberOfLines={1}>
+                      <Text
+                        style={[
+                          styles.homeCategoryName,
+                          { color: searchTheme.text },
+                        ]}
+                        numberOfLines={1}
+                      >
                         View all
                       </Text>
-                    </Pressable>
+                    </PressableScale>
                   ) : null}
                 </ScrollView>
               </View>
@@ -1493,180 +1593,189 @@ export default function HomeScreen() {
               />
             ) : null}
 
-            {timeBasedSectionData &&
-            shouldShowTimeBasedSection &&
-            timeBasedPlacement === "above_featured" ? (
-              <HomeTimeBasedSection
-                data={timeBasedSectionData}
-                restaurants={timeBasedRestaurants}
-                accent={timeSectionAccent}
-                onPress={(restaurant) =>
-                  goToRestaurant(restaurant, "live_section")
-                }
-              />
-            ) : null}
+            {(() => {
+              // The 3 "top" sections rendered in the admin-set order (Featured, Live
+              // time-based, Offers). Each is built once here, then emitted per the order.
+              const timeBasedSectionElement =
+                timeBasedSectionData && shouldShowTimeBasedSection ? (
+                  <HomeTimeBasedSection
+                    data={timeBasedSectionData}
+                    restaurants={timeBasedRestaurants}
+                    accent={timeSectionAccent}
+                    onPress={(restaurant) =>
+                      goToRestaurant(restaurant, "live_section")
+                    }
+                  />
+                ) : null;
 
-            {featuredRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
-              <View style={styles.section}>
-                <View style={styles.sectionHeaderWrap}>
-                  <SectionHeader
-                    title={featuredSectionText.title}
-                    subtitle={featuredSectionText.subtitle}
-                  />
-                </View>
-                {shouldShowHomeFeedSkeleton ? (
-                  <RestaurantListSkeleton
-                    translateX={shimmerTranslateX}
-                    horizontal
-                    count={2}
-                    variant="offer"
-                  />
-                ) : (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.horizontalRow}
-                  >
-                    {featuredRestaurants.map((restaurant) => (
-                      <View
-                        key={restaurant._id}
-                        style={[
-                          styles.featuredCardWrap,
-                          featuredRestaurants.length === 1
-                            ? singleHorizontalCardStyle
-                            : null,
-                        ]}
+              const featuredSectionElement =
+                featuredRestaurants.length > 0 || shouldShowHomeFeedSkeleton ? (
+                  <View style={styles.section}>
+                    <View style={styles.sectionHeaderWrap}>
+                      <SectionHeader
+                        title={featuredSectionText.title}
+                        subtitle={featuredSectionText.subtitle}
+                        accentColor="#FF4D8D"
+                        emoji={featuredSectionText.emoji}
+                      />
+                    </View>
+                    {shouldShowHomeFeedSkeleton ? (
+                      <RestaurantListSkeleton
+                        translateX={shimmerTranslateX}
+                        horizontal
+                        count={2}
+                        variant="offer"
+                      />
+                    ) : (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.horizontalRow}
                       >
-                        <RestaurantHeroCard
-                          name={restaurant.name}
-                          subtitle={mapRestaurantCardSubtitle(restaurant)}
-                          imageUrl={
-                            restaurant.coverImage?.url ||
-                            restaurant.logo?.url ||
-                            null
-                          }
-                          isOpen={restaurant.isOpen !== false}
-                          availability={restaurant.availability}
-                          customBadge={getRestaurantCustomBadge(restaurant)}
-                          distanceKm={restaurant.distanceKm}
-                          avgRating={restaurant.avgRating}
-                          reviewCount={restaurant.reviewCount}
-                          offerLabel={offerLabelByRestaurantId.get(
-                            restaurant._id,
-                          )}
-                          lowestMenuPrice={restaurant.lowestMenuPrice}
-                          preparationTimeMinutes={
-                            restaurant.preparationTimeMinutes
-                          }
-                          isFavorite={favoriteRestaurantIdsSet.has(
-                            restaurant._id,
-                          )}
-                          favoriteDisabled={
-                            favoritePendingRestaurantId === restaurant._id
-                          }
-                          variant="offer"
-                          badge="none"
-                          sponsored={restaurant.discovery?.isSponsored === true}
-                          onToggleFavorite={() =>
-                            handleToggleFavorite(restaurant._id)
-                          }
-                          onPress={() => goToRestaurant(restaurant, "featured")}
-                        />
-                      </View>
-                    ))}
-                  </ScrollView>
-                )}
-              </View>
-            ) : null}
+                        {featuredRestaurants.map((restaurant) => (
+                          <View
+                            key={restaurant._id}
+                            style={[
+                              styles.featuredCardWrap,
+                              featuredRestaurants.length === 1
+                                ? singleHorizontalCardStyle
+                                : null,
+                            ]}
+                          >
+                            <RestaurantHeroCard
+                              name={restaurant.name}
+                              subtitle={mapRestaurantCardSubtitle(restaurant)}
+                              imageUrl={
+                                restaurant.coverImage?.url ||
+                                restaurant.logo?.url ||
+                                null
+                              }
+                              isOpen={restaurant.isOpen !== false}
+                              availability={restaurant.availability}
+                              customBadge={getRestaurantCustomBadge(restaurant)}
+                              distanceKm={restaurant.distanceKm}
+                              avgRating={restaurant.avgRating}
+                              reviewCount={restaurant.reviewCount}
+                              offerLabel={offerLabelByRestaurantId.get(
+                                restaurant._id,
+                              )}
+                              lowestMenuPrice={restaurant.lowestMenuPrice}
+                              preparationTimeMinutes={
+                                restaurant.preparationTimeMinutes
+                              }
+                              isFavorite={favoriteRestaurantIdsSet.has(
+                                restaurant._id,
+                              )}
+                              favoriteDisabled={
+                                favoritePendingRestaurantId === restaurant._id
+                              }
+                              variant="offer"
+                              badge="none"
+                              sponsored={
+                                restaurant.discovery?.isSponsored === true
+                              }
+                              onToggleFavorite={() =>
+                                handleToggleFavorite(restaurant._id)
+                              }
+                              onPress={() =>
+                                goToRestaurant(restaurant, "featured")
+                              }
+                            />
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                ) : null;
 
-            {timeBasedSectionData &&
-            shouldShowTimeBasedSection &&
-            timeBasedPlacement === "below_featured" ? (
-              <HomeTimeBasedSection
-                data={timeBasedSectionData}
-                restaurants={timeBasedRestaurants}
-                accent={timeSectionAccent}
-                onPress={(restaurant) =>
-                  goToRestaurant(restaurant, "live_section")
-                }
-              />
-            ) : null}
-
-            {offerRestaurants.length > 0 ? (
-              <View style={styles.section}>
-                <View style={styles.sectionHeaderWrap}>
-                  <SectionHeader
-                    title={offersSectionText.title}
-                    subtitle={offersSectionText.subtitle}
-                  />
-                </View>
-                {shouldShowHomeFeedSkeleton ? (
-                  <RestaurantListSkeleton
-                    translateX={shimmerTranslateX}
-                    horizontal
-                    count={2}
-                    variant="offer"
-                  />
-                ) : (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.horizontalRow}
-                  >
-                    {offerRestaurants.map((restaurant) => (
-                      <View
-                        key={restaurant._id}
-                        style={[
-                          styles.featuredCardWrap,
-                          offerRestaurants.length === 1
-                            ? singleHorizontalCardStyle
-                            : null,
-                        ]}
+              const offersSectionElement =
+                offerRestaurants.length > 0 ? (
+                  <View style={styles.section}>
+                    <View style={styles.sectionHeaderWrap}>
+                      <SectionHeader
+                        title={offersSectionText.title}
+                        subtitle={offersSectionText.subtitle}
+                        accentColor="#A78BFA"
+                        emoji={offersSectionText.emoji}
+                      />
+                    </View>
+                    {shouldShowHomeFeedSkeleton ? (
+                      <RestaurantListSkeleton
+                        translateX={shimmerTranslateX}
+                        horizontal
+                        count={2}
+                        variant="offer"
+                      />
+                    ) : (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.horizontalRow}
                       >
-                        <RestaurantHeroCard
-                          name={restaurant.name}
-                          subtitle={mapRestaurantCardSubtitle(restaurant)}
-                          imageUrl={
-                            restaurant.coverImage?.url ||
-                            restaurant.logo?.url ||
-                            null
-                          }
-                          isOpen={restaurant.isOpen !== false}
-                          availability={restaurant.availability}
-                          customBadge={getRestaurantCustomBadge(restaurant)}
-                          distanceKm={restaurant.distanceKm}
-                          avgRating={restaurant.avgRating}
-                          reviewCount={restaurant.reviewCount}
-                          offerLabel={offerLabelByRestaurantId.get(
-                            restaurant._id,
-                          )}
-                          lowestMenuPrice={restaurant.lowestMenuPrice}
-                          preparationTimeMinutes={
-                            restaurant.preparationTimeMinutes
-                          }
-                          isFavorite={favoriteRestaurantIdsSet.has(
-                            restaurant._id,
-                          )}
-                          favoriteDisabled={
-                            favoritePendingRestaurantId === restaurant._id
-                          }
-                          variant="offer"
-                          badge={
-                            isFeaturedRestaurant(restaurant)
-                              ? "featured"
-                              : undefined
-                          }
-                          onToggleFavorite={() =>
-                            handleToggleFavorite(restaurant._id)
-                          }
-                          onPress={() => goToRestaurant(restaurant, "offers")}
-                        />
-                      </View>
-                    ))}
-                  </ScrollView>
-                )}
-              </View>
-            ) : null}
+                        {offerRestaurants.map((restaurant) => (
+                          <View
+                            key={restaurant._id}
+                            style={[
+                              styles.featuredCardWrap,
+                              offerRestaurants.length === 1
+                                ? singleHorizontalCardStyle
+                                : null,
+                            ]}
+                          >
+                            <RestaurantHeroCard
+                              name={restaurant.name}
+                              subtitle={mapRestaurantCardSubtitle(restaurant)}
+                              imageUrl={
+                                restaurant.coverImage?.url ||
+                                restaurant.logo?.url ||
+                                null
+                              }
+                              isOpen={restaurant.isOpen !== false}
+                              availability={restaurant.availability}
+                              customBadge={getRestaurantCustomBadge(restaurant)}
+                              distanceKm={restaurant.distanceKm}
+                              avgRating={restaurant.avgRating}
+                              reviewCount={restaurant.reviewCount}
+                              offerLabel={offerLabelByRestaurantId.get(
+                                restaurant._id,
+                              )}
+                              lowestMenuPrice={restaurant.lowestMenuPrice}
+                              preparationTimeMinutes={
+                                restaurant.preparationTimeMinutes
+                              }
+                              isFavorite={favoriteRestaurantIdsSet.has(
+                                restaurant._id,
+                              )}
+                              favoriteDisabled={
+                                favoritePendingRestaurantId === restaurant._id
+                              }
+                              variant="offer"
+                              badge={
+                                isFeaturedRestaurant(restaurant)
+                                  ? "featured"
+                                  : undefined
+                              }
+                              onToggleFavorite={() =>
+                                handleToggleFavorite(restaurant._id)
+                              }
+                              onPress={() => goToRestaurant(restaurant, "offers")}
+                            />
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                ) : null;
+
+              const topSectionMap: Record<TopSectionKey, ReactNode> = {
+                featured: featuredSectionElement,
+                timeBased: timeBasedSectionElement,
+                offers: offersSectionElement,
+              };
+              return topSectionOrder.map((key) => (
+                <Fragment key={key}>{topSectionMap[key]}</Fragment>
+              ));
+            })()}
 
             {discoverNewRestaurants.length > 0 ? (
               <View style={styles.section}>
@@ -1674,6 +1783,8 @@ export default function HomeScreen() {
                   <SectionHeader
                     title={discoverNewSectionText.title}
                     subtitle={discoverNewSectionText.subtitle}
+                    accentColor="#4DA3FF"
+                    emoji={discoverNewSectionText.emoji}
                   />
                 </View>
                 {shouldShowHomeFeedSkeleton ? (
@@ -1745,6 +1856,8 @@ export default function HomeScreen() {
                   <SectionHeader
                     title={popularNearYouSectionText.title}
                     subtitle={popularNearYouSectionText.subtitle}
+                    accentColor="#FFA940"
+                    emoji={popularNearYouSectionText.emoji}
                   />
                 </View>
                 {shouldShowHomeFeedSkeleton ? (
@@ -1817,6 +1930,8 @@ export default function HomeScreen() {
                   <SectionHeader
                     title={nearbySectionText.title}
                     subtitle={nearbySectionText.subtitle}
+                    accentColor="#34D399"
+                    emoji={nearbySectionText.emoji}
                   />
                 </View>
                 <NearbyHeaderSpinner visible={isUpdatingLocationResults} />

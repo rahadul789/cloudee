@@ -253,6 +253,11 @@ export default function ActiveOrdersScreen() {
                   <Text style={styles.orderNumber} numberOfLines={1}>
                     {item.orderNumber}
                   </Text>
+                  {item.isUrgent ? (
+                    <View style={styles.urgentChip}>
+                      <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
+                    </View>
+                  ) : null}
                   {item.isFocusedLiveTrip ? (
                     <View style={styles.liveChip}>
                       <View style={styles.liveDot} />
@@ -411,6 +416,21 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "900",
     color: palette.foreground,
+  },
+  urgentChip: {
+    minHeight: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    justifyContent: "center",
+    backgroundColor: palette.warningSoft,
+    borderWidth: 1,
+    borderColor: palette.warning,
+  },
+  urgentChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: palette.warning,
   },
   liveChip: {
     minHeight: 24,

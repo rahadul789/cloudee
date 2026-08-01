@@ -201,6 +201,9 @@ const orderSchema = new Schema(
     terminalReason: { type: String, default: "" },
     cancelledBy: { type: String, default: "" },
     rejectionReason: { type: String, default: "" },
+    // Customer paid for urgent/priority delivery. Drives admin/owner/rider badges and
+    // (later) dispatch prioritisation. Defaults false so every existing order is normal.
+    isUrgent: { type: Boolean, default: false },
     note: { type: String, default: "", trim: true },
     paymentMethod: { type: String, default: "Cash" },
     paymentStatus: { type: String, default: "pending" },
