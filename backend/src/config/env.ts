@@ -106,6 +106,9 @@ const envSchema = z.object({
   SSL_SMS_API_TOKEN: z.string().optional(),
   SSL_SMS_SID_MASKING: z.string().optional(),
   SSL_SMS_SID_NONMASKING: z.string().optional(),
+  // SSL Wireless requires every NON-MASKING SMS to start with the brand in brackets:
+  // "(Brand) <body>". Defaults to the platform/branding name when unset.
+  SSL_SMS_BRAND_NAME: z.string().optional(),
   ALERTS_ENABLED: z
     .string()
     .default("false")

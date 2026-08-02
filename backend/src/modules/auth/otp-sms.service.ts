@@ -272,6 +272,7 @@ async function sendViaSslWireless(
   to: string,
   message: string,
   senderType: SslSenderType,
+  brandName: string,
 ) {
   const apiToken = env.SSL_SMS_API_TOKEN?.trim();
   if (!apiToken) {
@@ -295,11 +296,20 @@ async function sendViaSslWireless(
     );
   }
 
+  // SSL Wireless MANDATES that non-masking SMS start with the brand in brackets —
+  // "(Brand) <body>" — else it rejects with "Invalid Nonmasking SMS format". Masking
+  // SMS already carry the brand as the sender ID, so they need no prefix.
+  const brand = brandName.trim();
+  const smsBody =
+    senderType === "non_masking" && brand && !message.startsWith(`(${brand})`)
+      ? `(${brand}) ${message}`
+      : message;
+
   const payload = {
     api_token: apiToken,
     sid,
     msisdn: to,
-    sms: message.slice(0, 1000),
+    sms: smsBody.slice(0, 1000),
     csms_id: generateCsmsId(),
   };
 
@@ -384,10 +394,11 @@ export async function sendTransactionalSms(params: {
   const secondary: SmsProvider =
     primary === "sslwireless" ? "smsbd" : "sslwireless";
 
+  const brandName = env.SSL_SMS_BRAND_NAME?.trim() || config.platformName;
   const send = async (provider: SmsProvider) => {
     const result =
       provider === "sslwireless"
-        ? await sendViaSslWireless(to, message, config.sslSenderType)
+        ? await sendViaSslWireless(to, message, config.sslSenderType, brandName)
         : await sendViaSmsBd(to, message);
     logger.info(
       { provider, requestId: result.requestId, phone: maskSmsPhone(to) },

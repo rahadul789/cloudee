@@ -298,7 +298,10 @@
       "Bash(echo \"tsc_exit=$?\")",
       "Bash(git -C /d/cloudee status --short -- customer-app)",
       "WebFetch(domain:ismsplus.sslwireless.com)",
-      "Bash(grep -nE \"^\\\\.env|\\\\.env$|\\\\.env\\\\b\" .gitignore)"
+      "Bash(grep -nE \"^\\\\.env|\\\\.env$|\\\\.env\\\\b\" .gitignore)",
+      "Bash(cd /d/cloudee/backend *)",
+      "Read(//d//**)",
+      "Bash(grep -niE \"^\\\\s+[a-z].*:$|env_file|APP_ENV_FILE|container_name|image:|build:\" docker-compose.yml)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",
