@@ -1141,7 +1141,12 @@ export default function HomeScreen() {
           <View style={styles.heroOrbSecondary} />
 
           <View style={styles.heroTopRow}>
-            <Pressable onPress={openLocationPicker} style={styles.addressBlock}>
+            <PressableScale
+              onPress={openLocationPicker}
+              scaleTo={0.97}
+              containerStyle={styles.addressBlockSlot}
+              style={styles.addressBlock}
+            >
               <Text style={styles.addressLabel}>DELIVERY ADDRESS</Text>
               <View style={styles.addressRow}>
                 <Ionicons name="location" size={16} color={palette.secondary} />
@@ -1163,7 +1168,7 @@ export default function HomeScreen() {
                     ? formatCustomerAddressLine(selectedLocation.address)
                     : "Select your exact delivery point"}
               </Text>
-            </Pressable>
+            </PressableScale>
 
             <View style={styles.actions}>
               <PressableScale
@@ -2158,7 +2163,9 @@ export default function HomeScreen() {
               ) : null}
 
               {canOpenCustomerTarget(homeCms.modal.ctaPath) ? (
-                <Pressable
+                <PressableScale
+                  scaleTo={0.97}
+                  containerStyle={styles.campaignModalActionSlot}
                   style={[
                     styles.campaignModalAction,
                     {
@@ -2175,7 +2182,7 @@ export default function HomeScreen() {
                   <Text style={styles.campaignModalActionText}>
                     {homeCms.modal.ctaLabel || "Explore now"}
                   </Text>
-                </Pressable>
+                </PressableScale>
               ) : null}
             </View>
           </View>

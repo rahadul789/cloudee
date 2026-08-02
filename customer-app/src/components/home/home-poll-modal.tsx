@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import {
   submitHomePollVote,
@@ -169,16 +170,14 @@ export function HomePollModal({
           </View>
         ) : null}
       </ScrollView>
-      <Pressable
-        style={({ pressed }) => [
-          styles.submit,
-          { backgroundColor: accent },
-          pressed ? styles.submitPressed : null,
-        ]}
+      <PressableScale
+        scaleTo={0.98}
+        containerStyle={styles.submitSlot}
+        style={[styles.submit, { backgroundColor: accent }]}
         onPress={onClose}
       >
         <Text style={styles.submitText}>Done</Text>
-      </Pressable>
+      </PressableScale>
     </View>
   ) : (
     <View style={cardStyle}>
@@ -210,14 +209,14 @@ export function HomePollModal({
           {poll.options.map((option) => {
             const active = selectedOption === option.id;
             return (
-              <Pressable
+              <PressableScale
                 key={option.id}
-                style={({ pressed }) => [
+                scaleTo={0.98}
+                style={[
                   styles.option,
                   active
                     ? { borderColor: accent, backgroundColor: `${accent}12` }
                     : null,
-                  pressed ? styles.optionPressed : null,
                 ]}
                 onPress={() => setSelectedOption(option.id)}
               >
@@ -227,7 +226,7 @@ export function HomePollModal({
                   ) : null}
                 </View>
                 <Text style={styles.optionLabel}>{option.label}</Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -244,12 +243,13 @@ export function HomePollModal({
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
-      <Pressable
-        style={({ pressed }) => [
+      <PressableScale
+        scaleTo={0.98}
+        containerStyle={styles.submitSlot}
+        style={[
           styles.submit,
           { backgroundColor: accent },
           !selectedOption || submitting ? styles.submitDisabled : null,
-          pressed && selectedOption && !submitting ? styles.submitPressed : null,
         ]}
         onPress={handleSubmit}
         disabled={!selectedOption || submitting}
@@ -259,7 +259,7 @@ export function HomePollModal({
         ) : (
           <Text style={styles.submitText}>Submit</Text>
         )}
-      </Pressable>
+      </PressableScale>
     </View>
   );
 
@@ -385,8 +385,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#C0392B",
   },
-  submit: {
+  // marginTop:auto lives on the PressableScale wrapper (the flex child) so the button
+  // still pins to the bottom of the card.
+  submitSlot: {
     marginTop: "auto",
+  },
+  submit: {
     alignItems: "center",
     justifyContent: "center",
     minHeight: 50,

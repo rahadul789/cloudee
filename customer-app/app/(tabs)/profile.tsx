@@ -18,6 +18,7 @@ import {
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
@@ -413,11 +414,9 @@ export default function ProfileScreen() {
               <View pointerEvents="none" style={styles.heroGlowSecondary} />
               <View style={styles.heroTopRow}>
                 <Text style={styles.kicker}>Profile</Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.heroGhostButton,
-                    pressed ? styles.iconButtonPressed : null,
-                  ]}
+                <PressableScale
+                  scaleTo={0.95}
+                  style={styles.heroGhostButton}
                   onPress={openNotifications}
                 >
                   <Ionicons
@@ -433,7 +432,7 @@ export default function ProfileScreen() {
                       </Text>
                     </View>
                   ) : null}
-                </Pressable>
+                </PressableScale>
               </View>
 
               <View style={styles.identityCard}>
@@ -456,11 +455,9 @@ export default function ProfileScreen() {
                     <Text style={styles.name} numberOfLines={2}>
                       {displayName}
                     </Text>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.nameEditButton,
-                        pressed ? styles.iconButtonPressed : null,
-                      ]}
+                    <PressableScale
+                      scaleTo={0.9}
+                      style={styles.nameEditButton}
                       onPress={openProfileEdit}
                       hitSlop={10}
                       accessibilityRole="button"
@@ -471,7 +468,7 @@ export default function ProfileScreen() {
                         size={17}
                         color={palette.foreground}
                       />
-                    </Pressable>
+                    </PressableScale>
                   </View>
                   <Text style={styles.subtitle}>
                     Keep your account, notifications, rewards, and support
@@ -491,11 +488,9 @@ export default function ProfileScreen() {
           );
         case "offer":
           return (
-            <Pressable
-              style={({ pressed }) => [
-                styles.offerPeekCard,
-                pressed ? styles.navCardPressed : null,
-              ]}
+            <PressableScale
+              scaleTo={0.98}
+              style={styles.offerPeekCard}
               onPress={openOffers}
             >
               {activeOfferCount > 0 ? (
@@ -555,7 +550,7 @@ export default function ProfileScreen() {
                 />
               </View>
               <Text style={styles.offerDetailHint}>View</Text>
-            </Pressable>
+            </PressableScale>
           );
         case "overview":
           return (
@@ -977,16 +972,14 @@ const InfoPill = memo(function InfoPill({
 
   if (onPress) {
     return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.infoPill,
-          pressed ? styles.iconButtonPressed : null,
-        ]}
+      <PressableScale
+        scaleTo={0.95}
+        style={styles.infoPill}
         onPress={onPress}
         accessibilityRole="button"
       >
         {content}
-      </Pressable>
+      </PressableScale>
     );
   }
 
@@ -1035,13 +1028,18 @@ const OverviewCard = memo(function OverviewCard({
   }
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        cardStyle,
-        pressed ? styles.navCardPressed : null,
-      ]}
+    <PressableScale
+      scaleTo={0.97}
       onPress={onPress}
       accessibilityRole="button"
+      containerStyle={wide ? styles.overviewCardSlotWide : styles.overviewCardSlot}
+      style={[
+        styles.overviewCard,
+        styles.overviewCardFill,
+        wide ? styles.overviewCardWide : null,
+        highlight ? styles.overviewCardHighlighted : null,
+        { backgroundColor: tint },
+      ]}
     >
       <View style={styles.overviewActionCue}>
         <Ionicons name="chevron-forward" size={14} color={palette.foreground} />
@@ -1054,7 +1052,7 @@ const OverviewCard = memo(function OverviewCard({
       </Text>
       <Text style={styles.overviewLabel}>{label}</Text>
       <Text style={styles.overviewCaption}>{caption}</Text>
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -1093,11 +1091,12 @@ const ProfileNavCard = memo(function ProfileNavCard({
   trailingIcon?: keyof typeof Ionicons.glyphMap;
 }) {
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <PressableScale
+      scaleTo={0.97}
+      accessibilityRole="button"
+      style={[
         styles.navCard,
         highlight ? styles.navCardHighlighted : null,
-        pressed ? styles.navCardPressed : null,
       ]}
       onPress={onPress}
     >
@@ -1117,7 +1116,7 @@ const ProfileNavCard = memo(function ProfileNavCard({
         {caption ? <Text style={styles.navCaption}>{caption}</Text> : null}
       </View>
       <Ionicons name={trailingIcon} size={18} color={palette.mutedForeground} />
-    </Pressable>
+    </PressableScale>
   );
 });
 
@@ -1568,6 +1567,18 @@ const styles = StyleSheet.create({
   overviewCardWide: {
     width: "100%",
     minHeight: 112,
+  },
+  // PressableScale wraps the card in an Animated.View; the grid width must live on that
+  // outer view (containerStyle), while the inner Pressable fills it (else "48%" resolves
+  // against a shrink-to-fit box ≈ 0).
+  overviewCardSlot: {
+    width: "48%",
+  },
+  overviewCardSlotWide: {
+    width: "100%",
+  },
+  overviewCardFill: {
+    width: "100%",
   },
   overviewCardHighlighted: {
     borderWidth: 1,

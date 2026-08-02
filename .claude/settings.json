@@ -296,7 +296,9 @@
       "Bash(echo \"backend=$?\")",
       "Bash(echo \"admin=$?\")",
       "Bash(echo \"tsc_exit=$?\")",
-      "Bash(git -C /d/cloudee status --short -- customer-app)"
+      "Bash(git -C /d/cloudee status --short -- customer-app)",
+      "WebFetch(domain:ismsplus.sslwireless.com)",
+      "Bash(grep -nE \"^\\\\.env|\\\\.env$|\\\\.env\\\\b\" .gitignore)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

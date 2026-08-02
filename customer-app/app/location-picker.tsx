@@ -28,6 +28,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { styles } from "@/src/components/location/location-picker.styles";
 import {
   useCustomerSaveLocationMutation,
@@ -950,11 +951,11 @@ export default function LocationPickerScreen() {
             </Animated.View>
           </View>
 
-          <Pressable
-            style={({ pressed }) => [
+          <PressableScale
+            scaleTo={0.98}
+            style={[
               styles.confirmButtonLift,
               isConfirming ? styles.confirmButtonDisabled : null,
-              pressed && !isConfirming ? styles.confirmButtonPressed : null,
             ]}
             onPress={handleConfirm}
             disabled={isConfirming}
@@ -972,7 +973,7 @@ export default function LocationPickerScreen() {
                 </View>
               )}
             </View>
-          </Pressable>
+          </PressableScale>
         </View>
       </View>
     </SafeAreaView>

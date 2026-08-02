@@ -227,7 +227,7 @@ export default function CustomerSearchScreen() {
     ? toggleFavoriteMutation.variables
     : null;
   const recentViewedRestaurants = useMemo(
-    () => recentVisitedRestaurants.slice(0, 6),
+    () => recentVisitedRestaurants.slice(0, 3),
     [recentVisitedRestaurants],
   );
 
@@ -498,11 +498,9 @@ export default function CustomerSearchScreen() {
                           key={restaurant.id}
                           style={styles.recentVisitedCardWrap}
                         >
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.recentVisitedCard,
-                              pressed ? styles.cardPressed : null,
-                            ]}
+                          <PressableScale
+                            scaleTo={0.98}
+                            style={styles.recentVisitedCard}
                             onPress={() =>
                               router.push({
                                 pathname: "/restaurants/[restaurantId]",
@@ -571,7 +569,7 @@ export default function CustomerSearchScreen() {
                                 }
                               />
                             </Pressable>
-                          </Pressable>
+                          </PressableScale>
                         </View>
                       ))}
                     </ScrollView>

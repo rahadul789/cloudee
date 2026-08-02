@@ -31,6 +31,7 @@ import {
 } from "@/src/lib/urgent-delivery";
 import { NeonStickerCard } from "@/src/components/neon-sticker-card";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
+import { PressableScale } from "@/src/components/pressable-scale";
 import {
   useBkashInitiateMutation,
   type CartQuoteResponse,
@@ -1249,7 +1250,8 @@ export default function CheckoutScreen() {
                 style={styles.voucherInput}
               />
               {appliedVoucherCode ? null : (
-                <Pressable
+                <PressableScale
+                  scaleTo={0.95}
                   style={[
                     styles.voucherButton,
                     isApplyingCode ? styles.voucherButtonDisabled : null,
@@ -1262,7 +1264,7 @@ export default function CheckoutScreen() {
                   ) : (
                     <Text style={styles.voucherButtonText}>Apply</Text>
                   )}
-                </Pressable>
+                </PressableScale>
               )}
             </View>
             {voucherFeedback ? (

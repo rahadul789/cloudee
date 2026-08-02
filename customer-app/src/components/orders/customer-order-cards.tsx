@@ -11,6 +11,7 @@ import {
 } from "react-native";
 
 import { PreparationRuntime } from "@/src/components/orders/preparation-runtime";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { styles } from "@/src/components/orders/orders-list.styles";
 import { formatCurrency } from "@/src/lib/currency";
 import { getCustomerOrderStatusMeta } from "@/src/lib/customer-order-display";
@@ -322,12 +323,9 @@ export const OrderCard = memo(function OrderCard({
   const { order, statusMeta } = card;
   if (card.isActive) {
     return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.orderCard,
-          styles.orderCardActive,
-          pressed ? styles.orderCardPressed : null,
-        ]}
+      <PressableScale
+        scaleTo={0.98}
+        style={[styles.orderCard, styles.orderCardActive]}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityHint="Opens live order tracking"
@@ -435,18 +433,18 @@ export const OrderCard = memo(function OrderCard({
           </View>
           <Ionicons name="arrow-forward" size={16} color={palette.secondary} />
         </View>
-      </Pressable>
+      </PressableScale>
     );
   }
 
   if (compact) {
     return (
-      <Pressable
-        style={({ pressed }) => [
+      <PressableScale
+        scaleTo={0.98}
+        style={[
           styles.orderCard,
           styles.orderCardCompact,
           styles.orderCardHistory,
-          pressed ? styles.orderCardPressed : null,
         ]}
         onPress={onPress}
         accessibilityRole="button"
@@ -535,16 +533,14 @@ export const OrderCard = memo(function OrderCard({
             />
           </View>
         </View>
-      </Pressable>
+      </PressableScale>
     );
   }
 
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.orderCard,
-        pressed ? styles.orderCardPressed : null,
-      ]}
+    <PressableScale
+      scaleTo={0.98}
+      style={[styles.orderCard]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityHint="Opens order details"
@@ -650,7 +646,7 @@ export const OrderCard = memo(function OrderCard({
           )}
         </Pressable>
       ) : null}
-    </Pressable>
+    </PressableScale>
   );
 }, areOrderCardPropsEqual);
 

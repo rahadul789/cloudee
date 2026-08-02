@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { Screen } from "@/src/components/screen";
 import { useCustomerPasswordUpdateMutation } from "@/src/hooks/use-customer-api";
 import { useIsOnline } from "@/src/hooks/use-network-status";
@@ -153,24 +154,17 @@ export default function ProfilePasswordScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topBar}>
-            <Pressable
+            <PressableScale
+              scaleTo={0.9}
               onPress={() => router.back()}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed
-                  ? {
-                      transform: [{ scale: 0.97 }, { translateY: 1 }],
-                      opacity: 0.92,
-                    }
-                  : null,
-              ]}
+              style={styles.backButton}
             >
               <Ionicons
                 name="chevron-back"
                 size={20}
                 color={palette.foreground}
               />
-            </Pressable>
+            </PressableScale>
             <Text style={styles.topBarTitle}>
               {hasPassword ? "Change password" : "Add password"}
             </Text>
@@ -308,16 +302,11 @@ export default function ProfilePasswordScreen() {
               </View>
             ) : null}
 
-            <Pressable
-              style={({ pressed }) => [
+            <PressableScale
+              scaleTo={0.98}
+              style={[
                 styles.primaryButton,
                 !canPressSave ? styles.primaryButtonDisabled : null,
-                pressed && canPressSave
-                  ? {
-                      transform: [{ scale: 0.985 }, { translateY: 1 }],
-                      opacity: 0.96,
-                    }
-                  : null,
               ]}
               onPress={handleSave}
               disabled={!canPressSave}
@@ -332,7 +321,7 @@ export default function ProfilePasswordScreen() {
                   <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
                 </>
               )}
-            </Pressable>
+            </PressableScale>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

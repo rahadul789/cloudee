@@ -96,6 +96,16 @@ const envSchema = z.object({
   SMS_API_URL: z.string().url().default("https://api.sms.net.bd/sendsms"),
   SMS_API_KEY: z.string().optional(),
   SMS_SENDER_ID: z.string().optional(),
+  // Boot default for the active SMS gateway; the admin panel (auth.otp.smsProvider)
+  // overrides this at runtime. Secrets/IDs for the new provider live below.
+  SMS_PROVIDER: z.enum(["smsbd", "sslwireless"]).default("smsbd"),
+  SSL_SMS_API_URL: z
+    .string()
+    .url()
+    .default("https://smsplus.sslwireless.com/api/v3/send-sms"),
+  SSL_SMS_API_TOKEN: z.string().optional(),
+  SSL_SMS_SID_MASKING: z.string().optional(),
+  SSL_SMS_SID_NONMASKING: z.string().optional(),
   ALERTS_ENABLED: z
     .string()
     .default("false")

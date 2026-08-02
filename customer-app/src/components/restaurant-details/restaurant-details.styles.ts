@@ -112,13 +112,16 @@ export const styles = StyleSheet.create({
     position: "absolute",
     left: 14,
     right: 14,
-    bottom: 14,
+    // The info card below tucks up over the banner (infoCard marginTop: -18); keep the pills
+    // clear of that overlap so their bottoms aren't cropped and they don't touch the card.
+    bottom: 26,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
   statePill: {
+    flexShrink: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
@@ -133,9 +136,13 @@ export const styles = StyleSheet.create({
   },
   statePillTextClosed: { color: palette.surface },
   offerPillButton: {
-    maxWidth: "58%",
+    // No hard maxWidth cap: the voucher takes whatever width is free next to the (short)
+    // status pill so the FULL label shows, and only flex-shrinks (graceful truncation) if
+    // the status text is unusually long. minWidth:0 lets it shrink below its content width.
+    flexShrink: 1,
+    minWidth: 0,
     backgroundColor: "rgba(255,99,146,0.88)",
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 8,
     borderRadius: 999,
     flexDirection: "row",
@@ -145,9 +152,9 @@ export const styles = StyleSheet.create({
   },
   offerPillText: {
     flexShrink: 1,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "800",
     color: palette.surface,
   },
   infoCard: {
@@ -359,20 +366,28 @@ export const styles = StyleSheet.create({
     lineHeight: 18,
     color: palette.mutedForeground,
   },
+  // Dark-neon "reward progress" card — same visual family as the cart screen's voucher
+  // progress + the urgent-delivery priority sticker. Amber while the offer is still
+  // locked, switching to green the moment it unlocks (border + shadow + badge + fill).
   offerProgressCard: {
     marginBottom: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: palette.surface,
+    borderRadius: 22,
+    backgroundColor: "#211A2E",
+    borderWidth: 1,
+    borderColor: "rgba(255, 201, 77, 0.35)",
     gap: 8,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
+    shadowColor: "#FFC94D",
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    elevation: 5,
   },
-  offerProgressCardUnlocked: { backgroundColor: "#EFFAF5" },
+  offerProgressCardUnlocked: {
+    borderColor: "rgba(53, 214, 164, 0.4)",
+    shadowColor: "#35D6A4",
+  },
   offerProgressHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -382,50 +397,61 @@ export const styles = StyleSheet.create({
   offerProgressBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
     flexShrink: 1,
     minWidth: 0,
+  },
+  offerProgressBadgeIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFC94D",
+  },
+  offerProgressBadgeIconUnlocked: {
+    backgroundColor: "#35D6A4",
   },
   offerProgressBadgeText: {
     flexShrink: 1,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "700",
-    color: palette.secondary,
+    fontWeight: "800",
+    color: "#FFC94D",
     textTransform: "uppercase",
     letterSpacing: 0.7,
   },
   offerProgressBadgeTextUnlocked: {
-    color: palette.successText,
+    color: "#35D6A4",
   },
   offerProgressValue: {
     flexShrink: 0,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "700",
-    color: palette.foreground,
+    fontWeight: "800",
+    color: "#FFFFFF",
     fontVariant: ["tabular-nums"],
   },
   offerProgressTitle: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.foreground },
   offerProgressSubtitle: {
     fontSize: 12,
     lineHeight: 16,
-    color: palette.mutedForeground,
+    color: "#C9C2D6",
   },
   offerTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#F5E1D6",
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
     overflow: "hidden",
     marginTop: 2,
   },
   offerFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: palette.secondary,
+    backgroundColor: "#FFC94D",
   },
   offerFillUnlocked: {
-    backgroundColor: palette.successText,
+    backgroundColor: "#35D6A4",
   },
   menuIntro: { paddingHorizontal: 20, paddingTop: 22, gap: 2 },
   menuKicker: {
@@ -690,6 +716,16 @@ export const styles = StyleSheet.create({
   menuSearchWrapFlush: {
     marginHorizontal: 0,
   },
+  // Browse-style icon chip: a soft pink tile behind the search glyph so the bar reads
+  // as a modern, tappable control rather than a plain outlined field.
+  menuSearchIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF0F6",
+  },
   menuSearchInput: {
     flex: 1,
     paddingVertical: 10,
@@ -937,11 +973,13 @@ export const styles = StyleSheet.create({
   cartBarWrap: { position: "absolute", left: 20, right: 20, bottom: 0 },
   cartBarLift: {
     borderRadius: 28,
-    shadowColor: "#111827",
-    shadowOpacity: 0.22,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 9 },
-    elevation: 6,
+    // Pink-tinted glow so the "View cart" bar reads as the primary CTA and keeps its
+    // prominence even when the dark-neon offer-progress card sits right above it.
+    shadowColor: palette.secondary,
+    shadowOpacity: 0.4,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 9,
   },
   cartBar: {
     overflow: "hidden",
@@ -973,8 +1011,18 @@ export const styles = StyleSheet.create({
   cartBarCopy: { flex: 1, gap: 2 },
   cartBarTitle: { fontSize: 14, lineHeight: 18, fontWeight: "700", color: palette.surface },
   cartBarSubtitle: { fontSize: 12, lineHeight: 16, color: "rgba(255,255,255,0.84)" },
-  cartBarAction: { flexDirection: "row", alignItems: "center", gap: 6 },
-  cartBarActionText: { fontSize: 14, lineHeight: 18, fontWeight: "700", color: palette.surface },
+  // High-contrast white pill around "View cart" so the tap target is unmistakable even
+  // against the pink bar (a plain white label used to blend in when the offer card drew the eye).
+  cartBarAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+  },
+  cartBarActionText: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.secondary },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 60,

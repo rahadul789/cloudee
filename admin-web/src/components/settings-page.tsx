@@ -5259,6 +5259,91 @@ export function SettingsPage() {
                 </div>
 
                 <div className="space-y-3 rounded-lg border bg-background p-3">
+                  <div>
+                    <Label>SMS gateway</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Which provider actually sends OTP/transactional SMS. API
+                      tokens + sender IDs live in the server env; this only picks
+                      which one is used and how it falls back.
+                    </p>
+                  </div>
+                  <SettingRow
+                    title="Active provider"
+                    description="SSL Wireless = new iSMS Plus gateway · sms.net.bd = legacy."
+                  >
+                    <Select
+                      value={otp.smsProvider ?? "smsbd"}
+                      onValueChange={(value) =>
+                        updateDraft((content) => {
+                          content.auth.otp.smsProvider = value as
+                            | "smsbd"
+                            | "sslwireless"
+                        })
+                      }
+                    >
+                      <SelectTrigger className="w-56">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sslwireless">
+                          SSL Wireless (new)
+                        </SelectItem>
+                        <SelectItem value="smsbd">
+                          sms.net.bd (legacy)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  {(otp.smsProvider ?? "smsbd") === "sslwireless" ? (
+                    <SettingRow
+                      title="SSL sender ID"
+                      description="Non-masking (FOODBELANON) is usual for OTP; Masking (FOODBELA) is branded. Switching needs no code change."
+                    >
+                      <Select
+                        value={otp.sslSenderType ?? "non_masking"}
+                        onValueChange={(value) =>
+                          updateDraft((content) => {
+                            content.auth.otp.sslSenderType = value as
+                              | "masking"
+                              | "non_masking"
+                          })
+                        }
+                      >
+                        <SelectTrigger className="w-56">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="non_masking">
+                            Non-masking (FOODBELANON)
+                          </SelectItem>
+                          <SelectItem value="masking">
+                            Masking (FOODBELA)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </SettingRow>
+                  ) : null}
+                  <div className="flex items-start justify-between gap-3 border-t pt-3">
+                    <div>
+                      <Label>Auto-fallback</Label>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        If the active provider fails to send, retry once via the
+                        other provider. Keep OFF for a clean single-provider
+                        switch.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={Boolean(otp.smsFallbackEnabled)}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          content.auth.otp.smsFallbackEnabled = checked
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-lg border bg-background p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <Label>Telegram OTP fallback</Label>

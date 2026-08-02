@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View, Pressable } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { PressableScale } from "@/src/components/pressable-scale";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { ErrorRetryCard } from "@/src/components/error-retry-card";
@@ -207,9 +209,13 @@ export default function OfferDetailsScreen() {
   return (
     <Screen>
       <View style={styles.topBar}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <PressableScale
+          scaleTo={0.9}
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
           <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-        </Pressable>
+        </PressableScale>
         <View style={styles.topCopy}>
           <Text style={styles.eyebrow}>My offer</Text>
           <Text style={styles.title}>Offer details</Text>

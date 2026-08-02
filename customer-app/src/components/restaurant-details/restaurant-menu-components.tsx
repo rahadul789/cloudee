@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import { formatCurrency } from "@/src/lib/currency";
 import {
@@ -39,6 +40,13 @@ function estimateOfferDiscount(offer: CustomerVoucherOffer, subtotal: number) {
     const raw = (subtotal * value) / 100;
     const cap = offer.maximumDiscountAmount ?? 0;
     return cap > 0 ? Math.min(raw, cap) : raw;
+  }
+  // Free delivery carries no fixed discountValue — give it a small positive proxy so it
+  // still counts as a real tier (the progress model drops any tier with discount ≤ 0).
+  // Without this, a free-delivery auto voucher silently vanishes when TWO auto vouchers
+  // apply, and the bar would only ever reflect the other one.
+  if (offer.type === "free_delivery") {
+    return value > 0 ? value : 40;
   }
   return value;
 }
@@ -190,7 +198,9 @@ export function MenuSearchBar({
 }) {
   return (
     <View style={[styles.menuSearchWrap, flush ? styles.menuSearchWrapFlush : null]}>
-      <Ionicons name="search-outline" size={16} color={palette.mutedForeground} />
+      <View style={styles.menuSearchIconWrap}>
+        <Ionicons name="search" size={17} color={palette.secondary} />
+      </View>
       <TextInput
         ref={inputRef}
         value={value}
@@ -325,7 +335,8 @@ const SearchResultCard = memo(function SearchResultCard({
   const isUnavailable = item.availability === "unavailable" || !isRestaurantOpen;
 
   return (
-    <Pressable
+    <PressableScale
+      scaleTo={0.98}
       onPress={() => onPressCard(item)}
       style={[styles.searchResultCard, isUnavailable ? styles.searchResultCardMuted : null]}
     >
@@ -371,7 +382,7 @@ const SearchResultCard = memo(function SearchResultCard({
             onPressDecrease(item);
           }}
         />
-      </Pressable>
+      </PressableScale>
     );
   }
 );
@@ -590,11 +601,20 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
         >
           <View style={styles.offerProgressHeader}>
             <View style={styles.offerProgressBadge}>
-              <Ionicons
-                name={offerProgress.hasCurrent ? "checkmark-circle" : "sparkles-outline"}
-                size={15}
-                color={offerProgress.hasCurrent ? palette.successText : palette.secondary}
-              />
+              <View
+                style={[
+                  styles.offerProgressBadgeIcon,
+                  offerProgress.hasCurrent
+                    ? styles.offerProgressBadgeIconUnlocked
+                    : null,
+                ]}
+              >
+                <Ionicons
+                  name={offerProgress.hasCurrent ? "checkmark-circle" : "sparkles"}
+                  size={13}
+                  color={offerProgress.hasCurrent ? "#0C241C" : "#1B1426"}
+                />
+              </View>
               <Text
                 numberOfLines={1}
                 style={[
@@ -628,11 +648,9 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
         </Animated.View>
       ) : null}
 
-      <Pressable
-        style={({ pressed }) => [
-          styles.cartBarLift,
-          pressed ? styles.submitButtonPressed : null,
-        ]}
+      <PressableScale
+        scaleTo={0.98}
+        style={styles.cartBarLift}
         onPress={() => router.push("/(tabs)/cart")}
       >
         <View style={styles.cartBar}>
@@ -646,10 +664,10 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
           </View>
           <View style={styles.cartBarAction}>
             <Text style={styles.cartBarActionText}>View cart</Text>
-            <Ionicons name="arrow-forward" size={16} color={palette.surface} />
+            <Ionicons name="arrow-forward" size={15} color={palette.secondary} />
           </View>
         </View>
-      </Pressable>
+      </PressableScale>
     </View>
   );
 });

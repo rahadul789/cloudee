@@ -41,6 +41,12 @@ export const styles = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 16,
   },
+  // Closing-soon timer sat with a floaty gap above but touched the header card below.
+  // Trim the top, add a clear gap below so it reads as its own separated banner.
+  browseClosingBanner: {
+    marginTop: 2,
+    marginBottom: 14,
+  },
   headerCard: {
     borderRadius: 26,
     backgroundColor: palette.surface,

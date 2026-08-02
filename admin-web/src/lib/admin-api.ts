@@ -4749,6 +4749,9 @@ export type PlatformContent = {
       supportCallNumber?: string
       whatsappOtpEnabled?: boolean
       whatsappAfterResends?: number
+      smsProvider?: "smsbd" | "sslwireless"
+      smsFallbackEnabled?: boolean
+      sslSenderType?: "masking" | "non_masking"
     }
     rateLimits: {
       signinAttemptsPerWindow: number

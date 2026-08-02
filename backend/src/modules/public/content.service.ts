@@ -1117,6 +1117,17 @@ const platformContentSchema = z.object({
       supportCallNumber: z.string().trim().max(20).optional().default(""),
       whatsappOtpEnabled: z.boolean().optional().default(false),
       whatsappAfterResends: z.number().int().min(0).max(5).optional().default(1),
+      // Which SMS gateway sends OTP/transactional SMS. Unset → falls back to env.SMS_PROVIDER.
+      smsProvider: z.enum(["smsbd", "sslwireless"]).optional(),
+      // When ON, a failed send on the chosen provider auto-retries once via the OTHER
+      // provider (default OFF = clean single-provider switch).
+      smsFallbackEnabled: z.boolean().optional().default(false),
+      // For SSL Wireless: which registered sender ID to use (resolves to the matching
+      // env SID). Switching masking <-> non-masking is just this toggle.
+      sslSenderType: z
+        .enum(["masking", "non_masking"])
+        .optional()
+        .default("non_masking"),
     }),
     rateLimits: z
       .object({

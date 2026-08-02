@@ -13,7 +13,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useCustomerActiveOrderQuery } from "@/src/hooks/use-customer-api";
-import { isUrgentOrder } from "@/src/lib/urgent-delivery";
 
 const LIVE_STATUSES = ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"];
 const BUTTON_SIZE = 54;
@@ -37,9 +36,6 @@ export function LiveOrderFloatingButton() {
   const ignorePressUntilRef = useRef(0);
   const activeOrderQuery = useCustomerActiveOrderQuery();
   const order = activeOrderQuery.data;
-  // A live URGENT order borrows the priority amber + bolt so it matches the tracking
-  // banner (yellow = priority). Normal live orders keep the pink neon.
-  const urgent = isUrgentOrder(order);
   const isTabsScreen = segments[0] === "(tabs)";
   const bottomOffset = isTabsScreen
     ? Math.max(insets.bottom, 12) + 102
@@ -199,7 +195,7 @@ export function LiveOrderFloatingButton() {
         pointerEvents="none"
         style={[
           styles.liveRing,
-          urgent ? styles.liveRingUrgent : null,
+          styles.liveRingUrgent,
           {
             opacity: breatheOpacity,
             transform: [{ scale: breatheScale }],
@@ -209,7 +205,7 @@ export function LiveOrderFloatingButton() {
       <Pressable
         style={({ pressed }) => [
           styles.button,
-          urgent ? styles.buttonUrgent : null,
+          styles.buttonUrgent,
           pressed ? styles.buttonPressed : null,
         ]}
         onPress={() => {
@@ -223,13 +219,9 @@ export function LiveOrderFloatingButton() {
           });
         }}
       >
-        <View style={[styles.buttonSheen, urgent ? styles.buttonSheenUrgent : null]} />
-        <View style={[styles.iconCore, urgent ? styles.iconCoreUrgent : null]}>
-          <Ionicons
-            name={urgent ? "flash" : "radio-outline"}
-            size={19}
-            color={urgent ? "#1B1426" : "#FFFFFF"}
-          />
+        <View style={[styles.buttonSheen, styles.buttonSheenUrgent]} />
+        <View style={[styles.iconCore, styles.iconCoreUrgent]}>
+          <Ionicons name="flash" size={19} color="#1B1426" />
         </View>
         <View style={styles.liveDot} />
       </Pressable>

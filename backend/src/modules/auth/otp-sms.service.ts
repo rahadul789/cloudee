@@ -15,6 +15,28 @@ type SmsBdResponse = {
   };
 };
 
+type SslSmsResponse = {
+  status?: string;
+  status_code?: number | string;
+  error_message?: string;
+  smsinfo?: Array<{
+    sms_status?: string;
+    status_message?: string;
+    reference_id?: string;
+  }>;
+};
+
+export type SmsProvider = "smsbd" | "sslwireless";
+export type SslSenderType = "masking" | "non_masking";
+
+// A unique, ≤20-char alphanumeric client reference the SSL Wireless API needs per send
+// (rejects duplicates with error 4023). base36 time + random keeps it short and unique.
+function generateCsmsId() {
+  const stamp = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${stamp}${rand}`.slice(0, 20);
+}
+
 export type OtpDeliveryConfig = {
   platformName: string;
   expiresInSeconds: number;
@@ -28,6 +50,10 @@ export type OtpDeliveryConfig = {
   supportCallNumber: string;
   whatsappOtpEnabled: boolean;
   whatsappAfterResends: number;
+  // SMS gateway selection (admin-controlled; env provides the boot default + secrets).
+  smsProvider: SmsProvider;
+  smsFallbackEnabled: boolean;
+  sslSenderType: SslSenderType;
 };
 
 const DEFAULT_OTP_MESSAGE_TEMPLATE =
@@ -94,6 +120,9 @@ export function getFallbackOtpDeliveryConfig(): OtpDeliveryConfig {
     supportCallNumber: "",
     whatsappOtpEnabled: false,
     whatsappAfterResends: 1,
+    smsProvider: env.SMS_PROVIDER,
+    smsFallbackEnabled: false,
+    sslSenderType: "non_masking",
   };
 }
 
@@ -144,6 +173,15 @@ export async function getOtpDeliveryConfig(): Promise<OtpDeliveryConfig> {
         0,
         5,
       ),
+      // Admin choice wins; unset falls back to the env boot default.
+      smsProvider:
+        otpSettings?.smsProvider === "sslwireless" ||
+        otpSettings?.smsProvider === "smsbd"
+          ? otpSettings.smsProvider
+          : fallback.smsProvider,
+      smsFallbackEnabled: otpSettings?.smsFallbackEnabled === true,
+      sslSenderType:
+        otpSettings?.sslSenderType === "masking" ? "masking" : "non_masking",
     };
   } catch (error) {
     logger.warn({ error }, "Using fallback OTP config");
@@ -164,12 +202,166 @@ export function buildOtpSmsMessage(
     .replaceAll("{{platformName}}", config.platformName);
 }
 
+// ── Low-level provider senders ──────────────────────────────────────────────
+// Each takes an already-normalized `to` (88XXXXXXXXXXX) + trimmed `message`, returns
+// { requestId } on success, or throws an AppError. No provider selection here.
+
+async function sendViaSmsBd(to: string, message: string) {
+  const apiKey = env.SMS_API_KEY?.trim();
+  if (!apiKey) {
+    throw new AppError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      "SMS_API_KEY_MISSING",
+      "SMS API key is not configured on the server",
+    );
+  }
+
+  const payload = {
+    api_key: apiKey,
+    msg: message.slice(0, 480),
+    to,
+    ...(env.SMS_SENDER_ID?.trim() ? { sender_id: env.SMS_SENDER_ID.trim() } : {}),
+  };
+
+  let response: Response;
+  let rawText = "";
+  try {
+    response = await fetchWithTimeout(env.SMS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+      timeoutMs: 5_000,
+    });
+    rawText = await response.text();
+  } catch (error) {
+    logger.error({ error, phone: maskSmsPhone(to) }, "sms.net.bd request failed");
+    throw new AppError(
+      StatusCodes.BAD_GATEWAY,
+      "SMS_PROVIDER_UNAVAILABLE",
+      "Could not send SMS right now",
+    );
+  }
+
+  const body = parseSmsBdResponse(rawText);
+  if (!response.ok || Number(body.error) !== 0) {
+    logger.warn(
+      {
+        status: response.status,
+        providerError: body.error,
+        providerMessage: body.msg,
+        phone: maskSmsPhone(to),
+      },
+      "sms.net.bd rejected message",
+    );
+    throw new AppError(
+      StatusCodes.BAD_GATEWAY,
+      "SMS_PROVIDER_REJECTED",
+      typeof body.msg === "string" && body.msg.trim()
+        ? body.msg
+        : "Could not send SMS right now",
+    );
+  }
+
+  return {
+    requestId:
+      body.data?.request_id != null ? String(body.data.request_id) : undefined,
+  };
+}
+
+async function sendViaSslWireless(
+  to: string,
+  message: string,
+  senderType: SslSenderType,
+) {
+  const apiToken = env.SSL_SMS_API_TOKEN?.trim();
+  if (!apiToken) {
+    throw new AppError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      "SSL_SMS_TOKEN_MISSING",
+      "SSL Wireless API token is not configured on the server",
+    );
+  }
+
+  const sid = (
+    senderType === "masking"
+      ? env.SSL_SMS_SID_MASKING
+      : env.SSL_SMS_SID_NONMASKING
+  )?.trim();
+  if (!sid) {
+    throw new AppError(
+      StatusCodes.INTERNAL_SERVER_ERROR,
+      "SSL_SMS_SID_MISSING",
+      `SSL Wireless ${senderType} sender ID is not configured on the server`,
+    );
+  }
+
+  const payload = {
+    api_token: apiToken,
+    sid,
+    msisdn: to,
+    sms: message.slice(0, 1000),
+    csms_id: generateCsmsId(),
+  };
+
+  let response: Response;
+  let rawText = "";
+  try {
+    response = await fetchWithTimeout(env.SSL_SMS_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+      timeoutMs: 8_000,
+    });
+    rawText = await response.text();
+  } catch (error) {
+    logger.error({ error, phone: maskSmsPhone(to) }, "SSL Wireless request failed");
+    throw new AppError(
+      StatusCodes.BAD_GATEWAY,
+      "SMS_PROVIDER_UNAVAILABLE",
+      "Could not send SMS right now",
+    );
+  }
+
+  let body: SslSmsResponse = {};
+  try {
+    body = rawText.trim() ? (JSON.parse(rawText) as SslSmsResponse) : {};
+  } catch {
+    body = { error_message: rawText.slice(0, 160) };
+  }
+
+  const ok =
+    response.ok && body.status === "SUCCESS" && Number(body.status_code) === 200;
+  if (!ok) {
+    logger.warn(
+      {
+        status: response.status,
+        providerStatus: body.status,
+        statusCode: body.status_code,
+        error: body.error_message,
+        phone: maskSmsPhone(to),
+      },
+      "SSL Wireless rejected message",
+    );
+    throw new AppError(
+      StatusCodes.BAD_GATEWAY,
+      "SMS_PROVIDER_REJECTED",
+      typeof body.error_message === "string" && body.error_message.trim()
+        ? body.error_message
+        : "Could not send SMS right now",
+    );
+  }
+
+  return { requestId: body.smsinfo?.[0]?.reference_id };
+}
+
+// ── Dispatcher ──────────────────────────────────────────────────────────────
+// Sends via the admin-selected provider; when fallback is ON, a failed primary
+// send auto-retries once via the OTHER provider (default OFF = clean switch).
 export async function sendTransactionalSms(params: {
   phone: string;
   message: string;
 }) {
   const message = params.message.trim();
-
   if (!message) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
@@ -181,100 +373,82 @@ export async function sendTransactionalSms(params: {
   if (env.MOCK_OTP_ENABLED) {
     logger.debug(
       { phone: maskSmsPhone(params.phone) },
-      "Mock OTP enabled; transactional SMS delivery skipped",
+      "Mock OTP enabled; SMS delivery skipped",
     );
-    return { skipped: true, provider: "mock" as const };
-  }
-
-  const apiKey = env.SMS_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new AppError(
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      "SMS_API_KEY_MISSING",
-      "SMS API key is not configured on the server",
-    );
+    return { skipped: true as const, provider: "mock" as const };
   }
 
   const to = normalizeSmsPhone(params.phone);
-  const payload = {
-    api_key: apiKey,
-    msg: message.slice(0, 480),
-    to,
-    ...(env.SMS_SENDER_ID?.trim()
-      ? { sender_id: env.SMS_SENDER_ID.trim() }
-      : {}),
-  };
+  const config = await getOtpDeliveryConfig();
+  const primary = config.smsProvider;
+  const secondary: SmsProvider =
+    primary === "sslwireless" ? "smsbd" : "sslwireless";
 
-  let response: Response;
-  let rawText = "";
+  const send = async (provider: SmsProvider) => {
+    const result =
+      provider === "sslwireless"
+        ? await sendViaSslWireless(to, message, config.sslSenderType)
+        : await sendViaSmsBd(to, message);
+    logger.info(
+      { provider, requestId: result.requestId, phone: maskSmsPhone(to) },
+      "Transactional SMS sent",
+    );
+    return { skipped: false as const, provider, requestId: result.requestId };
+  };
 
   try {
-    response = await fetchWithTimeout(env.SMS_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload),
-      timeoutMs: 5_000,
-    });
-    rawText = await response.text();
-  } catch (error) {
-    logger.error(
-      { error, phone: maskSmsPhone(to) },
-      "Transactional SMS provider request failed",
-    );
-    throw new AppError(
-      StatusCodes.BAD_GATEWAY,
-      "SMS_PROVIDER_UNAVAILABLE",
-      "Could not send SMS right now",
-    );
-  }
-
-  const body = parseSmsBdResponse(rawText);
-  const providerError = Number(body.error);
-
-  if (!response.ok || providerError !== 0) {
+    return await send(primary);
+  } catch (primaryError) {
+    if (!config.smsFallbackEnabled) throw primaryError;
     logger.warn(
-      {
-        status: response.status,
-        providerError: body.error,
-        providerMessage: body.msg,
-        phone: maskSmsPhone(to),
-      },
-      "SMS provider rejected transactional message",
+      { err: primaryError, primary, secondary, phone: maskSmsPhone(to) },
+      "Primary SMS provider failed; trying fallback provider",
     );
-    throw new AppError(
-      StatusCodes.BAD_GATEWAY,
-      "SMS_PROVIDER_REJECTED",
-      typeof body.msg === "string" && body.msg.trim()
-        ? body.msg
-        : "Could not send SMS right now",
-    );
+    try {
+      return await send(secondary);
+    } catch (secondaryError) {
+      logger.error(
+        { err: secondaryError, primary, secondary, phone: maskSmsPhone(to) },
+        "Fallback SMS provider also failed",
+      );
+      throw secondaryError;
+    }
   }
-
-  logger.info(
-    { requestId: body.data?.request_id, phone: maskSmsPhone(to) },
-    "Transactional SMS sent",
-  );
-
-  return {
-    skipped: false,
-    provider: "sms.bd" as const,
-    requestId: body.data?.request_id,
-  };
 }
 
 export async function getSmsProviderBalance() {
   const checkedAt = new Date().toISOString();
+  const config = await getOtpDeliveryConfig();
+
+  // SSL Wireless exposes no balance API — report the credential/config state instead.
+  if (config.smsProvider === "sslwireless") {
+    const token = env.SSL_SMS_API_TOKEN?.trim();
+    const sid = (
+      config.sslSenderType === "masking"
+        ? env.SSL_SMS_SID_MASKING
+        : env.SSL_SMS_SID_NONMASKING
+    )?.trim();
+    return {
+      configured: Boolean(token),
+      status: token ? ("ok" as const) : ("not_configured" as const),
+      provider: "sslwireless" as const,
+      balance: null,
+      rawBalance: "",
+      message: token
+        ? "SSL Wireless has no balance API — check credit in the iSMS Plus portal."
+        : "SSL_SMS_API_TOKEN is not configured",
+      senderIdConfigured: Boolean(sid),
+      checkedAt,
+    };
+  }
+
   const apiKey = env.SMS_API_KEY?.trim();
 
   if (!apiKey) {
     return {
       configured: false,
       status: "not_configured" as const,
-      provider: "sms.bd" as const,
+      provider: "smsbd" as const,
       balance: null,
       rawBalance: "",
       message: "SMS_API_KEY is not configured",
@@ -302,7 +476,7 @@ export async function getSmsProviderBalance() {
       return {
         configured: true,
         status: "failed" as const,
-        provider: "sms.bd" as const,
+        provider: "smsbd" as const,
         balance: null,
         rawBalance: "",
         message:
@@ -323,7 +497,7 @@ export async function getSmsProviderBalance() {
     return {
       configured: true,
       status: "ok" as const,
-      provider: "sms.bd" as const,
+      provider: "smsbd" as const,
       balance: Number.isFinite(balance) ? balance : null,
       rawBalance,
       message: body.msg || "Success",
@@ -335,7 +509,7 @@ export async function getSmsProviderBalance() {
     return {
       configured: true,
       status: "failed" as const,
-      provider: "sms.bd" as const,
+      provider: "smsbd" as const,
       balance: null,
       rawBalance: "",
       message: error instanceof Error ? error.message : "SMS balance check failed",
@@ -355,85 +529,11 @@ export async function sendOtpSms(params: {
       { phone: maskSmsPhone(params.phone) },
       "Mock OTP enabled; SMS delivery skipped",
     );
-    return { skipped: true, provider: "mock" as const };
+    return { skipped: true as const, provider: "mock" as const };
   }
 
-  const apiKey = env.SMS_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new AppError(
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      "SMS_API_KEY_MISSING",
-      "SMS API key is not configured on the server",
-    );
-  }
-
-  const to = normalizeSmsPhone(params.phone);
   const config = params.config ?? (await getOtpDeliveryConfig());
-  const payload = {
-    api_key: apiKey,
-    msg: buildOtpSmsMessage(params.otpCode, config),
-    to,
-    ...(env.SMS_SENDER_ID?.trim()
-      ? { sender_id: env.SMS_SENDER_ID.trim() }
-      : {}),
-  };
-
-  let response: Response;
-  let rawText = "";
-
-  try {
-    response = await fetch(env.SMS_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    rawText = await response.text();
-  } catch (error) {
-    logger.error(
-      { error, phone: maskSmsPhone(to) },
-      "SMS provider request failed",
-    );
-    throw new AppError(
-      StatusCodes.BAD_GATEWAY,
-      "SMS_PROVIDER_UNAVAILABLE",
-      "Could not send OTP right now",
-    );
-  }
-
-  const body = parseSmsBdResponse(rawText);
-  const providerError = Number(body.error);
-
-  if (!response.ok || providerError !== 0) {
-    logger.warn(
-      {
-        status: response.status,
-        providerError: body.error,
-        providerMessage: body.msg,
-        phone: maskSmsPhone(to),
-      },
-      "SMS provider rejected OTP request",
-    );
-    throw new AppError(
-      StatusCodes.BAD_GATEWAY,
-      "SMS_PROVIDER_REJECTED",
-      typeof body.msg === "string" && body.msg.trim()
-        ? body.msg
-        : "Could not send OTP right now",
-    );
-  }
-
-  logger.info(
-    { requestId: body.data?.request_id, phone: maskSmsPhone(to) },
-    "OTP SMS sent",
-  );
-
-  return {
-    skipped: false,
-    provider: "sms.bd" as const,
-    requestId: body.data?.request_id,
-  };
+  const message = buildOtpSmsMessage(params.otpCode, config);
+  // Delegates to the dispatcher so OTP honours the admin-selected provider + fallback.
+  return sendTransactionalSms({ phone: params.phone, message });
 }

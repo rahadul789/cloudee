@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { Screen } from "@/src/components/screen";
 import { palette } from "@/src/theme/palette";
 
@@ -135,18 +136,24 @@ export default function PaymentRefundsScreen() {
             Use chat for speed or email when you want a clear trail.
           </Text>
           <View style={styles.ctaRow}>
-            <Pressable
-              style={styles.secondaryAction}
+            <PressableScale
+              scaleTo={0.96}
+              containerStyle={styles.ctaButton}
+              style={[styles.secondaryAction, styles.primaryAction]}
               onPress={() => router.push("/support-chat")}
             >
               <Ionicons
                 name="chatbubble-ellipses-outline"
                 size={18}
-                color={palette.foreground}
+                color={palette.surface}
               />
-              <Text style={styles.secondaryActionText}>Open live chat</Text>
-            </Pressable>
-            <Pressable
+              <Text style={[styles.secondaryActionText, styles.primaryActionText]}>
+                Open live chat
+              </Text>
+            </PressableScale>
+            <PressableScale
+              scaleTo={0.96}
+              containerStyle={styles.ctaButton}
               style={styles.secondaryAction}
               onPress={() => {
                 const subject = encodeURIComponent("Payment or refund support");
@@ -164,7 +171,7 @@ export default function PaymentRefundsScreen() {
                 color={palette.foreground}
               />
               <Text style={styles.secondaryActionText}>Email support</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         </View>
       </ScrollView>
@@ -282,8 +289,8 @@ const styles = StyleSheet.create({
   },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
   ctaRow: { flexDirection: "row", gap: 10 },
+  ctaButton: { flex: 1 },
   secondaryAction: {
-    flex: 1,
     minHeight: 50,
     borderRadius: 18,
     borderWidth: 1,
@@ -300,5 +307,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "700",
     color: palette.foreground,
+  },
+  primaryAction: {
+    borderColor: palette.secondary,
+    backgroundColor: palette.secondary,
+  },
+  primaryActionText: {
+    color: palette.surface,
   },
 });

@@ -9,7 +9,7 @@ export function PriorityDeliveryBanner({ label }: { label: string }) {
       icon="flash"
       eyebrow={`PRIORITY · ${label}`}
       title="You skipped the line ⚡"
-      body="You paid for priority — we bump your order to the front and hand it to a rider first. 🚀"
+      body="You paid for priority, so your order is sent to a delivery rider before other orders. 🚀"
       style={styles.spacing}
     />
   );

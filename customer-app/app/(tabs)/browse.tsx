@@ -22,6 +22,7 @@ import {
   ServiceClosedStickyPill,
 } from "@/src/components/service-closed-banner";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { styles } from "@/src/components/browse/browse-screen.styles";
@@ -615,11 +616,9 @@ export default function BrowseScreen() {
               </Pressable>
             ) : null}
           </View>
-          <Pressable
-            style={({ pressed }) => [
-              styles.filterButton,
-              pressed ? styles.pressablePressed : null,
-            ]}
+          <PressableScale
+            scaleTo={0.92}
+            style={styles.filterButton}
             onPress={openFilters}
             accessibilityRole="button"
             accessibilityLabel={
@@ -635,7 +634,7 @@ export default function BrowseScreen() {
                 <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
               </View>
             ) : null}
-          </Pressable>
+          </PressableScale>
         </View>
       </View>
       <View style={styles.listWrap}>
@@ -698,6 +697,7 @@ export default function BrowseScreen() {
               <ClosingSoonBanner
                 closesAtEpochMs={areaWindow.closesAtEpochMs}
                 active={isBrowseFocused}
+                style={styles.browseClosingBanner}
               />
             ) : null}
             <View style={styles.headerCard}>
@@ -792,11 +792,9 @@ export default function BrowseScreen() {
                         key={restaurant.id}
                         style={styles.recentVisitedCardWrap}
                       >
-                        <Pressable
-                          style={({ pressed }) => [
-                            styles.recentVisitedCard,
-                            pressed ? styles.cardPressed : null,
-                          ]}
+                        <PressableScale
+                          scaleTo={0.98}
+                          style={styles.recentVisitedCard}
                           onPress={() =>
                             router.push({
                               pathname: "/restaurants/[restaurantId]",
@@ -867,7 +865,7 @@ export default function BrowseScreen() {
                               }
                             />
                           </Pressable>
-                        </Pressable>
+                        </PressableScale>
                       </View>
                     ))}
                   </ScrollView>

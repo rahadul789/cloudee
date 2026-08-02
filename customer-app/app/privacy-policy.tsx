@@ -18,7 +18,12 @@ import {
   useCustomerProfileQuery,
   useSubmitAccountDeletionRequestMutation,
 } from "@/src/hooks/use-customer-api";
+import { appStateStorage } from "@/src/lib/app-storage";
 import { palette } from "@/src/theme/palette";
+
+// One deletion request per device — once submitted we remember it so the form never
+// reappears (the backend also de-dupes per phone/account, so it's enforced both ends).
+const DELETION_REQUESTED_KEY = "account-deletion-requested";
 
 const privacyItems = [
   {
@@ -73,6 +78,19 @@ export default function PrivacyPolicyScreen() {
     }
   }, [profileQuery.data?.phone, deletionPhone.length]);
 
+  // Restore the "already requested" state so a user can't submit twice.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve(
+      appStateStorage.getItem(DELETION_REQUESTED_KEY),
+    ).then((value) => {
+      if (!cancelled && value) setDeletionSubmitted(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const trimmedPhone = deletionPhone.trim();
   const canSubmitDeletion =
     trimmedPhone.replace(/\D/g, "").length >= 6 && !deletionMutation.isPending;
@@ -87,6 +105,7 @@ export default function PrivacyPolicyScreen() {
       {
         onSuccess: () => {
           setDeletionSubmitted(true);
+          void appStateStorage.setItem(DELETION_REQUESTED_KEY, "1");
         },
       },
     );

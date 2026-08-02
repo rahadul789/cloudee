@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
 import {
   ActivityIndicator,
   Animated,
@@ -13,6 +14,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { styles } from "@/src/components/cart/cart-screen.styles";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
@@ -128,6 +130,7 @@ function estimateAutoDiscount(
 function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
   const [burstKey, setBurstKey] = useState(0);
   const handlePress = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
     onPress();
     setBurstKey((current) => current + 1);
   }, [onPress]);
@@ -261,6 +264,18 @@ export default function CartScreen() {
   const minimumOrderMessage = belowMinimumOrder
     ? `Minimum order TK ${minimumOrder!.amount} — Add TK ${minimumOrder!.amountShort} more to checkout`
     : null;
+  // How close the cart is to the minimum (amountShort is what's still missing), so the
+  // banner can show a progress bar instead of just text.
+  const minimumOrderRatio =
+    belowMinimumOrder && minimumOrder && Number(minimumOrder.amount) > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1,
+            1 - Number(minimumOrder.amountShort ?? 0) / Number(minimumOrder.amount),
+          ),
+        )
+      : 0;
   const checkoutDisabled =
     isCheckingDeliveryArea ||
     (hasQuoteIssues && !isServiceabilityBlocked) ||
@@ -901,9 +916,13 @@ export default function CartScreen() {
                       {itemCount} item{itemCount === 1 ? "" : "s"} in this cart
                     </Text>
                   </View>
-                  <Pressable onPress={clearCart} style={styles.clearButton}>
+                  <PressableScale
+                    scaleTo={0.94}
+                    onPress={clearCart}
+                    style={styles.clearButton}
+                  >
                     <Text style={styles.clearButtonText}>Clear</Text>
-                  </Pressable>
+                  </PressableScale>
                 </View>
 
                 <View style={styles.itemList}>
@@ -967,12 +986,15 @@ export default function CartScreen() {
 
                                 <View style={styles.quantityControl}>
                                   <Pressable
-                                    onPressIn={() =>
+                                    onPressIn={() => {
+                                      void Haptics.selectionAsync().catch(
+                                        () => undefined,
+                                      );
                                       updateQuantity(
                                         item.key,
                                         item.quantity - 1,
-                                      )
-                                    }
+                                      );
+                                    }}
                                     accessibilityRole="button"
                                     accessibilityLabel={
                                       item.quantity === 1
@@ -1090,17 +1112,16 @@ export default function CartScreen() {
                 </View>
 
                 {restaurant?.restaurantId ? (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.addMoreButton,
-                      pressed ? styles.addMoreButtonPressed : null,
-                    ]}
+                  <PressableScale
+                    scaleTo={0.95}
+                    containerStyle={styles.addMoreButtonSlot}
+                    style={styles.addMoreButton}
                     onPress={() => openRestaurantForItem()}
                     accessibilityRole="button"
                   >
                     <Ionicons name="add" size={15} color={palette.secondary} />
                     <Text style={styles.addMoreButtonText}>Add more</Text>
-                  </Pressable>
+                  </PressableScale>
                 ) : null}
 
                 {recommendedItems.length > 0 ? (
@@ -1128,23 +1149,23 @@ export default function CartScreen() {
                       {recommendedItems.map((item) => {
                         const customizable = hasCustomizations(item);
                         return (
-                          <Pressable
+                          <PressableScale
                             key={item._id}
-                            style={({ pressed }) => [
-                              styles.recommendationCard,
-                              { width: recommendationCardWidth },
-                              pressed ? styles.recommendationCardPressed : null,
-                            ]}
+                            scaleTo={0.96}
+                            containerStyle={{ width: recommendationCardWidth }}
+                            style={styles.recommendationCard}
                             onPress={() => handleRecommendedItemPress(item)}
                           >
-                            <RemoteImage
-                              uri={item.images?.[0]?.url}
-                              style={styles.recommendationImage}
-                              fallbackIcon="fast-food-outline"
-                              fallbackIconSize={18}
-                              fallbackTint={palette.primary}
-                              accessibilityLabel={`${item.name} recommended food photo`}
-                            >
+                            <View style={styles.recommendationMedia}>
+                              <RemoteImage
+                                uri={item.images?.[0]?.url}
+                                style={styles.recommendationImage}
+                                fallbackIcon="fast-food-outline"
+                                fallbackIconSize={18}
+                                fallbackTint={palette.primary}
+                                targetWidth={200}
+                                accessibilityLabel={`${item.name} recommended food photo`}
+                              />
                               {item.isPopular ? (
                                 <View style={styles.recommendationPopularIcon}>
                                   <Ionicons
@@ -1163,7 +1184,7 @@ export default function CartScreen() {
                                   color="#fff"
                                 />
                               </View>
-                            </RemoteImage>
+                            </View>
                             <View style={styles.recommendationCopy}>
                               <Text
                                 style={styles.recommendationName}
@@ -1180,7 +1201,7 @@ export default function CartScreen() {
                                   : formatCurrency(item.basePrice)}
                               </Text>
                             </View>
-                          </Pressable>
+                          </PressableScale>
                         );
                       })}
                       <View style={styles.recommendationEndSpacer} />
@@ -1218,19 +1239,28 @@ export default function CartScreen() {
                           >
                             <View style={styles.offerProgressHeader}>
                               <View style={styles.offerProgressBadge}>
-                                <Ionicons
-                                  name={
+                                <View
+                                  style={[
+                                    styles.offerProgressBadgeIcon,
                                     offerProgress.hasCurrent
-                                      ? "checkmark-circle"
-                                      : "sparkles-outline"
-                                  }
-                                  size={15}
-                                  color={
-                                    offerProgress.hasCurrent
-                                      ? palette.successText
-                                      : palette.secondary
-                                  }
-                                />
+                                      ? styles.offerProgressBadgeIconUnlocked
+                                      : null,
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name={
+                                      offerProgress.hasCurrent
+                                        ? "checkmark-circle"
+                                        : "sparkles"
+                                    }
+                                    size={13}
+                                    color={
+                                      offerProgress.hasCurrent
+                                        ? "#0C241C"
+                                        : "#1B1426"
+                                    }
+                                  />
+                                </View>
                                 <Text
                                   numberOfLines={1}
                                   style={[
@@ -1257,7 +1287,7 @@ export default function CartScreen() {
                                   <Ionicons
                                     name="chevron-forward"
                                     size={16}
-                                    color={palette.secondary}
+                                    color="#FFC94D"
                                   />
                                 ) : null}
                               </View>
@@ -1384,14 +1414,26 @@ export default function CartScreen() {
             <View style={styles.checkoutWrap}>
               {minimumOrderMessage ? (
                 <View style={styles.minimumOrderNotice}>
-                  <Ionicons
-                    name="basket-outline"
-                    size={15}
-                    color={palette.warningText}
-                  />
-                  <Text style={styles.minimumOrderNoticeText}>
-                    {minimumOrderMessage}
-                  </Text>
+                  <View style={styles.minimumOrderNoticeIcon}>
+                    <Ionicons
+                      name="basket"
+                      size={18}
+                      color={palette.warningText}
+                    />
+                  </View>
+                  <View style={styles.minimumOrderNoticeCopy}>
+                    <Text style={styles.minimumOrderNoticeText}>
+                      {minimumOrderMessage}
+                    </Text>
+                    <View style={styles.minimumOrderTrack}>
+                      <View
+                        style={[
+                          styles.minimumOrderFill,
+                          { width: `${minimumOrderRatio * 100}%` },
+                        ]}
+                      />
+                    </View>
+                  </View>
                 </View>
               ) : null}
               <View style={styles.checkoutCard}>

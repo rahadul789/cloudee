@@ -86,6 +86,20 @@ function buildCustomTheme(bg: string): PanelTheme {
   };
 }
 
+// Surface + border for a small tile sitting INSIDE a themed panel (e.g. a coupon ticket
+// on the deals panel). A subtle lift over the panel bg that stays visible whether the
+// ground is dark (lighten) or light (darken) — including pure-white grounds.
+export function panelTileColors(theme: PanelTheme): {
+  surface: string;
+  border: string;
+} {
+  const dark = isDarkColor(theme.bg);
+  return {
+    surface: dark ? "rgba(255,255,255,0.09)" : "rgba(17,17,26,0.05)",
+    border: dark ? "rgba(255,255,255,0.16)" : "rgba(17,17,26,0.1)",
+  };
+}
+
 export function resolvePanelTheme(config?: PanelThemeConfig | null): PanelTheme {
   if (config?.mode === "random") {
     const bucket = Math.floor(Date.now() / (5 * 60 * 60 * 1000));

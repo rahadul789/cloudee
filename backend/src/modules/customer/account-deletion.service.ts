@@ -53,11 +53,16 @@ export async function submitAccountDeletionRequest(params: {
     .select("_id fullName")
     .lean()
 
-  // De-dupe: an open (pending/reviewing) request for the same phone is returned as-is
-  // instead of stacking duplicates, so repeated taps don't spam the queue.
+  // De-dupe: one open (pending/reviewing) request per user. Match on the phone OR the
+  // resolved customerId, so the SAME account can't stack a second request even if the phone
+  // is typed in a slightly different format. Returned as-is instead of creating a duplicate.
+  const dedupeOr: Record<string, unknown>[] = [{ phone }]
+  if (customer?._id) {
+    dedupeOr.push({ customerId: customer._id })
+  }
   const existing = await AccountDeletionRequestModel.findOne({
-    phone,
     status: { $in: ["pending", "reviewing"] },
+    $or: dedupeOr,
   }).lean()
   if (existing) {
     return {

@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
 import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { useRestaurantDiscoveryTotalQuery } from "@/src/hooks/use-customer-api";
 import { palette } from "@/src/theme/palette";
 
@@ -133,21 +134,19 @@ export function RestaurantFilterSheet({
       initialSnapPoint={0.7}
       footer={
         <View style={styles.filterFooter}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.filterResetButton,
-              pressed ? styles.pressablePressed : null,
-            ]}
+          <PressableScale
+            scaleTo={0.96}
+            containerStyle={styles.filterFooterButtonSlot}
+            style={styles.filterResetButton}
             onPress={() => setDraft(DEFAULT_RESTAURANT_FILTER_VALUES)}
           >
             <Ionicons name="refresh-outline" size={15} color={palette.foreground} />
             <Text style={styles.filterResetText}>Reset</Text>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.filterApplyButton,
-              pressed ? styles.pressablePressed : null,
-            ]}
+          </PressableScale>
+          <PressableScale
+            scaleTo={0.96}
+            containerStyle={styles.filterFooterButtonSlot}
+            style={styles.filterApplyButton}
             onPress={() => {
               onApply(draft);
               onClose();
@@ -155,7 +154,7 @@ export function RestaurantFilterSheet({
           >
             <Text style={styles.filterApplyText}>Apply filters</Text>
             <Ionicons name="checkmark" size={16} color={palette.surface} />
-          </Pressable>
+          </PressableScale>
         </View>
       }
     >
@@ -188,12 +187,12 @@ export function RestaurantFilterSheet({
           {showOptions.map((option) => {
             const isActive = draft.filter === option.key;
             return (
-              <Pressable
+              <PressableScale
+                scaleTo={0.95}
                 key={option.key}
-                style={({ pressed }) => [
+                style={[
                   styles.filterChip,
                   isActive ? styles.filterChipActive : null,
-                  pressed ? styles.chipPressed : null,
                 ]}
                 onPress={() => setDraft((prev) => ({ ...prev, filter: option.key }))}
               >
@@ -207,7 +206,7 @@ export function RestaurantFilterSheet({
                 >
                   {option.label}
                 </Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -224,12 +223,12 @@ export function RestaurantFilterSheet({
           {SORT_OPTIONS.map((option) => {
             const isActive = draft.sortBy === option.key;
             return (
-              <Pressable
+              <PressableScale
+                scaleTo={0.95}
                 key={option.key}
-                style={({ pressed }) => [
+                style={[
                   styles.filterChip,
                   isActive ? styles.filterChipActive : null,
-                  pressed ? styles.chipPressed : null,
                 ]}
                 onPress={() => setDraft((prev) => ({ ...prev, sortBy: option.key }))}
               >
@@ -243,7 +242,7 @@ export function RestaurantFilterSheet({
                 >
                   {option.label}
                 </Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -260,12 +259,12 @@ export function RestaurantFilterSheet({
           {RATING_OPTIONS.map((option) => {
             const isActive = draft.minimumRating === option.key;
             return (
-              <Pressable
+              <PressableScale
+                scaleTo={0.95}
                 key={option.label}
-                style={({ pressed }) => [
+                style={[
                   styles.filterChip,
                   isActive ? styles.filterChipActive : null,
-                  pressed ? styles.chipPressed : null,
                 ]}
                 onPress={() => setDraft((prev) => ({ ...prev, minimumRating: option.key }))}
               >
@@ -279,7 +278,7 @@ export function RestaurantFilterSheet({
                 >
                   {option.label}
                 </Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -296,12 +295,12 @@ export function RestaurantFilterSheet({
           {PRICE_OPTIONS.map((option) => {
             const isActive = draft.maximumLowestPrice === option.key;
             return (
-              <Pressable
+              <PressableScale
+                scaleTo={0.95}
                 key={option.label}
-                style={({ pressed }) => [
+                style={[
                   styles.filterChip,
                   isActive ? styles.filterChipActive : null,
-                  pressed ? styles.chipPressed : null,
                 ]}
                 onPress={() =>
                   setDraft((prev) => ({ ...prev, maximumLowestPrice: option.key }))
@@ -317,7 +316,7 @@ export function RestaurantFilterSheet({
                 >
                   {option.label}
                 </Text>
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -441,8 +440,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  filterResetButton: {
+  // flex:1 lives on the PressableScale wrapper so the two footer buttons still split the
+  // row evenly; the inner Pressable keeps the button visual.
+  filterFooterButtonSlot: {
     flex: 1,
+  },
+  filterResetButton: {
     minHeight: 46,
     borderRadius: 18,
     backgroundColor: "#FFF5EF",
@@ -458,7 +461,6 @@ const styles = StyleSheet.create({
     color: palette.foreground,
   },
   filterApplyButton: {
-    flex: 1,
     minHeight: 46,
     borderRadius: 20,
     backgroundColor: palette.secondary,

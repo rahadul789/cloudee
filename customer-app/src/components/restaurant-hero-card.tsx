@@ -10,6 +10,7 @@ import {
   type GestureResponderEvent,
 } from "react-native";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import { formatDurationMinutes } from "@/src/lib/date-time";
 import { formatDistanceValue } from "@/src/lib/distance";
@@ -142,8 +143,9 @@ function RestaurantHeroCardComponent({
   }, [isFavorite, heartScale]);
 
   return (
-    <Pressable
-      style={({ pressed }) => [
+    <PressableScale
+      scaleTo={0.98}
+      style={[
         styles.card,
         compact ? styles.cardCompact : null,
         isFeaturedVariant ? styles.cardFeatured : null,
@@ -151,7 +153,6 @@ function RestaurantHeroCardComponent({
         isNearbyVariant ? styles.cardNearby : null,
         flat ? styles.cardFlat : null,
         !isOpen ? styles.closedCard : null,
-        pressed ? styles.cardPressed : null,
       ]}
       onPress={onPress}
     >
@@ -356,7 +357,7 @@ function RestaurantHeroCardComponent({
           {hasDistance ? <Metric icon="navigate-outline" value={distanceLabel} compact={compact} /> : null}
         </View>
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 

@@ -557,7 +557,7 @@ export const styles = StyleSheet.create({
   // Delivery fee row + its "why this fee" note, kept together so the note sits right
   // under the fee (matches the cart's transparent breakdown).
   summaryDeliveryGroup: {
-    gap: 4,
+    gap: 2,
   },
   // Right-aligned stack: base fee on top, the "+extra" surcharge quietly under it.
   summaryDeliveryValueStack: {
@@ -571,6 +571,7 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   summaryDeliveryNote: {
+    marginTop: -6,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",

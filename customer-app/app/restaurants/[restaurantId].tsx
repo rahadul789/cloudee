@@ -37,6 +37,7 @@ import {
   MenuPopularSkeleton,
   RestaurantDetailsSkeleton,
 } from "@/src/components/loading-skeleton";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import { styles } from "@/src/components/restaurant-details/restaurant-details.styles";
 import { RestaurantClosedBanner } from "@/src/components/restaurant-details/restaurant-closed-banner";
@@ -891,6 +892,9 @@ export default function RestaurantDetailsScreen() {
       )
         return false;
 
+      // Tactile tick on every valid + tap — shared by the menu cards and the search list.
+      void Haptics.selectionAsync().catch(() => undefined);
+
       if (hasCustomizations(item)) {
         openCustomizer(item);
         return false;
@@ -926,6 +930,8 @@ export default function RestaurantDetailsScreen() {
 
       const current = state.items.find((entry) => entry.itemId === item._id);
       if (!current) return;
+      // Tactile tick on every − tap — shared by the menu cards and the search list.
+      void Haptics.selectionAsync().catch(() => undefined);
       updateQuantity(current.key, current.quantity - 1);
     },
     [restaurant?._id, updateQuantity],
@@ -1279,7 +1285,8 @@ export default function RestaurantDetailsScreen() {
                   </Text>
                 </View>
                 {detailsData?.activeOffers[0] ? (
-                  <Pressable
+                  <PressableScale
+                    scaleTo={0.94}
                     style={styles.offerPillButton}
                     onPress={() =>
                       setSelectedOffer(detailsData.activeOffers[0])
@@ -1287,13 +1294,13 @@ export default function RestaurantDetailsScreen() {
                   >
                     <Ionicons
                       name="pricetag"
-                      size={12}
+                      size={11}
                       color={palette.surface}
                     />
                     <Text style={styles.offerPillText} numberOfLines={1}>
                       {formatOfferLabel(detailsData.activeOffers[0])}
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 ) : null}
               </View>
             </View>
@@ -1332,8 +1339,9 @@ export default function RestaurantDetailsScreen() {
                       contentContainerStyle={styles.inlineOfferRow}
                     >
                       {detailsData.activeOffers.map((offer) => (
-                        <Pressable
+                        <PressableScale
                           key={offer._id}
+                          scaleTo={0.94}
                           style={styles.inlineOfferChip}
                           onPress={() => setSelectedOffer(offer)}
                         >
@@ -1354,7 +1362,7 @@ export default function RestaurantDetailsScreen() {
                             size={11}
                             color={palette.secondary}
                           />
-                        </Pressable>
+                        </PressableScale>
                       ))}
                     </ScrollView>
                   ) : null}
@@ -1742,22 +1750,24 @@ export default function RestaurantDetailsScreen() {
                   </View>
                 </View>
                 <View style={styles.modalActions}>
-                  <Pressable
+                  <PressableScale
+                    scaleTo={0.96}
                     style={styles.modalSecondaryButton}
                     onPress={() => setCartConflictItem(null)}
                   >
                     <Text style={styles.modalSecondaryButtonText}>
                       Keep current cart
                     </Text>
-                  </Pressable>
-                  <Pressable
+                  </PressableScale>
+                  <PressableScale
+                    scaleTo={0.96}
                     style={styles.modalPrimaryButton}
                     onPress={handleConfirmReplaceCart}
                   >
                     <Text style={styles.modalPrimaryButtonText}>
                       Replace and add
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 </View>
               </>
             ) : null}
@@ -2214,6 +2224,7 @@ export default function RestaurantDetailsScreen() {
                       : null,
                   ]}
                   onPressIn={() => {
+                    void Haptics.selectionAsync().catch(() => undefined);
                     setQuantity((current) => Math.max(1, current - 1));
                   }}
                 >

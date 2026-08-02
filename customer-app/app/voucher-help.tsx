@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { Screen } from "@/src/components/screen";
 import { palette } from "@/src/theme/palette";
 
@@ -127,7 +128,9 @@ export default function VoucherHelpScreen() {
             Use support if the campaign should still work.
           </Text>
           <View style={styles.ctaRow}>
-            <Pressable
+            <PressableScale
+              scaleTo={0.96}
+              containerStyle={styles.ctaButton}
               style={styles.secondaryAction}
               onPress={() => router.push("/support-chat")}
             >
@@ -137,18 +140,22 @@ export default function VoucherHelpScreen() {
                 color={palette.foreground}
               />
               <Text style={styles.secondaryActionText}>Open live chat</Text>
-            </Pressable>
-            <Pressable
-              style={styles.secondaryAction}
+            </PressableScale>
+            <PressableScale
+              scaleTo={0.96}
+              containerStyle={styles.ctaButton}
+              style={[styles.secondaryAction, styles.primaryAction]}
               onPress={() => router.push("/offers")}
             >
               <Ionicons
                 name="search-outline"
                 size={18}
-                color={palette.foreground}
+                color={palette.surface}
               />
-              <Text style={styles.secondaryActionText}>Browse offers</Text>
-            </Pressable>
+              <Text style={[styles.secondaryActionText, styles.primaryActionText]}>
+                Browse offers
+              </Text>
+            </PressableScale>
           </View>
         </View>
       </ScrollView>
@@ -266,8 +273,8 @@ const styles = StyleSheet.create({
   },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
   ctaRow: { flexDirection: "row", gap: 10 },
+  ctaButton: { flex: 1 },
   secondaryAction: {
-    flex: 1,
     minHeight: 50,
     borderRadius: 18,
     borderWidth: 1,
@@ -284,5 +291,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "700",
     color: palette.foreground,
+  },
+  primaryAction: {
+    borderColor: palette.secondary,
+    backgroundColor: palette.secondary,
+  },
+  primaryActionText: {
+    color: palette.surface,
   },
 });

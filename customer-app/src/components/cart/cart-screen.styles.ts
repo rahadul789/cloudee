@@ -311,6 +311,13 @@ export const styles = StyleSheet.create({
     opacity: 0.9,
     transform: [{ scale: 0.97 }],
   },
+  // Relative wrapper so the flame/plus overlays sit OVER the image as siblings — the image
+  // itself stays a plain self-closing RemoteImage (passing overlays as RemoteImage children
+  // left the photo blank; every other image in the app uses this sibling pattern).
+  recommendationMedia: {
+    width: "100%",
+    position: "relative",
+  },
   recommendationImage: {
     width: "100%",
     height: 84,
@@ -368,11 +375,14 @@ export const styles = StyleSheet.create({
   recommendationEndSpacer: {
     width: 1,
   },
-  addMoreButton: {
-    // Pull "Add more" up close to the cart items (they're one group); the restaurantCard's gap:14
-    // otherwise left it stranded between the items and the recommendations.
+  // The scale/press feedback lives on the PressableScale wrapper; the alignment + the
+  // "pull up close to the cart items" margin sit on that outer slot so the % / auto width
+  // resolves correctly (the restaurantCard's gap:14 otherwise stranded it).
+  addMoreButtonSlot: {
     marginTop: -5,
     alignSelf: "flex-start",
+  },
+  addMoreButton: {
     minHeight: 38,
     borderRadius: 999,
     paddingHorizontal: 13,
@@ -383,10 +393,6 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-  },
-  addMoreButtonPressed: {
-    opacity: 0.82,
-    backgroundColor: "#FFE9F1",
   },
   addMoreButtonText: {
     fontSize: 13,
@@ -561,15 +567,26 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
+  // Dark-neon "reward progress" card — same visual family as the urgent-delivery priority
+  // sticker (NeonStickerCard). Amber accent while the offer is still locked, switching to
+  // green the moment it unlocks (border + shadow + badge + progress fill all recolour).
   offerProgressCard: {
     marginBottom: 14,
     padding: 14,
-    borderRadius: 24,
-    backgroundColor: palette.surfaceMuted,
+    borderRadius: 22,
+    backgroundColor: "#211A2E",
+    borderWidth: 1,
+    borderColor: "rgba(255, 201, 77, 0.35)",
     gap: 8,
+    shadowColor: "#FFC94D",
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
   },
   offerProgressCardUnlocked: {
-    backgroundColor: palette.successSurface,
+    borderColor: "rgba(53, 214, 164, 0.4)",
+    shadowColor: "#35D6A4",
   },
   offerProgressHeader: {
     flexDirection: "row",
@@ -590,49 +607,61 @@ export const styles = StyleSheet.create({
   offerProgressBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
     flexShrink: 1,
     minWidth: 0,
+  },
+  // Accent icon tile that echoes the priority sticker's glowing badge.
+  offerProgressBadgeIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFC94D",
+  },
+  offerProgressBadgeIconUnlocked: {
+    backgroundColor: "#35D6A4",
   },
   offerProgressBadgeText: {
     flexShrink: 1,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "700",
-    color: palette.secondary,
+    fontWeight: "800",
+    color: "#FFC94D",
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
   offerProgressBadgeTextUnlocked: {
-    color: palette.successText,
+    color: "#35D6A4",
   },
   offerProgressValue: {
     flexShrink: 0,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "700",
-    color: palette.foreground,
+    fontWeight: "800",
+    color: "#FFFFFF",
     fontVariant: ["tabular-nums"],
   },
   offerProgressSubtitle: {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
-    color: palette.mutedForeground,
+    color: "#C9C2D6",
   },
   offerTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#F3DDCC",
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
     overflow: "hidden",
   },
   offerFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: palette.secondary,
+    backgroundColor: "#FFC94D",
   },
   offerFillUnlocked: {
-    backgroundColor: palette.successText,
+    backgroundColor: "#35D6A4",
   },
   summaryTitle: {
     fontSize: 21,
@@ -676,9 +705,9 @@ export const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   // Sits directly under the "Delivery fee" row (the summaryCard gap is 10, so the negative top
-  // margin cancels it and pulls this caption right under the fee) — explains WHY the fee is what it is.
+  // margin overcancels it and tucks this caption snug under the fee) — explains WHY the fee is what it is.
   summaryDeliveryNote: {
-    marginTop: -10,
+    marginTop: -14,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "500",
@@ -742,24 +771,49 @@ export const styles = StyleSheet.create({
     right: 20,
     bottom: 0,
   },
+  // A prominent full-width amber banner (not a tiny centred pill) so the "you can't
+  // check out yet" nudge is impossible to miss, with an icon tile + a small progress bar
+  // showing how close the cart is to the minimum.
   minimumOrderNotice: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    alignSelf: "center",
-    marginBottom: 8,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    borderRadius: 999,
+    gap: 11,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 18,
     backgroundColor: palette.warningSurface,
-    borderWidth: 1,
-    borderColor: "rgba(231, 139, 39, 0.28)",
+    borderWidth: 1.5,
+    borderColor: "rgba(231, 139, 39, 0.5)",
+  },
+  minimumOrderNoticeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(231, 139, 39, 0.18)",
+  },
+  minimumOrderNoticeCopy: {
+    flex: 1,
+    gap: 8,
   },
   minimumOrderNoticeText: {
-    fontSize: 12.5,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "800",
     color: palette.warningText,
+  },
+  minimumOrderTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(231, 139, 39, 0.2)",
+    overflow: "hidden",
+  },
+  minimumOrderFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: palette.warningText,
   },
   checkoutCard: {
     paddingHorizontal: 20,

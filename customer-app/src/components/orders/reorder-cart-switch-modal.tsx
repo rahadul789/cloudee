@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { palette } from "@/src/theme/palette";
 
 type ReorderCartSwitchModalProps = {
@@ -53,12 +54,20 @@ export function ReorderCartSwitchModal({
           </View>
 
           <View style={styles.modalActions}>
-            <Pressable style={styles.modalSecondaryButton} onPress={onClose}>
+            <PressableScale
+              scaleTo={0.96}
+              style={styles.modalSecondaryButton}
+              onPress={onClose}
+            >
               <Text style={styles.modalSecondaryButtonText}>Keep current cart</Text>
-            </Pressable>
-            <Pressable style={styles.modalPrimaryButton} onPress={onConfirm}>
+            </PressableScale>
+            <PressableScale
+              scaleTo={0.96}
+              style={styles.modalPrimaryButton}
+              onPress={onConfirm}
+            >
               <Text style={styles.modalPrimaryButtonText}>Replace and reorder</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         </Pressable>
       </Pressable>

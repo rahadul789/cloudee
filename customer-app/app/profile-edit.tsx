@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "@/src/components/screen";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import {
   useCustomerMediaDeleteMutation,
@@ -330,24 +330,17 @@ export default function ProfileEditScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.topBar}>
-            <Pressable
+            <PressableScale
+              scaleTo={0.9}
               onPress={() => router.back()}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed
-                  ? {
-                      transform: [{ scale: 0.97 }, { translateY: 1 }],
-                      opacity: 0.92,
-                    }
-                  : null,
-              ]}
+              style={styles.backButton}
             >
               <Ionicons
                 name="chevron-back"
                 size={20}
                 color={palette.foreground}
               />
-            </Pressable>
+            </PressableScale>
             <Text style={styles.topBarTitle}>Edit profile</Text>
             <View style={styles.topBarSpacer} />
           </View>
@@ -357,56 +350,77 @@ export default function ProfileEditScreen() {
           ) : null}
 
           <View style={styles.heroCard}>
+            <View pointerEvents="none" style={styles.heroAccent} />
+            <View pointerEvents="none" style={styles.heroAccentGlow} />
             <View style={styles.heroHeader}>
-              <View style={styles.avatarShell}>
-                {profileImage?.url ? (
-                  <RemoteImage
-                    uri={profileImage.url}
-                    style={styles.avatarImage}
-                    fallbackIcon="person-outline"
-                    fallbackIconSize={26}
-                    accessibilityLabel="Profile photo preview"
-                  />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={styles.avatarFallbackText}>{initials}</Text>
-                  </View>
-                )}
+              <PressableScale
+                scaleTo={0.95}
+                style={styles.avatarShellWrap}
+                onPress={handlePickImage}
+                disabled={
+                  isUploadingImage ||
+                  isSavingProfile ||
+                  updateMutation.isPending ||
+                  !isOnline
+                }
+                accessibilityRole="button"
+                accessibilityLabel="Change profile photo"
+              >
+                <View style={styles.avatarShell}>
+                  {profileImage?.url ? (
+                    <RemoteImage
+                      uri={profileImage.url}
+                      style={styles.avatarImage}
+                      fallbackIcon="person-outline"
+                      fallbackIconSize={26}
+                      accessibilityLabel="Profile photo preview"
+                    />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <Text style={styles.avatarFallbackText}>{initials}</Text>
+                    </View>
+                  )}
 
-                {(isUploadingImage || isSavingProfile || updateMutation.isPending) ? (
-                  <View style={styles.avatarOverlay}>
-                    <ActivityIndicator size="small" color="#fff" />
-                  </View>
-                ) : null}
-              </View>
+                  {(isUploadingImage || isSavingProfile || updateMutation.isPending) ? (
+                    <View style={styles.avatarOverlay}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.avatarEditBadge}>
+                  <Ionicons name="camera" size={13} color="#fff" />
+                </View>
+              </PressableScale>
 
               <View style={styles.heroCopy}>
                 <Text style={styles.heroTitle}>Personal info</Text>
                 <Text style={styles.heroName} numberOfLines={1}>
                   {trimmedFullName || "Your name"}
                 </Text>
+                {customer?.phone ? (
+                  <View style={styles.phoneChip}>
+                    <Ionicons
+                      name="shield-checkmark"
+                      size={12}
+                      color="#1BA672"
+                    />
+                    <Text style={styles.phoneChipText} numberOfLines={1}>
+                      {customer.phone}
+                    </Text>
+                  </View>
+                ) : null}
               </View>
             </View>
 
             <View style={styles.photoActionRow}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.photoButton,
+              <PressableScale
+                scaleTo={0.97}
+                containerStyle={
                   profileImage?.url
                     ? styles.photoButtonHalf
-                    : styles.photoButtonPrimaryFull,
-                  styles.photoButtonPrimary,
-                  pressed &&
-                  !isUploadingImage &&
-                  !isSavingProfile &&
-                  !updateMutation.isPending &&
-                  isOnline
-                    ? {
-                        transform: [{ scale: 0.985 }, { translateY: 1 }],
-                        opacity: 0.96,
-                      }
-                    : null,
-                ]}
+                    : styles.photoButtonPrimaryFull
+                }
+                style={[styles.photoButton, styles.photoButtonPrimary]}
                 onPress={handlePickImage}
                 disabled={isUploadingImage || isSavingProfile || updateMutation.isPending || !isOnline}
               >
@@ -420,20 +434,13 @@ export default function ProfileEditScreen() {
                     </Text>
                   </>
                 )}
-              </Pressable>
+              </PressableScale>
 
               {profileImage?.url ? (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.photoButton,
-                    styles.photoButtonHalf,
-                    pressed && !isUploadingImage && !isSavingProfile && !updateMutation.isPending && isOnline
-                      ? {
-                          transform: [{ scale: 0.985 }, { translateY: 1 }],
-                          opacity: 0.96,
-                        }
-                      : null,
-                  ]}
+                <PressableScale
+                  scaleTo={0.97}
+                  containerStyle={styles.photoButtonHalf}
+                  style={styles.photoButton}
                   onPress={() => {
                     void handleRemoveImage();
                   }}
@@ -445,7 +452,7 @@ export default function ProfileEditScreen() {
                     color={palette.foreground}
                   />
                   <Text style={styles.photoButtonText}>Remove</Text>
-                </Pressable>
+                </PressableScale>
               ) : null}
             </View>
           </View>
@@ -528,16 +535,9 @@ export default function ProfileEditScreen() {
               </View>
             </View>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.locationLinkCard,
-                pressed
-                  ? {
-                      transform: [{ scale: 0.985 }, { translateY: 1 }],
-                      shadowOpacity: 0.06,
-                    }
-                  : null,
-              ]}
+            <PressableScale
+              scaleTo={0.98}
+              style={styles.locationLinkCard}
               onPress={() => router.push("/location-picker")}
             >
               <View style={styles.locationLinkIcon}>
@@ -561,27 +561,17 @@ export default function ProfileEditScreen() {
                 size={18}
                 color={palette.mutedForeground}
               />
-            </Pressable>
+            </PressableScale>
 
             {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
-            <Pressable
-              style={({ pressed }) => [
+            <PressableScale
+              scaleTo={0.98}
+              style={[
                 styles.primaryButton,
                 (!hasChanges || isSavingProfile || updateMutation.isPending || isUploadingImage) &&
                   styles.primaryButtonDisabled,
                 !isOnline && styles.primaryButtonDisabled,
-                pressed &&
-                hasChanges &&
-                !isSavingProfile &&
-                !updateMutation.isPending &&
-                !isUploadingImage &&
-                isOnline
-                  ? {
-                      transform: [{ scale: 0.985 }, { translateY: 1 }],
-                      opacity: 0.96,
-                    }
-                  : null,
               ]}
               onPress={handleSave}
               disabled={
@@ -600,7 +590,7 @@ export default function ProfileEditScreen() {
                   <Ionicons name="arrow-forward" size={16} color="#fff" />
                 </>
               )}
-            </Pressable>
+            </PressableScale>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -643,6 +633,8 @@ const styles = StyleSheet.create({
     height: 42,
   },
   heroCard: {
+    position: "relative",
+    overflow: "hidden",
     borderRadius: 26,
     backgroundColor: palette.surface,
     borderWidth: 1,
@@ -655,10 +647,51 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  // Soft tinted header band + a warm glow behind the avatar — lifts the card from a
+  // plain white sheet to a considered "identity" header.
+  heroAccent: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 96,
+    backgroundColor: "#FFF3F8",
+  },
+  heroAccentGlow: {
+    position: "absolute",
+    top: -44,
+    right: -26,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: "rgba(255, 201, 77, 0.22)",
+  },
   heroHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
+  },
+  avatarShellWrap: {
+    position: "relative",
+    borderRadius: 30,
+    shadowColor: palette.shadow,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: palette.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2.5,
+    borderColor: palette.surface,
   },
   avatarShell: {
     width: 82,
@@ -666,8 +699,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     overflow: "hidden",
     backgroundColor: "#F7EEF4",
-    borderWidth: 1,
-    borderColor: "#F2DFE8",
+    borderWidth: 3,
+    borderColor: palette.surface,
   },
   avatarImage: {
     width: "100%",
@@ -707,6 +740,24 @@ const styles = StyleSheet.create({
     lineHeight: 29,
     fontWeight: "800",
     color: palette.foreground,
+  },
+  phoneChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "#E9F9F1",
+  },
+  phoneChipText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: "#127C57",
+    fontVariant: ["tabular-nums"],
   },
   photoActionRow: {
     flexDirection: "row",

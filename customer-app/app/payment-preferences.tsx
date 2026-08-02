@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PressableScale } from "@/src/components/pressable-scale";
 import { useCustomerPaymentSettingsQuery } from "@/src/hooks/use-customer-api";
 import {
   usePaymentPreferencesStore,
@@ -78,20 +79,13 @@ export default function PaymentPreferencesScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
+          <PressableScale
+            scaleTo={0.9}
+            style={styles.backButton}
             onPress={() => router.back()}
           >
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
+          </PressableScale>
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Default payment</Text>
             <Text style={styles.subtitle}>
@@ -117,18 +111,13 @@ export default function PaymentPreferencesScreen() {
           {options.map((option) => {
             const active = selectedMethod === option.id;
             return (
-              <Pressable
+              <PressableScale
                 key={option.id}
-                style={({ pressed }) => [
+                scaleTo={0.98}
+                style={[
                   styles.optionCard,
                   active ? styles.optionCardActive : null,
                   option.disabled ? styles.optionCardDisabled : null,
-                  pressed && !option.disabled
-                    ? {
-                        transform: [{ scale: 0.985 }, { translateY: 1 }],
-                        shadowOpacity: 0.05,
-                      }
-                    : null,
                 ]}
                 disabled={option.disabled}
                 onPress={() => setSelectedMethod(option.id)}
@@ -162,7 +151,7 @@ export default function PaymentPreferencesScreen() {
                   size={20}
                   color={active ? palette.secondary : palette.mutedForeground}
                 />
-              </Pressable>
+              </PressableScale>
             );
           })}
         </View>
@@ -174,22 +163,17 @@ export default function PaymentPreferencesScreen() {
           { paddingBottom: Math.max(insets.bottom, 12) },
         ]}
       >
-        <Pressable
-          style={({ pressed }) => [
+        <PressableScale
+          scaleTo={0.98}
+          style={[
             styles.saveButton,
             !canSave ? styles.saveButtonDisabled : null,
-            pressed && canSave
-              ? {
-                  transform: [{ scale: 0.985 }, { translateY: 1 }],
-                  opacity: 0.96,
-                }
-              : null,
           ]}
           disabled={!canSave}
           onPress={handleSave}
         >
           <Text style={styles.saveButtonText}>Save preference</Text>
-        </Pressable>
+        </PressableScale>
       </View>
     </SafeAreaView>
   );

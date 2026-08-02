@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView, Text, View } from "react-native";
 
 import { styles } from "@/src/components/home/home-screen.styles";
+import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import { palette } from "@/src/theme/palette";
 import type {
@@ -85,12 +86,10 @@ export function HomeTimeBasedSection({
         contentContainerStyle={styles.timeCompactRow}
       >
         {restaurants.map((restaurant) => (
-          <Pressable
+          <PressableScale
             key={restaurant._id}
-            style={({ pressed }) => [
-              styles.timeCompactCard,
-              pressed ? styles.timeCompactCardPressed : null,
-            ]}
+            scaleTo={0.97}
+            containerStyle={styles.timeCompactCard}
             onPress={() => onPress(restaurant)}
           >
             <View style={styles.timeCompactImage}>
@@ -147,7 +146,7 @@ export function HomeTimeBasedSection({
                 ) : null}
               </View>
             </View>
-          </Pressable>
+          </PressableScale>
         ))}
       </ScrollView>
     </View>

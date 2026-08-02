@@ -39,6 +39,11 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
   },
+  // The PressableScale wrapper takes the flex:1 (so it fills the header row); the inner
+  // Pressable keeps the padding + gap that lay out the address label / row / subtext.
+  addressBlockSlot: {
+    flex: 1,
+  },
   addressBlock: {
     flex: 1,
     gap: 2,
@@ -535,11 +540,13 @@ export const styles = StyleSheet.create({
     fontWeight: "600",
     color: palette.mutedForeground,
   },
-  campaignModalAction: {
-    // Always pin the admin-set button to the bottom of the modal, whether or not there is
-    // an image above it (with an image the flex:1 cover fills the gap; without one this
-    // auto margin pushes the button down instead of letting it float mid-card).
+  // Always pin the admin-set button to the bottom of the modal, whether or not there is
+  // an image above it. marginTop:auto lives on the PressableScale wrapper (the flex child)
+  // so the button still pins to the bottom while the inner Pressable keeps the visual.
+  campaignModalActionSlot: {
     marginTop: "auto",
+  },
+  campaignModalAction: {
     alignItems: "center",
     borderRadius: 999,
     backgroundColor: palette.primary,
