@@ -5773,6 +5773,192 @@ export async function listAdminRestaurants(params?: {
   return response.data
 }
 
+// ── External delivery (off-platform / owner-initiated) ────────────────────────
+
+export type ExternalSettlementStatus =
+  | "pending"
+  | "collected"
+  | "reconciled"
+  | "settled"
+  | "held"
+  | "cancelled"
+
+export type ExternalSettlementPolicy =
+  | "same_day"
+  | "t_plus_1"
+  | "t_plus_n"
+  | "platform_default"
+
+export type AdminExternalDeliveryOrder = {
+  orderId: string
+  restaurantId: string
+  restaurantName?: string
+  orderNumber: string
+  status: string
+  riderId: string
+  riderName: string
+  customerName: string
+  customerPhone: string
+  drop: { address: string }
+  orderValue: number
+  deliveryFee: number
+  collectAmount: number
+  netToOwner: number
+  paymentMode: "cod" | "online"
+  settlementStatus: ExternalSettlementStatus
+  collectedAt: string | null
+  reconciledAt: string | null
+  settledAt: string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type AdminExternalDeliverySummary = {
+  byStatus: Record<
+    string,
+    { count: number; collectAmount: number; deliveryFee: number; netToOwner: number }
+  >
+  owedToOwners: number
+  awaitingReconcile: number
+  readyToSettle: number
+  foodbelaRevenue: number
+  settledToOwners: number
+}
+
+export type AdminExternalDeliveryConfig = {
+  enabled: boolean
+  deliveryFeeTaka: number
+  settlementPolicy: ExternalSettlementPolicy
+  settlementDays: number | null
+  exposureCapTaka: number | null
+  enabledByAdminId: string
+  enabledAt: string | null
+}
+
+export type AdminExternalDeliveryReportRow = {
+  restaurantId: string
+  restaurantName: string
+  orders: number
+  delivered: number
+  cancelled: number
+  collectAmount: number
+  deliveryFee: number
+  netToOwner: number
+  settledToOwner: number
+}
+
+export type AdminExternalDeliveryReports = {
+  range: { from: string | null; to: string | null }
+  restaurants: AdminExternalDeliveryReportRow[]
+  totals: Omit<AdminExternalDeliveryReportRow, "restaurantId" | "restaurantName">
+}
+
+export async function getAdminExternalDeliveries(params?: {
+  restaurantId?: string
+  status?: string
+  settlementStatus?: ExternalSettlementStatus
+  page?: number
+  pageSize?: number
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.restaurantId) searchParams.set("restaurantId", params.restaurantId)
+  if (params?.status) searchParams.set("status", params.status)
+  if (params?.settlementStatus) {
+    searchParams.set("settlementStatus", params.settlementStatus)
+  }
+  if (params?.page) searchParams.set("page", `${params.page}`)
+  if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<{
+    items: AdminExternalDeliveryOrder[]
+    total: number
+    page: number
+    pageSize: number
+  }>(`/admin/external-deliveries${query}`)
+  return response.data
+}
+
+export async function getAdminExternalDeliverySummary(params?: {
+  restaurantId?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.restaurantId) searchParams.set("restaurantId", params.restaurantId)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminExternalDeliverySummary>(
+    `/admin/external-deliveries/summary${query}`
+  )
+  return response.data
+}
+
+export async function getAdminExternalDeliveryConfig(restaurantId: string) {
+  const response = await adminRequest<{
+    restaurantId: string
+    restaurantName: string
+    config: AdminExternalDeliveryConfig
+    currentExposureTaka: number
+  }>(`/admin/external-deliveries/restaurants/${restaurantId}/config`)
+  return response.data
+}
+
+export async function getAdminExternalDeliveryReports(params?: {
+  from?: string
+  to?: string
+}) {
+  const searchParams = new URLSearchParams()
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  const response = await adminRequest<AdminExternalDeliveryReports>(
+    `/admin/external-deliveries/reports${query}`
+  )
+  return response.data
+}
+
+export async function updateAdminExternalDeliveryConfig(
+  restaurantId: string,
+  body: {
+    enabled?: boolean
+    deliveryFeeTaka?: number
+    settlementPolicy?: ExternalSettlementPolicy
+    settlementDays?: number | null
+    exposureCapTaka?: number | null
+  }
+) {
+  const response = await adminRequest<{
+    restaurantId: string
+    config: AdminExternalDeliveryConfig
+  }>(`/admin/external-deliveries/restaurants/${restaurantId}/config`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  return response.data
+}
+
+export async function reconcileAdminExternalDelivery(orderId: string) {
+  const response = await adminRequest<AdminExternalDeliveryOrder>(
+    `/admin/external-deliveries/${orderId}/reconcile`,
+    { method: "POST" }
+  )
+  return response.data
+}
+
+export async function settleAdminExternalDeliveries(orderIds: string[]) {
+  const response = await adminRequest<{
+    settlementId: string
+    settledByAdminId: string
+    settledCount: number
+    totalNetToOwner: number
+    totalDeliveryFee: number
+    settledAt: string
+  }>(`/admin/external-deliveries/settle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ orderIds }),
+  })
+  return response.data
+}
+
 export type AdminFinancePayoutStatementEntry = {
   id: string
   restaurantId: string

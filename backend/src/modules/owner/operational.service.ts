@@ -1483,7 +1483,14 @@ export async function listOrders(params: {
   const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
   const content = await getPlatformContent();
   const ownerAppSettings = getOwnerAppSettings(content as Record<string, any>);
-  const query: Record<string, unknown> = { restaurantId };
+  // Off-platform (external) deliveries have their own dedicated page + settlement flow, so
+  // they are kept out of the normal in-app Orders list and its counts to avoid confusion
+  // and keep the two revenue streams cleanly separated. ($ne also matches legacy orders
+  // that predate the `source` field.)
+  const query: Record<string, unknown> = {
+    restaurantId,
+    source: { $ne: "external" },
+  };
   const andClauses: Array<Record<string, unknown>> = [];
 
   if (params.tab === "live") {
@@ -1571,7 +1578,12 @@ export async function listOrders(params: {
     // NOTE: aggregate() does not cast like find() does — restaurantId is a string here,
     // so it must be converted or the $match silently matches nothing.
     OrderModel.aggregate<{ _id: string; count: number }>([
-      { $match: { restaurantId: new mongoose.Types.ObjectId(restaurantId) } },
+      {
+        $match: {
+          restaurantId: new mongoose.Types.ObjectId(restaurantId),
+          source: { $ne: "external" },
+        },
+      },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
   ]);
@@ -2270,6 +2282,21 @@ export async function transitionOrderBySystem(params: {
     };
   }
 
+  // Off-platform (external) order: on delivery Foodbela now holds the money — rider cash
+  // for COD, or the customer's online payment. Auto-mark it "collected" so it enters the
+  // settlement queue; the admin then reconciles + settles the owner's share. Normal orders
+  // are untouched (they settle through the commission ledger below).
+  if (params.nextStatus === "Delivered" && order.source === "external") {
+    setPayload.paymentStatus = "paid";
+    setPayload["external.collectedAt"] = now;
+    setPayload["external.settlementStatus"] = "collected";
+  }
+  // A failed/cancelled external delivery never collected any money — mark it terminal so it
+  // stays out of the settlement queue.
+  if (params.nextStatus === "Cancelled" && order.source === "external") {
+    setPayload["external.settlementStatus"] = "cancelled";
+  }
+
   if (params.nextStatus === "PickedUp") {
     setPayload.riderTracking = {
       ...(order.get("riderTracking") ?? {}),
@@ -2321,32 +2348,37 @@ export async function transitionOrderBySystem(params: {
   }
 
   if (params.nextStatus === "Delivered" || params.nextStatus === "Cancelled") {
-    await Promise.all([
-      syncOrderLedgerForFinalStatus({
-        restaurantId: updatedOrder.restaurantId.toString(),
-        orderId: updatedOrder.id,
-        nextStatus: params.nextStatus,
-        finalizedAt: now,
-      }),
-      params.nextStatus === "Cancelled"
-        ? releaseVoucherRedemptionsForOrder(
-            updatedOrder._id,
-            params.note ?? "system_cancelled",
-          )
-        : Promise.resolve(),
-      params.nextStatus === "Cancelled"
-        ? releaseFirstOrderDiscountForOrder({
-            orderId: updatedOrder._id,
-            customerId: updatedOrder.customerId,
-            reason: params.note ?? "system_cancelled",
-          })
-        : Promise.resolve(),
-    ]);
+    // External (off-platform) orders never touch the commission ledger, vouchers, or
+    // first-order discounts — their money runs through the separate settlement flow. This
+    // keeps the two revenue streams 100% financially separate.
+    if (updatedOrder.source !== "external") {
+      await Promise.all([
+        syncOrderLedgerForFinalStatus({
+          restaurantId: updatedOrder.restaurantId.toString(),
+          orderId: updatedOrder.id,
+          nextStatus: params.nextStatus,
+          finalizedAt: now,
+        }),
+        params.nextStatus === "Cancelled"
+          ? releaseVoucherRedemptionsForOrder(
+              updatedOrder._id,
+              params.note ?? "system_cancelled",
+            )
+          : Promise.resolve(),
+        params.nextStatus === "Cancelled"
+          ? releaseFirstOrderDiscountForOrder({
+              orderId: updatedOrder._id,
+              customerId: updatedOrder.customerId,
+              reason: params.note ?? "system_cancelled",
+            })
+          : Promise.resolve(),
+      ]);
+    }
 
     await clearRiderActiveTrackingForFinalOrder(updatedOrder);
   }
 
-  if (params.nextStatus === "Delivered") {
+  if (params.nextStatus === "Delivered" && updatedOrder.source !== "external") {
     await grantReferralRewardForDeliveredOrder({
       orderId: updatedOrder.id,
     }).catch(() => undefined);

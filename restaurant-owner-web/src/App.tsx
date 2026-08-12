@@ -114,6 +114,11 @@ const PayoutsPage = React.lazy(() =>
     default: module.PayoutsPage,
   }))
 )
+const ExternalDeliveryPage = React.lazy(() =>
+  import("@/components/external-delivery-page").then((module) => ({
+    default: module.ExternalDeliveryPage,
+  }))
+)
 const OpeningHoursPage = React.lazy(() =>
   import("@/components/opening-hours-page").then((module) => ({
     default: module.OpeningHoursPage,
@@ -859,6 +864,14 @@ export const router = createBrowserRouter([
         element: (
           <LazyPage>
             <OrdersPage />
+          </LazyPage>
+        ),
+      },
+      {
+        path: "external-delivery",
+        element: (
+          <LazyPage>
+            <ExternalDeliveryPage />
           </LazyPage>
         ),
       },

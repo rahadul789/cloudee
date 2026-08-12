@@ -66,6 +66,8 @@ const RIDER_ORDER_LIST_SELECT = [
   "orderNumber",
   "status",
   "isUrgent",
+  "source",
+  "external",
   "paymentMethod",
   "paymentStatus",
   "pricing",
@@ -90,6 +92,7 @@ const RIDER_LIVE_MAP_ORDER_SELECT = [
   "orderNumber",
   "status",
   "isUrgent",
+  "source",
   "pricing",
   "serviceAreaSnapshot",
   "customerSnapshot.name",
@@ -307,6 +310,17 @@ function mapRiderOrder(
     orderNumber: order.orderNumber ?? "",
     status: order.status ?? "",
     isUrgent: order.isUrgent === true,
+    // Off-platform (Foodbela-delivery-only) order: the customer is not an app user, the
+    // rider still collects the cash exactly like a normal COD order. Flag so the app can
+    // badge it and surface the collect amount clearly.
+    source: order.source ?? "customer_app",
+    isExternal: order.source === "external",
+    collectAmount:
+      order.source === "external"
+        ? (numberOrNull(order.external?.collectAmount) ??
+          numberOrNull(order.pricing?.total) ??
+          0)
+        : null,
     paymentMethod: order.paymentMethod ?? "Cash",
     paymentStatus: order.paymentStatus ?? "pending",
     assignmentState,
@@ -452,6 +466,7 @@ function mapLiveMapOrder(
     orderNumber: order.orderNumber ?? "",
     status: order.status ?? "",
     isUrgent: order.isUrgent === true,
+    isExternal: order.source === "external",
     assignmentState: getLiveMapAssignmentState(order, riderId),
     createdAt: isoStringOrNull(order.createdAt),
     updatedAt: isoStringOrNull(order.updatedAt),

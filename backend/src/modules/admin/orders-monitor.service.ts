@@ -6297,6 +6297,16 @@ export async function updateAdminOrderStatus(params: {
     setPayload.paymentStatus = "cancelled";
   }
 
+  // External (off-platform) order money layer — an admin-driven cancel/reject must mark the
+  // settlement terminal so it leaves the queue. (Delivery → "collected" is handled on the
+  // rider's Delivered transition; admins don't deliver.) Kept out of the ledger below.
+  if (
+    (currentOrder as { source?: string }).source === "external" &&
+    ["Rejected", "Cancelled"].includes(params.nextStatus)
+  ) {
+    setPayload["external.settlementStatus"] = "cancelled";
+  }
+
   const updatedOrder = await OrderModel.findOneAndUpdate(
     { _id: currentOrder._id, status: currentOrder.status },
     {
@@ -6324,7 +6334,12 @@ export async function updateAdminOrderStatus(params: {
     );
   }
 
-  if (["Rejected", "Cancelled"].includes(params.nextStatus)) {
+  if (
+    ["Rejected", "Cancelled"].includes(params.nextStatus) &&
+    (updatedOrder as { source?: string }).source !== "external"
+  ) {
+    // External orders settle through their own flow — never the commission ledger,
+    // vouchers, or first-order discounts.
     await Promise.all([
       syncOrderLedgerForFinalStatus({
         restaurantId: String(updatedOrder.restaurantId ?? ""),

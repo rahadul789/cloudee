@@ -15,6 +15,7 @@ export default function RootLayout() {
         <Stack.Screen name="account-contact" />
         <Stack.Screen name="account-preparation-time" />
         <Stack.Screen name="owner-web-link" />
+        <Stack.Screen name="external-delivery" />
         <Stack.Screen name="notifications" />
         <Stack.Screen name="payout-method" />
         <Stack.Screen name="payout-method-verify" />

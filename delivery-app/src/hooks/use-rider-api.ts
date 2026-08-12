@@ -26,6 +26,11 @@ export type RiderOrder = {
   orderNumber: string;
   status: string;
   isUrgent?: boolean;
+  // Off-platform (Foodbela-delivery-only) order — customer is not an app user; the rider
+  // still collects the cash exactly like a normal COD order.
+  source?: string;
+  isExternal?: boolean;
+  collectAmount?: number | null;
   paymentMethod: string;
   paymentStatus: string;
   assignmentState?: "unassigned" | "assigned_to_you" | "assigned_to_other";

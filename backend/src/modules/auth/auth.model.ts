@@ -560,6 +560,34 @@ const restaurantSchema = new Schema(
             ],
             default: [],
           },
+          // Off-platform / owner-initiated delivery (Flow 2): the owner gets an order via
+          // their own channel (FB/WhatsApp) and asks Foodbela to deliver it. Admin enables
+          // it per-restaurant. Kept separate from the app-order commission flow above.
+          externalDelivery: {
+            type: new Schema(
+              {
+                enabled: { type: Boolean, default: false },
+                // Flat delivery fee (Tk) Foodbela keeps per external delivery for this
+                // restaurant. Admin-set; not distance-based (no drop coordinates involved).
+                deliveryFeeTaka: { type: Number, min: 0, default: 0 },
+                // How fast the collected money is settled to the owner. Default t_plus_1
+                // (next day, after cash reconciliation) — far faster than the 7-day app
+                // payout, but safe. same_day is a trusted-merchant upgrade.
+                settlementPolicy: {
+                  type: String,
+                  enum: ["same_day", "t_plus_1", "t_plus_n", "platform_default"],
+                  default: "t_plus_1",
+                },
+                settlementDays: { type: Number, min: 1, max: 30, default: null },
+                // Max unsettled amount Foodbela will hold for this restaurant (risk cap).
+                exposureCapTaka: { type: Number, min: 0, default: null },
+                enabledByAdminId: { type: String, default: "" },
+                enabledAt: { type: Date, default: null },
+              },
+              { _id: false },
+            ),
+            default: () => ({}),
+          },
         },
         { _id: false },
       ),

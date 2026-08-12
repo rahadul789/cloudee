@@ -210,6 +210,12 @@ export default function AvailableOrdersScreen() {
                       <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
                     </View>
                   ) : null}
+                  {item.isExternal ? (
+                    <View style={styles.externalChip}>
+                      <Ionicons name="storefront-outline" size={11} color="#6D28D9" />
+                      <Text style={styles.externalChipText}>External</Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View
                   style={[
@@ -315,6 +321,18 @@ const styles = StyleSheet.create({
     borderColor: palette.warning,
   },
   urgentChipText: { fontSize: 11, fontWeight: "900", color: palette.warning },
+  externalChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    backgroundColor: "#EDE9FE",
+    borderColor: "#C4B5FD",
+  },
+  externalChipText: { fontSize: 11, fontWeight: "900", color: "#6D28D9" },
   readyChip: {
     borderRadius: 999,
     paddingHorizontal: 10,

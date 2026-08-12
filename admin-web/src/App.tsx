@@ -236,6 +236,16 @@ const ServiceAreasPage = React.lazy(() =>
     default: module.ServiceAreasPage,
   }))
 )
+const ExternalDeliveryPage = React.lazy(() =>
+  import("@/components/external-delivery-page").then((module) => ({
+    default: module.ExternalDeliveryPage,
+  }))
+)
+const ExternalDeliveryReportsPage = React.lazy(() =>
+  import("@/components/external-delivery-reports-page").then((module) => ({
+    default: module.ExternalDeliveryReportsPage,
+  }))
+)
 const PaymentsPage = React.lazy(() =>
   import("@/components/payments-page").then((module) => ({
     default: module.PaymentsPage,
@@ -3396,6 +3406,22 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <ServiceAreasPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "external-delivery",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <ExternalDeliveryPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "external-delivery/reports",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <ExternalDeliveryReportsPage />
           </React.Suspense>
         ),
       },

@@ -57,6 +57,13 @@ import {
   submitOnboardingDraft,
   updateOnboardingDraft
 } from "./onboarding.controller"
+import {
+  getOwnerExternalDeliveries,
+  getOwnerExternalDeliveryById,
+  getOwnerExternalDeliveryConfigController,
+  postOwnerExternalDelivery,
+  postOwnerExternalDeliveryCancel
+} from "./external-delivery.controller"
 
 export const ownerRouter = Router()
 
@@ -88,6 +95,11 @@ ownerRouter.get("/riders/assignment-options", getOwnerRiderAssignmentOptions)
 ownerRouter.post("/orders/:orderId/assign-rider", postOwnerOrderAssignRider)
 ownerRouter.post("/orders/:orderId/preparation/extend", postOwnerOrderPreparationExtension)
 ownerRouter.post("/orders/:orderId/transition", postOwnerOrderTransition)
+ownerRouter.get("/external-deliveries/config", getOwnerExternalDeliveryConfigController)
+ownerRouter.post("/external-deliveries", postOwnerExternalDelivery)
+ownerRouter.get("/external-deliveries", getOwnerExternalDeliveries)
+ownerRouter.get("/external-deliveries/:orderId", getOwnerExternalDeliveryById)
+ownerRouter.post("/external-deliveries/:orderId/cancel", postOwnerExternalDeliveryCancel)
 ownerRouter.get("/notifications", getOwnerNotifications)
 ownerRouter.patch("/notifications/:notificationId/read", patchOwnerNotificationRead)
 ownerRouter.patch("/notifications/read-all", patchOwnerNotificationsReadAll)

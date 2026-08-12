@@ -35,6 +35,7 @@ import { useNavigate, useParams } from "react-router-dom"
 
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
 import { RestaurantViewStatsPanel } from "@/components/restaurant-view-stats-panel"
+import { ExternalDeliverySettingsCard } from "@/components/external-delivery-settings-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -1117,6 +1118,7 @@ export function RestaurantIntelligencePage() {
               <TabsTrigger value="menu">Menu</TabsTrigger>
               <TabsTrigger value="customers">Customers</TabsTrigger>
               <TabsTrigger value="finance">Finance</TabsTrigger>
+              <TabsTrigger value="externalDelivery">Ext. Delivery</TabsTrigger>
               <TabsTrigger value="quality">Quality</TabsTrigger>
               <TabsTrigger value="timeline">Timeline</TabsTrigger>
             </TabsList>
@@ -2126,6 +2128,10 @@ export function RestaurantIntelligencePage() {
                   ) : null}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="externalDelivery" className="space-y-4">
+              <ExternalDeliverySettingsCard restaurantId={restaurantId} />
             </TabsContent>
           </Tabs>
         </div>

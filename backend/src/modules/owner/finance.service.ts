@@ -370,7 +370,9 @@ async function ensureRestaurantEarningLedgerEntries(
 
   const deliveredOrders = await OrderModel.find({
     restaurantId: restaurantObjectId,
-    status: "Delivered"
+    status: "Delivered",
+    // External deliveries settle through their own flow, never the commission payout.
+    source: { $ne: "external" }
   })
     .select({
       pricing: 1,
@@ -1583,7 +1585,13 @@ function buildOwnerDashboardTrend(params: {
 }
 
 function buildAnalyticsOrderFilter(params: AnalyticsOverviewParams, restaurantId: string) {
-  const clauses: Record<string, unknown>[] = [{ restaurantId: toObjectId(restaurantId) }]
+  // Off-platform (external) deliveries are a separate revenue stream with their own page
+  // and settlement — never mix them into the in-app restaurant analytics. ($ne also keeps
+  // legacy orders that predate the `source` field.)
+  const clauses: Record<string, unknown>[] = [
+    { restaurantId: toObjectId(restaurantId) },
+    { source: { $ne: "external" } },
+  ]
 
   if (params.paymentMethod) {
     clauses.push({ paymentMethod: params.paymentMethod })

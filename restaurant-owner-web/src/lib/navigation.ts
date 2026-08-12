@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react"
 import {
   Bell,
   BarChart3,
+  Bike,
   Clock3,
   LifeBuoy,
   LayoutDashboard,
@@ -46,6 +47,11 @@ export const sidebarGroups: NavigationGroup[] = [
         to: "/orders",
         icon: ShoppingBag,
         badge: "12",
+      },
+      {
+        title: "Foodbela Delivery",
+        to: "/external-delivery",
+        icon: Bike,
       },
     ],
   },

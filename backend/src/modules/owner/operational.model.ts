@@ -177,11 +177,52 @@ const orderItemSnapshotSchema = new Schema(
   { _id: false }
 )
 
+// Flow 2 — off-platform (owner-initiated) delivery. The end customer is NOT a Foodbela app
+// user; the owner got the order via their own channel and Foodbela only delivers. Money
+// lifecycle: pending -> collected (COD cash / online paid) -> reconciled (deposited/settled)
+// -> settled (owner paid). Invariant: collectAmount = deliveryFee + netToOwner.
+const externalOrderSchema = new Schema(
+  {
+    customerName: { type: String, default: "", trim: true },
+    customerPhone: { type: String, default: "", trim: true },
+    drop: {
+      address: { type: String, default: "" },
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+    },
+    orderValue: { type: Number, min: 0, default: 0 },
+    collectAmount: { type: Number, min: 0, default: 0 },
+    paymentMode: { type: String, enum: ["cod", "online"], default: "cod" },
+    deliveryFee: { type: Number, min: 0, default: 0 },
+    netToOwner: { type: Number, default: 0 },
+    collectedAt: { type: Date, default: null },
+    reconciledAt: { type: Date, default: null },
+    settlementId: { type: String, default: "" },
+    settledAt: { type: Date, default: null },
+    settlementStatus: {
+      type: String,
+      enum: ["pending", "collected", "reconciled", "settled", "held", "cancelled"],
+      default: "pending",
+    },
+    createdByOwnerId: { type: String, default: "" },
+  },
+  { _id: false },
+)
+
 const orderSchema = new Schema(
   {
     restaurantId: { type: Schema.Types.ObjectId, ref: "Restaurant", required: true },
     customerId: { type: String, default: "" },
     clientOrderId: { type: String, default: "" },
+    // "external" = owner-initiated off-platform delivery; "customer_app" = normal in-app
+    // order. All finance/analytics group on this so the two flows never mix.
+    source: {
+      type: String,
+      enum: ["customer_app", "external"],
+      default: "customer_app",
+      index: true,
+    },
+    external: { type: externalOrderSchema, default: null },
     riderId: { type: String, default: "" },
     orderNumber: { type: String, required: true, unique: true },
     status: {

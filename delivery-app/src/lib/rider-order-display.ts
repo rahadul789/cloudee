@@ -95,6 +95,18 @@ export function getPaymentMethodBadge(value?: string | null) {
   };
 }
 
+// Badge for off-platform (Foodbela-delivery-only) orders so the rider knows the order
+// came from the restaurant's own channel — they still collect the cash as usual.
+export function getExternalDeliveryBadge() {
+  return {
+    label: "External",
+    backgroundColor: "#EDE9FE",
+    borderColor: "#C4B5FD",
+    color: "#6D28D9",
+    icon: "storefront-outline" as const,
+  };
+}
+
 export function getOrderTimingInfo(order: Pick<RiderOrder, "status" | "createdAt" | "updatedAt" | "timestamps">) {
   const timestamps = order.timestamps ?? {};
 

@@ -301,7 +301,9 @@
       "Bash(grep -nE \"^\\\\.env|\\\\.env$|\\\\.env\\\\b\" .gitignore)",
       "Bash(cd /d/cloudee/backend *)",
       "Read(//d//**)",
-      "Bash(grep -niE \"^\\\\s+[a-z].*:$|env_file|APP_ENV_FILE|container_name|image:|build:\" docker-compose.yml)"
+      "Bash(grep -niE \"^\\\\s+[a-z].*:$|env_file|APP_ENV_FILE|container_name|image:|build:\" docker-compose.yml)",
+      "Bash(awk '/const orderSchema = new Schema\\\\\\(/{f=1} f&&/^    [a-zA-Z_]+:/{print NR\": \"$0} /^  \\\\{ timestamps/{if\\(f\\)exit}' src/modules/owner/operational.model.ts)",
+      "Bash(grep -rn 'status:.*ReadyForPickup\\\\|status:.*$in.*PickedUp\\\\|riderId:.*\"\"\\\\|source:\\\\|\"New\"\\\\|dispatchMode' src/modules/admin/orders-monitor.service.ts src/modules/routing/routing.service.ts)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

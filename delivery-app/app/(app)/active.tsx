@@ -258,6 +258,12 @@ export default function ActiveOrdersScreen() {
                       <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
                     </View>
                   ) : null}
+                  {item.isExternal ? (
+                    <View style={styles.externalChip}>
+                      <Ionicons name="storefront-outline" size={11} color="#6D28D9" />
+                      <Text style={styles.externalChipText}>External</Text>
+                    </View>
+                  ) : null}
                   {item.isFocusedLiveTrip ? (
                     <View style={styles.liveChip}>
                       <View style={styles.liveDot} />
@@ -431,6 +437,23 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: "900",
     color: palette.warning,
+  },
+  externalChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    backgroundColor: "#EDE9FE",
+    borderColor: "#C4B5FD",
+  },
+  externalChipText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "900",
+    color: "#6D28D9",
   },
   liveChip: {
     minHeight: 24,

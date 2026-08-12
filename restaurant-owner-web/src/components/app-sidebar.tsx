@@ -24,6 +24,8 @@ import { useRestaurantStatus } from "./restaurant-status-context"
 import { Switch } from "./ui/switch"
 import { useOwnerSidebarSummaryQuery } from "@/hooks/use-owner-api"
 import { useAppStore } from "@/store/app-store"
+import { useQuery } from "@tanstack/react-query"
+import { getExternalDeliveryConfig } from "@/lib/external-delivery-api"
 
 export function AppSidebar() {
   const location = useLocation()
@@ -40,6 +42,14 @@ export function AppSidebar() {
   const liveOrdersCount = sidebarSummary?.liveOrders ?? 0
   const unreadNotificationsCount = sidebarSummary?.unreadNotifications ?? 0
   const storeDisplayName = storeSettings.name.trim() || "Your store"
+  // "Foodbela Delivery" only shows when admin has enabled external delivery for this store.
+  const externalDeliveryQuery = useQuery({
+    queryKey: ["owner-external-delivery-config"],
+    queryFn: getExternalDeliveryConfig,
+    enabled: ownerAccount.isAuthenticated,
+    staleTime: 60_000,
+  })
+  const externalDeliveryEnabled = externalDeliveryQuery.data?.enabled === true
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
@@ -121,7 +131,12 @@ export function AppSidebar() {
 
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {group.items.map((item) => {
+                  {group.items
+                    .filter(
+                      (item) =>
+                        item.to !== "/external-delivery" || externalDeliveryEnabled
+                    )
+                    .map((item) => {
                     const badge =
                       item.to === "/orders"
                         ? `${liveOrdersCount}`

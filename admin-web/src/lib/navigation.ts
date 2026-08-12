@@ -18,6 +18,7 @@ import {
   MailCheck,
   Map,
   MapPin,
+  PackageCheck,
   ReceiptText,
   Settings,
   ShoppingBag,
@@ -147,6 +148,21 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         title: "Dispatch Controls",
         to: "/riders?tab=dispatch",
         icon: HeartPulse,
+      },
+    ],
+  },
+  {
+    label: "External Delivery",
+    items: [
+      {
+        title: "Orders",
+        to: "/external-delivery",
+        icon: PackageCheck,
+      },
+      {
+        title: "Reports",
+        to: "/external-delivery/reports",
+        icon: BarChart3,
       },
     ],
   },

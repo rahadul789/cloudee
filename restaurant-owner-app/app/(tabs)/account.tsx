@@ -11,7 +11,9 @@ import {
   View,
 } from "react-native";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
+import { getExternalDeliveryConfig } from "@/src/lib/external-delivery-api";
 import { OwnerStatusBadge } from "@/src/components/owner-status-badge";
 import { OwnerHeaderActions } from "@/src/components/owner-header-actions";
 import { Screen } from "@/src/components/screen";
@@ -34,6 +36,13 @@ export default function AccountScreen() {
   const payoutQuery = useOwnerPayoutSummaryQuery();
   const logoutMutation = useOwnerLogoutMutation();
   const { language, setLanguage, t } = useOwnerTranslation();
+  // "Foodbela Delivery" only appears when admin has enabled external delivery for the store.
+  const externalDeliveryQuery = useQuery({
+    queryKey: ["owner-external-delivery-config"],
+    queryFn: getExternalDeliveryConfig,
+    staleTime: 60_000,
+  });
+  const externalDeliveryEnabled = externalDeliveryQuery.data?.enabled === true;
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const store = storeQuery.data;
@@ -210,6 +219,19 @@ export default function AccountScreen() {
               caption={t("reviews.subtitle")}
               onPress={() => router.push("/reviews" as never)}
             />
+            {externalDeliveryEnabled ? (
+              <AccountNavCard
+                icon="bicycle-outline"
+                tint="#EDE9FE"
+                title={language === "bn" ? "ফুডবেলা ডেলিভারি" : "Foodbela Delivery"}
+                caption={
+                  language === "bn"
+                    ? "নিজের চ্যানেলের অর্ডার আমাদের রাইডার দিয়ে ডেলিভারি করান"
+                    : "Deliver your own-channel orders with our riders"
+                }
+                onPress={() => router.push("/external-delivery" as never)}
+              />
+            ) : null}
             <AccountNavCard
               icon="desktop-outline"
               tint="#EAF0FF"
