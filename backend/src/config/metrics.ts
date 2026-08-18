@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
-import mongoose from "mongoose";
 import client from "prom-client";
 
+import { checkDatabaseHealth } from "./db";
 import { env } from "./env";
 
 const METRIC_PREFIX = "foodbela_";
@@ -39,8 +39,9 @@ new client.Gauge({
   name: `${METRIC_PREFIX}mongodb_connected`,
   help: "MongoDB connection state. 1 means connected, 0 means not connected.",
   registers: [metricsRegistry],
-  collect() {
-    this.set(mongoose.connection.readyState === 1 ? 1 : 0);
+  async collect() {
+    const health = await checkDatabaseHealth();
+    this.set(health.ok ? 1 : 0);
   },
 });
 
@@ -57,7 +58,7 @@ function normalizePath(path: string) {
   );
 }
 
-function getRoutePattern(req: Request, originalPath: string) {
+function getRoutePattern(req: Request) {
   const routePath = req.route?.path;
   if (typeof routePath === "string") {
     const routePattern = `${req.baseUrl}${routePath}`;
@@ -70,7 +71,7 @@ function getRoutePattern(req: Request, originalPath: string) {
       return normalizePath(routePattern);
     }
   }
-  return normalizePath(originalPath);
+  return "/unmatched";
 }
 
 function inferAppFromRoute(route: string) {
@@ -127,7 +128,7 @@ export function metricsMiddleware(
   res.on("finish", () => {
     const finishedAt = process.hrtime.bigint();
     const durationSeconds = Number(finishedAt - startedAt) / 1_000_000_000;
-    const route = getRoutePattern(req, originalPath);
+    const route = getRoutePattern(req);
     const app = inferAppFromRoute(route);
     const labels = {
       method: req.method,

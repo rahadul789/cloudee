@@ -513,6 +513,9 @@ const copy = {
     "prep.autoStartHelper":
       "ওনার শুরু না করলে খাবার তৈরি স্বয়ংক্রিয়ভাবে শুরু হবে।",
     "prep.minSuffix": "মিনিট",
+    "prep.prepTimeLabel": "প্রস্তুতির সময়",
+    "prep.addTime": "সময় যোগ করুন",
+    "prep.addTimeLate": "দেরি হচ্ছে — সময় যোগ করুন",
     "reviews.title": "রিভিউ",
     "reviews.subtitle": "কাস্টমারদের রেটিং ও মন্তব্য দেখুন এবং রিপ্লাই দিন।",
     "reviews.averageRating": "গড় রেটিং",
@@ -1056,6 +1059,9 @@ const copy = {
     "prep.autoStartHelper":
       "Food prep starts automatically if owner does not start.",
     "prep.minSuffix": "min",
+    "prep.prepTimeLabel": "Preparation time",
+    "prep.addTime": "Add time",
+    "prep.addTimeLate": "Running late — add time",
     "reviews.title": "Reviews",
     "reviews.subtitle": "See customer ratings and comments, and reply to them.",
     "reviews.averageRating": "Average rating",

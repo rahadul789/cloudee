@@ -2,7 +2,7 @@ import http from "node:http"
 import mongoose from "mongoose"
 
 import { createApp } from "./app"
-import { connectDatabase } from "./config/db"
+import { connectDatabase, stopDatabaseWatchdog } from "./config/db"
 import { env } from "./config/env"
 import { logger } from "./config/logger"
 import { createSocketServer } from "./config/socket"
@@ -41,6 +41,7 @@ async function bootstrap() {
     isShuttingDown = true
     markHealthShuttingDown()
     logger.info({ signal }, "Backend shutdown started")
+    stopDatabaseWatchdog()
     stopPlatformContentScheduler()
     stopAdminNotificationScheduler()
     stopAppAlertScheduler()

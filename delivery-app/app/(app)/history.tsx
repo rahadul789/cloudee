@@ -14,13 +14,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useRiderOrdersPagedQuery, type RiderOrder } from "@/src/hooks/use-rider-api";
+import {
+  useRiderOrdersPagedQuery,
+  useRiderPerformanceSummaryQuery,
+  type RiderOrder,
+} from "@/src/hooks/use-rider-api";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
 import { getOrderStatusBadge, getOrderTimingInfo, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 import { RiderScreenHeader } from "@/src/components/rider-screen-header";
+import { RiderSidebar } from "@/src/components/rider-sidebar";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 
 type StatusFilter = "all" | "Delivered" | "Cancelled" | "Rejected";
@@ -82,6 +87,10 @@ export default function HistoryScreen() {
   const rider = useRiderAuthStore((state) => state.rider);
   const [pageSize, setPageSize] = useState(HISTORY_PAGE_STEP);
   const ordersQuery = useRiderOrdersPagedQuery("history", pageSize);
+  // Lifetime rider stats (total rides, this month, cancelled) — authoritative career
+  // numbers, independent of the loaded/filtered history page below.
+  const performanceQuery = useRiderPerformanceSummaryQuery();
+  const perf = performanceQuery.data;
   const { copy } = useDeliveryCopy();
   const isNetworkOnline = useNetworkStatus();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -89,6 +98,7 @@ export default function HistoryScreen() {
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [draftStatusFilter, setDraftStatusFilter] = useState<StatusFilter>("all");
   const [draftRangeFilter, setDraftRangeFilter] = useState<RangeFilter>("all");
   const orders = useMemo(() => ordersQuery.data ?? [], [ordersQuery.data]);
@@ -118,17 +128,6 @@ export default function HistoryScreen() {
       }),
     [normalizedSearchQuery, orders, rangeFilter, statusFilter]
   );
-
-  const summary = useMemo(() => {
-    const delivered = filteredOrders.filter((order) => order.status === "Delivered");
-    const cancelled = filteredOrders.filter((order) => order.status === "Cancelled");
-
-    return {
-      totalCount: filteredOrders.length,
-      deliveredCount: delivered.length,
-      cancelledCount: cancelled.length,
-    };
-  }, [filteredOrders]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -215,20 +214,34 @@ export default function HistoryScreen() {
               title={copy.history.title}
               statusTone={statusTone}
               statusLabel={statusLabel}
+              onMenuPress={() => setSidebarOpen(true)}
             />
 
+            {/* Lifetime career stats — total rides always visible, not just the loaded page. */}
+            <View style={styles.totalRidesCard}>
+              <View style={styles.totalRidesIcon}>
+                <Ionicons name="bicycle" size={20} color={palette.surface} />
+              </View>
+              <View style={styles.totalRidesBody}>
+                <Text style={styles.totalRidesLabel}>Total rides delivered</Text>
+                <Text style={styles.totalRidesValue}>
+                  {performanceQuery.isLoading ? "—" : (perf?.deliveredTotal ?? 0)}
+                </Text>
+              </View>
+            </View>
+
             <View style={styles.summaryRow}>
-              <View style={[styles.summaryCard, styles.summaryPink]}>
-                <Text style={styles.summaryLabel}>{copy.history.delivered}</Text>
-                <Text style={styles.summaryValue}>{summary.deliveredCount}</Text>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Today</Text>
+                <Text style={styles.summaryValue}>{perf?.deliveredToday ?? 0}</Text>
               </View>
-              <View style={[styles.summaryCard, styles.summaryAmber]}>
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>This month</Text>
+                <Text style={styles.summaryValue}>{perf?.deliveredThisMonth ?? 0}</Text>
+              </View>
+              <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>{copy.history.cancelled}</Text>
-                <Text style={styles.summaryValue}>{summary.cancelledCount}</Text>
-              </View>
-              <View style={[styles.summaryCard, styles.summarySky]}>
-                <Text style={styles.summaryLabel}>Trips</Text>
-                <Text style={styles.summaryValue}>{summary.totalCount}</Text>
+                <Text style={styles.summaryValue}>{perf?.cancelledTotal ?? 0}</Text>
               </View>
             </View>
 
@@ -476,14 +489,45 @@ export default function HistoryScreen() {
           </View>
         </View>
       </Modal>
+
+      <RiderSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.background },
+  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
   listContent: { paddingHorizontal: 20, paddingBottom: 112, gap: 12, flexGrow: 1 },
   headerWrap: { paddingTop: 16, paddingBottom: 12, gap: 12 },
+  totalRidesCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: palette.foreground,
+  },
+  totalRidesIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  totalRidesBody: { flex: 1, minWidth: 0 },
+  totalRidesLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.72)",
+    textTransform: "uppercase",
+  },
+  totalRidesValue: {
+    marginTop: 2,
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
   summaryRow: { flexDirection: "row", gap: 10 },
   summaryCard: {
     flex: 1,
@@ -600,7 +644,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: palette.primarySoft,
     borderWidth: 1,
-    borderColor: "#FFD0C3",
+    borderColor: "#FFCEE0",
   },
   appliedChipText: {
     fontSize: 12,
@@ -626,7 +670,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   filterChipActive: {
-    borderColor: "#FFD0C3",
+    borderColor: "#FFCEE0",
     backgroundColor: palette.primarySoft,
   },
   filterChipText: {

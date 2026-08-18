@@ -48,6 +48,7 @@ import {
   buildOrderPreparationTiming,
   buildPreparationMetaForExtension,
   buildPreparationMetaForStart,
+  clampPreparationMinutes,
 } from "./preparation-timing";
 import { buildDhakaPresetRange, type OwnerDateRange } from "./date-ranges";
 
@@ -1794,8 +1795,8 @@ export async function assignOwnerRiderToOrder(params: {
       await sendPushToRider({
         riderId: previousRiderId,
         payload: {
-          title: "Assignment updated",
-          body: `Order ${order.orderNumber} has been reassigned to another rider.`,
+          title: "অ্যাসাইনমেন্ট আপডেট",
+          body: `অর্ডার ${order.orderNumber} অন্য রাইডারকে দেওয়া হয়েছে।`,
           data: {
             type: "rider_assignment",
             orderId: order.id,
@@ -1816,7 +1817,7 @@ export async function assignOwnerRiderToOrder(params: {
   emitSocketEvent(`rider:${rider.id}`, "rider.assignment.updated", {
     orderId: order.id,
     orderNumber: order.orderNumber,
-    message: `A ready order has been assigned to you.`,
+    message: `একটি রেডি অর্ডার আপনাকে অ্যাসাইন করা হয়েছে।`,
     assignmentAction:
       previousRiderId && previousRiderId !== rider.id
         ? "reassigned"
@@ -1840,12 +1841,12 @@ export async function assignOwnerRiderToOrder(params: {
       payload: {
         title:
           previousRiderId && previousRiderId !== rider.id
-            ? "Order reassigned"
-            : "New delivery assignment",
+            ? "অর্ডার রিঅ্যাসাইনড"
+            : "নতুন ডেলিভারি অ্যাসাইনমেন্ট",
         body:
           previousRiderId && previousRiderId !== rider.id
-            ? `${order.orderNumber} is now assigned to you.`
-            : `${order.orderNumber} is ready for pickup and assigned to you.`,
+            ? `${order.orderNumber} এখন আপনাকে অ্যাসাইন করা হয়েছে।`
+            : `${order.orderNumber} পিকআপের জন্য রেডি এবং আপনাকে অ্যাসাইন করা হয়েছে।`,
         data: {
           type: "rider_assignment",
           orderId: order.id,
@@ -1892,6 +1893,8 @@ export async function transitionOrder(params: {
     | "Cancelled";
   actor: "owner";
   note?: string;
+  // Owner's per-order prep-time choice (from the accept dropdown), in minutes.
+  preparationMinutes?: number;
 }) {
   const { owner, restaurantId } = await getOwnerRestaurantContext(
     params.ownerId,
@@ -1924,6 +1927,7 @@ export async function transitionOrder(params: {
     params.nextStatus === "Preparing"
       ? await RestaurantModel.findById(restaurantId).lean()
       : null;
+  const plannedPrepMinutes = clampPreparationMinutes(params.preparationMinutes);
   const setPayload: Record<string, unknown> = {
     status: params.nextStatus,
     timestamps: applyOrderStatusTimestamp(
@@ -1932,6 +1936,12 @@ export async function transitionOrder(params: {
       now,
     ),
   };
+
+  // Owner chose a per-order prep time (from the accept dropdown). Persist it before prep
+  // starts so buildPreparationMetaForStart uses it as the base minutes instead of the avg.
+  if (plannedPrepMinutes !== null && params.nextStatus !== "Preparing") {
+    setPayload["preparationMeta.plannedBaseMinutes"] = plannedPrepMinutes;
+  }
 
   if (params.nextStatus === "Preparing") {
     const content = await getPlatformContent();
@@ -1945,6 +1955,7 @@ export async function transitionOrder(params: {
       startedAt: now,
       autoStarted: false,
       maxExtraMinutes: settings.preparationMaxExtraMinutes,
+      plannedBaseMinutes: plannedPrepMinutes ?? undefined,
     });
   }
 
@@ -2105,7 +2116,7 @@ export async function transitionOrder(params: {
 export async function extendOrderPreparation(params: {
   ownerId: string;
   orderId: string;
-  minutes: 5 | 10;
+  minutes: 5 | 10 | 15;
 }) {
   const { owner, restaurantId } = await getOwnerRestaurantContext(
     params.ownerId,
@@ -2141,6 +2152,7 @@ export async function extendOrderPreparation(params: {
     contentRecord,
     currentOrder.serviceAreaSnapshot as Record<string, any> | undefined,
   );
+  // Capped by the restaurant's admin-set max extra time — once used up, no more can be added.
   const remainingExtraMinutes = Math.max(
     0,
     settings.preparationMaxExtraMinutes - currentExtraMinutes,

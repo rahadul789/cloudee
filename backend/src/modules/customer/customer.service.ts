@@ -5787,6 +5787,8 @@ export async function placeCustomerOrder(params: {
           title: "নতুন অর্ডার এসেছে",
           body: `অর্ডার ${order.orderNumber} আপনার action-এর অপেক্ষায় আছে।`,
         },
+        // Deliver on the dedicated "new-orders" Android channel → plays the custom voice sound.
+        channelId: "new-orders",
         data: {
           type: "order.created",
           orderId: order.id,

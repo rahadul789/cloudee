@@ -44,6 +44,18 @@ import {
 } from "@/src/lib/order-status";
 import { palette } from "@/src/theme/palette";
 
+// Per-order prep-time choices (mirrors the backend 5–45 bounds). The owner can tweak this
+// before accepting; defaults to the restaurant average.
+const PREPARATION_TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45] as const;
+
+function snapPrepOption(minutes: number) {
+  return PREPARATION_TIME_OPTIONS.reduce(
+    (closest, option) =>
+      Math.abs(option - minutes) < Math.abs(closest - minutes) ? option : closest,
+    PREPARATION_TIME_OPTIONS[0] as number,
+  );
+}
+
 export default function OrderDetailsScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -55,6 +67,9 @@ export default function OrderDetailsScreen() {
   const [pendingAction, setPendingAction] = useState("");
   const [pendingExtension, setPendingExtension] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Per-order prep time chosen from the accept selector (defaults to the restaurant average
+  // carried on the order's preparation timing).
+  const [prepMinutes, setPrepMinutes] = useState<number | null>(null);
   const { t } = useOwnerTranslation();
   const now = useNow(1000, isFocused);
   const order = orderQuery.data;
@@ -82,6 +97,10 @@ export default function OrderDetailsScreen() {
         orderId: order._id,
         nextStatus,
         note,
+        preparationMinutes:
+          nextStatus === "Accepted"
+            ? prepMinutes ?? snapPrepOption(order.preparationTiming?.baseMinutes ?? 20)
+            : undefined,
       });
     } catch (error) {
       Alert.alert(
@@ -93,7 +112,7 @@ export default function OrderDetailsScreen() {
     }
   }
 
-  async function extendPreparation(minutes: 5 | 10) {
+  async function extendPreparation(minutes: 5 | 10 | 15) {
     if (!order) return;
 
     setPendingExtension(minutes);
@@ -248,6 +267,10 @@ export default function OrderDetailsScreen() {
                 <OrderActions
                   order={order}
                   pendingAction={pendingAction}
+                  prepMinutes={
+                    prepMinutes ?? snapPrepOption(order.preparationTiming?.baseMinutes ?? 20)
+                  }
+                  onPrepMinutesChange={setPrepMinutes}
                   onTransition={transitionOrder}
                   onReject={() =>
                     confirmTransition(
@@ -365,7 +388,7 @@ function PreparationTimingPanel({
   order: OwnerOrder;
   now: number;
   pendingExtension: number | null;
-  onExtend: (minutes: 5 | 10) => void;
+  onExtend: (minutes: 5 | 10 | 15) => void;
 }) {
   const { t } = useOwnerTranslation();
   const timing = order.preparationTiming;
@@ -378,11 +401,16 @@ function PreparationTimingPanel({
   const lateSeconds = getPreparationLateSeconds(order, now);
   const isPreparing = order.status === "Preparing";
   const isLate = isPreparing && prepRemainingSeconds === 0 && lateSeconds > 0;
+  // Surface add-time only when the deadline is near (< 5 min left) OR already overtime — the
+  // moments the owner actually needs it. (The old rule required remaining > 0, which wrongly
+  // hid it exactly when overtime.) The backend's canExtend/extensionOptions then hide it once
+  // the admin-set max extra time is used up.
   const canShowExtensionOptions =
     isPreparing &&
-    prepRemainingSeconds !== null &&
-    prepRemainingSeconds > 0 &&
-    prepRemainingSeconds < 5 * 60;
+    (isLate ||
+      (prepRemainingSeconds !== null &&
+        prepRemainingSeconds > 0 &&
+        prepRemainingSeconds < 5 * 60));
   const title = isPreparing
     ? isLate
       ? t("prep.runningLate")
@@ -425,29 +453,40 @@ function PreparationTimingPanel({
       <Text style={styles.prepHelper}>{helperText}</Text>
 
       {canShowExtensionOptions && timing.canExtend && timing.extensionOptions.length ? (
-        <View style={styles.extensionRow}>
-          {timing.extensionOptions.map((minutes) => (
-            <Pressable
-              key={minutes}
-              style={({ pressed }) => [
-                styles.extensionChip,
-                pendingExtension === minutes ? styles.extensionChipDisabled : null,
-                pressed && pendingExtension === null
-                  ? styles.extensionChipPressed
-                  : null,
-              ]}
-              disabled={pendingExtension !== null}
-              onPress={() => onExtend(minutes as 5 | 10)}
-            >
-              {pendingExtension === minutes ? (
-                <ActivityIndicator size="small" color={palette.primary} />
-              ) : (
-                <Text style={styles.extensionChipText}>
-                  +{localizeDigits(String(minutes))} {t("prep.minSuffix")}
-                </Text>
-              )}
-            </Pressable>
-          ))}
+        <View style={styles.extensionWrap}>
+          <Text style={[styles.extensionPrompt, isLate ? styles.extensionPromptLate : null]}>
+            {isLate ? t("prep.addTimeLate") : t("prep.addTime")}
+          </Text>
+          <View style={styles.extensionRow}>
+            {timing.extensionOptions.map((minutes) => (
+              <Pressable
+                key={minutes}
+                style={({ pressed }) => [
+                  styles.extensionChip,
+                  isLate ? styles.extensionChipLate : null,
+                  pendingExtension === minutes ? styles.extensionChipDisabled : null,
+                  pressed && pendingExtension === null
+                    ? styles.extensionChipPressed
+                    : null,
+                ]}
+                disabled={pendingExtension !== null}
+                onPress={() => onExtend(minutes as 5 | 10 | 15)}
+              >
+                {pendingExtension === minutes ? (
+                  <ActivityIndicator size="small" color={palette.primary} />
+                ) : (
+                  <Text
+                    style={[
+                      styles.extensionChipText,
+                      isLate ? styles.extensionChipTextLate : null,
+                    ]}
+                  >
+                    +{localizeDigits(String(minutes))} {t("prep.minSuffix")}
+                  </Text>
+                )}
+              </Pressable>
+            ))}
+          </View>
         </View>
       ) : null}
     </View>
@@ -513,12 +552,16 @@ function SummaryLine({
 function OrderActions({
   order,
   pendingAction,
+  prepMinutes,
+  onPrepMinutesChange,
   onTransition,
   onReject,
   onCancel,
 }: {
   order: OwnerOrder;
   pendingAction: string;
+  prepMinutes: number;
+  onPrepMinutesChange: (minutes: number) => void;
   onTransition: (
     nextStatus: "Accepted" | "Rejected" | "Preparing" | "ReadyForPickup" | "Cancelled",
     note?: string,
@@ -531,20 +574,56 @@ function OrderActions({
 
   if (order.status === "New") {
     return (
-      <View style={styles.actionRow}>
-        <ActionButton
-          label={t("orders.reject")}
-          tone="danger"
-          loading={pendingAction === "Rejected"}
-          disabled={hasPendingAction}
-          onPress={onReject}
-        />
-        <ActionButton
-          label={t("orders.accept")}
-          loading={pendingAction === "Accepted"}
-          disabled={hasPendingAction}
-          onPress={() => onTransition("Accepted")}
-        />
+      <View style={styles.newActionsWrap}>
+        {/* Prep time for THIS order — the owner can adjust before accepting so the customer's
+            ETA is right from the start. Defaults to the restaurant average. */}
+        <View style={styles.prepPickerWrap}>
+          <View style={styles.prepPickerHeader}>
+            <Ionicons name="timer-outline" size={15} color={palette.primary} />
+            <Text style={styles.prepPickerLabel}>{t("prep.prepTimeLabel")}</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.prepPickerRow}
+          >
+            {PREPARATION_TIME_OPTIONS.map((minutes) => {
+              const active = minutes === prepMinutes;
+              return (
+                <Pressable
+                  key={minutes}
+                  style={[styles.prepOption, active ? styles.prepOptionActive : null]}
+                  disabled={hasPendingAction}
+                  onPress={() => onPrepMinutesChange(minutes)}
+                >
+                  <Text
+                    style={[
+                      styles.prepOptionText,
+                      active ? styles.prepOptionTextActive : null,
+                    ]}
+                  >
+                    {localizeDigits(String(minutes))} {t("prep.minSuffix")}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+        <View style={styles.actionRow}>
+          <ActionButton
+            label={t("orders.reject")}
+            tone="danger"
+            loading={pendingAction === "Rejected"}
+            disabled={hasPendingAction}
+            onPress={onReject}
+          />
+          <ActionButton
+            label={t("orders.accept")}
+            loading={pendingAction === "Accepted"}
+            disabled={hasPendingAction}
+            onPress={() => onTransition("Accepted")}
+          />
+        </View>
       </View>
     );
   }
@@ -849,6 +928,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: palette.mutedForeground,
   },
+  extensionWrap: {
+    gap: 6,
+  },
+  extensionPrompt: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  extensionPromptLate: {
+    color: palette.danger,
+  },
   extensionRow: {
     flexDirection: "row",
     gap: 8,
@@ -863,6 +956,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  extensionChipLate: {
+    backgroundColor: palette.danger,
+    borderColor: palette.danger,
+  },
   extensionChipPressed: {
     transform: [{ scale: 0.94 }],
     opacity: 0.9,
@@ -875,6 +972,9 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "900",
     color: palette.primary,
+  },
+  extensionChipTextLate: {
+    color: "#FFFFFF",
   },
   sectionCard: {
     borderRadius: 20,
@@ -926,6 +1026,52 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surfaceMuted,
     padding: 10,
     gap: 6,
+  },
+  newActionsWrap: {
+    gap: 12,
+  },
+  prepPickerWrap: {
+    gap: 8,
+  },
+  prepPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  prepPickerLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: palette.foreground,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  prepPickerRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingRight: 4,
+  },
+  prepOption: {
+    minWidth: 58,
+    minHeight: 38,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  prepOptionActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  prepOptionText: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  prepOptionTextActive: {
+    color: "#FFFFFF",
   },
   actionRow: {
     flexDirection: "row",

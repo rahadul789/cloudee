@@ -78,6 +78,7 @@ const RIDER_ORDER_LIST_SELECT = [
   "customerSnapshot.deliveryAddress",
   "riderSnapshot",
   "riderTracking",
+  "dispatchMeta",
   "timestamps",
   "createdAt",
   "updatedAt"
@@ -331,6 +332,10 @@ function mapRiderOrder(
     isTrackingActiveForRider: assignedRiderId === riderId && order.status === "PickedUp",
     createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
     updatedAt: order.updatedAt ? new Date(order.updatedAt).toISOString() : null,
+    // When this rider was assigned the order (drives the "assigned X min ago" hint).
+    assignedAt: order.dispatchMeta?.assignedAt
+      ? new Date(order.dispatchMeta.assignedAt).toISOString()
+      : null,
     pricing: order.pricing ?? {},
     timestamps: order.timestamps ?? {},
     riderSnapshot: order.riderSnapshot ?? {},

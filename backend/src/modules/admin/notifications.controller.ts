@@ -72,7 +72,7 @@ const sendNotificationSchema = z.object({
 });
 
 const readNotificationParamsSchema = z.object({
-  source: z.enum(["customer", "owner", "rider", "ops"]),
+  source: z.literal("ops"),
   id: z.string().trim().min(1),
 });
 

@@ -1,4 +1,5 @@
-import orderPlacedSoundUrl from "@/assets/order_placed.mp3"
+// Bangla voice announcement for a new order ("নতুন অর্ডার এসেছে, দয়া করে গ্রহণ করুন").
+import orderPlacedSoundUrl from "@/assets/new_order.mp3"
 
 let preloadedOrderPlacedAudio: HTMLAudioElement | null = null
 let unlockListenersRegistered = false

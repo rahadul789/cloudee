@@ -88,6 +88,16 @@ async function registerForPushNotificationsAsync() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#FF6392",
     });
+    // Dedicated channel for new orders with the Bangla voice sound. Android plays the
+    // CHANNEL's sound on the lock screen; the owner can also override it in the phone's
+    // notification settings for this channel (WhatsApp-style).
+    await Notifications.setNotificationChannelAsync("new-orders", {
+      name: "New orders",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "new_order.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF6392",
+    });
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();

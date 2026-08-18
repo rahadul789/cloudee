@@ -798,12 +798,24 @@ export function useOwnerOrderTransitionMutation() {
       nextStatus: "Accepted" | "Rejected" | "Preparing" | "ReadyForPickup" | "Cancelled"
       actor: "owner"
       note?: string
+      preparationMinutes?: number
     }) =>
       api.post<OwnerOrderResponse>(`/owner/orders/${payload.orderId}/transition`, {
         nextStatus: payload.nextStatus,
         actor: payload.actor,
         note: payload.note,
+        preparationMinutes: payload.preparationMinutes,
       }),
+  })
+}
+
+export function useOwnerOrderPreparationExtendMutation() {
+  return useMutation({
+    mutationFn: (payload: { orderId: string; minutes: 5 | 10 | 15 }) =>
+      api.post<OwnerOrderResponse>(
+        `/owner/orders/${payload.orderId}/preparation/extend`,
+        { minutes: payload.minutes }
+      ),
   })
 }
 

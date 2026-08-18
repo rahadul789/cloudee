@@ -9,18 +9,34 @@ import { CustomerRefreshTokenSessionModel } from "../customer/customer.model"
 
 const SESSION_TOUCH_INTERVAL_MS = 5 * 60 * 1000
 const SESSION_ACTIVE_CACHE_TTL_MS = 5 * 1000
+const SESSION_ACTIVE_CACHE_MAX_ENTRIES = 10_000
+const SESSION_ACTIVE_CACHE_SWEEP_INTERVAL_MS = 60_000
 const accessSessionActiveCache = new Map<string, { expiresAt: number; value: boolean }>()
+let lastSessionActiveCacheSweepAt = 0
 
 function buildSessionCacheKey(payload: JwtPayload) {
   return `${payload.role}:${payload.sub}:${payload.tokenId ?? ""}`
 }
 
 function pruneSessionActiveCache(nowMs: number) {
-  if (accessSessionActiveCache.size <= 10_000) return
-  for (const [key, entry] of accessSessionActiveCache) {
-    if (entry.expiresAt <= nowMs) {
-      accessSessionActiveCache.delete(key)
+  if (
+    nowMs - lastSessionActiveCacheSweepAt >=
+    SESSION_ACTIVE_CACHE_SWEEP_INTERVAL_MS
+  ) {
+    lastSessionActiveCacheSweepAt = nowMs
+    for (const [key, entry] of accessSessionActiveCache) {
+      if (entry.expiresAt <= nowMs) {
+        accessSessionActiveCache.delete(key)
+      }
     }
+  }
+
+  while (accessSessionActiveCache.size >= SESSION_ACTIVE_CACHE_MAX_ENTRIES) {
+    const oldestKey = accessSessionActiveCache.keys().next().value as
+      | string
+      | undefined
+    if (!oldestKey) break
+    accessSessionActiveCache.delete(oldestKey)
   }
 }
 

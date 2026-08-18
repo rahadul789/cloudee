@@ -9,6 +9,8 @@ type OwnerPushPayload = {
   contentType?: "text" | "image" | "image_text"
   imageUrl?: string
   data?: Record<string, unknown>
+  // Android notification channel to deliver on (e.g. "new-orders" for the custom sound).
+  channelId?: string
 }
 
 type ExpoPushMessage = {
@@ -16,6 +18,7 @@ type ExpoPushMessage = {
   sound: "default"
   title: string
   body: string
+  channelId?: string
   mutableContent?: boolean
   image?: string
   richContent?: {
@@ -132,6 +135,7 @@ export async function sendLocalizedPushToOwner(params: {
   contentType?: "text" | "image" | "image_text"
   imageUrl?: string
   data?: Record<string, unknown>
+  channelId?: string
 }) {
   const owner = await OwnerModel.findById(params.ownerId)
     .select("preferredLanguage")
@@ -147,6 +151,7 @@ export async function sendLocalizedPushToOwner(params: {
       contentType: params.contentType,
       imageUrl: params.imageUrl,
       data: params.data,
+      channelId: params.channelId,
     },
   })
 }
@@ -177,6 +182,8 @@ export async function sendPushToOwner(params: {
     title: params.payload.title,
     body: params.payload.body,
     data: params.payload.data,
+    // On Android the channel (with its bundled sound) wins; iOS keeps the default sound.
+    ...(params.payload.channelId ? { channelId: params.payload.channelId } : {}),
     ...(params.payload.imageUrl
       ? {
           mutableContent: true,

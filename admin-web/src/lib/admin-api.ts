@@ -4964,6 +4964,7 @@ export type AdminNotificationsResponse = AdminListResponse<AdminNotificationCent
     campaignOpens: number
     campaignOpenRate: number
     scheduledCount: number
+    adminUnread?: number
     opsUnread?: number
   }
 }
@@ -8659,11 +8660,19 @@ export async function sendAdminNotification(payload: AdminNotificationSendPayloa
 
 export async function getAdminNotificationCampaignRecipients(params: {
   campaignId: string
+  zoneId?: string
+  districtId?: string
   status?: AdminNotificationRecipientReportStatus
   page?: number
   pageSize?: number
 }) {
   const searchParams = new URLSearchParams()
+  const scope = getAdminZoneScopeQueryParams()
+  const zoneId = params.zoneId ?? ("zoneId" in scope ? scope.zoneId : "")
+  const districtId =
+    params.districtId ?? ("districtId" in scope ? scope.districtId : "")
+  if (zoneId) searchParams.set("zoneId", zoneId)
+  if (districtId) searchParams.set("districtId", districtId)
   if (params.status && params.status !== "all") searchParams.set("status", params.status)
   if (params.page) searchParams.set("page", `${params.page}`)
   if (params.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
@@ -8691,7 +8700,7 @@ export async function checkAdminNotificationCampaignReceipts(campaignId: string)
 }
 
 export async function markAdminNotificationRead(params: {
-  source: "customer" | "owner" | "rider" | "ops"
+  source: "ops"
   id: string
 }) {
   const response = await adminRequest<AdminNotificationActionResult>(

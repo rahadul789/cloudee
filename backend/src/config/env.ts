@@ -16,8 +16,25 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   API_PREFIX: z.string().default("/api/v1"),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(50),
-  MONGODB_MIN_POOL_SIZE: z.coerce.number().int().min(0).default(5),
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(25),
+  MONGODB_MIN_POOL_SIZE: z.coerce.number().int().min(0).default(0),
+  MONGODB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10000),
+  MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  MONGODB_WAIT_QUEUE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  MONGODB_MAX_IDLE_TIME_MS: z.coerce.number().int().positive().default(60000),
+  MONGODB_HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  MONGODB_WATCHDOG_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
+  MONGODB_WATCHDOG_FAILURE_THRESHOLD: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3),
+  MONGODB_DISCONNECT_GRACE_MS: z.coerce.number().int().positive().default(45000),
   DB_STARTUP_MAINTENANCE_ENABLED: z
     .string()
     .optional()

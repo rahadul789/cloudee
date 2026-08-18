@@ -19,6 +19,7 @@ describe("health and metrics endpoints", () => {
     expect([200, 503]).toContain(response.status);
     expect(response.body.success).toBe(true);
     expect(["ready", "not_ready"]).toContain(response.body.data.status);
+    expect(["ok", "failed"]).toContain(response.body.data.databasePing);
   });
 
   it("exposes Prometheus metrics", async () => {
@@ -29,5 +30,16 @@ describe("health and metrics endpoints", () => {
     expect(response.headers["content-type"]).toContain("text/plain");
     expect(response.text).toContain("foodbela_http_requests_total");
     expect(response.text).toContain("foodbela_mongodb_connected");
+  });
+
+  it("collapses unmatched paths into one bounded metrics label", async () => {
+    await request(app).get("/api/v1/random-probe-alpha").expect(404);
+    await request(app).get("/api/v1/random-probe-beta").expect(404);
+
+    const response = await request(app).get("/metrics").expect(200);
+
+    expect(response.text).toContain('route="/unmatched"');
+    expect(response.text).not.toContain("random-probe-alpha");
+    expect(response.text).not.toContain("random-probe-beta");
   });
 });

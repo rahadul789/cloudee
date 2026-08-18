@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   MapPin,
   ShoppingBag,
+  Timer,
   XCircle,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
@@ -28,7 +29,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { useOwnerOrderTransitionMutation } from "@/hooks/use-owner-api"
+import { PREPARATION_TIME_OPTIONS } from "@/lib/preparation"
 import { mapOwnerOrder } from "@/lib/backend-mappers"
 import { patchOwnerOrderQueryCaches } from "@/lib/owner-order-cache"
 import {
@@ -42,6 +51,16 @@ import {
 import { useAppStore } from "@/store/app-store"
 
 type ModalAction = "accept" | "reject"
+
+// The restaurant average may be any value; snap it to the nearest dropdown option so the
+// Select always reflects a real choice.
+function snapToPrepOption(minutes: number) {
+  return PREPARATION_TIME_OPTIONS.reduce(
+    (closest, option) =>
+      Math.abs(option - minutes) < Math.abs(closest - minutes) ? option : closest,
+    PREPARATION_TIME_OPTIONS[0]
+  )
+}
 
 function getOrderPreview(order: Order) {
   return order.items
@@ -65,8 +84,13 @@ export function NewOrderModal() {
   const queryClient = useQueryClient()
   const orders = useAppStore((state) => state.orders)
   const setOrders = useAppStore((state) => state.setOrders)
+  const averagePrepMinutes = useAppStore((state) =>
+    Math.max(5, state.storeSettings.orderSettings.preparationTimeMinutes ?? 20)
+  )
   const orderTransitionMutation = useOwnerOrderTransitionMutation()
   const [queuedOrderIds, setQueuedOrderIds] = React.useState<string[]>([])
+  // Per-order prep time the owner can tweak before accepting; defaults to the restaurant avg.
+  const [prepMinutes, setPrepMinutes] = React.useState<number>(averagePrepMinutes)
   const [pendingAction, setPendingAction] = React.useState<ModalAction | null>(
     null
   )
@@ -124,6 +148,11 @@ export function NewOrderModal() {
     [activeOrderId, orders]
   )
 
+  // Each new order in the queue starts from the restaurant's average prep time.
+  React.useEffect(() => {
+    setPrepMinutes(snapToPrepOption(averagePrepMinutes))
+  }, [activeOrderId, averagePrepMinutes])
+
   const dismissCurrentOrder = React.useCallback(() => {
     setQueuedOrderIds((current) => current.slice(1))
     setPendingAction(null)
@@ -151,6 +180,7 @@ export function NewOrderModal() {
           action === "reject"
             ? "Rejected from the new order alert."
             : undefined,
+        preparationMinutes: action === "accept" ? prepMinutes : undefined,
       })
       const mapped = mapOwnerOrder(updated)
       setOrders((current) => {
@@ -284,6 +314,31 @@ export function NewOrderModal() {
             <span className="line-clamp-2">
               {activeOrder.customer.address || "No address provided"}
             </span>
+          </div>
+
+          {/* Prep time for THIS order — defaults to the restaurant average; the owner can
+              adjust before accepting so the customer's ETA is accurate from the start. */}
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-background px-3 py-2.5">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Timer className="size-4 text-muted-foreground" />
+              Preparation time
+            </div>
+            <Select
+              value={String(prepMinutes)}
+              onValueChange={(value) => setPrepMinutes(Number(value))}
+              disabled={isPending}
+            >
+              <SelectTrigger className="w-[130px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PREPARATION_TIME_OPTIONS.map((minutes) => (
+                  <SelectItem key={minutes} value={String(minutes)}>
+                    {minutes} min
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

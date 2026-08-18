@@ -1,95 +1,484 @@
 <!doctype html>
-<html lang="en">
+<html lang="bn">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Alpha SMS API Test</title>
-
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>QR Code Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
     <style>
-      body {
-        font-family: Arial, sans-serif;
-        max-width: 700px;
-        margin: 40px auto;
-        padding: 20px;
+      :root {
+        --ink: #171714;
+        --muted: #6f7068;
+        --line: #dedfd8;
+        --paper: #f4f3ec;
+        --acid: #d8ff4f;
+        --panel: #1c1d19;
       }
-
-      input,
-      textarea {
-        width: 100%;
-        padding: 10px;
-        margin-bottom: 15px;
-        font-size: 15px;
+      * {
         box-sizing: border-box;
       }
-
-      button {
-        padding: 12px 20px;
-        cursor: pointer;
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: Arial, sans-serif;
+      }
+      .top {
+        max-width: 1120px;
+        margin: auto;
+        padding: 25px 22px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .brand {
+        font-size: 19px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .logo {
+        width: 29px;
+        height: 29px;
+        background: var(--ink);
+        color: var(--acid);
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+      }
+      .safe {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .safe b {
+        color: #7d9e00;
+      }
+      .hero {
+        max-width: 1120px;
+        margin: auto;
+        padding: 68px 22px 48px;
+      }
+      .tag {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        font-weight: 700;
+      }
+      .hero h1 {
+        font-size: clamp(46px, 7vw, 82px);
+        line-height: 0.94;
+        letter-spacing: -0.06em;
+        margin: 20px 0;
+      }
+      .hero h1 em {
+        font-style: normal;
+        color: #6c820e;
+      }
+      .hero p {
+        max-width: 650px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.65;
+      }
+      .app {
+        max-width: 1120px;
+        margin: 0 auto 65px;
+        background: #fff;
+        border: 1px solid var(--line);
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        box-shadow: 0 22px 70px #2a2b2417;
+      }
+      .left,
+      .right {
+        padding: 40px;
+      }
+      .right {
+        background: var(--panel);
+        color: #fff;
+      }
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+      .step i {
+        font-style: normal;
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        background: var(--acid);
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 800;
+      }
+      .step strong {
         font-size: 16px;
       }
-
-      pre {
-        background: #f4f4f4;
-        padding: 15px;
-        white-space: pre-wrap;
-        border-radius: 5px;
+      label.title {
+        display: block;
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 9px;
+      }
+      .url {
+        height: 58px;
+        border: 1.5px solid #bfc0b8;
+        display: flex;
+        align-items: center;
+        padding: 0 15px;
+      }
+      .url:focus-within {
+        border-color: #7c950d;
+        box-shadow: 0 0 0 3px #d8ff4f55;
+      }
+      .url input {
+        border: 0;
+        outline: 0;
+        flex: 1;
+        font-size: 15px;
+        min-width: 0;
+      }
+      .url button {
+        border: 0;
+        background: none;
+        font-size: 22px;
+        cursor: pointer;
+        color: #92938b;
+      }
+      .line {
+        border-top: 1px solid var(--line);
+        margin: 30px 0;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .field {
+        border: 1px solid var(--line);
+        padding: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .field input {
+        width: 34px;
+        height: 34px;
+        border: 0;
+        padding: 0;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .row small {
+        display: block;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .row input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        accent-color: #768b0d;
+      }
+      .size {
+        padding-top: 18px;
+      }
+      .size span {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .size b {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .size input {
+        width: 100%;
+        accent-color: #738909;
+      }
+      .stage {
+        width: min(100%, 380px);
+        aspect-ratio: 1;
+        margin: auto;
+        background: #fff;
+        padding: 10%;
+        display: grid;
+        place-items: center;
+      }
+      .stage.checker {
+        background-color: #fff;
+        background-image:
+          linear-gradient(45deg, #e7e7e7 25%, transparent 25%),
+          linear-gradient(-45deg, #e7e7e7 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #e7e7e7 75%),
+          linear-gradient(-45deg, transparent 75%, #e7e7e7 75%);
+        background-size: 20px 20px;
+        background-position:
+          0 0,
+          0 10px,
+          10px -10px,
+          -10px 0;
+      }
+      .stage canvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+      .info {
+        display: flex;
+        justify-content: space-between;
+        color: #999b91;
+        font-size: 10px;
+        margin: 14px 0 20px;
+      }
+      .downloads {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .downloads button {
+        border: 1px solid #41423c;
+        background: #282924;
+        color: #fff;
+        text-align: left;
+        padding: 14px;
+        cursor: pointer;
+        position: relative;
+      }
+      .downloads button:hover {
+        background: var(--acid);
+        color: var(--ink);
+      }
+      .downloads b,
+      .downloads small {
+        display: block;
+      }
+      .downloads small {
+        color: #92938b;
+        margin-top: 4px;
+        font-size: 9px;
+      }
+      .downloads span {
+        position: absolute;
+        right: 12px;
+        top: 14px;
+      }
+      .hint {
+        text-align: center;
+        color: #777970;
+        font-size: 10px;
+        margin-top: 18px;
+      }
+      footer {
+        max-width: 1120px;
+        margin: auto;
+        border-top: 1px solid var(--line);
+        padding: 24px 22px 38px;
+        color: var(--muted);
+        font-size: 12px;
+        display: flex;
+        justify-content: space-between;
+      }
+      @media (max-width: 780px) {
+        .safe {
+          display: none;
+        }
+        .hero {
+          padding-top: 48px;
+        }
+        .app {
+          grid-template-columns: 1fr;
+          margin: 0 14px 50px;
+        }
+        .left,
+        .right {
+          padding: 26px;
+        }
+      }
+      @media (max-width: 450px) {
+        .grid,
+        .downloads {
+          grid-template-columns: 1fr;
+        }
+        .hero h1 {
+          font-size: 45px;
+        }
+        .left,
+        .right {
+          padding: 21px;
+        }
       }
     </style>
   </head>
   <body>
-    <h2>Alpha SMS API Tester</h2>
-
-    <label>API Key</label>
-    <input
-      id="api_key"
-      placeholder="Paste API Key"
-      value="4y78omHf45sV0gwpF67lOSpNiwdF7f654OytlKM3"
-    />
-
-    <label>Phone Number</label>
-    <input id="to" value="01987296298" />
-
-    <label>Message</label>
-    <textarea id="msg">Your OTP is 123456</textarea>
-
-    <label>Sender ID (Optional)</label>
-    <input id="sender_id" />
-
-    <button onclick="sendSMS()">Send SMS</button>
-
-    <h3>Response</h3>
-    <pre id="result"></pre>
-
+    <header class="top">
+      <div class="brand"><span class="logo">▦</span>QR Maker</div>
+      <div class="safe"><b>●</b> আপনার data browser-এর বাইরে যায় না</div>
+    </header>
+    <section class="hero">
+      <div class="tag">FREE QR CODE GENERATOR</div>
+      <h1>লিংক থেকে QR Code<br /><em>এক ক্লিকেই।</em></h1>
+      <p>
+        যেকোনো website link paste করুন। সুন্দর, high-quality QR code তৈরি করুন
+        এবং আপনার প্রয়োজনের format-এ download করুন।
+      </p>
+    </section>
+    <main class="app">
+      <section class="left">
+        <div class="step"><i>01</i><strong>আপনার লিংক দিন</strong></div>
+        <label class="title" for="link">Website URL</label>
+        <div class="url">
+          <span>↗&nbsp;</span
+          ><input
+            id="link"
+            value="https://example.com"
+            placeholder="https://yourwebsite.com"
+          /><button id="clear" aria-label="Clear">×</button>
+        </div>
+        <div class="line"></div>
+        <div class="step"><i>02</i><strong>Design ঠিক করুন</strong></div>
+        <div class="grid">
+          <label class="field"
+            >QR Color <input id="dark" type="color" value="#171717" /></label
+          ><label class="field"
+            >Background <input id="light" type="color" value="#ffffff"
+          /></label>
+        </div>
+        <label class="row"
+          ><span
+            ><strong>Transparent background</strong
+            ><small>PNG ও SVG-এর জন্য</small></span
+          ><input id="transparent" type="checkbox" /></label
+        ><label class="size"
+          ><span
+            ><strong>Image size</strong><b id="sizeText">720 × 720 px</b></span
+          ><input
+            id="size"
+            type="range"
+            min="320"
+            max="1600"
+            step="80"
+            value="720"
+        /></label>
+      </section>
+      <section class="right">
+        <div class="step"><i>03</i><strong>Preview & Download</strong></div>
+        <div class="stage" id="stage"><canvas id="qr"></canvas></div>
+        <div class="info">
+          <span>High quality · Error correction H</span
+          ><strong id="px">720px</strong>
+        </div>
+        <div class="downloads">
+          <button data-format="png">
+            <b>PNG</b><small>Best for web</small><span>↓</span></button
+          ><button data-format="jpeg">
+            <b>JPG</b><small>Easy to share</small><span>↓</span></button
+          ><button data-format="svg">
+            <b>SVG</b><small>Vector quality</small><span>↓</span>
+          </button>
+        </div>
+        <p class="hint">ব্যবহারের আগে QR code-টি একবার scan করে দেখুন।</p>
+      </section>
+    </main>
+    <footer><b>QR Maker</b><span>দ্রুত। সহজ। আপনার browser-এই।</span></footer>
     <script>
-      async function sendSMS() {
-        const body = {
-          api_key: document.getElementById("api_key").value,
-          to: document.getElementById("to").value,
-          msg: document.getElementById("msg").value,
+      const $ = (id) => document.getElementById(id),
+        link = $("link"),
+        canvas = $("qr"),
+        size = $("size"),
+        dark = $("dark"),
+        light = $("light"),
+        trans = $("transparent"),
+        stage = $("stage");
+      let timer;
+      function opts(type) {
+        return {
+          width: +size.value,
+          margin: 2,
+          errorCorrectionLevel: "H",
+          type: type,
+          color: {
+            dark: dark.value,
+            light: trans.checked ? "#00000000" : light.value,
+          },
         };
-
-        const sender = document.getElementById("sender_id").value.trim();
-
-        if (sender) {
-          body.sender_id = sender;
-        }
-
+      }
+      function draw() {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (!link.value.trim()) return;
+          QRCode.toCanvas(canvas, link.value.trim(), opts(), () => {});
+        }, 90);
+        $("sizeText").textContent = `${size.value} × ${size.value} px`;
+        $("px").textContent = size.value + "px";
+        stage.classList.toggle("checker", trans.checked);
+        if (!trans.checked) stage.style.backgroundColor = light.value;
+        else stage.style.backgroundColor = "";
+      }
+      function filename() {
         try {
-          const response = await fetch("https://api.sms.net.bd/sendsms", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-          });
-
-          const text = await response.text();
-
-          document.getElementById("result").textContent = text;
-        } catch (err) {
-          document.getElementById("result").textContent = "Error:\n" + err;
+          return (
+            new URL(link.value).hostname
+              .replace(/^www\./, "")
+              .replace(/[^a-z0-9]+/gi, "-") + "-qr"
+          );
+        } catch (e) {
+          return "qr-code";
         }
       }
+      function download(format) {
+        if (!link.value.trim()) return;
+        if (format === "svg") {
+          QRCode.toString(link.value.trim(), opts("svg"), (e, s) => {
+            const u = URL.createObjectURL(
+                new Blob([s], { type: "image/svg+xml" }),
+              ),
+              a = document.createElement("a");
+            a.href = u;
+            a.download = filename() + ".svg";
+            a.click();
+            URL.revokeObjectURL(u);
+          });
+          return;
+        }
+        let out = canvas;
+        if (format === "jpeg" || (format === "png" && !trans.checked)) {
+          out = document.createElement("canvas");
+          out.width = canvas.width;
+          out.height = canvas.height;
+          const c = out.getContext("2d");
+          c.fillStyle =
+            format === "jpeg" && trans.checked ? "#fff" : light.value;
+          c.fillRect(0, 0, out.width, out.height);
+          c.drawImage(canvas, 0, 0);
+        }
+        const a = document.createElement("a");
+        a.href = out.toDataURL("image/" + format, 0.96);
+        a.download = filename() + (format === "jpeg" ? ".jpg" : ".png");
+        a.click();
+      }
+      [link, size, dark, light, trans].forEach((x) =>
+        x.addEventListener("input", draw),
+      );
+      $("clear").onclick = () => {
+        link.value = "";
+        canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      };
+      document
+        .querySelectorAll("[data-format]")
+        .forEach((b) => (b.onclick = () => download(b.dataset.format)));
+      draw();
     </script>
   </body>
 </html>

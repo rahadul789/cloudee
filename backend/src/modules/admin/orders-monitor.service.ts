@@ -1646,8 +1646,8 @@ async function sendRiderLateAcknowledgementPush(params: {
     zoneId: stringValue(serviceArea.zoneId),
     districtId: stringValue(serviceArea.districtId),
     payload: {
-      title: "Pickup response needed",
-      body: `Please accept pickup for ${stringValue(params.order.orderNumber, "this order")}. It is ${Math.max(params.lateByMinutes, 1)} min late.`,
+      title: "পিকআপে সাড়া দিন",
+      body: `${stringValue(params.order.orderNumber, "এই অর্ডার")} পিকআপ অ্যাকসেপ্ট করুন। এটি ${Math.max(params.lateByMinutes, 1)} মিনিট দেরি হয়েছে।`,
       data: {
         type: "rider_response_late",
         orderId,
@@ -2023,7 +2023,7 @@ async function assignOrderToRider(params: {
     emitSocketEvent(`rider:${previousRiderId}`, "rider.assignment.updated", {
       orderId: order.id,
       orderNumber: order.orderNumber,
-      message: `Order ${order.orderNumber} has been reassigned to another rider.`,
+      message: `অর্ডার ${order.orderNumber} অন্য রাইডারকে দেওয়া হয়েছে।`,
       assignmentAction: "unassigned",
     });
     emitSocketEvent(
@@ -2035,8 +2035,8 @@ async function assignOrderToRider(params: {
       await sendPushToRider({
         riderId: previousRiderId,
         payload: {
-          title: "Assignment updated",
-          body: `Order ${order.orderNumber} has been reassigned to another rider.`,
+          title: "অ্যাসাইনমেন্ট আপডেট",
+          body: `অর্ডার ${order.orderNumber} অন্য রাইডারকে দেওয়া হয়েছে।`,
           data: {
             type: "rider_assignment",
             orderId: order.id,
@@ -2054,8 +2054,8 @@ async function assignOrderToRider(params: {
     orderNumber: order.orderNumber,
     message:
       previousRiderId && previousRiderId !== rider.id
-        ? `Order ${order.orderNumber} has been reassigned to you.`
-        : `Order ${order.orderNumber} has been assigned to you.`,
+        ? `অর্ডার ${order.orderNumber} আপনাকে রিঅ্যাসাইন করা হয়েছে।`
+        : `অর্ডার ${order.orderNumber} আপনাকে অ্যাসাইন করা হয়েছে।`,
     assignmentAction:
       previousRiderId && previousRiderId !== rider.id
         ? "reassigned"
@@ -2081,11 +2081,11 @@ async function assignOrderToRider(params: {
       payload: {
         title:
           params.assignmentSource === "auto_dispatch"
-            ? "Auto-assigned delivery"
+            ? "অটো-অ্যাসাইনড ডেলিভারি"
             : previousRiderId && previousRiderId !== rider.id
-              ? "Order reassigned"
-              : "New delivery assignment",
-        body: `Order ${order.orderNumber} is ready for pickup.`,
+              ? "অর্ডার রিঅ্যাসাইনড"
+              : "নতুন ডেলিভারি অ্যাসাইনমেন্ট",
+        body: `অর্ডার ${order.orderNumber} পিকআপের জন্য রেডি।`,
         data: {
           type: "rider_assignment",
           orderId: order.id,
@@ -7023,6 +7023,7 @@ const RIDER_RELATED_OWNER_SUPPRESSED_EVENTS = new Set<string>([
   "order.delivery_critical_after_pickup",
   "order.delivery_late_after_pickup",
   "order.delivery_watch_after_pickup",
+  "order.delivery_eta_exceeded",
 ]);
 
 async function createOwnerSystemNotification(params: {
@@ -7785,8 +7786,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "rider_pickup_late",
-            title: "Pickup is late",
-            body: `${orderNumber} has been ready for ${readyMinutes} minutes. Please pick it up now.`,
+            title: "পিকআপ দেরি হচ্ছে",
+            body: `${orderNumber} ${readyMinutes} মিনিট ধরে রেডি আছে। এখনই পিকআপ করুন।`,
             lateByMinutes,
           }).catch(() => undefined);
           await createOwnerSystemNotification({
@@ -7826,8 +7827,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "rider_tracking_stale",
-            title: "Location update needed",
-            body: `${orderNumber} location is not updating. Please keep tracking on until delivery is complete.`,
+            title: "লোকেশন আপডেট দরকার",
+            body: `${orderNumber}-এর লোকেশন আপডেট হচ্ছে না। ডেলিভারি শেষ না হওয়া পর্যন্ত ট্র্যাকিং চালু রাখুন।`,
             lateByMinutes: 0,
           }).catch(() => undefined);
           await createOwnerSystemNotification({
@@ -7884,8 +7885,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_critical_after_pickup",
-            title: "Delivery is critically late",
-            body: `${orderNumber} has been out for ${pickupMinutes} minutes. Please update delivery immediately.`,
+            title: "ডেলিভারি অনেক দেরি",
+            body: `${orderNumber} ${pickupMinutes} মিনিট ধরে বাইরে আছে। এখনই ডেলিভারি আপডেট করুন।`,
             lateByMinutes,
           }).catch(() => undefined);
           await createOwnerSystemNotification({
@@ -7935,8 +7936,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_late_after_pickup",
-            title: "Delivery is late",
-            body: `${orderNumber} has been out for ${pickupMinutes} minutes. Please complete delivery or contact support.`,
+            title: "ডেলিভারি দেরি হচ্ছে",
+            body: `${orderNumber} ${pickupMinutes} মিনিট ধরে বাইরে আছে। ডেলিভারি সম্পন্ন করুন বা সাপোর্টে যোগাযোগ করুন।`,
             lateByMinutes,
           }).catch(() => undefined);
           await createOwnerSystemNotification({
@@ -7981,8 +7982,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_watch_after_pickup",
-            title: "Delivery needs attention",
-            body: `${orderNumber} has been out for ${pickupMinutes} minutes. Please complete delivery or contact support.`,
+            title: "ডেলিভারি খেয়াল করুন",
+            body: `${orderNumber} ${pickupMinutes} মিনিট ধরে বাইরে আছে। ডেলিভারি সম্পন্ন করুন বা সাপোর্টে যোগাযোগ করুন।`,
             lateByMinutes: Math.max(
               0,
               pickupMinutes - settings.deliveryWatchAfterPickupMinutes,
@@ -8029,8 +8030,8 @@ export async function processAdminOperationalAlerts() {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_eta_exceeded",
-            title: "Delivery ETA exceeded",
-            body: `${orderNumber} is ${lateByMinutes} minutes beyond the ETA baseline. Please update delivery now.`,
+            title: "ডেলিভারি ETA পার হয়েছে",
+            body: `${orderNumber} ETA-র চেয়ে ${lateByMinutes} মিনিট বেশি হয়েছে। এখনই ডেলিভারি আপডেট করুন।`,
             lateByMinutes,
           }).catch(() => undefined);
           await createOwnerSystemNotification({

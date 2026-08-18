@@ -303,7 +303,14 @@
       "Read(//d//**)",
       "Bash(grep -niE \"^\\\\s+[a-z].*:$|env_file|APP_ENV_FILE|container_name|image:|build:\" docker-compose.yml)",
       "Bash(awk '/const orderSchema = new Schema\\\\\\(/{f=1} f&&/^    [a-zA-Z_]+:/{print NR\": \"$0} /^  \\\\{ timestamps/{if\\(f\\)exit}' src/modules/owner/operational.model.ts)",
-      "Bash(grep -rn 'status:.*ReadyForPickup\\\\|status:.*$in.*PickedUp\\\\|riderId:.*\"\"\\\\|source:\\\\|\"New\"\\\\|dispatchMode' src/modules/admin/orders-monitor.service.ts src/modules/routing/routing.service.ts)"
+      "Bash(grep -rn 'status:.*ReadyForPickup\\\\|status:.*$in.*PickedUp\\\\|riderId:.*\"\"\\\\|source:\\\\|\"New\"\\\\|dispatchMode' src/modules/admin/orders-monitor.service.ts src/modules/routing/routing.service.ts)",
+      "Bash(grep -rnE 'replace\\\\\\(|Redirect|href=|router\\\\.\\(push|replace\\)\\\\\\(\"/\\\\\\(app\\\\\\)' app/index.tsx app/sign-in.tsx app/verify.tsx)",
+      "Bash(grep -niE 'scope|ReadyForPickup|PickedUp|Accepted|Preparing|status.*\\\\$in|listRiderOrders|getRiderOrders' backend/src/modules/rider/rider.service.ts)",
+      "Bash(grep -iE 'scope|Preparing|Accepted|\\\\$in')",
+      "Bash(echo \"TSC_CLEAN_EXIT_$?\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); const d={...p.dependencies,...p.devDependencies}; ['expo-location','expo-linear-gradient','expo-sensors','react-native-maps'].forEach\\(k=>console.log\\(k, d[k]||'—'\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); const d={...p.dependencies,...p.devDependencies}; ['react-native-svg','expo-linear-gradient','react-native-maps','expo-location'].forEach\\(k=>console.log\\(k, d[k]||'—'\\)\\)\")",
+      "Bash(grep -n \"^  en: {\\\\|^  bn: {\\\\|^  },$\\\\|^    [a-zA-Z]*: {\" src/lib/copy.ts)"
     ],
     "additionalDirectories": [
       "d:\\d\\cloudee\\admin-web\\src\\components",

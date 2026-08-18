@@ -20,6 +20,8 @@ type RateLimitSettingKey = keyof AuthRateLimitSettings;
 type RateLimitKeyStrategy = "ip" | "user";
 const writeMethods = ["POST", "PATCH", "PUT", "DELETE"];
 const snapshotBucketLimit = 8;
+const rateLimitStoreSweepIntervalMs = 60_000;
+const defaultRateLimitStoreMaxBuckets = 10_000;
 
 type RateLimitBucket = {
   totalHits: number;
@@ -47,15 +49,18 @@ function scopedLimiter(baseId: string, baseLabel: string, scope?: string) {
   };
 }
 
-class ObservableMemoryStore implements Store {
+export class ObservableMemoryStore implements Store {
   localKeys = true;
   prefix: string;
   private buckets = new Map<string, RateLimitBucket>();
+  private evictedBuckets = 0;
+  private lastSweepAt = 0;
   private windowMs: number;
 
   constructor(
     private readonly id: string,
     windowMs: number,
+    private readonly maxBuckets = defaultRateLimitStoreMaxBuckets,
   ) {
     this.prefix = `${id}:`;
     this.windowMs = windowMs;
@@ -67,10 +72,39 @@ class ObservableMemoryStore implements Store {
     }
   }
 
+  private sweepExpired(now: number, force = false) {
+    if (!force && now - this.lastSweepAt < rateLimitStoreSweepIntervalMs) {
+      return;
+    }
+    this.lastSweepAt = now;
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetTime.getTime() <= now) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+
+  private makeRoomForNewBucket() {
+    while (this.buckets.size >= Math.max(1, this.maxBuckets)) {
+      const oldestKey = this.buckets.keys().next().value as string | undefined;
+      if (!oldestKey) return;
+      this.buckets.delete(oldestKey);
+      this.evictedBuckets += 1;
+    }
+  }
+
+  private touch(key: string, bucket: RateLimitBucket) {
+    this.buckets.delete(key);
+    this.buckets.set(key, bucket);
+  }
+
   increment(key: string) {
     const now = Date.now();
+    this.sweepExpired(now);
     const existing = this.buckets.get(key);
     if (!existing || existing.resetTime.getTime() <= now) {
+      if (existing) this.buckets.delete(key);
+      this.makeRoomForNewBucket();
       const next = {
         totalHits: 1,
         resetTime: new Date(now + this.windowMs),
@@ -80,6 +114,7 @@ class ObservableMemoryStore implements Store {
     }
 
     existing.totalHits += 1;
+    this.touch(key, existing);
     return existing;
   }
 
@@ -90,6 +125,7 @@ class ObservableMemoryStore implements Store {
       this.buckets.delete(key);
       return undefined;
     }
+    this.touch(key, bucket);
     return bucket;
   }
 
@@ -112,11 +148,7 @@ class ObservableMemoryStore implements Store {
 
   snapshot(limit = snapshotBucketLimit) {
     const now = Date.now();
-    for (const [key, bucket] of this.buckets) {
-      if (bucket.resetTime.getTime() <= now) {
-        this.buckets.delete(key);
-      }
-    }
+    this.sweepExpired(now, true);
 
     return Array.from(this.buckets.entries())
       .sort((left, right) => right[1].totalHits - left[1].totalHits)
@@ -132,12 +164,8 @@ class ObservableMemoryStore implements Store {
 
   resetByToken(resetToken: string) {
     const now = Date.now();
+    this.sweepExpired(now, true);
     for (const [key, bucket] of this.buckets) {
-      if (bucket.resetTime.getTime() <= now) {
-        this.buckets.delete(key);
-        continue;
-      }
-
       const expectedToken = createBucketResetToken(this.id, key, bucket.resetTime);
       if (!constantTimeEqual(expectedToken, resetToken)) continue;
 
@@ -154,8 +182,16 @@ class ObservableMemoryStore implements Store {
   }
 
   size() {
-    this.snapshot(0);
+    this.sweepExpired(Date.now());
     return this.buckets.size;
+  }
+
+  capacity() {
+    return Math.max(1, this.maxBuckets);
+  }
+
+  evictions() {
+    return this.evictedBuckets;
   }
 }
 
@@ -682,6 +718,8 @@ export async function getRateLimitSnapshot() {
         ...meta,
         limit,
         activeBuckets: store?.size() ?? 0,
+        maxBuckets: store?.capacity() ?? 0,
+        evictedBuckets: store?.evictions() ?? 0,
         buckets: buckets.map((bucket) => ({
           ...bucket,
           remaining: Math.max(0, limit - bucket.totalHits),

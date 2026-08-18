@@ -8,13 +8,13 @@ import {
   Eye,
   LoaderCircle,
   PackageCheck,
+  X,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import {
   formatOrderMoney,
-  liveOrderStatuses,
   orderStatusLabels,
   type Order,
   type OrderStatus,
@@ -102,12 +102,17 @@ function getStatusIcon(status: OrderStatus) {
   return AlertTriangle
 }
 
+// The owner is responsible for the KITCHEN stages only. Pickup-waiting (ReadyForPickup) and
+// out-for-delivery (PickedUp) are the rider/dispatch's job — those must never appear as an
+// owner "attention" item (that just blames the kitchen for the rider being late).
+const OWNER_KITCHEN_STATUSES: OrderStatus[] = ["New", "Accepted", "Preparing"]
+
 function buildAttentionAlert(
   order: Order,
   averagePreparationMinutes: number,
   now: number
 ): OrderAttentionAlert | null {
-  if (!liveOrderStatuses.includes(order.currentStatus)) return null
+  if (!OWNER_KITCHEN_STATUSES.includes(order.currentStatus)) return null
 
   const timing = getOrderOperationalTiming(
     order,
@@ -171,6 +176,11 @@ export function OrderAttentionPanel() {
   const orderTransitionMutation = useOwnerOrderTransitionMutation()
   const [clockTick, setClockTick] = React.useState(() => Date.now())
   const [pendingOrderId, setPendingOrderId] = React.useState<string | null>(null)
+  // Owner-dismissed alerts (by key). Hidden until the alert escalates (its key changes) or
+  // the order advances a stage, so a genuinely new situation still resurfaces.
+  const [dismissedKeys, setDismissedKeys] = React.useState<Set<string>>(
+    () => new Set()
+  )
   const previousAlertKeysRef = React.useRef<Set<string>>(new Set())
   const hasInitializedAlertsRef = React.useRef(false)
 
@@ -206,6 +216,19 @@ export function OrderAttentionPanel() {
         }),
     [averagePreparationMinutes, clockTick, orders]
   )
+
+  const activeAlerts = React.useMemo(
+    () => alerts.filter((alert) => !dismissedKeys.has(alert.key)),
+    [alerts, dismissedKeys]
+  )
+
+  function dismissAlert(key: string) {
+    setDismissedKeys((current) => {
+      const next = new Set(current)
+      next.add(key)
+      return next
+    })
+  }
 
   React.useEffect(() => {
     const currentKeys = new Set(alerts.map((alert) => alert.key))
@@ -287,10 +310,10 @@ export function OrderAttentionPanel() {
     navigate(`/orders?order=${order.id}`)
   }
 
-  if (!alerts.length) return null
+  if (!activeAlerts.length) return null
 
-  const visibleAlerts = alerts.slice(0, 3)
-  const hiddenCount = alerts.length - visibleAlerts.length
+  const visibleAlerts = activeAlerts.slice(0, 3)
+  const hiddenCount = activeAlerts.length - visibleAlerts.length
 
   return (
     <div className="pointer-events-none fixed right-4 top-[4.5rem] z-40 w-[min(440px,calc(100vw-2rem))]">
@@ -305,7 +328,8 @@ export function OrderAttentionPanel() {
                 Kitchen attention
               </div>
               <div className="text-xs text-rose-700">
-                {alerts.length} order{alerts.length === 1 ? "" : "s"} needs action
+                {activeAlerts.length} order{activeAlerts.length === 1 ? "" : "s"}{" "}
+                needs action
               </div>
             </div>
           </div>
@@ -354,17 +378,26 @@ export function OrderAttentionPanel() {
                       </div>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "shrink-0",
-                      alert.tone === "critical"
-                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
-                    )}
-                  >
-                    {alert.badgeLabel}
-                  </Badge>
+                  <div className="flex shrink-0 items-start gap-1.5">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        alert.tone === "critical"
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      )}
+                    >
+                      {alert.badgeLabel}
+                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => dismissAlert(alert.key)}
+                      aria-label="Dismiss alert"
+                      className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">

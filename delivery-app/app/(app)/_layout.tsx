@@ -59,83 +59,43 @@ export default function AppLayout() {
         },
         tabBarActiveTintColor: palette.secondary,
         tabBarInactiveTintColor: palette.mutedForeground,
-        tabBarShowLabel: true,
-        tabBarLabelPosition: "below-icon",
-        tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          height: 72 + tabBarBottomPadding,
-          paddingTop: 10,
-          paddingBottom: tabBarBottomPadding,
-          paddingHorizontal: 10,
-          backgroundColor: "rgba(255,248,243,0.98)",
-          borderTopWidth: 1,
-          borderColor: "rgba(255,122,89,0.08)",
-          borderTopLeftRadius: 30,
-          borderTopRightRadius: 30,
-          shadowColor: palette.shadow,
-          shadowOpacity: 1,
-          shadowRadius: 24,
-          shadowOffset: { width: 0, height: 14 },
-          elevation: 7,
-        },
-        tabBarItemStyle: {
-          borderRadius: 24,
-          marginHorizontal: 2,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          lineHeight: 15,
-          fontWeight: "700",
-          marginTop: 3,
-          marginBottom: 2,
-        },
+        // Bottom tabs are replaced by the slide-out RiderSidebar (opened from the header
+        // menu button), so the tab bar itself is hidden — the screens remain routes.
+        tabBarStyle: { display: "none" },
       }}
       >
-      <Tabs.Screen
-        name="available"
-        options={{
-          title: copy.tabs.available,
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon color={color} focused={focused} activeName="storefront" inactiveName="storefront-outline" accentColor="#FFE3D5" />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="active"
-        options={{
-          title: copy.tabs.active,
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon color={color} focused={focused} activeName="flash" inactiveName="flash-outline" accentColor="#FFD7E8" />
-          ),
-        }}
-      />
+      {/* 3 tabs: Home (map + offers/tasks sheet), My Rides (rides + history), Account.
+          "available" and "active" are folded into the Home sheet — kept as routes but
+          hidden from the tab bar via href: null. */}
       <Tabs.Screen
         name="map"
         options={{
-          title: copy.tabs.map,
+          title: copy.tabs.home,
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon color={color} focused={focused} activeName="map" inactiveName="map-outline" accentColor="#DDE8FF" />
+            <TabIcon color={color} focused={focused} activeName="home" inactiveName="home-outline" accentColor="#DDE8FF" />
           ),
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
-          title: copy.tabs.history,
+          title: copy.tabs.myRides,
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon color={color} focused={focused} activeName="time" inactiveName="time-outline" accentColor="#E2FFF0" />
+            <TabIcon color={color} focused={focused} activeName="stats-chart" inactiveName="stats-chart-outline" accentColor="#E2FFF0" />
           ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: copy.tabs.profile,
+          title: copy.tabs.account,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon color={color} focused={focused} activeName="person-circle" inactiveName="person-circle-outline" accentColor="#FFF1C8" />
           ),
         }}
       />
+      <Tabs.Screen name="available" options={{ href: null }} />
+      <Tabs.Screen name="active" options={{ href: null }} />
       </Tabs>
     </View>
   );

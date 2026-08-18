@@ -20,7 +20,10 @@ import {
   useRiderNotificationsInfiniteQuery,
 } from "@/src/hooks/use-rider-api";
 import { dedupeById } from "@/src/lib/dedupe";
+import { useDeliveryCopy } from "@/src/lib/copy";
 import { palette } from "@/src/theme/palette";
+
+type NotifCopy = ReturnType<typeof useDeliveryCopy>["copy"]["notif"];
 
 const allowedPaths = new Set([
   "/(app)/available",
@@ -35,13 +38,13 @@ function resolveRiderPath(path?: string) {
   const value = path?.trim() ?? "";
   if (allowedPaths.has(value)) return value;
   const orderPathMatch = value.match(/^\/orders\/([A-Za-z0-9_-]+)(?:[?#].*)?$/);
-  return orderPathMatch?.[1] ? `/orders/${orderPathMatch[1]}` : "/(app)/available";
+  return orderPathMatch?.[1] ? `/orders/${orderPathMatch[1]}` : "/(app)/map";
 }
 
-function formatTime(value?: string | null) {
-  if (!value) return "Just now";
+function formatTime(value: string | null | undefined, t: NotifCopy) {
+  if (!value) return t.justNow;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Just now";
+  if (Number.isNaN(date.getTime())) return t.justNow;
   return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
@@ -57,29 +60,29 @@ function iconFor(type: string) {
   return "notifications-outline" as const;
 }
 
-function chipLabel(notification: RiderNotification) {
+function chipLabel(notification: RiderNotification, t: NotifCopy) {
   const type = notification.type.toLowerCase();
   const title = notification.title.toLowerCase();
-  if (type.includes("late") || title.includes("late")) return "Late";
-  if (type.includes("order") || type.includes("assignment")) return "Order";
-  if (type === "promotion" || type === "campaign") return "Admin";
-  return "System";
+  if (type.includes("late") || title.includes("late")) return t.chipLate;
+  if (type.includes("order") || type.includes("assignment")) return t.chipOrder;
+  if (type === "promotion" || type === "campaign") return t.chipAdmin;
+  return t.chipSystem;
 }
 
 type NotificationRow =
   | { kind: "date"; id: string; label: string }
   | { kind: "notification"; id: string; notification: RiderNotification };
 
-function formatDateGroup(value?: string | null) {
-  if (!value) return "Today";
+function formatDateGroup(value: string | null | undefined, t: NotifCopy) {
+  if (!value) return t.today;
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Today";
+  if (Number.isNaN(date.getTime())) return t.today;
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
   const dateKey = date.toDateString();
-  if (dateKey === today.toDateString()) return "Today";
-  if (dateKey === yesterday.toDateString()) return "Yesterday";
+  if (dateKey === today.toDateString()) return t.today;
+  if (dateKey === yesterday.toDateString()) return t.yesterday;
   return date.toLocaleDateString(undefined, {
     month: "long",
     day: "numeric",
@@ -90,6 +93,8 @@ function formatDateGroup(value?: string | null) {
 export default function RiderNotificationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { copy } = useDeliveryCopy();
+  const t = copy.notif;
   const notificationsQuery = useRiderNotificationsInfiniteQuery(true, 20);
   const markReadMutation = useMarkRiderNotificationReadMutation();
   const markAllMutation = useMarkAllRiderNotificationsReadMutation();
@@ -104,7 +109,7 @@ export default function RiderNotificationsScreen() {
     const rows: NotificationRow[] = [];
     let lastDateLabel = "";
     notifications.forEach((notification) => {
-      const dateLabel = formatDateGroup(notification.createdAt);
+      const dateLabel = formatDateGroup(notification.createdAt, t);
       if (dateLabel !== lastDateLabel) {
         rows.push({ kind: "date", id: `date-${dateLabel}`, label: dateLabel });
         lastDateLabel = dateLabel;
@@ -116,7 +121,7 @@ export default function RiderNotificationsScreen() {
       });
     });
     return rows;
-  }, [notifications]);
+  }, [notifications, t]);
   const unreadCount = notificationsQuery.data?.pages[0]?.unreadCount ?? 0;
   const isRefreshing =
     notificationsQuery.isRefetching && !notificationsQuery.isFetchingNextPage;
@@ -136,26 +141,26 @@ export default function RiderNotificationsScreen() {
             <Ionicons name="chevron-back" size={20} color={palette.foreground} />
           </Pressable>
           <View style={styles.topCopy}>
-            <Text style={styles.eyebrow}>Rider inbox</Text>
-            <Text style={styles.title}>Notifications</Text>
+            <Text style={styles.eyebrow}>{t.eyebrow}</Text>
+            <Text style={styles.title}>{t.title}</Text>
           </View>
           <Pressable
             disabled={!unreadCount || markAllMutation.isPending}
             style={[styles.markButton, !unreadCount ? styles.disabled : null]}
             onPress={() => markAllMutation.mutate()}
           >
-            <Text style={styles.markText}>Read all</Text>
+            <Text style={styles.markText}>{t.readAll}</Text>
           </Pressable>
         </View>
 
         {notificationsQuery.isLoading ? (
           <View style={styles.feedbackWrap}>
-            <ActivityIndicator color={palette.primary} />
+            <ActivityIndicator color={palette.secondary} />
           </View>
         ) : notifications.length === 0 ? (
           <View style={styles.feedbackWrap}>
-            <Text style={styles.emptyTitle}>No notifications yet</Text>
-            <Text style={styles.emptyText}>Assignment alerts and admin messages will appear here.</Text>
+            <Text style={styles.emptyTitle}>{t.emptyTitle}</Text>
+            <Text style={styles.emptyText}>{t.emptyText}</Text>
           </View>
         ) : (
           <FlatList
@@ -170,7 +175,7 @@ export default function RiderNotificationsScreen() {
               <RefreshControl
                 refreshing={isRefreshing}
                 onRefresh={() => notificationsQuery.refetch()}
-                tintColor={palette.primary}
+                tintColor={palette.secondary}
               />
             }
             onEndReachedThreshold={0.35}
@@ -185,7 +190,7 @@ export default function RiderNotificationsScreen() {
             ListFooterComponent={
               notificationsQuery.isFetchingNextPage ? (
                 <View style={styles.footerLoader}>
-                  <ActivityIndicator size="small" color={palette.primary} />
+                  <ActivityIndicator size="small" color={palette.secondary} />
                 </View>
               ) : null
             }
@@ -206,7 +211,7 @@ export default function RiderNotificationsScreen() {
                     <Ionicons
                       name={iconFor(notification.type)}
                       size={18}
-                      color={palette.primary}
+                      color={palette.secondary}
                     />
                   </View>
                   <View style={styles.cardCopy}>
@@ -216,7 +221,7 @@ export default function RiderNotificationsScreen() {
                       </Text>
                       <View style={styles.chip}>
                         <Text style={styles.chipText}>
-                          {chipLabel(notification)}
+                          {chipLabel(notification, t)}
                         </Text>
                       </View>
                       {!notification.isRead ? (
@@ -234,7 +239,7 @@ export default function RiderNotificationsScreen() {
                     ) : null}
                     <View style={styles.cardFooter}>
                       <Text style={styles.cardTime}>
-                        {formatTime(notification.createdAt)}
+                        {formatTime(notification.createdAt, t)}
                       </Text>
                       <Ionicons
                         name="chevron-forward"
@@ -254,7 +259,7 @@ export default function RiderNotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.background },
+  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
   container: { flex: 1 },
   topBar: {
     paddingHorizontal: 20,
@@ -279,7 +284,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "800",
-    color: palette.primary,
+    color: palette.secondary,
   },
   title: {
     fontSize: 21,
@@ -351,14 +356,14 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   cardUnread: {
-    borderColor: "#FFD0C3",
-    backgroundColor: "#FFFDFB",
+    borderColor: "#FFCEE0",
+    backgroundColor: "#FFF7FA",
   },
   iconWrap: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: palette.primarySoft,
+    backgroundColor: "#FFF1F6",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -382,11 +387,11 @@ const styles = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 4.5,
-    backgroundColor: palette.primary,
+    backgroundColor: palette.secondary,
   },
   chip: {
     borderRadius: 999,
-    backgroundColor: palette.primarySoft,
+    backgroundColor: "#FFF1F6",
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -394,7 +399,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 12,
     fontWeight: "900",
-    color: palette.primary,
+    color: palette.secondary,
   },
   cardText: {
     fontSize: 13,

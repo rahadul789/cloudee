@@ -13,7 +13,8 @@ type PreferencesStore = {
 export const usePreferencesStore = create<PreferencesStore>()(
   persist(
     (set) => ({
-      language: "en",
+      // Bangla-first: riders see Bangla out of the box; the Account screen toggle switches it.
+      language: "bn",
       setLanguage: (language) => set({ language }),
     }),
     {

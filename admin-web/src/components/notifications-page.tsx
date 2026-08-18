@@ -632,6 +632,17 @@ function isPromotionalPushItem(item: AdminNotificationCenterItem) {
   )
 }
 
+function campaignRefreshInterval(item: AdminNotificationCenterItem | null) {
+  if (!item || !isPromotionalPushItem(item)) return false
+  if (item.deliveryStatus === "failed" || item.deliveryStatus === "cancelled") {
+    return false
+  }
+  if (item.deliveryStatus === "scheduled" || item.deliveryStatus === "sending") {
+    return 15_000
+  }
+  return 30_000
+}
+
 type CampaignTimelineTone = "done" | "current" | "upcoming" | "danger"
 
 function campaignTimelineSteps(item: AdminNotificationCenterItem) {
@@ -842,7 +853,7 @@ function sourceLabel(source: AdminNotificationCenterItem["source"]) {
 function historyKindLabel(kind: HistoryKindFilter) {
   if (kind === "notifications") return "Notifications"
   if (kind === "push") return "Promotional push"
-  return "All activity"
+  return "Admin activity"
 }
 
 function recipientTypeLabel(type: RecipientTypeFilter) {
@@ -1092,8 +1103,8 @@ export function NotificationsPage() {
         pageSize,
         ...getAdminZoneScopeQueryParams(),
       }),
-    refetchInterval:
-      selectedItem && isPromotionalPushItem(selectedItem) ? 5_000 : false,
+    refetchInterval: campaignRefreshInterval(selectedItem),
+    refetchIntervalInBackground: false,
   })
   const selectedCampaignId = selectedItem?.campaignId || selectedItem?.id || ""
   const recipientsQuery = useQuery({
@@ -1110,10 +1121,24 @@ export function NotificationsPage() {
         status: recipientReportStatus,
         page: 1,
         pageSize: 50,
+        ...getAdminZoneScopeQueryParams(),
       }),
-    refetchInterval:
-      selectedItem && isPromotionalPushItem(selectedItem) ? 5_000 : false,
+    refetchInterval: campaignRefreshInterval(selectedItem),
+    refetchIntervalInBackground: false,
   })
+
+  React.useEffect(() => {
+    if (!selectedItem) return
+    const refreshedItem = notificationsQuery.data?.items.find(
+      (item) => item.id === selectedItem.id && item.source === selectedItem.source
+    )
+    if (!refreshedItem) return
+    setSelectedItem((current) =>
+      current?.id === refreshedItem.id && current.source === refreshedItem.source
+        ? refreshedItem
+        : current
+    )
+  }, [notificationsQuery.data, selectedItem?.id, selectedItem?.source])
 
   React.useEffect(() => {
     setRecipientReportStatus("all")
@@ -2918,10 +2943,10 @@ export function NotificationsPage() {
               <div>
                 <CardTitle className="flex items-center gap-2">
                   <Smartphone className="size-4" />
-                  Area activity history
+                  Admin activity and delivery history
                 </CardTitle>
                 <CardDescription>
-                  Notifications and promotional pushes scoped by the selected top-bar area.
+                  Admin alerts and campaign delivery records scoped by the selected top-bar area.
                 </CardDescription>
               </div>
               <Button
@@ -2960,7 +2985,7 @@ export function NotificationsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All activity</SelectItem>
+                  <SelectItem value="all">Admin activity</SelectItem>
                   <SelectItem value="notifications">Notifications</SelectItem>
                   <SelectItem value="push">Promotional push</SelectItem>
                 </SelectContent>
@@ -2976,7 +3001,7 @@ export function NotificationsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All sources</SelectItem>
+                  <SelectItem value="all">Admin-relevant sources</SelectItem>
                   <SelectItem value="customer">Customers</SelectItem>
                   <SelectItem value="owner">Owners</SelectItem>
                   <SelectItem value="rider">Riders</SelectItem>
@@ -4294,11 +4319,7 @@ export function NotificationsPage() {
                     </SheetDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {!selectedItem.isRead &&
-                    (selectedItem.source === "customer" ||
-                      selectedItem.source === "owner" ||
-                      selectedItem.source === "rider" ||
-                      selectedItem.source === "ops") ? (
+                    {!selectedItem.isRead && selectedItem.source === "ops" ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -4306,7 +4327,7 @@ export function NotificationsPage() {
                         disabled={markReadMutation.isPending}
                         onClick={() =>
                           markReadMutation.mutate({
-                            source: selectedItem.source as "customer" | "owner" | "rider" | "ops",
+                            source: "ops",
                             id: selectedItem.id,
                           })
                         }
@@ -4532,11 +4553,7 @@ export function NotificationsPage() {
                     </SheetDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {!selectedItem.isRead &&
-                    (selectedItem.source === "customer" ||
-                      selectedItem.source === "owner" ||
-                      selectedItem.source === "rider" ||
-                      selectedItem.source === "ops") ? (
+                    {!selectedItem.isRead && selectedItem.source === "ops" ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -4544,7 +4561,7 @@ export function NotificationsPage() {
                         disabled={markReadMutation.isPending}
                         onClick={() =>
                           markReadMutation.mutate({
-                            source: selectedItem.source as "customer" | "owner" | "rider" | "ops",
+                            source: "ops",
                             id: selectedItem.id,
                           })
                         }

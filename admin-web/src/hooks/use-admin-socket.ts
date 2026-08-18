@@ -84,12 +84,7 @@ function resolveAdminNotificationPath(payload: Partial<AdminNotificationCenterIt
 }
 
 function canMarkNotificationRead(payload: Partial<AdminNotificationCenterItem>) {
-  return (
-    payload.source === "customer" ||
-    payload.source === "owner" ||
-    payload.source === "rider" ||
-    payload.source === "ops"
-  )
+  return payload.source === "ops"
 }
 
 function stringScope(value: unknown) {
@@ -153,7 +148,7 @@ export function useAdminSocketBridge(enabled: boolean) {
           onClick: () => {
             if (!payload.isRead && payload.id && canMarkNotificationRead(payload)) {
               void markAdminNotificationRead({
-                source: payload.source as "customer" | "owner" | "rider" | "ops",
+                source: "ops",
                 id: payload.id,
               }).finally(() => {
                 void queryClient.invalidateQueries({ queryKey: ["admin-notifications"] })

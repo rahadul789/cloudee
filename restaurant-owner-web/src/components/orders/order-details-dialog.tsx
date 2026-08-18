@@ -11,8 +11,10 @@ import {
   Package,
   PackageCheck,
   Phone,
+  Plus,
   Printer,
   ReceiptText,
+  Timer,
   User2,
   X,
 } from "lucide-react"
@@ -30,6 +32,13 @@ import {
 } from "@/components/orders/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -40,6 +49,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Textarea } from "@/components/ui/textarea"
+import { PREPARATION_TIME_OPTIONS } from "@/lib/preparation"
+import { cn } from "@/lib/utils"
+
+function snapToPrepOption(minutes: number) {
+  return PREPARATION_TIME_OPTIONS.reduce(
+    (closest, option) =>
+      Math.abs(option - minutes) < Math.abs(closest - minutes) ? option : closest,
+    PREPARATION_TIME_OPTIONS[0]
+  )
+}
 
 function getStatusBadgeClass(status: Order["currentStatus"]) {
   if (status === "New") return "border-amber-200 bg-amber-50 text-amber-700"
@@ -85,6 +104,7 @@ export function OrderDetailsDialog({
   open,
   onOpenChange,
   onUpdateStatus,
+  onExtendPreparation,
   onReject,
   onSaveKitchenNote,
   pendingOrderAction,
@@ -94,7 +114,15 @@ export function OrderDetailsDialog({
   order: Order | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onUpdateStatus: (orderId: string, nextStatus: OrderStatus) => void
+  onUpdateStatus: (
+    orderId: string,
+    nextStatus: OrderStatus,
+    meta?: { preparationMinutes?: number }
+  ) => void
+  onExtendPreparation: (
+    orderId: string,
+    minutes: 5 | 10 | 15
+  ) => Promise<unknown> | void
   onReject: (order: Order) => void
   onSaveKitchenNote: (orderId: string, note: string) => void
   pendingOrderAction?: "status" | "reject" | null
@@ -103,10 +131,21 @@ export function OrderDetailsDialog({
 }) {
   const [noteDraft, setNoteDraft] = React.useState("")
   const [nowMs, setNowMs] = React.useState(() => Date.now())
+  // Per-order prep time picked here (for a New order) before accepting; defaults to the
+  // order's carried base minutes (the restaurant average).
+  const [prepMinutes, setPrepMinutes] = React.useState<number>(
+    averagePreparationMinutes
+  )
+  const [pendingExtend, setPendingExtend] = React.useState<number | null>(null)
 
   React.useEffect(() => {
     setNoteDraft(order?.kitchenNote ?? "")
-  }, [order])
+    setPrepMinutes(
+      snapToPrepOption(
+        order?.preparationTiming?.baseMinutes ?? averagePreparationMinutes
+      )
+    )
+  }, [order, averagePreparationMinutes])
 
   React.useEffect(() => {
     if (
@@ -127,6 +166,30 @@ export function OrderDetailsDialog({
   const totalItems = getOrderItemsCount(currentOrder)
   const isStatusPending = pendingOrderAction === "status"
   const isRejectPending = pendingOrderAction === "reject"
+  const isNewOrder = currentOrder.currentStatus === "New"
+  const prepIsLate = currentOrder.preparationTiming?.phase === "preparing_late"
+  const prepRemainingSeconds = currentOrder.preparationTiming?.remainingSeconds ?? null
+  // Only near the deadline (< 5 min left) or when overtime, and only while the admin-set max
+  // extra time isn't used up (backend canExtend/extensionOptions).
+  const prepNearDeadline =
+    prepIsLate ||
+    (typeof prepRemainingSeconds === "number" &&
+      prepRemainingSeconds > 0 &&
+      prepRemainingSeconds < 5 * 60)
+  const canAddTime =
+    currentOrder.currentStatus === "Preparing" &&
+    prepNearDeadline &&
+    Boolean(currentOrder.preparationTiming?.canExtend) &&
+    (currentOrder.preparationTiming?.extensionOptions?.length ?? 0) > 0
+
+  async function handleAddTime(minutes: 5 | 10 | 15) {
+    setPendingExtend(minutes)
+    try {
+      await onExtendPreparation(currentOrder.id, minutes)
+    } finally {
+      setPendingExtend(null)
+    }
+  }
   const primaryAction =
     currentOrder.currentStatus === "New"
       ? {
@@ -305,6 +368,68 @@ export function OrderDetailsDialog({
                   </div>
                 </div>
               </div>
+
+              {isNewOrder ? (
+                <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Timer className="size-4 text-muted-foreground" />
+                    Preparation time
+                  </div>
+                  <Select
+                    value={String(prepMinutes)}
+                    onValueChange={(value) => setPrepMinutes(Number(value))}
+                    disabled={isStatusPending}
+                  >
+                    <SelectTrigger className="w-[130px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PREPARATION_TIME_OPTIONS.map((minutes) => (
+                        <SelectItem key={minutes} value={String(minutes)}>
+                          {minutes} min
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {canAddTime ? (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  <div
+                    className={cn(
+                      "text-xs font-semibold uppercase tracking-wide",
+                      prepIsLate ? "text-rose-600" : "text-muted-foreground"
+                    )}
+                  >
+                    {prepIsLate ? "Running late — add time" : "Add time"}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {currentOrder.preparationTiming?.extensionOptions?.map(
+                      (minutes) => (
+                        <Button
+                          key={minutes}
+                          type="button"
+                          size="sm"
+                          variant={prepIsLate ? "default" : "outline"}
+                          className={cn(
+                            prepIsLate ? "bg-rose-600 hover:bg-rose-700" : ""
+                          )}
+                          disabled={pendingExtend !== null}
+                          onClick={() => handleAddTime(minutes as 5 | 10 | 15)}
+                        >
+                          {pendingExtend === minutes ? (
+                            <LoaderCircle className="size-3.5 animate-spin" />
+                          ) : (
+                            <Plus className="size-3.5" />
+                          )}
+                          {minutes} min
+                        </Button>
+                      )
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div
               className={
@@ -604,7 +729,11 @@ export function OrderDetailsDialog({
             {primaryAction ? (
               <Button
                 onClick={() =>
-                  onUpdateStatus(currentOrder.id, primaryAction.status)
+                  onUpdateStatus(
+                    currentOrder.id,
+                    primaryAction.status,
+                    isNewOrder ? { preparationMinutes: prepMinutes } : undefined
+                  )
                 }
                 disabled={isStatusPending || isRejectPending}
               >

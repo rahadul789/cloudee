@@ -107,7 +107,9 @@ const menuApprovalListQuerySchema = z.object({
 const orderTransitionSchema = z.object({
   nextStatus: z.enum(["Accepted", "Rejected", "Preparing", "ReadyForPickup", "Cancelled"]),
   actor: z.literal("owner"),
-  note: z.string().optional()
+  note: z.string().optional(),
+  // Per-order prep-time choice from the accept dropdown (10–45, kept realistic).
+  preparationMinutes: z.number().int().min(5).max(45).optional()
 })
 
 const assignOwnerRiderSchema = z.object({
@@ -115,7 +117,7 @@ const assignOwnerRiderSchema = z.object({
 })
 
 const orderPreparationExtendSchema = z.object({
-  minutes: z.union([z.literal(5), z.literal(10)])
+  minutes: z.union([z.literal(5), z.literal(10), z.literal(15)])
 })
 
 const listOrdersQuerySchema = z.object({

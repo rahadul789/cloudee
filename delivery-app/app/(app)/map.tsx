@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,13 +17,25 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
+import * as Location from "expo-location";
+
 import {
   useRiderDeliveryThresholdsQuery,
   useRiderLiveMapQuery,
+  useRiderNotificationsQuery,
+  useRiderOrderDetailsQuery,
+  useRiderOrdersQuery,
+  useRiderProfileQuery,
+  useUpdateRiderAvailabilityMutation,
   type RiderLiveMapOrder,
   type RiderLiveMapRestaurant,
   type RiderMapCoordinate,
+  type RiderOrder,
 } from "@/src/hooks/use-rider-api";
+import { DeliveryMap, type DeliveryMapHandle, type MapRoute, type MapStop } from "@/src/components/delivery-map";
+import { decodePolyline } from "@/src/lib/polyline";
+import { HomeOrdersSheet, type SheetContextOrder } from "@/src/components/home-orders-sheet";
+import { RiderSidebar } from "@/src/components/rider-sidebar";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
@@ -50,6 +62,14 @@ function isCoordinate(value?: RiderMapCoordinate | null): value is RiderMapCoord
 
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
+}
+
+// Minutes elapsed since an ISO timestamp (null if missing/invalid). Drives late detection.
+function minutesSince(iso?: string | null) {
+  if (!iso) return null;
+  const time = new Date(iso).getTime();
+  if (Number.isNaN(time)) return null;
+  return (Date.now() - time) / 60000;
 }
 
 function calculateDistanceKm(from?: RiderMapCoordinate | null, to?: RiderMapCoordinate | null) {
@@ -376,6 +396,19 @@ function RestaurantMapSheet({
             </View>
 
             <View style={styles.sheetActions}>
+              {leadOrder ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push(`/orders/${leadOrder.id}`)}
+                  style={({ pressed }) => [
+                    styles.sheetSecondaryAction,
+                    pressed ? styles.primaryActionPressed : null,
+                  ]}
+                >
+                  <Ionicons name="reader-outline" size={17} color={palette.foreground} />
+                  <Text style={styles.sheetSecondaryText}>Details</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 onPress={openDirections}
@@ -401,9 +434,43 @@ export default function RiderMapScreen() {
   const rider = useRiderAuthStore((state) => state.rider);
   const liveMapQuery = useRiderLiveMapQuery(isFocused);
   const thresholdsQuery = useRiderDeliveryThresholdsQuery();
+  const activeOrdersQuery = useRiderOrdersQuery("active");
+  // The real road route (polyline) is only computed by the order-DETAILS endpoint, not the
+  // list — so to draw the live order's road path on the home map we fetch its details.
+  const liveOrderId = liveMapQuery.data?.rider.activeTrackingOrderId ?? "";
+  const liveOrderDetailsQuery = useRiderOrderDetailsQuery(liveOrderId || undefined);
+  const notificationsSummary = useRiderNotificationsQuery(isFocused);
+  const hasUnreadNotifications = (notificationsSummary.data?.unreadCount ?? 0) > 0;
+  // Assigned orders keyed by id, so a map pin can look up its order's timestamps to detect
+  // late pickup / late delivery against the admin thresholds.
+  const activeById = useMemo(() => {
+    const map = new Map<string, RiderOrder>();
+    (activeOrdersQuery.data ?? []).forEach((order) => map.set(order.id, order));
+    return map;
+  }, [activeOrdersQuery.data]);
+  const pickupLateGraceMinutes = thresholdsQuery.data?.pickupLateGraceMinutes ?? 10;
+  const deliveryLateMinutes = thresholdsQuery.data?.deliveryLateAfterPickupMinutes ?? 25;
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [readyOnly, setReadyOnly] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  // Bumped on every marker tap so the sheet re-expands even when the same pin is tapped
+  // again after the rider manually collapsed it (selectedOrderId alone wouldn't change).
+  const [expandSignal, setExpandSignal] = useState(0);
+  // A deep-link / notification / list tap arrives here as ?orderId= (the retired
+  // order-details route redirects to this screen). Open that order in the sheet.
+  const params = useLocalSearchParams<{ orderId?: string }>();
+  useEffect(() => {
+    if (params.orderId) {
+      setSelectedOrderId(params.orderId);
+      setExpandSignal((n) => n + 1);
+      // Consume the param so it can't re-select after the rider backs out (and so the same
+      // notification tapped again still re-fires).
+      router.setParams({ orderId: "" });
+    }
+  }, [params.orderId]);
+  const activeTrackingOrderId = liveMapQuery.data?.rider.activeTrackingOrderId ?? "";
   const restaurants = useMemo(() => {
     const list = liveMapQuery.data?.restaurants ?? [];
     return readyOnly ? list.filter((restaurant) => restaurant.readyCount > 0) : list;
@@ -470,6 +537,194 @@ export default function RiderMapScreen() {
   );
   const stripOrder = stripRestaurant?.orders[0] ?? null;
 
+  // Build the map pins so the rider clearly sees WHERE to go:
+  //  • Restaurant (pickup) pin only while it still has orders to collect — the count badge
+  //    shows how many are pending pickup, and DROPS the once an order is picked up.
+  //  • Customer (drop) pin for each picked-up order — head there to deliver.
+  const mapStops = useMemo<MapStop[]>(() => {
+    const result: MapStop[] = [];
+    sortedRestaurants.forEach((restaurant) => {
+      const focused =
+        restaurant.id === (selectedRestaurantId || suggestedRestaurant?.id);
+      const pendingPickup = restaurant.orders.filter(
+        (order) => order.status !== "PickedUp",
+      ).length;
+      const pickupLoc = restaurant.location;
+      if (pendingPickup > 0 && isCoordinate(pickupLoc)) {
+        // Ring color = most-advanced pending state so the rider reads it at a glance:
+        // green = ready to grab, amber = still cooking, blue = accepted.
+        const pickupStatus =
+          restaurant.readyCount > 0
+            ? "ReadyForPickup"
+            : restaurant.preparingCount > 0 || restaurant.lateCount > 0
+              ? "Preparing"
+              : "Accepted";
+        // A cooking order under 5 min from ready → amber "prep" heads-up (not an alarm).
+        const nearlyReady = restaurant.orders.some(
+          (order) =>
+            (order.status === "Accepted" || order.status === "Preparing") &&
+            typeof order.preparation?.remainingSeconds === "number" &&
+            order.preparation.remainingSeconds < 300,
+        );
+        // A ready order sitting past the grace period → red "late" alert (act now). Track the
+        // WORST overrun at this restaurant so the pin can show how many minutes late it is.
+        let pickupLateMinutes = 0;
+        restaurant.orders.forEach((order) => {
+          const active = activeById.get(order.id);
+          if (active?.status === "ReadyForPickup") {
+            const over =
+              (minutesSince(active.timestamps?.ReadyForPickup) ?? 0) - pickupLateGraceMinutes;
+            if (over > pickupLateMinutes) pickupLateMinutes = over;
+          }
+        });
+        const pickupLate = pickupLateMinutes > 0;
+        result.push({
+          id: `pickup:${restaurant.id}`,
+          kind: "pickup",
+          latitude: pickupLoc.latitude,
+          longitude: pickupLoc.longitude,
+          label: restaurant.name,
+          count: pendingPickup,
+          statusColor: STATUS_COLORS[pickupStatus],
+          alert: pickupLate ? "late" : nearlyReady ? "prep" : undefined,
+          alertMinutes: pickupLate ? Math.max(1, Math.round(pickupLateMinutes)) : undefined,
+          focused,
+        });
+      }
+      restaurant.orders.forEach((order) => {
+        const dropLoc = order.customer?.location;
+        if (order.status === "PickedUp" && isCoordinate(dropLoc)) {
+          const activeDrop = activeById.get(order.id);
+          const deliveryOver =
+            activeDrop?.status === "PickedUp"
+              ? (minutesSince(activeDrop.timestamps?.PickedUp) ?? 0) - deliveryLateMinutes
+              : 0;
+          const deliveryLate = deliveryOver > 0;
+          result.push({
+            id: `drop:${order.id}:${restaurant.id}`,
+            kind: "drop",
+            latitude: dropLoc.latitude,
+            longitude: dropLoc.longitude,
+            label: order.customer?.name || order.orderNumber,
+            statusColor: STATUS_COLORS.PickedUp,
+            live: Boolean(activeTrackingOrderId) && order.id === activeTrackingOrderId,
+            alert: deliveryLate ? "late" : undefined,
+            alertMinutes: deliveryLate ? Math.max(1, Math.round(deliveryOver)) : undefined,
+            focused,
+          });
+        }
+      });
+    });
+    return result;
+  }, [
+    sortedRestaurants,
+    selectedRestaurantId,
+    suggestedRestaurant?.id,
+    activeTrackingOrderId,
+    activeById,
+    pickupLateGraceMinutes,
+    deliveryLateMinutes,
+  ]);
+
+  // Every active leg drawn at once so the rider sees all their orders on the home map (no
+  // need to open the details screen): the order sharing live location is a SOLID full-colour
+  // road route, the rest are DASHED + faded. A leg with no real road polyline falls back to
+  // a dashed straight line rider → destination (always dashed, since it's only an estimate).
+  // ONLY the live-tracking order's path is drawn (solid road route). Other active orders are
+  // intentionally left off the map so the live leg is unambiguous.
+  const liveOrderDetails = liveOrderDetailsQuery.data;
+  const mapRoutes = useMemo<MapRoute[]>(() => {
+    if (!liveOrderId) return [];
+    const decoded = decodePolyline(liveOrderDetails?.routeToNext?.polyline);
+    if (decoded.length > 1) {
+      return [{ key: liveOrderId, coords: decoded, dashed: false }];
+    }
+    // No road polyline yet → a solid straight line rider → destination as a stand-in.
+    const riderLoc = liveMapQuery.data?.rider.location ?? riderLocation;
+    const pickedUp = liveOrderDetails?.status === "PickedUp";
+    const dest = pickedUp
+      ? liveOrderDetails?.customer?.deliveryAddress
+      : liveOrderDetails?.restaurant;
+    if (
+      dest &&
+      typeof dest.latitude === "number" &&
+      typeof dest.longitude === "number" &&
+      riderLoc &&
+      isCoordinate(riderLoc)
+    ) {
+      return [
+        {
+          key: liveOrderId,
+          coords: [
+            { latitude: riderLoc.latitude, longitude: riderLoc.longitude },
+            { latitude: dest.latitude, longitude: dest.longitude },
+          ],
+          dashed: false,
+        },
+      ];
+    }
+    return [];
+  }, [liveOrderId, liveOrderDetails, liveMapQuery.data?.rider.location, riderLocation]);
+
+  // Live-map orders as sheet "context" — so tapping a pin whose order isn't an actionable
+  // task yet (e.g. still cooking) still shows useful info (prep countdown, amount).
+  const contextOrders = useMemo<SheetContextOrder[]>(() => {
+    const out: SheetContextOrder[] = [];
+    (liveMapQuery.data?.restaurants ?? []).forEach((restaurant) => {
+      restaurant.orders.forEach((order) => {
+        out.push({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          amount: order.pricing?.total ?? 0,
+          prepRemainingSeconds: order.preparation?.remainingSeconds ?? null,
+          prepLabel: order.preparation?.label ?? "",
+          restaurantName: restaurant.name,
+          restaurantAddress: restaurant.address ?? "",
+          restaurantLat: restaurant.location?.latitude ?? null,
+          restaurantLng: restaurant.location?.longitude ?? null,
+          customerName: order.customer?.name ?? "",
+        });
+      });
+    });
+    return out;
+  }, [liveMapQuery.data?.restaurants]);
+
+  const riderForMap = useMemo(() => {
+    const live = liveMapQuery.data?.rider.location;
+    if (isCoordinate(live)) {
+      return {
+        latitude: live.latitude,
+        longitude: live.longitude,
+        heading: typeof live.heading === "number" ? live.heading : 0,
+      };
+    }
+    if (riderLocation) {
+      return { latitude: riderLocation.latitude, longitude: riderLocation.longitude, heading: 0 };
+    }
+    return null;
+  }, [liveMapQuery.data?.rider.location, riderLocation]);
+
+  // Tapping a pin opens that order's detail in the bottom sheet (price, live status,
+  // Set-live, actions). Drop pin = its exact order; restaurant pin = its lead pending order.
+  const handleStopPress = useCallback(
+    (id: string) => {
+      // Always signal an expand, even if it resolves to the already-selected order.
+      setExpandSignal((n) => n + 1);
+      if (id.startsWith("drop:")) {
+        setSelectedOrderId(id.split(":")[1]);
+        return;
+      }
+      const restaurantId = id.slice("pickup:".length);
+      const restaurant = restaurants.find((item) => item.id === restaurantId);
+      const leadOrder =
+        restaurant?.orders.find((order) => order.status !== "PickedUp") ??
+        restaurant?.orders[0];
+      if (leadOrder) setSelectedOrderId(leadOrder.id);
+    },
+    [restaurants]
+  );
+
   useEffect(() => {
     if (!restaurants.length) {
       setSelectedRestaurantId("");
@@ -492,102 +747,139 @@ export default function RiderMapScreen() {
     setSelectedRestaurantId("");
   };
 
+  const deliveryMapRef = useRef<DeliveryMapHandle | null>(null);
+  const profileQuery = useRiderProfileQuery();
+  const availabilityMutation = useUpdateRiderAvailabilityMutation();
+  const isOnline =
+    (profileQuery.data?.isAvailableForAssignments ??
+      rider?.isAvailableForAssignments) !== false;
+
+  const toggleOnline = useCallback(() => {
+    availabilityMutation.mutate(!isOnline);
+  }, [availabilityMutation, isOnline]);
+
+  // Recenter the map on the rider's real current position (one-shot GPS read).
+  const recenter = useCallback(async () => {
+    try {
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      deliveryMapRef.current?.animateTo({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+    } catch {
+      if (riderLocation) deliveryMapRef.current?.animateTo(riderLocation);
+    }
+  }, [riderLocation]);
+
+  // Where the rider should head next (focused restaurant, or its picked-up drop) — used by
+  // the Navigate button to hand turn-by-turn to Google Maps.
+  const navigateTarget = useMemo(() => {
+    if (!suggestedRestaurant) return null;
+    const picked = suggestedRestaurant.orders.find(
+      (order) => order.status === "PickedUp" && isCoordinate(order.customer?.location),
+    );
+    const destination = picked?.customer?.location ?? suggestedRestaurant.location;
+    return isCoordinate(destination) ? destination : null;
+  }, [suggestedRestaurant]);
+
+  const openNavigation = useCallback(async () => {
+    if (!navigateTarget) return;
+    const origin = isCoordinate(riderLocation)
+      ? `&origin=${encodeURIComponent(`${riderLocation.latitude},${riderLocation.longitude}`)}`
+      : "";
+    const url = `https://www.google.com/maps/dir/?api=1${origin}&destination=${encodeURIComponent(
+      `${navigateTarget.latitude},${navigateTarget.longitude}`,
+    )}&travelmode=driving`;
+    await Linking.openURL(url);
+  }, [navigateTarget, riderLocation]);
+
   return (
     <View style={styles.screen}>
-      {/* No in-app map here. A native map (with its user-location dot) ran a second GPS
-          client that fought the background tracking service and made the app heavy. This
-          list gives the rider the same "where to head next + status" at a glance, and the
-          restaurant sheet's "Open Directions" hands turn-by-turn to Google Maps. */}
-      <ScrollView
-        style={StyleSheet.absoluteFill}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingTop: insets.top + 96, paddingBottom: Math.max(insets.bottom, 12) + 150 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        {sortedRestaurants.map((restaurant) => {
-          const state = getRestaurantState(restaurant);
-          const tone = STATUS_COLORS[state] ?? palette.foreground;
-          const pickedUpOrder = restaurant.orders.find(
-            (order) => order.status === "PickedUp" && isCoordinate(order.customer?.location),
-          );
-          const isPicked = Boolean(pickedUpOrder);
-          const destination = pickedUpOrder?.customer?.location ?? restaurant.location;
-          const distance = calculateDistanceKm(riderLocation, destination);
-          const leadOrder = restaurant.orders[0] ?? null;
-          return (
-            <Pressable
-              key={restaurant.id}
-              onPress={() => openRestaurantSheet(restaurant)}
-              style={({ pressed }) => [
-                styles.listCard,
-                { borderColor: `${tone}40` },
-                pressed ? styles.mapButtonPressed : null,
-              ]}
-            >
-              <View style={[styles.listIcon, { backgroundColor: tone }]}>
-                <Ionicons
-                  name={isPicked ? "home" : "restaurant"}
-                  size={18}
-                  color={palette.surface}
-                />
-              </View>
-              <View style={styles.listBody}>
-                <Text style={styles.listTitle} numberOfLines={1}>
-                  {restaurant.name}
-                </Text>
-                <Text style={styles.listMeta} numberOfLines={1}>
-                  {isPicked ? mapCopy.dropOffFirst(restaurant.name) : formatRemaining(leadOrder, mapCopy)}
-                </Text>
-                <View style={styles.listBadgeRow}>
-                  <StatusPill label={getStatusLabel(state, mapCopy)} tone={tone} />
-                  {restaurant.orderCount > 1 ? (
-                    <Text style={styles.listOrderCount}>
-                      {restaurant.orderCount} orders
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.listRight}>
-                <Text style={styles.listDistance}>{formatDistance(distance, mapCopy)}</Text>
-                <Text style={styles.listGo}>{isPicked ? mapCopy.reachCustomer : mapCopy.reachRestaurant}</Text>
-                <Ionicons name="chevron-forward" size={16} color={palette.mutedForeground} />
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* Real map — mounted ONLY while this tab is focused (never in the background). The
+          native Google blue dot (with its built-in heading chevron) shows the rider. Only the
+          live order's road path is drawn. Pins: pink = pickup (restaurant, order-count badge
+          for clusters), green = drop → customer. */}
+      {isFocused ? (
+        <DeliveryMap
+          ref={deliveryMapRef}
+          style={StyleSheet.absoluteFill}
+          stops={mapStops}
+          rider={riderForMap}
+          routes={mapRoutes}
+          showUserLocation
+          fitPadding={{
+            top: insets.top + 130,
+            right: 60,
+            bottom: Math.max(insets.bottom, 12) + 220,
+            left: 60,
+          }}
+          onStopPress={handleStopPress}
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: palette.background }]} />
+      )}
 
+      {/* Top bar: menu · online status toggle · notifications — foodpanda-style. */}
       <SafeAreaView pointerEvents="box-none" edges={["top"]} style={styles.topOverlay}>
-        <View style={styles.headerCard}>
-          <View>
-            <Text style={styles.eyebrow}>{mapCopy.eyebrow}</Text>
-            <Text style={styles.headerTitle}>
-              {restaurants.length ? mapCopy.activeRestaurants(restaurants.length) : mapCopy.noActivePickup}
-            </Text>
-          </View>
+        <View style={styles.topBar}>
           <Pressable
             accessibilityRole="button"
-            onPress={() => liveMapQuery.refetch()}
-            style={({ pressed }) => [styles.refreshButton, pressed ? styles.mapButtonPressed : null]}
+            onPress={() => setSidebarOpen(true)}
+            style={({ pressed }) => [styles.circleButton, pressed ? styles.mapButtonPressed : null]}
           >
-            {liveMapQuery.isFetching ? (
-              <ActivityIndicator size="small" color={palette.secondary} />
-            ) : (
-              <Ionicons name="refresh" size={18} color={palette.foreground} />
-            )}
+            <Ionicons name="menu" size={22} color={palette.foreground} />
+          </Pressable>
+
+          {/* Status is display-only here — the rider goes online/offline from the sidebar. */}
+          <View style={styles.statusPillButton}>
+            <Text style={styles.statusPillLabel}>Status</Text>
+            <View style={styles.statusPillRow}>
+              <Text style={styles.statusPillValue}>
+                {isOnline ? copy.common.online : copy.common.offline}
+              </Text>
+              <View
+                style={[
+                  styles.statusDotBig,
+                  { backgroundColor: isOnline ? palette.success : palette.mutedForeground },
+                ]}
+              />
+            </View>
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("/notifications")}
+            style={({ pressed }) => [styles.circleButton, pressed ? styles.mapButtonPressed : null]}
+          >
+            <Ionicons name="notifications-outline" size={21} color={palette.foreground} />
+            {hasUnreadNotifications ? <View style={styles.notificationDot} /> : null}
           </Pressable>
         </View>
       </SafeAreaView>
 
-      <View style={[styles.controls, { top: insets.top + 94 }]}>
-        <MapActionButton
-          icon="checkmark-done"
-          label={mapCopy.readyOnly}
-          onPress={() => setReadyOnly((value) => !value)}
-          active={readyOnly}
-        />
+      {/* Bottom-right controls: recenter on me + navigate to next stop. */}
+      <View style={[styles.mapControls, { bottom: Math.max(insets.bottom, 12) + 168 }]}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={recenter}
+          style={({ pressed }) => [styles.recenterButton, pressed ? styles.mapButtonPressed : null]}
+        >
+          <Ionicons name="locate" size={20} color={palette.foreground} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={openNavigation}
+          disabled={!navigateTarget}
+          style={({ pressed }) => [
+            styles.navigateButton,
+            !navigateTarget ? styles.navigateButtonDisabled : null,
+            pressed ? styles.mapButtonPressed : null,
+          ]}
+        >
+          <Ionicons name="navigate" size={21} color="#FFFFFF" />
+        </Pressable>
       </View>
 
       {liveMapQuery.isLoading ? (
@@ -597,66 +889,17 @@ export default function RiderMapScreen() {
         </View>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
-        disabled={!stripRestaurant}
-        onPress={() => {
-          if (stripRestaurant) openRestaurantSheet(stripRestaurant);
-        }}
-        style={({ pressed }) => [
-          styles.bottomStrip,
-          { bottom: Math.max(insets.bottom, 12) + 72 },
-          pressed && stripRestaurant ? styles.mapButtonPressed : null,
-        ]}
-      >
-        {liveMapQuery.isLoading ? (
-          <>
-            <ActivityIndicator size="small" color={palette.secondary} />
-            <View style={styles.bottomStripTextBlock}>
-              <Text style={styles.bottomStripTitle}>{mapCopy.preparingMap}</Text>
-              <Text style={styles.bottomStripMeta}>{mapCopy.loadingStates}</Text>
-            </View>
-          </>
-        ) : stripRestaurant ? (
-          <>
-            <View style={styles.bottomStripIcon}>
-              <Ionicons name="map" size={17} color={palette.secondary} />
-            </View>
-            <View style={styles.bottomStripTextBlock}>
-              <Text style={styles.bottomStripTitle}>
-                {stripPickedUpOrder
-                    ? mapCopy.dropOffFirst(stripRestaurant.name)
-                    : mapCopy.suggestedNext(stripRestaurant.name)}
-              </Text>
-              <Text numberOfLines={1} style={styles.bottomStripMeta}>
-                {mapCopy.distanceAway(formatRemaining(stripOrder, mapCopy), formatDistance(stripDistance, mapCopy))}
-              </Text>
-            </View>
-            <Ionicons name="chevron-up" size={18} color={palette.mutedForeground} />
-          </>
-        ) : (
-          <>
-            <View style={styles.bottomStripIcon}>
-              <Ionicons name="map-outline" size={17} color={palette.secondary} />
-            </View>
-            <View style={styles.bottomStripTextBlock}>
-              <Text style={styles.bottomStripTitle}>{mapCopy.noActiveNearby}</Text>
-              <Text style={styles.bottomStripMeta}>{mapCopy.emptyHint}</Text>
-            </View>
-          </>
-        )}
-      </Pressable>
-
-      <RestaurantMapSheet
-        visible={isSheetVisible && Boolean(selectedRestaurant)}
-        restaurant={selectedRestaurant}
-        riderLocation={riderLocation}
-        speedKmph={speedKmph}
-        routeFactor={routeFactor}
-        bottomInset={insets.bottom}
-        mapCopy={mapCopy}
-        onClose={closeRestaurantSheet}
+      {/* Rider's work surface: Offers + My Tasks + per-order detail, docked over the map.
+          Tapping a map pin selects that order here. */}
+      <HomeOrdersSheet
+        selectedOrderId={selectedOrderId}
+        expandSignal={expandSignal}
+        isOnline={isOnline}
+        onSelectOrder={setSelectedOrderId}
+        contextOrders={contextOrders}
       />
+
+      <RiderSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     </View>
   );
 }
@@ -666,6 +909,93 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.background,
   },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  circleButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
+  },
+  notificationDot: {
+    position: "absolute",
+    top: 11,
+    right: 12,
+    width: 11,
+    height: 11,
+    borderRadius: 999,
+    backgroundColor: palette.danger,
+    borderWidth: 2,
+    borderColor: palette.surface,
+  },
+  statusPillButton: {
+    minWidth: 150,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    alignItems: "center",
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
+  },
+  statusPillLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+    textTransform: "uppercase",
+  },
+  statusPillRow: { flexDirection: "row", alignItems: "center", gap: 7, marginTop: 1 },
+  statusPillValue: { fontSize: 17, fontWeight: "900", color: palette.foreground },
+  statusDotBig: { width: 10, height: 10, borderRadius: 5 },
+  mapControls: {
+    position: "absolute",
+    right: 16,
+    alignItems: "center",
+    gap: 12,
+  },
+  recenterButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
+  },
+  navigateButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    backgroundColor: palette.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: palette.secondary,
+    shadowOpacity: 0.5,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 9,
+  },
+  navigateButtonDisabled: { backgroundColor: palette.mutedForeground, opacity: 0.6 },
   listContent: {
     paddingHorizontal: 14,
     gap: 10,
@@ -1042,7 +1372,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    backgroundColor: palette.background,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: palette.border,
     shadowColor: palette.shadow,
@@ -1218,6 +1548,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  sheetSecondaryAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  sheetSecondaryText: {
+    color: palette.foreground,
+    fontSize: 13,
+    fontWeight: "900",
   },
   primaryActionPressed: {
     opacity: 0.86,

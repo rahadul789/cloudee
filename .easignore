@@ -17,8 +17,6 @@ eas-archive-inspect-fixed/
 eas-archive-inspect-fixed/**
 monitoring/
 monitoring/**
-restaurant-owner-app/
-restaurant-owner-app/**
 restaurant-owner-web/
 restaurant-owner-web/**
 website/
@@ -103,3 +101,42 @@ delivery-app/*.p12
 delivery-app/*.key
 delivery-app/*.mobileprovision
 delivery-app/*.pem
+
+# restaurant-owner-app dependencies and local state
+restaurant-owner-app/node_modules/
+restaurant-owner-app/node_modules/**
+restaurant-owner-app/.expo/
+restaurant-owner-app/.expo/**
+restaurant-owner-app/.vscode/
+restaurant-owner-app/.vscode/**
+restaurant-owner-app/.env
+restaurant-owner-app/.env*.local
+restaurant-owner-app/expo-env.d.ts
+restaurant-owner-app/*.tsbuildinfo
+restaurant-owner-app/.metro-health-check*
+
+# generated/native build output
+restaurant-owner-app/android/
+restaurant-owner-app/android/**
+restaurant-owner-app/ios/
+restaurant-owner-app/ios/**
+restaurant-owner-app/dist/
+restaurant-owner-app/dist/**
+restaurant-owner-app/web-build/
+restaurant-owner-app/web-build/**
+restaurant-owner-app/**/build/
+restaurant-owner-app/**/.gradle/
+restaurant-owner-app/**/.kotlin/
+restaurant-owner-app/**/intermediates/
+restaurant-owner-app/**/.cxx/
+restaurant-owner-app/*.orig.*
+restaurant-owner-app/*.log
+
+# credentials and server-only secrets
+restaurant-owner-app/*-firebase-adminsdk-*.json
+restaurant-owner-app/*.jks
+restaurant-owner-app/*.p8
+restaurant-owner-app/*.p12
+restaurant-owner-app/*.key
+restaurant-owner-app/*.mobileprovision
+restaurant-owner-app/*.pem

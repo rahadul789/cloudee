@@ -57,6 +57,9 @@ export function classifyAdminAlertType(
   if (alertType.startsWith("customer_custom_offer")) {
     return "campaigns";
   }
+  if (alertType.startsWith("notification_schedule_")) {
+    return "campaigns";
+  }
   if (
     alertType === "prep_start_late" ||
     alertType === "food_prepare_late"

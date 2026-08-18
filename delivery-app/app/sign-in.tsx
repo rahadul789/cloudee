@@ -65,7 +65,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 
 function resolveAuthRedirectTarget(value?: string | string[]) {
   const redirectTo = Array.isArray(value) ? value[0] : value;
-  if (typeof redirectTo !== "string") return "/(app)/available";
+  if (typeof redirectTo !== "string") return "/(app)/map";
 
   if (
     redirectTo === "/(app)/available" ||

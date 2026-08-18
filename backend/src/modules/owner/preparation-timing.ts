@@ -1,5 +1,17 @@
+import {
+  MAX_PREPARATION_TIME_MINUTES,
+  MIN_PREPARATION_TIME_MINUTES,
+} from "../../common/constants/preparation"
+
 export const DEFAULT_MAX_PREPARATION_EXTRA_MINUTES = 20
-export const PREPARATION_EXTENSION_OPTIONS = [5, 10] as const
+export const PREPARATION_EXTENSION_OPTIONS = [5, 10, 15] as const
+
+// Clamp a per-order planned prep time to the same realistic bounds as the restaurant setting.
+export function clampPreparationMinutes(value: unknown) {
+  const parsed = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : NaN
+  if (Number.isNaN(parsed)) return null
+  return Math.min(MAX_PREPARATION_TIME_MINUTES, Math.max(MIN_PREPARATION_TIME_MINUTES, parsed))
+}
 
 type DateLike = Date | string | null | undefined
 
@@ -52,12 +64,16 @@ export function buildPreparationMetaForStart(params: {
   startedAt: Date
   autoStarted?: boolean
   maxExtraMinutes?: number
+  // The owner's per-order prep choice (from the accept dropdown); overrides the restaurant avg.
+  plannedBaseMinutes?: number
 }) {
   const existingMeta =
     params.order.preparationMeta && typeof params.order.preparationMeta === "object"
       ? params.order.preparationMeta
       : {}
-  const baseMinutes = getRestaurantPreparationMinutes(params.restaurant)
+  const plannedBaseMinutes =
+    clampPreparationMinutes(params.plannedBaseMinutes ?? existingMeta.plannedBaseMinutes)
+  const baseMinutes = plannedBaseMinutes ?? getRestaurantPreparationMinutes(params.restaurant)
   const maxExtraMinutes = maxExtraMinutesValue(
     params.maxExtraMinutes ?? existingMeta.maxExtraMinutes,
   )
@@ -68,6 +84,7 @@ export function buildPreparationMetaForStart(params: {
     ...existingMeta,
     startedAt: params.startedAt,
     baseMinutes,
+    plannedBaseMinutes: plannedBaseMinutes ?? undefined,
     extraMinutes,
     targetReadyAt: new Date(params.startedAt.getTime() + totalMinutes * 60_000),
     autoStarted: Boolean(params.autoStarted),
@@ -96,6 +113,7 @@ export function buildPreparationMetaForExtension(params: {
   const maxExtraMinutes = maxExtraMinutesValue(
     params.maxExtraMinutes ?? existingMeta.maxExtraMinutes,
   )
+  // Capped by the restaurant's admin-set max extra time.
   const nextExtraMinutes = Math.min(maxExtraMinutes, currentExtraMinutes + params.minutesToAdd)
   const totalMinutes = baseMinutes + nextExtraMinutes
 
@@ -128,8 +146,12 @@ export function buildOrderPreparationTiming(params: {
     order.preparationMeta && typeof order.preparationMeta === "object"
       ? order.preparationMeta
       : {}
+  // Before prep starts, baseMinutes isn't captured yet — fall back to the owner's per-order
+  // planned choice (set at accept), then the restaurant average.
   const baseMinutes =
-    numberValue(existingMeta.baseMinutes) || getRestaurantPreparationMinutes(params.restaurant)
+    numberValue(existingMeta.baseMinutes) ||
+    clampPreparationMinutes(existingMeta.plannedBaseMinutes) ||
+    getRestaurantPreparationMinutes(params.restaurant)
   const maxExtraMinutes = maxExtraMinutesValue(
     params.maxExtraMinutes ?? existingMeta.maxExtraMinutes,
   )
@@ -174,6 +196,8 @@ export function buildOrderPreparationTiming(params: {
     const remainingSeconds = targetReadyAt
       ? Math.max(0, Math.ceil((targetReadyAt.getTime() - now.getTime()) / 1000))
       : null
+    // Extra time left under the restaurant's admin-set max. Once it's used up there's nothing
+    // left to add, so the owner UI hides the add-time options.
     const extraRemaining = Math.max(0, maxExtraMinutes - extraMinutes)
 
     return {

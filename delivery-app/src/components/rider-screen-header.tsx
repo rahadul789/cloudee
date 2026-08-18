@@ -14,6 +14,8 @@ type RiderScreenHeaderProps = {
   statusTone?: "online" | "offline" | "paused";
   statusLabel?: string;
   rightSlot?: ReactNode;
+  // When set, the left icon becomes a menu button that opens the rider sidebar.
+  onMenuPress?: () => void;
 };
 
 function signalLevel(status: "online" | "slow" | "offline" | "server") {
@@ -83,16 +85,31 @@ export function RiderScreenHeader({
   statusTone = "online",
   statusLabel = statusTone === "online" ? "Online" : statusTone === "paused" ? "Paused" : "Offline",
   rightSlot,
+  onMenuPress,
 }: RiderScreenHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.left}>
-        <View style={styles.iconShell}>
-          <Ionicons name={icon} size={18} color={palette.primaryStrong} />
-        </View>
+        {onMenuPress ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+            hitSlop={8}
+            style={styles.iconShell}
+            onPress={onMenuPress}
+          >
+            <Ionicons name="menu" size={20} color={palette.foreground} />
+          </Pressable>
+        ) : (
+          <View style={styles.iconShell}>
+            <Ionicons name={icon} size={18} color={palette.primaryStrong} />
+          </View>
+        )}
         <View style={styles.copyWrap}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.title} numberOfLines={1}>
+              {title}
+            </Text>
             <View
               style={[
                 styles.statusPill,
@@ -168,6 +185,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     color: palette.foreground,
+    flexShrink: 1,
   },
   titleRow: {
     flexDirection: "row",

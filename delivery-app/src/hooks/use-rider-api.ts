@@ -38,6 +38,7 @@ export type RiderOrder = {
   isFocusedLiveTrip?: boolean;
   createdAt: string | null;
   updatedAt: string | null;
+  assignedAt?: string | null;
   pricing?: {
     total?: number;
     deliveryFee?: number;

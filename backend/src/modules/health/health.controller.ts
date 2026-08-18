@@ -1,20 +1,12 @@
 import type { Request, Response } from "express"
-import mongoose from "mongoose"
 
 import { sendSuccess } from "../../common/utils/api-response"
+import { checkDatabaseHealth } from "../../config/db"
 
 let isShuttingDown = false
 
 export function markHealthShuttingDown() {
   isShuttingDown = true
-}
-
-function databaseState() {
-  const state = mongoose.connection.readyState
-  if (state === 1) return "connected"
-  if (state === 2) return "connecting"
-  if (state === 3) return "disconnecting"
-  return "disconnected"
 }
 
 export function getHealth(_req: Request, res: Response) {
@@ -32,16 +24,18 @@ export function getHealth(_req: Request, res: Response) {
   })
 }
 
-export function getReadiness(_req: Request, res: Response) {
-  const dbStatus = databaseState()
-  const ready = !isShuttingDown && dbStatus === "connected"
+export async function getReadiness(_req: Request, res: Response) {
+  const database = await checkDatabaseHealth()
+  const ready = !isShuttingDown && database.ok
 
   return sendSuccess(res, {
     statusCode: ready ? 200 : 503,
     message: ready ? "Backend is ready" : "Backend is not ready",
     data: {
       status: ready ? "ready" : "not_ready",
-      database: dbStatus,
+      database: database.state,
+      databasePing: database.ok ? "ok" : "failed",
+      databaseLatencyMs: database.latencyMs,
       shuttingDown: isShuttingDown,
       timestamp: new Date().toISOString(),
     },

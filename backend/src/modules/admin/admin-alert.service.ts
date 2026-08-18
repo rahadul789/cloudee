@@ -20,9 +20,18 @@ const adminOperationalAlertsCache = createInMemoryAsyncCache<any>({
   staleWhileRevalidateMs: 15_000,
   maxEntries: 32,
 });
+const adminOperationalAlertInvalidationListeners = new Set<() => void>();
 
 function invalidateAdminOperationalAlertsCache() {
   adminOperationalAlertsCache.clear();
+  adminOperationalAlertInvalidationListeners.forEach((listener) => listener());
+}
+
+export function registerAdminOperationalAlertInvalidationListener(
+  listener: () => void,
+) {
+  adminOperationalAlertInvalidationListeners.add(listener);
+  return () => adminOperationalAlertInvalidationListeners.delete(listener);
 }
 
 type AdminOperationalAlertInput = {

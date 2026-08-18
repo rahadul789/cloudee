@@ -43,6 +43,7 @@ import {
   pluralizeMinutes,
 } from "@/lib/order-operational-timing"
 import {
+  useOwnerOrderPreparationExtendMutation,
   useOwnerOrderTransitionMutation,
   useOwnerOrdersQuery,
   useOwnerStoreSettingsQuery,
@@ -528,6 +529,7 @@ export function OrdersPage() {
     type: "status" | "reject"
   } | null>(null)
   const orderTransitionMutation = useOwnerOrderTransitionMutation()
+  const preparationExtendMutation = useOwnerOrderPreparationExtendMutation()
   const storeSettingsQuery = useOwnerStoreSettingsQuery(
     ownerAccount.isAuthenticated
   )
@@ -892,7 +894,11 @@ export function OrdersPage() {
     async (
       orderId: string,
       nextStatus: OrderStatus,
-      meta?: { updatedBy?: "owner" | "rider" | "system"; note?: string }
+      meta?: {
+        updatedBy?: "owner" | "rider" | "system"
+        note?: string
+        preparationMinutes?: number
+      }
     ) => {
       const actor = meta?.updatedBy ?? "owner"
 
@@ -953,6 +959,7 @@ export function OrdersPage() {
             | "Cancelled",
           actor: "owner",
           note: meta?.note,
+          preparationMinutes: meta?.preparationMinutes,
         })
         const mapped = mapOwnerOrder(updated)
         setOrders((current) =>
@@ -986,6 +993,34 @@ export function OrdersPage() {
       }
     },
     [orderTransitionMutation, queryClient, setOrders]
+  )
+
+  // Add-time (prep extension). Keeps the same cache sync as a status change so the timer
+  // updates instantly for the owner and the customer's ETA.
+  const handleExtendPreparation = React.useCallback(
+    async (orderId: string, minutes: 5 | 10 | 15) => {
+      try {
+        const updated = await preparationExtendMutation.mutateAsync({
+          orderId,
+          minutes,
+        })
+        const mapped = mapOwnerOrder(updated)
+        setOrders((current) =>
+          current.map((order) => (order.id === orderId ? mapped : order))
+        )
+        setViewingOrder((current) =>
+          current?.id === orderId ? mapped : current
+        )
+        patchOwnerOrderQueryCaches(queryClient, updated)
+        void queryClient.invalidateQueries({ queryKey: ["owner", "orders"] })
+        toast.success(`Added ${minutes} min to preparation.`)
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unable to add time."
+        toast.error("Could not add time", { description: message })
+      }
+    },
+    [preparationExtendMutation, queryClient, setOrders]
   )
 
   const handleSaveKitchenNote = React.useCallback(
@@ -1085,6 +1120,7 @@ export function OrdersPage() {
           }
         }}
         onUpdateStatus={handleUpdateStatus}
+        onExtendPreparation={handleExtendPreparation}
         onReject={setRejectingOrder}
         onSaveKitchenNote={handleSaveKitchenNote}
         pendingOrderAction={

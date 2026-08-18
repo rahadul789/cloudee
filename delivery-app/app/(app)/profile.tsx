@@ -24,6 +24,7 @@ import { useDeliveryCopy } from "@/src/lib/copy";
 import { useRiderAuthStore, type RiderProfile } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 import { RiderScreenHeader } from "@/src/components/rider-screen-header";
+import { RiderSidebar } from "@/src/components/rider-sidebar";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 
 export default function ProfileScreen() {
@@ -90,9 +91,17 @@ export default function ProfileScreen() {
     const updatedAt = new Date(order.updatedAt ?? order.createdAt ?? 0).getTime();
     return updatedAt >= weekStart.getTime() && updatedAt <= now;
   });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const isOnline = profile.isAvailableForAssignments !== false;
   const statusTone = !isNetworkOnline ? "offline" : isOnline ? "online" : "paused";
   const statusLabel = !isNetworkOnline ? copy.common.offline : isOnline ? copy.common.online : "Paused";
+  const initials =
+    (profile.fullName || "Rider")
+      .split(" ")
+      .map((part) => part.trim().charAt(0))
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "RD";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -108,14 +117,32 @@ export default function ProfileScreen() {
           />
         }
       >
+        {/* Minimal top: just a menu + "Account" + status. The rider's name/phone live in the
+            identity card below so a long name is never crammed/truncated in the header. */}
         <RiderScreenHeader
-          icon="bicycle"
-          title={profile.fullName}
-          subtitle={profile.phone}
+          icon="person-circle-outline"
+          title={copy.tabs.account}
           statusTone={statusTone}
           statusLabel={statusLabel}
-          rightSlot={<Text style={styles.profileMiniLabel}>{copy.profile.title}</Text>}
+          onMenuPress={() => setSidebarOpen(true)}
         />
+
+        <View style={styles.identityCard}>
+          <View style={styles.identityAvatar}>
+            <Text style={styles.identityAvatarText}>{initials}</Text>
+          </View>
+          <View style={styles.identityText}>
+            <Text style={styles.identityName} numberOfLines={1}>
+              {profile.fullName}
+            </Text>
+            {profile.phone ? (
+              <Text style={styles.identityPhone} numberOfLines={1}>
+                {profile.phone}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
         <RiderLocationAccessCard />
 
         <View style={styles.summaryRow}>
@@ -225,12 +252,14 @@ export default function ProfileScreen() {
           )}
         </Pressable>
       </ScrollView>
+
+      <RiderSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.background },
+  safeArea: { flex: 1, backgroundColor: "#FFFFFF" },
   container: { padding: 20, gap: 16, paddingBottom: 120 },
   profileMiniLabel: {
     fontSize: 11,
@@ -239,6 +268,28 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
+  identityCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 16,
+  },
+  identityAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.secondary,
+  },
+  identityAvatarText: { fontSize: 18, fontWeight: "900", color: "#FFFFFF" },
+  identityText: { flex: 1, minWidth: 0, gap: 3 },
+  identityName: { fontSize: 17, fontWeight: "900", color: palette.foreground },
+  identityPhone: { fontSize: 13, fontWeight: "700", color: palette.mutedForeground },
   summaryRow: { flexDirection: "row", gap: 12 },
   summaryCard: {
     flex: 1,
@@ -310,7 +361,7 @@ const styles = StyleSheet.create({
   },
   languageChipActive: {
     backgroundColor: palette.primarySoft,
-    borderColor: "#FFD0C3",
+    borderColor: "#FFCEE0",
   },
   languageChipText: { fontSize: 14, fontWeight: "700", color: palette.mutedForeground },
   languageChipTextActive: { color: palette.primary },

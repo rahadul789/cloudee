@@ -921,6 +921,7 @@ export function useOwnerOrderTransitionMutation() {
       orderId: string;
       nextStatus: "Accepted" | "Rejected" | "Preparing" | "ReadyForPickup" | "Cancelled";
       note?: string;
+      preparationMinutes?: number;
     }) => {
       const response = await apiPost<OwnerOrder>(
         `/owner/orders/${payload.orderId}/transition`,
@@ -928,6 +929,7 @@ export function useOwnerOrderTransitionMutation() {
           nextStatus: payload.nextStatus,
           actor: "owner",
           note: payload.note,
+          preparationMinutes: payload.preparationMinutes,
         },
       );
       return response.data;
@@ -950,7 +952,7 @@ export function useExtendOwnerOrderPreparationMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: { orderId: string; minutes: 5 | 10 }) => {
+    mutationFn: async (payload: { orderId: string; minutes: 5 | 10 | 15 }) => {
       const response = await apiPost<OwnerOrder>(
         `/owner/orders/${payload.orderId}/preparation/extend`,
         {

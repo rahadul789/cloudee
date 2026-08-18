@@ -963,12 +963,7 @@ function resolveAdminNotificationPath(item: AdminNotificationCenterItem) {
 }
 
 function canMarkNavNotificationRead(item: AdminNotificationCenterItem) {
-  return (
-    item.source === "customer" ||
-    item.source === "owner" ||
-    item.source === "rider" ||
-    item.source === "ops"
-  )
+  return item.source === "ops"
 }
 
 function resolveAdminPageTitle(pathname: string, search: string) {
@@ -1299,9 +1294,9 @@ function AdminLayout() {
   const canLoadMoreNavNotifications =
     navNotificationItems.length < navNotificationTotal
   const navUnreadCount =
-    (navNotificationsQuery.data?.summary.customerUnread ?? 0) +
-    (navNotificationsQuery.data?.summary.ownerUnread ?? 0) +
-    (navNotificationsQuery.data?.summary.riderUnread ?? 0)
+    navNotificationsQuery.data?.summary.adminUnread ??
+    navNotificationsQuery.data?.summary.opsUnread ??
+    0
   const navBadgeLabel = navUnreadCount > 99 ? "99+" : `${navUnreadCount}`
 
   React.useEffect(() => {
@@ -1363,7 +1358,7 @@ function AdminLayout() {
     const path = resolveAdminNotificationPath(item)
     if (!item.isRead && canMarkNavNotificationRead(item)) {
       markNotificationReadMutation.mutate({
-        source: item.source as "customer" | "owner" | "rider" | "ops",
+        source: "ops",
         id: item.id,
       })
     }

@@ -16,19 +16,56 @@ let intervalHandle: NodeJS.Timeout | null = null;
 let isProcessing = false;
 let consecutiveFailures = 0;
 const ADMIN_SCHEDULER_INTERVAL_MS = 10_000;
-
-// Review requests only need a coarse cadence, so we gate them to ~once a minute
-// even though the surrounding scheduler ticks every 10s.
+const BKASH_RECONCILIATION_INTERVAL_MS = 30_000;
 const REVIEW_REQUEST_INTERVAL_MS = 60_000;
+const ALERT_PRUNE_INTERVAL_MS = 5 * 60_000;
+let lastBkashReconciliationRunAt = 0;
 let lastReviewRequestRunAt = 0;
+let lastAlertPruneRunAt = 0;
+
+function runAtCadence(
+  lastRunAt: number,
+  intervalMs: number,
+  updateLastRunAt: (value: number) => void,
+  task: () => Promise<unknown>,
+) {
+  const now = Date.now();
+  if (now - lastRunAt < intervalMs) return Promise.resolve();
+  updateLastRunAt(now);
+  return task().then(() => undefined);
+}
+
+function runDueBkashReconciliation() {
+  return runAtCadence(
+    lastBkashReconciliationRunAt,
+    BKASH_RECONCILIATION_INTERVAL_MS,
+    (value) => {
+      lastBkashReconciliationRunAt = value;
+    },
+    processPendingBkashPaymentAttemptReconciliation,
+  );
+}
 
 function runDueReviewRequests() {
-  const now = Date.now();
-  if (now - lastReviewRequestRunAt < REVIEW_REQUEST_INTERVAL_MS) {
-    return Promise.resolve();
-  }
-  lastReviewRequestRunAt = now;
-  return processDueReviewRequests();
+  return runAtCadence(
+    lastReviewRequestRunAt,
+    REVIEW_REQUEST_INTERVAL_MS,
+    (value) => {
+      lastReviewRequestRunAt = value;
+    },
+    processDueReviewRequests,
+  );
+}
+
+function runDueAlertPrune() {
+  return runAtCadence(
+    lastAlertPruneRunAt,
+    ALERT_PRUNE_INTERVAL_MS,
+    (value) => {
+      lastAlertPruneRunAt = value;
+    },
+    pruneAdminOperationalAlerts,
+  );
 }
 
 function runAdminSchedulerCycle() {
@@ -39,8 +76,8 @@ function runAdminSchedulerCycle() {
   void Promise.all([
     processDueAdminNotificationSchedules(),
     processAdminOperationalAlerts(),
-    pruneAdminOperationalAlerts(),
-    processPendingBkashPaymentAttemptReconciliation(),
+    runDueAlertPrune(),
+    runDueBkashReconciliation(),
     runDueReviewRequests(),
   ])
     .then(() => {
@@ -104,5 +141,8 @@ export function stopAdminNotificationScheduler() {
   clearInterval(intervalHandle);
   intervalHandle = null;
   isProcessing = false;
+  lastBkashReconciliationRunAt = 0;
+  lastReviewRequestRunAt = 0;
+  lastAlertPruneRunAt = 0;
   logger.info("Admin notification scheduler stopped");
 }

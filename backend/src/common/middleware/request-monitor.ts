@@ -54,8 +54,12 @@ function isActionableError(event: RequestMonitorEvent) {
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_EVENTS = 100_000;
+const COMPACT_HEAD_AT = 4_096;
+const MAX_PATH_LENGTH = 512;
+const MAX_ERROR_MESSAGE_LENGTH = 512;
 const monitorStartedAt = new Date();
 const requestEvents: RequestMonitorEvent[] = [];
+let requestEventsHead = 0;
 
 export type RequestMonitorErrorDetails = {
   code?: string;
@@ -73,7 +77,7 @@ function normalizePath(path: string) {
     .replace(/\/$/, "") || "/";
 }
 
-function getRoutePattern(req: Request, originalPath: string) {
+function getRoutePattern(req: Request) {
   const routePath = req.route?.path;
   if (typeof routePath === "string") {
     const routePattern = `${req.baseUrl}${routePath}`;
@@ -86,7 +90,12 @@ function getRoutePattern(req: Request, originalPath: string) {
       return normalizePath(routePattern);
     }
   }
-  return normalizePath(originalPath);
+  return "/unmatched";
+}
+
+function truncate(value: string | undefined, maxLength: number) {
+  if (!value || value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function inferAppFromPath(route: string): RequestMonitorApp {
@@ -132,11 +141,21 @@ function extractOrderIdFromPath(path: string) {
 
 function pruneOldEvents(now = Date.now()) {
   const cutoff = now - RETENTION_MS;
-  while (requestEvents.length && requestEvents[0].timestamp < cutoff) {
-    requestEvents.shift();
+  while (
+    requestEventsHead < requestEvents.length &&
+    requestEvents[requestEventsHead].timestamp < cutoff
+  ) {
+    requestEventsHead += 1;
   }
-  if (requestEvents.length > MAX_EVENTS) {
-    requestEvents.splice(0, requestEvents.length - MAX_EVENTS);
+
+  const activeEvents = requestEvents.length - requestEventsHead;
+  if (activeEvents > MAX_EVENTS) {
+    requestEventsHead = requestEvents.length - MAX_EVENTS;
+  }
+
+  if (requestEventsHead >= COMPACT_HEAD_AT) {
+    requestEvents.splice(0, requestEventsHead);
+    requestEventsHead = 0;
   }
 }
 
@@ -147,9 +166,14 @@ function getEventsInWindow(
   const now = Date.now();
   pruneOldEvents(now);
   const cutoff = now - windowMs;
-  return requestEvents.filter(
-    (event) => event.timestamp >= cutoff && (app === "all" || event.app === app),
-  );
+  const events: RequestMonitorEvent[] = [];
+  for (let index = requestEventsHead; index < requestEvents.length; index += 1) {
+    const event = requestEvents[index];
+    if (event.timestamp >= cutoff && (app === "all" || event.app === app)) {
+      events.push(event);
+    }
+  }
+  return events;
 }
 
 function percentile(values: number[], percentage: number) {
@@ -184,7 +208,7 @@ export function requestMonitorMiddleware(
 
     const finishedAt = process.hrtime.bigint();
     const durationMs = Number(finishedAt - startedAt) / 1_000_000;
-    const route = getRoutePattern(req, originalPath);
+    const route = getRoutePattern(req);
     const errorDetails =
       res.locals.requestMonitorError &&
       typeof res.locals.requestMonitorError === "object"
@@ -195,10 +219,10 @@ export function requestMonitorMiddleware(
       app: inferAppFromPath(route),
       durationMs,
       errorCode: errorDetails?.code,
-      errorMessage: errorDetails?.message,
+      errorMessage: truncate(errorDetails?.message, MAX_ERROR_MESSAGE_LENGTH),
       method: req.method,
       orderId: extractOrderIdFromPath(originalPath),
-      path: originalPath,
+      path: truncate(originalPath, MAX_PATH_LENGTH) ?? "/",
       route,
       statusCode: res.statusCode,
       timestamp: Date.now(),
@@ -753,4 +777,5 @@ function defaultErrorMessage(statusCode: number) {
 
 export function clearRequestMonitorEvents() {
   requestEvents.splice(0, requestEvents.length);
+  requestEventsHead = 0;
 }

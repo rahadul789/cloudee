@@ -25,10 +25,17 @@ import {
 import { AdminCustomerGroupModel } from "./customer-group.model";
 import { AdminNotificationScheduleModel } from "./notification-schedule.model";
 import {
+  createAdminOperationalAlert,
   listAdminOperationalAlerts,
   markAdminOperationalAlertRead,
   markAllAdminOperationalAlertsRead,
+  registerAdminOperationalAlertInvalidationListener,
+  resolveAdminOperationalAlertByDedupeKey,
 } from "./admin-alert.service";
+import {
+  dedupeAdminNotificationItems,
+  shouldLoadAdminRecipientSource,
+} from "./admin-notification-feed";
 import {
   calculateServiceDistanceKm,
   buildCustomerServiceAreaScopeFilter,
@@ -127,16 +134,23 @@ const MAX_NOTIFICATION_SOURCE_FETCH = 1000;
 const EMBEDDED_NOTIFICATION_SCAN_WINDOW = 100;
 const CUSTOMER_PROMO_TYPES = new Set(["promotion", "voucher", "campaign"]);
 const adminNotificationsCache = createInMemoryAsyncCache<any>({
-  ttlMs: 5_000,
+  ttlMs: 15_000,
   staleWhileRevalidateMs: 15_000,
   maxEntries: 64,
+});
+const adminCampaignRecipientsCache = createInMemoryAsyncCache<any>({
+  ttlMs: 15_000,
+  staleWhileRevalidateMs: 15_000,
+  maxEntries: 128,
 });
 
 export function invalidateAdminNotificationsCache() {
   adminNotificationsCache.clear();
+  adminCampaignRecipientsCache.clear();
 }
 
 registerPlatformContentInvalidationListener(invalidateAdminNotificationsCache);
+registerAdminOperationalAlertInvalidationListener(invalidateAdminNotificationsCache);
 
 type NotificationListItem = Record<string, any>;
 type NotificationQueryResult = {
@@ -897,6 +911,8 @@ async function getOwnerNotificationItems(
       source: "owner" as const,
       type: stringValue(notification.type, "system"),
       eventType: stringValue(notification.eventType),
+      entityType: stringValue(notification.entityType),
+      entityId: stringValue(notification.entityId),
       title: stringValue(notification.title),
       description: stringValue(notification.description),
       recipientId: objectIdString(notification.ownerId?._id ?? notification.ownerId),
@@ -1294,13 +1310,13 @@ export async function listAdminNotifications(params: ListParams = {}) {
     );
   const [customerResult, ownerResult, riderResult, campaignItems, scheduledItems, opsItems, customerTokenSummary, riderTokenSummary] =
     await Promise.all([
-      shouldLoadSource(params, "customer")
+      shouldLoadAdminRecipientSource(params, "customer")
         ? getCustomerNotificationItems(params, fetchLimit, notificationSettings)
         : Promise.resolve(emptyNotificationResult()),
-      shouldLoadSource(params, "owner")
+      shouldLoadAdminRecipientSource(params, "owner")
         ? getOwnerNotificationItems(params, fetchLimit, notificationSettings)
         : Promise.resolve(emptyNotificationResult()),
-      shouldLoadSource(params, "rider")
+      shouldLoadAdminRecipientSource(params, "rider")
         ? getRiderNotificationItems(params, fetchLimit)
         : Promise.resolve(emptyNotificationResult()),
       shouldLoadSource(params, "campaign") && notificationSettings.campaigns
@@ -1314,7 +1330,7 @@ export async function listAdminNotifications(params: ListParams = {}) {
       getEmbeddedNotificationSummary(RiderModel, params),
     ]);
 
-  const allItems = [
+  const filteredItems = [
     ...opsItems,
     ...customerResult.items,
     ...ownerResult.items,
@@ -1328,12 +1344,9 @@ export async function listAdminNotifications(params: ListParams = {}) {
     .filter((item) => filterStatus(item, params.status))
     .filter((item) => filterDeliveryStatus(item, params.deliveryStatus))
     .filter((item) => filterRecipientType(item, params.recipientType))
-    .filter((item) => matchesSearch(item, params.search))
-    .sort((left, right) => {
-      const leftTime = new Date(left.createdAt ?? 0).getTime();
-      const rightTime = new Date(right.createdAt ?? 0).getTime();
-      return rightTime - leftTime;
-    });
+    .filter((item) => matchesSearch(item, params.search));
+  const allItems = dedupeAdminNotificationItems(filteredItems);
+  const duplicateCount = Math.max(0, filteredItems.length - allItems.length);
 
   const ownerUnread = ownerResult.unread;
   const visibleOpsItems = opsItems.filter((item: NotificationListItem) =>
@@ -1366,9 +1379,11 @@ export async function listAdminNotifications(params: ListParams = {}) {
       (params.deliveryStatus && params.deliveryStatus !== "all") ||
       (params.recipientType && params.recipientType !== "all"),
   );
+  const rawTotal =
+    customerResult.total + ownerResult.total + riderResult.total + campaignScheduledOpsTotal;
   const total = usesAdvancedFilters
     ? allItems.length
-    : customerResult.total + ownerResult.total + riderResult.total + campaignScheduledOpsTotal;
+    : Math.max(allItems.length, rawTotal - duplicateCount);
 
   return {
     items: allItems.slice(start, start + pageSize),
@@ -1379,8 +1394,9 @@ export async function listAdminNotifications(params: ListParams = {}) {
     summary: {
       totalNotifications: customerResult.total + ownerResult.total + riderResult.total,
       customerUnread: customerResult.unread,
-      ownerUnread: ownerUnread + opsUnread,
+      ownerUnread,
       riderUnread: riderResult.unread,
+      adminUnread: opsUnread,
       customerPushActiveTokens: customerTokenSummary.active,
       customerPushDisabledTokens: customerTokenSummary.disabled,
       riderPushActiveTokens: riderTokenSummary.active,
@@ -1861,6 +1877,16 @@ export async function getAdminNotificationCampaignRecipients(params: {
     page: params.page,
     pageSize: params.pageSize,
   });
+  const cacheKey = [
+    campaignId,
+    status,
+    page,
+    pageSize,
+    params.zoneId?.trim() ?? "",
+    params.districtId?.trim() ?? "",
+  ].join("|");
+
+  return adminCampaignRecipientsCache.getOrSet(cacheKey, async () => {
   const schedule = await AdminNotificationScheduleModel.findById(campaignId).lean();
 
   if (!schedule) {
@@ -1905,6 +1931,7 @@ export async function getAdminNotificationCampaignRecipients(params: {
     summary: report.summary,
     unavailableReason: "",
   };
+  });
 }
 
 async function calculateNotificationCampaignConversions(params: {
@@ -2593,252 +2620,96 @@ export async function processDueAdminNotificationSchedules() {
       schedule.result = result;
       schedule.failureReason = "";
       await schedule.save();
-      await recordBusinessEvent({
-        event: "notification.schedule.sent",
-        category: "notifications",
-        severity: "info",
-        title: "Scheduled notification sent",
-        description: schedule.title,
-        entityType: "notification_schedule",
-        entityId: String(schedule._id ?? ""),
-        metadata: {
-          recipientType: schedule.recipientType,
-          audience: schedule.audience,
-          sentCount: result.sentCount,
-          totalTargets: result.totalTargets,
-        },
-      });
+      await Promise.all([
+        recordBusinessEvent({
+          event: "notification.schedule.sent",
+          category: "notifications",
+          severity: "info",
+          title: "Scheduled notification sent",
+          description: schedule.title,
+          entityType: "notification_schedule",
+          entityId: String(schedule._id ?? ""),
+          metadata: {
+            recipientType: schedule.recipientType,
+            audience: schedule.audience,
+            sentCount: result.sentCount,
+            totalTargets: result.totalTargets,
+          },
+        }),
+        resolveAdminOperationalAlertByDedupeKey(
+          `notification-schedule:${String(schedule._id ?? "")}:failed`,
+        ),
+      ]);
       invalidateAdminNotificationsCache();
     } catch (error) {
       schedule.status = "failed";
       schedule.failureReason = error instanceof Error ? error.message : "Scheduled notification failed";
       await schedule.save();
-      await recordBusinessEvent({
-        event: "notification.schedule.failed",
-        category: "notifications",
-        severity: "critical",
-        title: "Scheduled notification failed",
-        description: schedule.failureReason,
-        entityType: "notification_schedule",
-        entityId: String(schedule._id ?? ""),
-        metadata: {
-          recipientType: schedule.recipientType,
-          audience: schedule.audience,
-          scheduledAt: schedule.scheduledAt,
-        },
-      });
+      const scheduleId = String(schedule._id ?? "");
+      await Promise.allSettled([
+        recordBusinessEvent({
+          event: "notification.schedule.failed",
+          category: "notifications",
+          severity: "critical",
+          title: "Scheduled notification failed",
+          description: schedule.failureReason,
+          entityType: "notification_schedule",
+          entityId: scheduleId,
+          metadata: {
+            recipientType: schedule.recipientType,
+            audience: schedule.audience,
+            scheduledAt: schedule.scheduledAt,
+          },
+        }),
+        createAdminOperationalAlert({
+          alertType: "notification_schedule_failed",
+          severity: "critical",
+          title: "Scheduled notification failed",
+          description: `${schedule.title}: ${schedule.failureReason}`,
+          source: "Notifications",
+          entityType: "notification_schedule",
+          entityId: scheduleId,
+          path: `/notifications?campaignId=${scheduleId}`,
+          iconKey: "bell",
+          dedupeKey: `notification-schedule:${scheduleId}:failed`,
+          metadata: {
+            recipientType: schedule.recipientType,
+            audience: schedule.audience,
+            scheduledAt: schedule.scheduledAt,
+          },
+        }),
+      ]);
       invalidateAdminNotificationsCache();
     }
   }
 }
 
 export async function markAdminNotificationRead(params: {
-  source: "customer" | "owner" | "rider" | "ops";
+  source: "ops";
   id: string;
   zoneId?: string;
   districtId?: string;
 }) {
-  const readAt = new Date();
-
-  if (params.source === "ops") {
-    const result = await markAdminOperationalAlertRead(params.id, {
-      zoneId: params.zoneId,
-      districtId: params.districtId,
-    });
-    if (result.updated) invalidateAdminNotificationsCache();
-    return result;
-  }
-
-  if (params.source === "customer") {
-    const scopeMatch = await buildNotificationScopeMatch(params);
-    const result = await CustomerModel.updateOne(
-      addAndQuery({ "notifications._id": params.id }, scopeMatch),
-      {
-        $set: {
-          "notifications.$.isRead": true,
-          "notifications.$.readAt": readAt,
-        },
-      },
-    );
-    if (result.modifiedCount > 0) invalidateAdminNotificationsCache();
-    return { updated: result.modifiedCount > 0 };
-  }
-
-  if (params.source === "rider") {
-    const scopeMatch = await buildNotificationScopeMatch(params);
-    const result = await RiderModel.updateOne(
-      addAndQuery({ "notifications._id": params.id }, scopeMatch),
-      {
-        $set: {
-          "notifications.$.isRead": true,
-          "notifications.$.readAt": readAt,
-        },
-      },
-    );
-    if (result.modifiedCount > 0) invalidateAdminNotificationsCache();
-    return { updated: result.modifiedCount > 0 };
-  }
-
-  const scopeIds = await resolveNotificationScopeIds(params);
-  const scopedRestaurantIds = await getScopedRestaurantIds(params);
-  const ownerNotificationScope = buildOwnerNotificationScopeQuery(
-    scopeIds,
-    scopedRestaurantIds,
-  );
-  const ownerQuery = addAndQuery({ _id: params.id }, ownerNotificationScope);
-  const notification = await NotificationModel.findOne(ownerQuery);
-  if (!notification) return { updated: false };
-  notification.isRead = true;
-  notification.readAt = readAt;
-  await notification.save();
-  invalidateAdminNotificationsCache();
-  return { updated: true };
-}
-
-async function markEmbeddedNotificationsReadForModel(
-  model: typeof CustomerModel | typeof RiderModel,
-  scopeIds: Awaited<ReturnType<typeof resolveNotificationScopeIds>>,
-  readAt: Date,
-) {
-  const scopeUpdates: Array<{
-    documentScope: Record<string, unknown>;
-    arrayScope: Record<string, unknown>;
-  }> = [];
-
-  if (!scopeIds) {
-    scopeUpdates.push({ documentScope: {}, arrayScope: {} });
-  } else {
-    const zoneIds = Array.from(scopeIds.zoneIds);
-    const districtIds = Array.from(scopeIds.districtIds);
-    if (zoneIds.length) {
-      scopeUpdates.push({
-        documentScope: { zoneId: { $in: zoneIds } },
-        arrayScope: { "notification.zoneId": { $in: zoneIds } },
-      });
-    }
-    if (districtIds.length) {
-      scopeUpdates.push({
-        documentScope: { districtId: { $in: districtIds } },
-        arrayScope: { "notification.districtId": { $in: districtIds } },
-      });
-    }
-  }
-
-  let modifiedCount = 0;
-  for (const scope of scopeUpdates) {
-    const result = await model.updateMany(
-      {
-        notifications: {
-          $elemMatch: {
-            isRead: { $ne: true },
-            ...scope.documentScope,
-          },
-        },
-      },
-      {
-        $set: {
-          "notifications.$[notification].isRead": true,
-          "notifications.$[notification].readAt": readAt,
-        },
-      },
-      {
-        arrayFilters: [
-          {
-            "notification.isRead": { $ne: true },
-            ...scope.arrayScope,
-          },
-        ],
-      },
-    );
-    modifiedCount += result.modifiedCount ?? 0;
-  }
-
-  return modifiedCount;
-}
-
-async function markEmbeddedNotificationsReadForRecipients(
-  model: typeof CustomerModel | typeof RiderModel,
-  recipientIds: unknown[] | null,
-  readAt: Date,
-) {
-  const ids = recipientIds ? objectIdValues(recipientIds) : [];
-  if (!ids.length) return 0;
-
-  const result = await model.updateMany(
-    {
-      _id: { $in: ids },
-      notifications: {
-        $elemMatch: {
-          isRead: { $ne: true },
-        },
-      },
-    },
-    {
-      $set: {
-        "notifications.$[notification].isRead": true,
-        "notifications.$[notification].readAt": readAt,
-      },
-    },
-    {
-      arrayFilters: [{ "notification.isRead": { $ne: true } }],
-    },
-  );
-
-  return result.modifiedCount ?? 0;
+  const result = await markAdminOperationalAlertRead(params.id, {
+    zoneId: params.zoneId,
+    districtId: params.districtId,
+  });
+  if (result.updated) invalidateAdminNotificationsCache();
+  return result;
 }
 
 export async function markAllAdminNotificationsRead(
   params: { zoneId?: string; districtId?: string } = {},
 ) {
-  const readAt = new Date();
-  const scopeIds = await resolveNotificationScopeIds(params);
-  const [scopedRestaurantIds, scopedCustomerIds, scopedRiderIds] = await Promise.all([
-    getScopedRestaurantIds(params),
-    getScopedCustomerIds(params),
-    getScopedRiderIds(params),
-  ]);
-  const ownerNotificationScope = buildOwnerNotificationScopeQuery(
-    scopeIds,
-    scopedRestaurantIds,
-  );
-  const markCustomerDocuments = async () =>
-    (await markEmbeddedNotificationsReadForModel(CustomerModel, scopeIds, readAt)) +
-    (await markEmbeddedNotificationsReadForRecipients(
-      CustomerModel,
-      scopedCustomerIds,
-      readAt,
-    ));
-  const markRiderDocuments = async () =>
-    (await markEmbeddedNotificationsReadForModel(RiderModel, scopeIds, readAt)) +
-    (await markEmbeddedNotificationsReadForRecipients(
-      RiderModel,
-      scopedRiderIds,
-      readAt,
-    ));
-  const [customerDocuments, ownerResult, riderDocuments, opsResult] = await Promise.all([
-    markCustomerDocuments(),
-    NotificationModel.updateMany(
-      {
-        isRead: { $ne: true },
-        ...(ownerNotificationScope ?? {}),
-      },
-      { $set: { isRead: true, readAt } },
-    ),
-    markRiderDocuments(),
-    markAllAdminOperationalAlertsRead(params),
-  ]);
-  const updated =
-    customerDocuments +
-    ownerResult.modifiedCount +
-    riderDocuments +
-    opsResult.updated;
+  const opsResult = await markAllAdminOperationalAlertsRead(params);
+  const updated = opsResult.updated;
   if (updated > 0) invalidateAdminNotificationsCache();
 
   return {
     updated,
-    customerDocuments,
-    ownerNotifications: ownerResult.modifiedCount,
-    riderNotifications: riderDocuments,
+    customerDocuments: 0,
+    ownerNotifications: 0,
+    riderNotifications: 0,
     opsAlerts: opsResult.updated,
   };
 }
@@ -2937,21 +2808,30 @@ export async function retryAdminNotificationSchedule(
     schedule.sentAt = new Date();
     schedule.result = result;
     await schedule.save();
-    await recordBusinessEvent({
-      event: "notification.schedule.retry_sent",
-      category: "notifications",
-      severity: "info",
-      title: "Scheduled notification retry sent",
-      description: schedule.title,
-      entityType: "notification_schedule",
-      entityId: String(schedule._id ?? ""),
-      metadata: {
-        recipientType: schedule.recipientType,
-        audience: schedule.audience,
-        sentCount: result.sentCount,
-        totalTargets: result.totalTargets,
-      },
-    });
+    const scheduleId = String(schedule._id ?? "");
+    await Promise.all([
+      recordBusinessEvent({
+        event: "notification.schedule.retry_sent",
+        category: "notifications",
+        severity: "info",
+        title: "Scheduled notification retry sent",
+        description: schedule.title,
+        entityType: "notification_schedule",
+        entityId: scheduleId,
+        metadata: {
+          recipientType: schedule.recipientType,
+          audience: schedule.audience,
+          sentCount: result.sentCount,
+          totalTargets: result.totalTargets,
+        },
+      }),
+      resolveAdminOperationalAlertByDedupeKey(
+        `notification-schedule:${scheduleId}:failed`,
+      ),
+      resolveAdminOperationalAlertByDedupeKey(
+        `notification-schedule:${scheduleId}:retry-failed`,
+      ),
+    ]);
     invalidateAdminNotificationsCache();
     return { updated: true, status: schedule.status, result };
   } catch (error) {
@@ -2959,15 +2839,30 @@ export async function retryAdminNotificationSchedule(
     schedule.failureReason =
       error instanceof Error ? error.message : "Scheduled notification retry failed";
     await schedule.save();
-    await recordBusinessEvent({
-      event: "notification.schedule.retry_failed",
-      category: "notifications",
-      severity: "critical",
-      title: "Scheduled notification retry failed",
-      description: schedule.failureReason,
-      entityType: "notification_schedule",
-      entityId: String(schedule._id ?? ""),
-    });
+    const scheduleId = String(schedule._id ?? "");
+    await Promise.allSettled([
+      recordBusinessEvent({
+        event: "notification.schedule.retry_failed",
+        category: "notifications",
+        severity: "critical",
+        title: "Scheduled notification retry failed",
+        description: schedule.failureReason,
+        entityType: "notification_schedule",
+        entityId: scheduleId,
+      }),
+      createAdminOperationalAlert({
+        alertType: "notification_schedule_failed",
+        severity: "critical",
+        title: "Scheduled notification retry failed",
+        description: `${schedule.title}: ${schedule.failureReason}`,
+        source: "Notifications",
+        entityType: "notification_schedule",
+        entityId: scheduleId,
+        path: `/notifications?campaignId=${scheduleId}`,
+        iconKey: "bell",
+        dedupeKey: `notification-schedule:${scheduleId}:retry-failed`,
+      }),
+    ]);
     invalidateAdminNotificationsCache();
     return { updated: false, status: schedule.status, failureReason: schedule.failureReason };
   }

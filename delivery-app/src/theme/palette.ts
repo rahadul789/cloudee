@@ -5,8 +5,10 @@ export const palette = {
   foreground: "#1F2430",
   mutedForeground: "#6F7285",
   border: "#F3DDCC",
-  primary: "#FF7A59",
-  primarySoft: "#FFF1E8",
+  // Brand accent is pink (no orange anywhere). primaryStrong stays near-black for dark
+  // buttons/text, so the app reads as pink + black + white.
+  primary: "#FF6392",
+  primarySoft: "#FFF1F6",
   primaryStrong: "#1F2430",
   secondary: "#FF6392",
   success: "#14985B",
@@ -27,8 +29,8 @@ export const palette = {
   amber: "#FFC857",
   placeholder: "#9CA3AF",
   heroBackground: "#FFFFFF",
-  heroOrbPrimary: "#FFD07D",
+  heroOrbPrimary: "#FFC2D6",
   heroOrbSecondary: "#FF99B5",
-  heroAccentText: "#9A4B17",
+  heroAccentText: "#B4245C",
   shadow: "rgba(31, 36, 48, 0.12)",
 } as const;
