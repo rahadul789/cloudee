@@ -1847,6 +1847,8 @@ export async function assignOwnerRiderToOrder(params: {
           previousRiderId && previousRiderId !== rider.id
             ? `${order.orderNumber} এখন আপনাকে অ্যাসাইন করা হয়েছে।`
             : `${order.orderNumber} পিকআপের জন্য রেডি এবং আপনাকে অ্যাসাইন করা হয়েছে।`,
+        // A brand-new delivery for this rider → the dedicated new-delivery sound.
+        channelId: "new-delivery",
         data: {
           type: "rider_assignment",
           orderId: order.id,

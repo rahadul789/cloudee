@@ -98,6 +98,22 @@ async function registerForPushNotificationsAsync() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#FF6392",
     });
+    // Auto-cancel warning: an order is about to be auto-cancelled — its own urgent tone.
+    await Notifications.setNotificationChannelAsync("auto-cancel", {
+      name: "Order auto-cancel warnings",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "auto_cancel_warning.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF6392",
+    });
+    // General: the common chime for every other owner notification.
+    await Notifications.setNotificationChannelAsync("general", {
+      name: "General",
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: "common.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#FF6392",
+    });
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();

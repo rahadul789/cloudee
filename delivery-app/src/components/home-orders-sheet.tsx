@@ -201,12 +201,14 @@ export function HomeOrdersSheet({
   expandSignal = 0,
   isOnline = true,
   onSelectOrder,
+  onFocusOrderOnMap,
   contextOrders = [],
 }: {
   selectedOrderId: string;
   expandSignal?: number;
   isOnline?: boolean;
   onSelectOrder: (id: string) => void;
+  onFocusOrderOnMap?: (coord: { latitude: number; longitude: number }) => void;
   contextOrders?: SheetContextOrder[];
 }) {
   const activeQuery = useRiderOrdersQuery("active");
@@ -326,6 +328,15 @@ export function HomeOrdersSheet({
 
   function setLive(order: RiderOrder) {
     trackingMutation.mutate(order.id, { onError });
+  }
+
+  // "Show on map" (from a card or the detail): zoom the map to this order's marker (drop
+  // point once picked up, otherwise the restaurant) and collapse the sheet so the pin shows.
+  function showOrderOnMap(order: RiderOrder) {
+    const coord = destinationCoord(order, order.status === "PickedUp");
+    if (!coord) return;
+    onFocusOrderOnMap?.(coord);
+    sheetRef.current?.collapse();
   }
 
   function openFail(order: RiderOrder) {
@@ -458,6 +469,7 @@ export function HomeOrdersSheet({
           onDeliver={() => deliver(selected)}
           onSetLive={() => setLive(selected)}
           onCantDeliver={() => openFail(selected)}
+          onShowOnMap={() => showOrderOnMap(selected)}
         />
       ) : context ? (
         <ContextDetail context={context} />
@@ -486,7 +498,12 @@ export function HomeOrdersSheet({
                   key={order.id}
                   order={order}
                   lateness={getLateness(order, pickupGrace, deliveryLate, deliveryCritical)}
+                  busy={busyId === order.id}
                   onOpen={() => onSelectOrder(order.id)}
+                  onAdvance={() =>
+                    order.status === "PickedUp" ? deliver(order) : pickup(order)
+                  }
+                  onShowOnMap={() => showOrderOnMap(order)}
                   onSetLive={() => setLive(order)}
                   settingLive={trackingMutation.isPending}
                 />
@@ -643,35 +660,62 @@ function OfferCard({
 function TaskCard({
   order,
   lateness,
+  busy,
   onOpen,
+  onAdvance,
+  onShowOnMap,
   onSetLive,
   settingLive,
 }: {
   order: RiderOrder;
   lateness: Lateness;
+  busy: boolean;
   onOpen: () => void;
+  onAdvance: () => void;
+  onShowOnMap: () => void;
   onSetLive: () => void;
   settingLive: boolean;
 }) {
   const { copy } = useDeliveryCopy();
   const t = copy.sheet;
   const status = getOrderStatusBadge(order.status);
+  const payment = getPaymentMethodBadge(order.paymentMethod);
   const isPicked = order.status === "PickedUp";
+  // The card's own next-step action (replaces the redundant "Open" — tapping the card body
+  // already opens the detail): Pickup for a ready order, Deliver once picked up.
+  const isActionable = order.status === "ReadyForPickup" || order.status === "PickedUp";
+  // A compact map-jump icon on the card, mirroring the detail's "Show on map".
+  const hasMapTarget = Boolean(destinationCoord(order, isPicked));
   const assigned = minutesAgo(order.assignedAt, t);
+  const showSetLive = isPicked && !order.isFocusedLiveTrip;
   return (
     <View style={[styles.card, lateness ? styles.cardLate : null]}>
       <Pressable onPress={onOpen}>
+        {/* Top row: order number · round map-jump icon (badge-sized) · status badge. */}
         <View style={styles.cardTop}>
-          <Text style={styles.orderNumber} numberOfLines={1}>
+          <Text style={[styles.orderNumber, styles.flexShrink]} numberOfLines={1}>
             {order.orderNumber}
           </Text>
-          <View
-            style={[
-              styles.statusChip,
-              { backgroundColor: status.backgroundColor, borderColor: status.borderColor },
-            ]}
-          >
-            <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+          <View style={styles.cardTopRight}>
+            {hasMapTarget ? (
+              <Pressable
+                style={styles.cardMapIcon}
+                onPress={onShowOnMap}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t.showOnMap}
+              >
+                <Ionicons name="map-outline" size={15} color={palette.secondary} />
+              </Pressable>
+            ) : null}
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: status.backgroundColor, borderColor: status.borderColor },
+              ]}
+            >
+              <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+            </View>
           </View>
         </View>
         {order.isFocusedLiveTrip || lateness ? (
@@ -685,25 +729,15 @@ function TaskCard({
             {lateness ? <LateChip lateness={lateness} /> : null}
           </View>
         ) : null}
-        <Text style={styles.restaurant} numberOfLines={1}>
-          {isPicked ? "→ " : ""}
-          {isPicked
-            ? order.customer?.name || copy.common.customer
-            : order.restaurant?.name || copy.common.restaurant}
-        </Text>
-        <Text style={styles.address} numberOfLines={1}>
-          {isPicked
-            ? order.customer?.deliveryAddress?.addressLine || t.collectFromCustomer
-            : order.restaurant?.address || t.navigateToRestaurant}
-        </Text>
-      </Pressable>
-      <View style={styles.cardBottom}>
-        <View>
-          <Text style={styles.amount}>{formatTk(order.pricing?.total)}</Text>
-          {assigned ? <Text style={styles.assignedText}>{t.assignedAgo(assigned)}</Text> : null}
-        </View>
-        <View style={styles.taskActions}>
-          {isPicked && !order.isFocusedLiveTrip ? (
+        {/* Name row: restaurant/customer name · Set-live parked at the far right. */}
+        <View style={styles.cardNameRow}>
+          <Text style={[styles.restaurant, styles.flexShrink]} numberOfLines={1}>
+            {isPicked ? "→ " : ""}
+            {isPicked
+              ? order.customer?.name || copy.common.customer
+              : order.restaurant?.name || copy.common.restaurant}
+          </Text>
+          {showSetLive ? (
             <Pressable style={styles.liveButton} disabled={settingLive} onPress={onSetLive}>
               {settingLive ? (
                 <ActivityIndicator size="small" color={palette.secondary} />
@@ -715,11 +749,50 @@ function TaskCard({
               )}
             </Pressable>
           ) : null}
-          <Pressable style={styles.openButton} onPress={onOpen}>
-            <Text style={styles.openText}>{t.open}</Text>
-            <Ionicons name="chevron-forward" size={15} color={palette.secondary} />
-          </Pressable>
         </View>
+        <Text style={styles.address} numberOfLines={1}>
+          {isPicked
+            ? order.customer?.deliveryAddress?.addressLine || t.collectFromCustomer
+            : order.restaurant?.address || t.navigateToRestaurant}
+        </Text>
+      </Pressable>
+      {/* Bottom row: amount + payment badge · the single next-step action button. */}
+      <View style={styles.cardBottom}>
+        <View style={styles.taskMoneyBlock}>
+          <View style={styles.taskAmountRow}>
+            <Text style={styles.amount}>{formatTk(order.pricing?.total)}</Text>
+            <View
+              style={[
+                styles.cardPayBadge,
+                { backgroundColor: payment.backgroundColor, borderColor: payment.borderColor },
+              ]}
+            >
+              <Ionicons name={payment.icon} size={11} color={payment.color} />
+              <Text style={[styles.cardPayBadgeText, { color: payment.color }]}>
+                {payment.label}
+              </Text>
+            </View>
+          </View>
+          {assigned ? <Text style={styles.assignedText}>{t.assignedAgo(assigned)}</Text> : null}
+        </View>
+        {isActionable ? (
+          <Pressable
+            style={[styles.cardActionButton, busy && styles.buttonDisabled]}
+            disabled={busy}
+            onPress={onAdvance}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name={isPicked ? "flag" : "cube"} size={14} color="#FFFFFF" />
+                <Text style={styles.cardActionText}>
+                  {isPicked ? t.deliverShort : t.pickupShort}
+                </Text>
+              </>
+            )}
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -734,6 +807,7 @@ function OrderDetail({
   onDeliver,
   onSetLive,
   onCantDeliver,
+  onShowOnMap,
 }: {
   order: RiderOrder;
   lateness: Lateness;
@@ -743,12 +817,15 @@ function OrderDetail({
   onDeliver: () => void;
   onSetLive: () => void;
   onCantDeliver: () => void;
+  onShowOnMap: () => void;
 }) {
   const { copy } = useDeliveryCopy();
   const t = copy.sheet;
   const payment = getPaymentMethodBadge(order.paymentMethod);
   const isOffer = order.assignmentState === "unassigned";
   const isPicked = order.status === "PickedUp";
+  // Only offer the "Show on map" jump when this order actually has a marker to zoom to.
+  const hasMapTarget = Boolean(destinationCoord(order, order.status === "PickedUp"));
   // Only ReadyForPickup / PickedUp orders have a next action; a deep-linked past order
   // (Delivered / Cancelled) or a still-cooking one shows read-only.
   const isActionable = order.status === "ReadyForPickup" || order.status === "PickedUp";
@@ -785,7 +862,7 @@ function OrderDetail({
         </View>
         <View style={styles.metricDivider} />
         <View style={styles.metricBlock}>
-          <Text style={styles.metricLabel}>{isPicked ? t.collect : t.amount}</Text>
+          <Text style={styles.metricLabel}>{isPicked && isCod ? t.collect : t.amount}</Text>
           <Text style={[styles.metricValue, isCod && styles.metricValueCod]}>
             {formatTk(order.pricing?.total)}
           </Text>
@@ -801,6 +878,12 @@ function OrderDetail({
           <Ionicons name={payment.icon} size={13} color={payment.color} />
           <Text style={[styles.payTagText, { color: payment.color }]}>{payment.label}</Text>
         </View>
+        {hasMapTarget ? (
+          <Pressable style={styles.showMapButton} onPress={onShowOnMap}>
+            <Ionicons name="map-outline" size={14} color={palette.secondary} />
+            <Text style={styles.showMapText}>{t.showOnMap}</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <DetailRow
@@ -1107,6 +1190,24 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
+  cardTopRight: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
+  cardMapIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#FFCEE0",
+    backgroundColor: "#FFF1F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  flexShrink: { flexShrink: 1, minWidth: 0 },
   orderNumber: { fontSize: 14, fontWeight: "900", color: palette.foreground, flexShrink: 1 },
   badgeRow: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   cardChipsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" },
@@ -1159,9 +1260,34 @@ const styles = StyleSheet.create({
   },
   moneyRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   amount: { fontSize: 15, fontWeight: "900", color: palette.foreground },
+  taskMoneyBlock: { flexShrink: 1, minWidth: 0 },
+  taskAmountRow: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  cardPayBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  cardPayBadgeText: { fontSize: 10.5, fontWeight: "900" },
   assignedText: { marginTop: 1, fontSize: 11, fontWeight: "700", color: palette.mutedForeground },
-  taskActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  cardActionButton: {
+    flexShrink: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    minWidth: 96,
+    borderRadius: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    backgroundColor: palette.secondary,
+  },
+  cardActionText: { fontSize: 13, fontWeight: "900", color: "#FFFFFF" },
   liveButton: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -1170,11 +1296,9 @@ const styles = StyleSheet.create({
     borderColor: "#FFCEE0",
     backgroundColor: "#FFF1F6",
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 7,
   },
   liveButtonText: { fontSize: 12, fontWeight: "900", color: palette.secondary },
-  openButton: { flexDirection: "row", alignItems: "center", gap: 2 },
-  openText: { fontSize: 13, fontWeight: "900", color: palette.secondary },
   acceptButton: {
     minWidth: 92,
     borderRadius: 13,
@@ -1252,7 +1376,25 @@ const styles = StyleSheet.create({
   metricValue: { fontSize: 16, fontWeight: "900", color: palette.foreground },
   metricValueCod: { color: palette.warning },
   metricDivider: { width: 1, height: 30, backgroundColor: palette.border },
-  payChipRow: { flexDirection: "row", alignItems: "center", marginTop: -2 },
+  payChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: -2,
+  },
+  showMapButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#FFCEE0",
+    backgroundColor: "#FFF1F6",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  showMapText: { fontSize: 12.5, fontWeight: "900", color: palette.secondary },
   blockCard: {
     borderRadius: 16,
     borderWidth: 1,

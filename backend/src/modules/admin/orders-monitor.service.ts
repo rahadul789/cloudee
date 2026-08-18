@@ -1648,6 +1648,8 @@ async function sendRiderLateAcknowledgementPush(params: {
     payload: {
       title: "পিকআপে সাড়া দিন",
       body: `${stringValue(params.order.orderNumber, "এই অর্ডার")} পিকআপ অ্যাকসেপ্ট করুন। এটি ${Math.max(params.lateByMinutes, 1)} মিনিট দেরি হয়েছে।`,
+      // An overdue pickup response is urgent → the "hurry" delivery-late sound.
+      channelId: "delivery-late",
       data: {
         type: "rider_response_late",
         orderId,
@@ -1673,6 +1675,15 @@ async function sendRiderOrderDelayPush(params: {
   if (!riderId || !orderId) return;
 
   const serviceArea = (params.order.serviceAreaSnapshot ?? {}) as Record<string, unknown>;
+  // Urgent "hurry up" delays route to the delivery-late sound; gentler watch/stale
+  // reminders fall back to the general (common) chime in the push service.
+  const DELIVERY_HURRY_TYPES = new Set([
+    "rider_pickup_late",
+    "delivery_late_after_pickup",
+    "delivery_critical_after_pickup",
+    "delivery_eta_exceeded",
+  ]);
+  const channelId = DELIVERY_HURRY_TYPES.has(params.type) ? "delivery-late" : undefined;
   await sendPushToRider({
     riderId,
     zoneId: stringValue(serviceArea.zoneId),
@@ -1680,6 +1691,7 @@ async function sendRiderOrderDelayPush(params: {
     payload: {
       title: params.title,
       body: params.body,
+      channelId,
       data: {
         type: params.type,
         orderId,
@@ -2086,6 +2098,8 @@ async function assignOrderToRider(params: {
               ? "অর্ডার রিঅ্যাসাইনড"
               : "নতুন ডেলিভারি অ্যাসাইনমেন্ট",
         body: `অর্ডার ${order.orderNumber} পিকআপের জন্য রেডি।`,
+        // A brand-new delivery for this rider → the dedicated new-delivery sound.
+        channelId: "new-delivery",
         data: {
           type: "rider_assignment",
           orderId: order.id,
@@ -7101,11 +7115,16 @@ async function createOwnerSystemNotification(params: {
         ? params.pushDescriptionBn ??
           `${fallbackOrderNumber} সম্পর্কে নতুন আপডেট আছে। বিস্তারিত দেখে প্রয়োজনীয় action নিন।`
         : params.pushDescriptionEn ?? params.description;
+    // The auto-cancel warning gets its own urgent channel/sound; every other owner
+    // notification falls back to the "general" channel (common chime) in the push service.
+    const pushChannelId =
+      params.eventType === "order.auto_cancel_warning" ? "auto-cancel" : undefined;
     await sendPushToOwner({
       ownerId: owner._id.toString(),
       payload: {
         title: pushTitle,
         body: pushBody,
+        channelId: pushChannelId,
         data: {
           type: params.eventType ?? "order",
           orderId: params.entityId,

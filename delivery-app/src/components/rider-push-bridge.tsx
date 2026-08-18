@@ -115,6 +115,32 @@ async function registerForPushNotificationsAsync() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#0f766e",
     });
+    // Dedicated channel for a brand-new delivery assignment. Android plays the CHANNEL's
+    // sound on the lock screen; the rider can also override it in the phone's notification
+    // settings for this channel (WhatsApp-style).
+    await Notifications.setNotificationChannelAsync("new-delivery", {
+      name: "New deliveries",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "new_delivery.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0f766e",
+    });
+    // Late/urgent "hurry up" reminders (pickup or delivery running late).
+    await Notifications.setNotificationChannelAsync("delivery-late", {
+      name: "Delivery reminders",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "delivery_hurry.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0f766e",
+    });
+    // General: the common chime for every other rider notification.
+    await Notifications.setNotificationChannelAsync("general", {
+      name: "General",
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: "common.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0f766e",
+    });
   }
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();

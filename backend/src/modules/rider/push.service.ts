@@ -13,6 +13,9 @@ type RiderPushPayload = {
   contentType?: "text" | "image" | "image_text"
   imageUrl?: string
   data?: Record<string, unknown>
+  // Android notification channel to deliver on (e.g. "new-delivery" / "delivery-late"
+  // for their custom sounds). Falls back to "general" (the common chime).
+  channelId?: string
 }
 
 type ExpoPushMessage = {
@@ -20,6 +23,7 @@ type ExpoPushMessage = {
   sound: "default"
   title: string
   body: string
+  channelId?: string
   mutableContent?: boolean
   image?: string
   richContent?: {
@@ -156,6 +160,10 @@ export async function sendPushToRider(params: {
     title: params.payload.title,
     body: params.payload.body,
     data: params.payload.data,
+    // On Android the channel (with its bundled sound) wins; iOS keeps the default sound.
+    // Special pushes override (e.g. "new-delivery", "delivery-late"); the rest fall back
+    // to the "general" channel (common chime).
+    channelId: params.payload.channelId ?? "general",
     ...(params.payload.imageUrl
       ? {
           mutableContent: true,

@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Easing,
   Linking,
   Modal,
   PanResponder,
@@ -758,6 +759,48 @@ export default function RiderMapScreen() {
     availabilityMutation.mutate(!isOnline);
   }, [availabilityMutation, isOnline]);
 
+  // "Show on map" from the sheet detail: zoom in tight on the selected order's marker.
+  const focusOrderOnMap = useCallback(
+    (coord: { latitude: number; longitude: number }) => {
+      deliveryMapRef.current?.animateTo(coord, 0.006);
+    },
+    [],
+  );
+
+  // Manual refresh of the live map + assigned orders + notifications (the socket keeps
+  // things live, but a pull-to-refresh style button reassures the rider on a flaky network).
+  const isReloading =
+    liveMapQuery.isFetching ||
+    activeOrdersQuery.isFetching ||
+    notificationsSummary.isFetching;
+  const reloadSpin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!isReloading) return;
+    const loop = Animated.loop(
+      Animated.timing(reloadSpin, {
+        toValue: 1,
+        duration: 750,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      reloadSpin.setValue(0);
+    };
+  }, [isReloading, reloadSpin]);
+  const reloadRotation = reloadSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const handleReload = useCallback(() => {
+    void liveMapQuery.refetch();
+    void activeOrdersQuery.refetch();
+    void notificationsSummary.refetch();
+    void profileQuery.refetch();
+  }, [liveMapQuery, activeOrdersQuery, notificationsSummary, profileQuery]);
+
   // Recenter the map on the rider's real current position (one-shot GPS read).
   const recenter = useCallback(async () => {
     try {
@@ -832,20 +875,35 @@ export default function RiderMapScreen() {
             <Ionicons name="menu" size={22} color={palette.foreground} />
           </Pressable>
 
-          {/* Status is display-only here — the rider goes online/offline from the sidebar. */}
-          <View style={styles.statusPillButton}>
-            <Text style={styles.statusPillLabel}>Status</Text>
-            <View style={styles.statusPillRow}>
-              <Text style={styles.statusPillValue}>
-                {isOnline ? copy.common.online : copy.common.offline}
-              </Text>
-              <View
-                style={[
-                  styles.statusDotBig,
-                  { backgroundColor: isOnline ? palette.success : palette.mutedForeground },
-                ]}
-              />
+          {/* Status is display-only here — the rider goes online/offline from the sidebar —
+              paired with a manual reload so live data can be re-pulled on demand. */}
+          <View style={styles.topStatusGroup}>
+            <View style={styles.statusPillButton}>
+              <Text style={styles.statusPillLabel}>Status</Text>
+              <View style={styles.statusPillRow}>
+                <Text style={styles.statusPillValue}>
+                  {isOnline ? copy.common.online : copy.common.offline}
+                </Text>
+                <View
+                  style={[
+                    styles.statusDotBig,
+                    { backgroundColor: isOnline ? palette.success : palette.mutedForeground },
+                  ]}
+                />
+              </View>
             </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={mapCopy.reload}
+              onPress={handleReload}
+              disabled={isReloading}
+              style={({ pressed }) => [styles.reloadButton, pressed ? styles.mapButtonPressed : null]}
+            >
+              <Animated.View style={{ transform: [{ rotate: reloadRotation }] }}>
+                <Ionicons name="reload" size={20} color={palette.secondary} />
+              </Animated.View>
+            </Pressable>
           </View>
 
           <Pressable
@@ -896,6 +954,7 @@ export default function RiderMapScreen() {
         expandSignal={expandSignal}
         isOnline={isOnline}
         onSelectOrder={setSelectedOrderId}
+        onFocusOrderOnMap={focusOrderOnMap}
         contextOrders={contextOrders}
       />
 
@@ -941,13 +1000,33 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: palette.surface,
   },
+  topStatusGroup: {
+    flexShrink: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   statusPillButton: {
-    minWidth: 150,
+    minWidth: 128,
+    flexShrink: 1,
     borderRadius: 999,
     backgroundColor: palette.surface,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     alignItems: "center",
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
+  },
+  reloadButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: palette.shadow,
     shadowOpacity: 1,
     shadowRadius: 12,

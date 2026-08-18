@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "delivery-app",
+    "name": "Foodbela Rider",
     "slug": "delivery-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -52,7 +52,12 @@
       [
         "expo-notifications",
         {
-          "color": "#0f766e"
+          "color": "#0f766e",
+          "sounds": [
+            "./assets/sounds/new_delivery.mp3",
+            "./assets/sounds/delivery_hurry.mp3",
+            "./assets/sounds/common.mp3"
+          ]
         }
       ],
       [

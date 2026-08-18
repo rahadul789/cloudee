@@ -183,7 +183,9 @@ export async function sendPushToOwner(params: {
     body: params.payload.body,
     data: params.payload.data,
     // On Android the channel (with its bundled sound) wins; iOS keeps the default sound.
-    ...(params.payload.channelId ? { channelId: params.payload.channelId } : {}),
+    // Every push routes to a channel: special ones override (e.g. "new-orders",
+    // "auto-cancel"); everything else falls back to "general" (the common chime).
+    channelId: params.payload.channelId ?? "general",
     ...(params.payload.imageUrl
       ? {
           mutableContent: true,

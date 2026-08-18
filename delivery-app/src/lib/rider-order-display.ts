@@ -66,16 +66,7 @@ export function getOrderStatusBadge(status?: string) {
 export function getPaymentMethodBadge(value?: string | null) {
   const normalized = `${value ?? ""}`.trim().toLowerCase();
 
-  if (normalized.includes("bkash")) {
-    return {
-      label: "bKash",
-      backgroundColor: "#FFE4F1",
-      borderColor: "#F9A8D4",
-      color: "#BE185D",
-      icon: "wallet-outline" as const,
-    };
-  }
-
+  // Cash on delivery — amber "collect cash" signal (the rider must take money).
   if (normalized.includes("cash") || normalized.includes("cod")) {
     return {
       label: "COD",
@@ -86,8 +77,20 @@ export function getPaymentMethodBadge(value?: string | null) {
     };
   }
 
+  // Any prepaid / online method (bKash, card, nagad…) is already settled — the rider
+  // collects nothing, so a calm green "Paid" instead of the brand name.
+  if (normalized) {
+    return {
+      label: "Paid",
+      backgroundColor: "#E4F7EE",
+      borderColor: "#A7E3C6",
+      color: "#047857",
+      icon: "checkmark-circle-outline" as const,
+    };
+  }
+
   return {
-    label: value ? `${value}`.trim() : "--",
+    label: "--",
     backgroundColor: palette.surfaceMuted,
     borderColor: palette.border,
     color: palette.mutedForeground,
