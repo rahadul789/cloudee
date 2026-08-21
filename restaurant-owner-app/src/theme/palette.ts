@@ -1,10 +1,13 @@
 export const palette = {
-  background: "#FFF7EF",
+  // Clean white app: a barely-there near-white background with pure-white cards, so every
+  // card visibly lifts off the ground everywhere (a pure-white bg would hide white cards).
+  // Neutral hairline borders + soft shadow add extra definition on the main screens.
+  background: "#F5F6F8",
   surface: "#FFFFFF",
-  surfaceMuted: "#FFF3E9",
+  surfaceMuted: "#F1F2F5",
   foreground: "#1F2430",
   mutedForeground: "#6F7285",
-  border: "#F3DDCC",
+  border: "#E4E7EC",
   primary: "#FF6392",
   primarySoft: "#FFF0F6",
   primaryStrong: "#1F2430",
@@ -17,5 +20,5 @@ export const palette = {
   dangerSoft: "#FFE8E5",
   info: "#5D8BFF",
   infoSoft: "#EAF0FF",
-  shadow: "rgba(31, 36, 48, 0.12)",
+  shadow: "rgba(17, 24, 39, 0.10)",
 };

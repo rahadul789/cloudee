@@ -767,8 +767,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 24,
+    lineHeight: 32,
+    paddingTop: 2,
     fontWeight: "900",
     color: palette.foreground,
   },

@@ -2,7 +2,7 @@ import http from "node:http"
 import mongoose from "mongoose"
 
 import { createApp } from "./app"
-import { connectDatabase, stopDatabaseWatchdog } from "./config/db"
+import { connectDatabaseWithRetry, stopDatabaseWatchdog } from "./config/db"
 import { env } from "./config/env"
 import { logger } from "./config/logger"
 import { createSocketServer } from "./config/socket"
@@ -21,18 +21,24 @@ import {
 } from "./modules/monitoring/app-alert-scheduler"
 
 async function bootstrap() {
-  await connectDatabase()
-
   const app = createApp()
   const server = http.createServer(app)
 
   const socketServer = createSocketServer(server)
-  startPlatformContentScheduler()
-  startAdminNotificationScheduler()
-  startAppAlertScheduler()
 
+  // Start listening IMMEDIATELY — the HTTP server (health endpoints + routes) comes up even
+  // while MongoDB is momentarily unreachable, so a transient DNS/network blip to Atlas can
+  // never crash-loop the process. Mongoose connects in the background (retrying on failure)
+  // and auto-reconnects on later drops.
   server.listen(env.PORT, () => {
     logger.info(`Backend running on port ${env.PORT}`)
+  })
+
+  // Background schedulers query the DB, so start them only after the first successful connect.
+  void connectDatabaseWithRetry().then(() => {
+    startPlatformContentScheduler()
+    startAdminNotificationScheduler()
+    startAppAlertScheduler()
   })
 
   let isShuttingDown = false

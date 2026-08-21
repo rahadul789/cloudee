@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -28,7 +29,6 @@ import {
   formatTime,
   getOrderPlacedAt,
   getOwnerOrderDiscount,
-  getOwnerOrderNetSales,
   getOwnerOrderSubtotal,
   localizeDigits,
 } from "@/src/lib/format";
@@ -47,6 +47,31 @@ import { palette } from "@/src/theme/palette";
 // Per-order prep-time choices (mirrors the backend 5–45 bounds). The owner can tweak this
 // before accepting; defaults to the restaurant average.
 const PREPARATION_TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45] as const;
+
+// Stepper bounds for adjusting the prep time with the − / + buttons (no manual typing).
+const PREP_MIN_MINUTES = 10;
+const PREP_MAX_MINUTES = 45;
+const PREP_STEP_MINUTES = 5;
+
+function clampPrepMinutes(minutes: number) {
+  return Math.min(PREP_MAX_MINUTES, Math.max(PREP_MIN_MINUTES, minutes));
+}
+
+// Solid dot colour per order status for the horizontal timeline (mirrors the StatusPill tones).
+const STATUS_DOT_COLORS: Record<string, string> = {
+  New: palette.warning,
+  Accepted: palette.primary,
+  Preparing: palette.info,
+  ReadyForPickup: "#6D28D9",
+  PickedUp: "#0F766E",
+  Delivered: palette.success,
+  Rejected: "#BE123C",
+  Cancelled: palette.danger,
+};
+
+function getStatusDotColor(status: string) {
+  return STATUS_DOT_COLORS[status] ?? palette.mutedForeground;
+}
 
 function snapPrepOption(minutes: number) {
   return PREPARATION_TIME_OPTIONS.reduce(
@@ -220,7 +245,7 @@ export default function OrderDetailsScreen() {
                 />
                 <InfoBlock
                   label={t("orderDetails.foodSales")}
-                  value={formatCurrency(getOwnerOrderNetSales(order))}
+                  value={formatCurrency(getOwnerOrderSubtotal(order))}
                   alignRight
                 />
               </View>
@@ -237,7 +262,15 @@ export default function OrderDetailsScreen() {
                 />
               </View>
               {order.customerSnapshot?.phone ? (
-                <Text style={styles.phoneText}>{order.customerSnapshot.phone}</Text>
+                <Pressable
+                  style={({ pressed }) => [styles.callRow, pressed ? styles.callRowPressed : null]}
+                  onPress={() => Linking.openURL(`tel:${order.customerSnapshot?.phone}`)}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="call" size={15} color={palette.success} />
+                  <Text style={styles.callText}>{order.customerSnapshot.phone}</Text>
+                  <Ionicons name="chevron-forward" size={15} color={palette.success} />
+                </Pressable>
               ) : null}
               {autoCancelSeconds !== null ? (
                 <View style={styles.autoCancelNotice}>
@@ -292,32 +325,53 @@ export default function OrderDetailsScreen() {
               ) : null}
             </View>
 
+            {/* Items + the money summary live in one card, split by a hairline — reads like a
+                single receipt instead of two disconnected blocks. */}
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>{t("orderDetails.items")}</Text>
-              {order.itemsSnapshot?.map((item, index) => (
-                <View
-                  key={`${item.itemId ?? item.name}-${index}`}
-                  style={styles.itemRow}
-                >
-                  <View style={styles.quantityPill}>
-                    <Text style={styles.quantityText}>{localizeDigits(String(item.quantity ?? 1))}x</Text>
-                  </View>
-                  <View style={styles.itemBody}>
-                    <Text style={styles.itemName}>{item.name ?? t("orderDetails.itemFallback")}</Text>
-                    <Text style={styles.itemMeta}>
-                      {formatCurrency(item.unitPrice)}
-                      {formatOptionText(item) ? ` - ${formatOptionText(item)}` : ""}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
+              <SectionHeader
+                icon="fast-food-outline"
+                title={t("orderDetails.items")}
+                count={order.itemsSnapshot?.length ?? 0}
+              />
+              <View style={styles.itemsList}>
+                {order.itemsSnapshot?.map((item, index) => {
+                  const quantity = item.quantity ?? 1;
+                  const lineTotal = (item.unitPrice ?? 0) * quantity;
+                  const options = formatOptionText(item);
+                  return (
+                    <View
+                      key={`${item.itemId ?? item.name}-${index}`}
+                      style={[styles.itemRow, index > 0 ? styles.itemRowDivider : null]}
+                    >
+                      <View style={styles.quantityPill}>
+                        <Text style={styles.quantityText}>
+                          {localizeDigits(String(quantity))}x
+                        </Text>
+                      </View>
+                      <View style={styles.itemBody}>
+                        <Text style={styles.itemName}>
+                          {item.name ?? t("orderDetails.itemFallback")}
+                        </Text>
+                        {options ? <Text style={styles.itemOptions}>{options}</Text> : null}
+                        {quantity > 1 ? (
+                          <Text style={styles.itemUnit}>
+                            {formatCurrency(item.unitPrice)} {t("orderDetails.each")}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.itemLineTotal}>{formatCurrency(lineTotal)}</Text>
+                    </View>
+                  );
+                })}
+              </View>
 
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>{t("orderDetails.restaurantSummary")}</Text>
+              <View style={styles.cardSectionDivider} />
+
+              <Text style={styles.summaryCaption}>{t("orderDetails.restaurantSummary")}</Text>
               <SummaryLine
                 label={t("orderDetails.foodSubtotal")}
                 value={formatCurrency(getOwnerOrderSubtotal(order))}
+                strong
               />
               {getOwnerOrderDiscount(order) > 0 ? (
                 <SummaryLine
@@ -325,12 +379,6 @@ export default function OrderDetailsScreen() {
                   value={`-${formatCurrency(getOwnerOrderDiscount(order))}`}
                 />
               ) : null}
-              <View style={styles.summaryDivider} />
-              <SummaryLine
-                label={t("orderDetails.restaurantNetSales")}
-                value={formatCurrency(getOwnerOrderNetSales(order))}
-                strong
-              />
               {order.appliedVouchers?.length ? (
                 <View style={styles.voucherList}>
                   {order.appliedVouchers.map((voucher, index) => (
@@ -349,27 +397,51 @@ export default function OrderDetailsScreen() {
 
             {order.history?.length ? (
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>{t("orderDetails.timeline")}</Text>
-                {order.history.slice().reverse().slice(0, 5).map((entry, index) => {
-                  // The customer's order note is surfaced in its own block above,
-                  // so it is intentionally hidden from the timeline here.
-                  const showNote = entry.note && entry.actor !== "customer";
-                  return (
-                    <View key={`${entry.status}-${entry.createdAt}-${index}`} style={styles.timelineRow}>
-                      <View style={styles.timelineDot} />
-                      <View style={styles.timelineBody}>
-                        <Text style={styles.timelineTitle}>
-                          {getLocalizedOrderStatusLabel(entry.status, t)}
-                        </Text>
-                        <Text style={styles.timelineText}>
-                          {entry.actor}
-                          {showNote ? ` - ${entry.note}` : ""}
-                        </Text>
+                <SectionHeader icon="git-commit-outline" title={t("orderDetails.timeline")} />
+                {/* Horizontal, chronological (oldest → newest) chip trail. Consecutive
+                    duplicate statuses are collapsed so the flow reads cleanly. */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.timelineRow}
+                >
+                  {order.history
+                    .filter(
+                      (entry, index, arr) =>
+                        entry.status && arr[index - 1]?.status !== entry.status,
+                    )
+                    .map((entry, index) => (
+                      <View
+                        key={`${entry.status}-${entry.createdAt}-${index}`}
+                        style={styles.timelinePillWrap}
+                      >
+                        {index > 0 ? (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={12}
+                            color={palette.mutedForeground}
+                            style={styles.timelineArrow}
+                          />
+                        ) : null}
+                        <View style={styles.timelinePill}>
+                          <View
+                            style={[
+                              styles.timelineDot,
+                              { backgroundColor: getStatusDotColor(entry.status) },
+                            ]}
+                          />
+                          <View>
+                            <Text style={styles.timelinePillLabel} numberOfLines={1}>
+                              {getLocalizedOrderStatusLabel(entry.status, t)}
+                            </Text>
+                            <Text style={styles.timelinePillTime}>
+                              {formatTime(entry.createdAt)}
+                            </Text>
+                          </View>
+                        </View>
                       </View>
-                      <Text style={styles.timelineTime}>{formatTime(entry.createdAt)}</Text>
-                    </View>
-                  );
-                })}
+                    ))}
+                </ScrollView>
               </View>
             ) : null}
           </>
@@ -493,6 +565,32 @@ function PreparationTimingPanel({
   );
 }
 
+function SectionHeader({
+  icon,
+  title,
+  count,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  count?: number;
+}) {
+  return (
+    <View style={styles.sectionHeaderRow}>
+      <View style={styles.sectionHeaderLeft}>
+        <View style={styles.sectionHeaderIcon}>
+          <Ionicons name={icon} size={15} color={palette.primary} />
+        </View>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      {typeof count === "number" ? (
+        <View style={styles.countBadge}>
+          <Text style={styles.countBadgeText}>{localizeDigits(String(count))}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function InfoBlock({
   label,
   value,
@@ -575,39 +673,59 @@ function OrderActions({
   if (order.status === "New") {
     return (
       <View style={styles.newActionsWrap}>
-        {/* Prep time for THIS order — the owner can adjust before accepting so the customer's
-            ETA is right from the start. Defaults to the restaurant average. */}
+        {/* Prep time for THIS order — the owner tweaks it with − / + (no manual typing) before
+            accepting so the customer's ETA is right from the start. Defaults to the average. */}
         <View style={styles.prepPickerWrap}>
           <View style={styles.prepPickerHeader}>
             <Ionicons name="timer-outline" size={15} color={palette.primary} />
             <Text style={styles.prepPickerLabel}>{t("prep.prepTimeLabel")}</Text>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.prepPickerRow}
-          >
-            {PREPARATION_TIME_OPTIONS.map((minutes) => {
-              const active = minutes === prepMinutes;
-              return (
-                <Pressable
-                  key={minutes}
-                  style={[styles.prepOption, active ? styles.prepOptionActive : null]}
-                  disabled={hasPendingAction}
-                  onPress={() => onPrepMinutesChange(minutes)}
-                >
-                  <Text
-                    style={[
-                      styles.prepOptionText,
-                      active ? styles.prepOptionTextActive : null,
-                    ]}
-                  >
-                    {localizeDigits(String(minutes))} {t("prep.minSuffix")}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <View style={styles.stepperRow}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepperButton,
+                (hasPendingAction || prepMinutes <= PREP_MIN_MINUTES)
+                  ? styles.stepperButtonDisabled
+                  : null,
+                pressed ? styles.stepperButtonPressed : null,
+              ]}
+              disabled={hasPendingAction || prepMinutes <= PREP_MIN_MINUTES}
+              onPress={() => onPrepMinutesChange(clampPrepMinutes(prepMinutes - PREP_STEP_MINUTES))}
+              accessibilityRole="button"
+              accessibilityLabel="-5"
+              hitSlop={6}
+            >
+              <Ionicons
+                name="remove"
+                size={22}
+                color={prepMinutes <= PREP_MIN_MINUTES ? palette.mutedForeground : palette.primary}
+              />
+            </Pressable>
+            <View style={styles.stepperValueWrap}>
+              <Text style={styles.stepperValue}>{localizeDigits(String(prepMinutes))}</Text>
+              <Text style={styles.stepperUnit}>{t("prep.minSuffix")}</Text>
+            </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stepperButton,
+                (hasPendingAction || prepMinutes >= PREP_MAX_MINUTES)
+                  ? styles.stepperButtonDisabled
+                  : null,
+                pressed ? styles.stepperButtonPressed : null,
+              ]}
+              disabled={hasPendingAction || prepMinutes >= PREP_MAX_MINUTES}
+              onPress={() => onPrepMinutesChange(clampPrepMinutes(prepMinutes + PREP_STEP_MINUTES))}
+              accessibilityRole="button"
+              accessibilityLabel="+5"
+              hitSlop={6}
+            >
+              <Ionicons
+                name="add"
+                size={22}
+                color={prepMinutes >= PREP_MAX_MINUTES ? palette.mutedForeground : palette.primary}
+              />
+            </Pressable>
+          </View>
         </View>
         <View style={styles.actionRow}>
           <ActionButton
@@ -765,8 +883,10 @@ const styles = StyleSheet.create({
     maxWidth: 130,
   },
   title: {
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 19,
+    // Generous line height + top padding so tall Bengali matras aren't clipped at the top.
+    lineHeight: 28,
+    paddingTop: 2,
     fontWeight: "900",
     color: palette.foreground,
   },
@@ -780,6 +900,8 @@ const styles = StyleSheet.create({
   feedbackCard: {
     minHeight: 360,
     borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
@@ -801,6 +923,8 @@ const styles = StyleSheet.create({
   summaryCard: {
     borderRadius: 22,
     backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 16,
     gap: 12,
     shadowColor: palette.shadow,
@@ -838,11 +962,25 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: palette.foreground,
   },
-  phoneText: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700",
-    color: palette.mutedForeground,
+  callRow: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: palette.successSoft,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  callRowPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+  callText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.success,
   },
   autoCancelNotice: {
     minHeight: 40,
@@ -979,14 +1117,50 @@ const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: 20,
     backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 15,
     gap: 12,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  sectionHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  sectionHeaderIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
   },
   sectionTitle: {
     fontSize: 16,
     lineHeight: 21,
     fontWeight: "900",
     color: palette.foreground,
+  },
+  countBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  countBadgeText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    color: palette.primary,
   },
   summaryLine: {
     minHeight: 24,
@@ -1017,9 +1191,18 @@ const styles = StyleSheet.create({
   summaryMuted: {
     color: palette.mutedForeground,
   },
-  summaryDivider: {
+  cardSectionDivider: {
     height: 1,
     backgroundColor: palette.border,
+    marginTop: 2,
+  },
+  summaryCaption: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    color: palette.mutedForeground,
   },
   voucherList: {
     borderRadius: 14,
@@ -1045,33 +1228,49 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.3,
   },
-  prepPickerRow: {
+  stepperRow: {
     flexDirection: "row",
-    gap: 8,
-    paddingRight: 4,
-  },
-  prepOption: {
-    minWidth: 58,
-    minHeight: 38,
-    borderRadius: 12,
-    paddingHorizontal: 12,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.surface,
+    justifyContent: "space-between",
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  prepOptionActive: {
-    backgroundColor: palette.primary,
-    borderColor: palette.primary,
+  stepperButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
   },
-  prepOptionText: {
-    fontSize: 13,
+  stepperButtonDisabled: {
+    backgroundColor: palette.surfaceMuted,
+  },
+  stepperButtonPressed: {
+    transform: [{ scale: 0.92 }],
+    opacity: 0.9,
+  },
+  stepperValueWrap: {
+    minWidth: 66,
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
+    gap: 4,
+  },
+  stepperValue: {
+    fontSize: 22,
+    lineHeight: 26,
     fontWeight: "900",
     color: palette.foreground,
   },
-  prepOptionTextActive: {
-    color: "#FFFFFF",
+  stepperUnit: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: palette.mutedForeground,
   },
   actionRow: {
     flexDirection: "row",
@@ -1109,10 +1308,18 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.7,
   },
+  itemsList: {
+    gap: 0,
+  },
   itemRow: {
     flexDirection: "row",
+    alignItems: "center",
     gap: 11,
-    paddingTop: 2,
+    paddingVertical: 11,
+  },
+  itemRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
   },
   quantityPill: {
     width: 38,
@@ -1130,7 +1337,7 @@ const styles = StyleSheet.create({
   },
   itemBody: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   itemName: {
     fontSize: 14,
@@ -1138,43 +1345,63 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: palette.foreground,
   },
-  itemMeta: {
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  timelineRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  timelineDot: {
-    marginTop: 6,
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: palette.primary,
-  },
-  timelineBody: {
-    flex: 1,
-  },
-  timelineTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  timelineText: {
+  itemOptions: {
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "600",
     color: palette.mutedForeground,
   },
-  timelineTime: {
-    fontSize: 11,
+  itemUnit: {
+    fontSize: 11.5,
     lineHeight: 15,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  itemLineTotal: {
+    fontSize: 14.5,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 4,
+  },
+  timelinePillWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  timelineArrow: {
+    marginHorizontal: 4,
+  },
+  timelinePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  timelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  timelinePillLabel: {
+    fontSize: 12.5,
+    lineHeight: 17,
     fontWeight: "800",
+    color: palette.foreground,
+  },
+  timelinePillTime: {
+    marginTop: 1,
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
 });

@@ -27,7 +27,7 @@ const envSchema = z.object({
   MONGODB_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   MONGODB_WAIT_QUEUE_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   MONGODB_MAX_IDLE_TIME_MS: z.coerce.number().int().positive().default(60000),
-  MONGODB_HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
+  MONGODB_HEALTHCHECK_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
   MONGODB_WATCHDOG_INTERVAL_MS: z.coerce.number().int().positive().default(15000),
   MONGODB_WATCHDOG_FAILURE_THRESHOLD: z.coerce
     .number()

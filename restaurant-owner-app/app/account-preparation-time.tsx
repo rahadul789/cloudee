@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
@@ -139,14 +138,9 @@ export default function AccountPreparationTimeScreen() {
             >
               <Ionicons name="remove" size={18} color={palette.foreground} />
             </Pressable>
-            <TextInput
-              value={prepMinutes}
-              editable={prepEnabled}
-              onChangeText={(value) => setPrepMinutes(value.replace(/\D/g, "").slice(0, 2))}
-              keyboardType="number-pad"
-              maxLength={2}
-              style={styles.input}
-            />
+            {/* Display-only — the value is adjusted solely with the − / + buttons (no
+                manual typing), so it always stays within the allowed range. */}
+            <Text style={styles.input}>{localizeDigits(prepMinutes)}</Text>
             <Text style={styles.unit}>{t("prep.minutes")}</Text>
             <Pressable
               accessibilityRole="button"
@@ -318,13 +312,12 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    minHeight: 48,
     textAlign: "center",
+    textAlignVertical: "center",
     fontSize: 24,
     lineHeight: 30,
     fontWeight: "900",
     color: palette.foreground,
-    paddingVertical: 0,
   },
   unit: {
     fontSize: 12,

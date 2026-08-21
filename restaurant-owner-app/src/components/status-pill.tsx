@@ -37,7 +37,7 @@ export function StatusPill({
   const colors = toneStyles[tone];
 
   return (
-    <View style={[styles.pill, { backgroundColor: colors.bg }]}>
+    <View style={[styles.pill, { backgroundColor: colors.bg, borderColor: colors.text }]}>
       <Text style={[styles.text, { color: colors.text }]}>{label}</Text>
     </View>
   );
@@ -47,12 +47,13 @@ const styles = StyleSheet.create({
   pill: {
     alignSelf: "flex-start",
     borderRadius: 9,
-    paddingHorizontal: 9,
+    borderWidth: 1.5,
+    paddingHorizontal: 10,
     paddingVertical: 5,
   },
   text: {
-    fontSize: 11,
+    fontSize: 11.5,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "900",
   },
 });

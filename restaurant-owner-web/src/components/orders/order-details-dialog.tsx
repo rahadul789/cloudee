@@ -25,7 +25,6 @@ import {
   type OrderOperationalTiming,
   type OrderStatus,
   formatOrderMoney,
-  getOwnerOrderNetSales,
   getOwnerOrderSubtotal,
   getOrderItemsCount,
   orderStatusLabels,
@@ -39,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
   SheetContent,
@@ -251,8 +249,8 @@ export function OrderDetailsDialog({
             )
             .join("")}
           <hr />
-          <p><strong>Restaurant sales:</strong> ${formatOrderMoney(
-            getOwnerOrderNetSales(currentOrder)
+          <p><strong>Food subtotal:</strong> ${formatOrderMoney(
+            getOwnerOrderSubtotal(currentOrder)
           )}</p>
         </body>
       </html>
@@ -606,8 +604,8 @@ export function OrderDetailsDialog({
               Restaurant Summary
             </div>
             <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Food subtotal</span>
+              <div className="flex items-center justify-between font-semibold">
+                <span>Food subtotal</span>
                 <span>{formatOrderMoney(getOwnerOrderSubtotal(currentOrder))}</span>
               </div>
               {currentOrder.ownerDiscountCost > 0 ? (
@@ -616,11 +614,6 @@ export function OrderDetailsDialog({
                   <span>-{formatOrderMoney(currentOrder.ownerDiscountCost)}</span>
                 </div>
               ) : null}
-              <Separator />
-              <div className="flex items-center justify-between font-semibold">
-                <span>Restaurant net sales</span>
-                <span>{formatOrderMoney(getOwnerOrderNetSales(currentOrder))}</span>
-              </div>
             </div>
             {currentOrder.appliedVouchers.length ? (
               <div className="mt-4 space-y-2 rounded-xl bg-background/70 p-3 text-xs">

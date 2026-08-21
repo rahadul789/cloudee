@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
     gap: 12,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: palette.border,
     backgroundColor: palette.surface,
     padding: 14,
   },

@@ -404,95 +404,88 @@ export default function OrdersScreen() {
           </Text>
         ))}
 
-        <View style={styles.actions}>
-          {order.status === "New" ? (
-            <>
+        {/* Action buttons only for live statuses — the whole card is already tappable to
+            open details, so terminal orders (Delivered/Cancelled/…) need no button. */}
+        {order.status === "New" ? (
+          <View style={styles.actions}>
+            <Pressable
+              style={pressableAction(styles.rejectButton)}
+              disabled={isCardPending}
+              onPress={() => confirmReject(order)}
+            >
+              {isActionPending("Rejected") ? (
+                <ActivityIndicator size="small" color={palette.danger} />
+              ) : (
+                <Text style={styles.rejectButtonText}>{t("orders.reject")}</Text>
+              )}
+            </Pressable>
+            <Pressable
+              style={pressableAction(styles.acceptButton)}
+              disabled={isCardPending}
+              onPress={() => transitionOrder(order, "Accepted")}
+            >
+              {isActionPending("Accepted") ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.acceptButtonText}>{t("orders.accept")}</Text>
+              )}
+            </Pressable>
+          </View>
+        ) : order.status === "Accepted" ? (
+          <View style={styles.actions}>
+            {canOwnerCancelOrder(order.status) ? (
               <Pressable
                 style={pressableAction(styles.rejectButton)}
                 disabled={isCardPending}
-                onPress={() => confirmReject(order)}
+                onPress={() => confirmCancel(order)}
               >
-                {isActionPending("Rejected") ? (
+                {isActionPending("Cancelled") ? (
                   <ActivityIndicator size="small" color={palette.danger} />
                 ) : (
-                  <Text style={styles.rejectButtonText}>{t("orders.reject")}</Text>
+                  <Text style={styles.rejectButtonText}>{t("orders.cancel")}</Text>
                 )}
               </Pressable>
-              <Pressable
-                style={pressableAction(styles.acceptButton)}
-                disabled={isCardPending}
-                onPress={() => transitionOrder(order, "Accepted")}
-              >
-                {isActionPending("Accepted") ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.acceptButtonText}>{t("orders.accept")}</Text>
-                )}
-              </Pressable>
-            </>
-          ) : order.status === "Accepted" ? (
-            <>
-              {canOwnerCancelOrder(order.status) ? (
-                <Pressable
-                  style={pressableAction(styles.rejectButton)}
-                  disabled={isCardPending}
-                  onPress={() => confirmCancel(order)}
-                >
-                  {isActionPending("Cancelled") ? (
-                    <ActivityIndicator size="small" color={palette.danger} />
-                  ) : (
-                    <Text style={styles.rejectButtonText}>{t("orders.cancel")}</Text>
-                  )}
-                </Pressable>
-              ) : null}
-              <Pressable
-                style={pressableAction(styles.acceptButton)}
-                disabled={isCardPending}
-                onPress={() => transitionOrder(order, "Preparing")}
-              >
-                {isActionPending("Preparing") ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.acceptButtonText}>{t("orders.startPreparing")}</Text>
-                )}
-              </Pressable>
-            </>
-          ) : order.status === "Preparing" ? (
-            <>
-              {canOwnerCancelOrder(order.status) ? (
-                <Pressable
-                  style={pressableAction(styles.rejectButton)}
-                  disabled={isCardPending}
-                  onPress={() => confirmCancel(order)}
-                >
-                  {isActionPending("Cancelled") ? (
-                    <ActivityIndicator size="small" color={palette.danger} />
-                  ) : (
-                    <Text style={styles.rejectButtonText}>{t("orders.cancel")}</Text>
-                  )}
-                </Pressable>
-              ) : null}
-              <Pressable
-                style={pressableAction(styles.acceptButton)}
-                disabled={isCardPending}
-                onPress={() => transitionOrder(order, "ReadyForPickup")}
-              >
-                {isActionPending("ReadyForPickup") ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.acceptButtonText}>{t("orders.markReady")}</Text>
-                )}
-              </Pressable>
-            </>
-          ) : (
+            ) : null}
             <Pressable
-              style={pressableAction(styles.viewButton)}
-              onPress={() => openOrderDetails(order._id)}
+              style={pressableAction(styles.acceptButton)}
+              disabled={isCardPending}
+              onPress={() => transitionOrder(order, "Preparing")}
             >
-              <Text style={styles.viewButtonText}>{t("orders.openDetails")}</Text>
+              {isActionPending("Preparing") ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.acceptButtonText}>{t("orders.startPreparing")}</Text>
+              )}
             </Pressable>
-          )}
-        </View>
+          </View>
+        ) : order.status === "Preparing" ? (
+          <View style={styles.actions}>
+            {canOwnerCancelOrder(order.status) ? (
+              <Pressable
+                style={pressableAction(styles.rejectButton)}
+                disabled={isCardPending}
+                onPress={() => confirmCancel(order)}
+              >
+                {isActionPending("Cancelled") ? (
+                  <ActivityIndicator size="small" color={palette.danger} />
+                ) : (
+                  <Text style={styles.rejectButtonText}>{t("orders.cancel")}</Text>
+                )}
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={pressableAction(styles.acceptButton)}
+              disabled={isCardPending}
+              onPress={() => transitionOrder(order, "ReadyForPickup")}
+            >
+              {isActionPending("ReadyForPickup") ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.acceptButtonText}>{t("orders.markReady")}</Text>
+              )}
+            </Pressable>
+          </View>
+        ) : null}
       </Pressable>
     );
   }
@@ -639,8 +632,9 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   title: {
-    fontSize: 30,
-    lineHeight: 36,
+    fontSize: 24,
+    lineHeight: 32,
+    paddingTop: 2,
     fontWeight: "900",
     color: palette.foreground,
   },
@@ -744,7 +738,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: palette.surface,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: palette.border,
     padding: 15,
     gap: 10,
   },
@@ -899,15 +893,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "900",
     color: palette.danger,
-  },
-  viewButton: {
-    backgroundColor: palette.surfaceMuted,
-  },
-  viewButtonText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "900",
-    color: palette.foreground,
   },
   feedbackCard: {
     minHeight: 240,

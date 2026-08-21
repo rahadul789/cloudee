@@ -129,10 +129,14 @@ export default function TodayScreen() {
               isOnline ? styles.statusStripOnline : styles.statusStripOffline,
             ]}
           >
-            <StatusPill
-              label={isOnline ? t("status.online") : t("status.offline")}
-              tone={isOnline ? "success" : "danger"}
-            />
+            {/* Wrapper keeps the pill vertically centred in the strip — StatusPill's own
+                alignSelf:flex-start would otherwise pin it to the top. */}
+            <View style={styles.statusPillSlot}>
+              <StatusPill
+                label={isOnline ? t("status.online") : t("status.offline")}
+                tone={isOnline ? "success" : "danger"}
+              />
+            </View>
             <View style={styles.switchWrap}>
               {/* Fixed-width slot: the spinner (or the restricted lock) occupies the
                   same space whether or not it is visible, so the Switch never shifts. */}
@@ -394,6 +398,8 @@ const styles = StyleSheet.create({
   restaurantCard: {
     borderRadius: 22,
     backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 16,
     gap: 10,
     shadowColor: palette.shadow,
@@ -421,13 +427,15 @@ const styles = StyleSheet.create({
   statusStrip: {
     minHeight: 52,
     borderRadius: 16,
-    borderWidth: 1,
     paddingLeft: 11,
     paddingRight: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+  },
+  statusPillSlot: {
+    justifyContent: "center",
   },
   statusStripOnline: {
     backgroundColor: palette.successSoft,
@@ -634,6 +642,8 @@ const styles = StyleSheet.create({
   feedbackCard: {
     minHeight: 120,
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
@@ -652,7 +662,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: palette.surface,
     borderWidth: 1,
-    borderColor: "transparent",
+    borderColor: palette.border,
     padding: 14,
   },
   orderCardLate: {
@@ -735,6 +745,8 @@ const styles = StyleSheet.create({
   emptyCard: {
     minHeight: 150,
     borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
