@@ -201,7 +201,10 @@ export default function AvailableOrdersScreen() {
           const timingInfo = getOrderTimingInfo(item);
           const delaySignal = getRiderDelaySignal(item, deliveryThresholds, nowMs);
           return (
-            <Pressable style={styles.card} onPress={() => router.push(`/orders/${item.id}`)}>
+            <Pressable
+              style={[styles.card, item.isExternal ? styles.cardExternal : null]}
+              onPress={() => router.push(`/orders/${item.id}`)}
+            >
               <View style={styles.row}>
                 <View style={styles.orderNumberGroup}>
                   <Text style={styles.orderNumber}>{item.orderNumber}</Text>
@@ -213,7 +216,7 @@ export default function AvailableOrdersScreen() {
                   {item.isExternal ? (
                     <View style={styles.externalChip}>
                       <Ionicons name="storefront-outline" size={11} color="#6D28D9" />
-                      <Text style={styles.externalChipText}>External</Text>
+                      <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -309,6 +312,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  cardExternal: { borderColor: "#C4B5FD", backgroundColor: "#FAF8FF" },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   orderNumberGroup: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
   orderNumber: { fontSize: 16, fontWeight: "800", color: palette.foreground },

@@ -75,11 +75,15 @@ export async function createExternalDelivery(body: CreateExternalDeliveryInput) 
 
 export async function listExternalDeliveries(params?: {
   tab?: "live" | "history";
+  from?: string;
+  to?: string;
   page?: number;
   pageSize?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.tab) searchParams.set("tab", params.tab);
+  if (params?.from) searchParams.set("from", params.from);
+  if (params?.to) searchParams.set("to", params.to);
   if (params?.page) searchParams.set("page", `${params.page}`);
   if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`);
   const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
@@ -89,6 +93,27 @@ export async function listExternalDeliveries(params?: {
     page: number;
     pageSize: number;
   }>(`/owner/external-deliveries${query}`);
+  return response.data;
+}
+
+export type OwnerExternalDeliveryStats = {
+  requests: number;
+  delivered: number;
+  orderValue: number;
+  youReceive: number;
+};
+
+export async function getExternalDeliveryStats(params?: {
+  from?: string;
+  to?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.from) searchParams.set("from", params.from);
+  if (params?.to) searchParams.set("to", params.to);
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const response = await apiGet<OwnerExternalDeliveryStats>(
+    `/owner/external-deliveries/stats${query}`,
+  );
   return response.data;
 }
 

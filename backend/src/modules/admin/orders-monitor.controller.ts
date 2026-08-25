@@ -104,6 +104,7 @@ const ordersQuerySchema = z.object({
   assignment: z.enum(["all", "assigned", "unassigned", "stale"]).optional(),
   attention: z.enum(["all", "riderDelay", "extraTime"]).optional(),
   reviewState: z.enum(["all", "reviewed", "requested", "pending"]).optional(),
+  source: z.enum(["all", "platform", "external"]).optional(),
   zoneId: z.string().optional(),
   districtId: z.string().optional(),
   sortBy: z.enum(["newest", "oldest", "highestValue", "recentlyUpdated"]).optional(),
@@ -463,12 +464,24 @@ export const postAdminRider = asyncHandler(
   },
 );
 
+const dayString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .optional();
+
 export const getAdminRiderDetails = asyncHandler(
   async (req: Request, res: Response) => {
     const scope = getAdminAreaScope(req.query);
+    const dateRange = z
+      .object({ from: dayString, to: dayString })
+      .parse({
+        from: typeof req.query.from === "string" ? req.query.from : undefined,
+        to: typeof req.query.to === "string" ? req.query.to : undefined,
+      });
     const data = await getAdminRiderDetailsService(
       String(req.params.riderId ?? ""),
       scope,
+      dateRange,
     );
 
     return sendSuccess(res, { data });

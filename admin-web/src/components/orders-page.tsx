@@ -123,6 +123,7 @@ type PaymentStatusFilter =
 type AssignmentFilter = "all" | "assigned" | "unassigned" | "stale"
 type AttentionFilter = "all" | "riderDelay" | "extraTime"
 type ReviewStateFilter = "all" | "reviewed" | "requested" | "pending"
+type OrderSourceFilter = "all" | "platform" | "external"
 type OrderSort = "newest" | "oldest" | "highestValue" | "recentlyUpdated"
 type OrderPreset = Extract<
   AdminRestaurantOrderDateFilterPreset,
@@ -1530,6 +1531,7 @@ export function OrdersPage() {
   const [attention, setAttention] = React.useState<AttentionFilter>("all")
   const [reviewState, setReviewState] =
     React.useState<ReviewStateFilter>("all")
+  const [source, setSource] = React.useState<OrderSourceFilter>("platform")
   const [sortBy, setSortBy] = React.useState<OrderSort>("newest")
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(10)
@@ -1566,6 +1568,7 @@ export function OrdersPage() {
       assignment,
       attention,
       reviewState,
+      source,
       sortBy,
       page,
       pageSize,
@@ -1583,6 +1586,7 @@ export function OrdersPage() {
         assignment,
         attention,
         reviewState,
+        source,
         sortBy,
         page,
         pageSize,
@@ -1636,6 +1640,7 @@ export function OrdersPage() {
     assignment !== "all" ||
     attention !== "all" ||
     reviewState !== "all" ||
+    source !== "platform" ||
     sortBy !== "newest"
 
   React.useEffect(() => {
@@ -1656,6 +1661,7 @@ export function OrdersPage() {
     assignment,
     attention,
     reviewState,
+    source,
     sortBy,
     pageSize,
   ])
@@ -1684,6 +1690,7 @@ export function OrdersPage() {
     setAssignment("all")
     setAttention("all")
     setReviewState("all")
+    setSource("platform")
     setSortBy("newest")
     setPage(1)
   }
@@ -2023,6 +2030,21 @@ export function OrdersPage() {
                   </SelectContent>
                 </Select>
                 <Select
+                  value={source}
+                  onValueChange={(value) =>
+                    setSource(value as OrderSourceFilter)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All sources</SelectItem>
+                    <SelectItem value="platform">Internal orders</SelectItem>
+                    <SelectItem value="external">External delivery</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
                   value={sortBy}
                   onValueChange={(value) => setSortBy(value as OrderSort)}
                 >
@@ -2112,6 +2134,14 @@ export function OrdersPage() {
                               className="mt-1 mr-1 border-amber-300 bg-amber-50 font-semibold text-amber-800"
                             >
                               ⚡ Urgent
+                            </Badge>
+                          ) : null}
+                          {order.isExternal ? (
+                            <Badge
+                              variant="outline"
+                              className="mt-1 mr-1 border-violet-300 bg-violet-50 font-semibold text-violet-700"
+                            >
+                              External
                             </Badge>
                           ) : null}
                           {order.voucherCodes?.length ? (

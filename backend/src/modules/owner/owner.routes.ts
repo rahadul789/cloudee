@@ -61,6 +61,7 @@ import {
   getOwnerExternalDeliveries,
   getOwnerExternalDeliveryById,
   getOwnerExternalDeliveryConfigController,
+  getOwnerExternalDeliveryStats,
   postOwnerExternalDelivery,
   postOwnerExternalDeliveryCancel
 } from "./external-delivery.controller"
@@ -96,6 +97,7 @@ ownerRouter.post("/orders/:orderId/assign-rider", postOwnerOrderAssignRider)
 ownerRouter.post("/orders/:orderId/preparation/extend", postOwnerOrderPreparationExtension)
 ownerRouter.post("/orders/:orderId/transition", postOwnerOrderTransition)
 ownerRouter.get("/external-deliveries/config", getOwnerExternalDeliveryConfigController)
+ownerRouter.get("/external-deliveries/stats", getOwnerExternalDeliveryStats)
 ownerRouter.post("/external-deliveries", postOwnerExternalDelivery)
 ownerRouter.get("/external-deliveries", getOwnerExternalDeliveries)
 ownerRouter.get("/external-deliveries/:orderId", getOwnerExternalDeliveryById)

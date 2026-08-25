@@ -250,6 +250,7 @@ type AdminOrderListParams = {
   assignment?: "all" | "assigned" | "unassigned" | "stale";
   attention?: "all" | "riderDelay" | "extraTime";
   reviewState?: "all" | "reviewed" | "requested" | "pending";
+  source?: "all" | "platform" | "external";
   zoneId?: string;
   districtId?: string;
   sortBy?: "newest" | "oldest" | "highestValue" | "recentlyUpdated";
@@ -2620,6 +2621,14 @@ async function buildAdminOrderQuery(params: AdminOrderListParams = {}) {
     query["preparationMeta.extraMinutes"] = { $gt: 0 };
   }
 
+  // Source filter: external = off-platform owner-initiated deliveries; platform = everything
+  // else (source is absent on regular orders, so $ne "external" keeps them).
+  if (params.source === "external") {
+    query.source = "external";
+  } else if (params.source === "platform") {
+    query.source = { $ne: "external" };
+  }
+
   // Review-request state filter (only meaningful for delivered orders).
   if (params.reviewState && params.reviewState !== "all") {
     query.status = "Delivered";
@@ -2713,6 +2722,9 @@ async function buildAdminOrderQuery(params: AdminOrderListParams = {}) {
 async function buildAdminPaymentQuery(params: AdminPaymentListParams = {}) {
   const query: Record<string, any> = {
     ...buildOrderServiceAreaScopeFilter(params),
+    // External deliveries are off-platform — their COD/collection runs through the external
+    // settlement lifecycle, never the platform payment KPIs or transaction history.
+    source: { $ne: "external" },
   };
   const dateMatch = buildDateMatch(params);
 
@@ -3231,6 +3243,7 @@ function mapAdminOrderListItem(
     orderNumber: stringValue(order.orderNumber),
     status,
     isUrgent: order.isUrgent === true,
+    isExternal: order.source === "external",
     restaurantId: String(order.restaurantId ?? ""),
     restaurantName: stringValue(restaurant?.name, "Restaurant"),
     customerId: stringValue(order.customerId),
@@ -3340,6 +3353,7 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
         orderNumber: 1,
         status: 1,
         isUrgent: 1,
+        source: 1,
         terminalReason: 1,
         cancelledBy: 1,
         rejectionReason: 1,
@@ -5343,9 +5357,21 @@ export async function getAdminLiveMap(params?: {
   });
 }
 
+// Inclusive [from, to] day range → Date bounds for the rider detail's date filter.
+function parseRiderDetailDateRange(from?: string, to?: string) {
+  const start = from ? new Date(`${from}T00:00:00.000`) : null;
+  const end = to ? new Date(`${to}T23:59:59.999`) : null;
+  if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) {
+    return null;
+  }
+  if (!start && !end) return null;
+  return { start, end };
+}
+
 export async function getAdminRiderDetails(
   riderId: string,
   scope: AdminAreaScopeParams = {},
+  dateRange: { from?: string; to?: string } = {},
 ) {
   const rider = await RiderModel.findById(riderId).lean();
 
@@ -5358,29 +5384,235 @@ export async function getAdminRiderDetails(
   }
   assertRiderRecordInAdminScope(rider, scope);
 
+  const riderIdString = String(rider._id ?? "");
+  const range = parseRiderDetailDateRange(dateRange.from, dateRange.to);
+  const rangeCreatedFilter = range
+    ? {
+        createdAt: {
+          ...(range.start ? { $gte: range.start } : {}),
+          ...(range.end ? { $lte: range.end } : {}),
+        },
+      }
+    : {};
+
   const payrollMonth = currentPayrollMonth();
-  const [statsMap, activeOrders, recentTrips, payrollCycle, availability] = await Promise.all([
-    getRiderOrderStatsMap([String(rider._id ?? "")]),
-    OrderModel.find({
-      riderId: String(rider._id ?? ""),
-      status: { $in: ["ReadyForPickup", "PickedUp"] },
-    })
-      .sort({ updatedAt: -1 })
-      .limit(20)
-      .lean(),
-    OrderModel.find({
-      riderId: String(rider._id ?? ""),
-      status: { $in: ["Delivered", "Cancelled", "Rejected"] },
-    })
-      .sort({ updatedAt: -1 })
-      .limit(20)
-      .lean(),
-    RiderPayrollCycleModel.findOne({
-      riderId: String(rider._id ?? ""),
-      month: payrollMonth,
-    }).lean(),
-    getRiderAvailabilitySummary(String(rider._id ?? "")),
-  ]);
+  const [statsMap, activeOrders, recentTrips, payrollCycle, availability, deliveredBreakdownRows] =
+    await Promise.all([
+      getRiderOrderStatsMap([riderIdString]),
+      OrderModel.find({
+        riderId: riderIdString,
+        status: { $in: ["ReadyForPickup", "PickedUp"] },
+      })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean(),
+      OrderModel.find({
+        riderId: riderIdString,
+        status: { $in: ["Delivered", "Cancelled", "Rejected"] },
+        ...rangeCreatedFilter,
+      })
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean(),
+      RiderPayrollCycleModel.findOne({
+        riderId: riderIdString,
+        month: payrollMonth,
+      }).lean(),
+      getRiderAvailabilitySummary(riderIdString),
+      // Delivered-trip count + timing for the selected range. Split platform vs external
+      // (external deliveries still count toward the rider's salary, shown separately), plus
+      // average pickup/delivery/total durations and cancelled count for performance review.
+      OrderModel.aggregate<{
+        deliveredTotal: number;
+        deliveredExternal: number;
+        cancelledTotal: number;
+        pickupSum: number;
+        pickupCount: number;
+        deliverySum: number;
+        deliveryCount: number;
+        totalSum: number;
+        totalCount: number;
+      }>([
+        { $match: { riderId: riderIdString, ...rangeCreatedFilter } },
+        {
+          $group: {
+            _id: null,
+            deliveredTotal: {
+              $sum: { $cond: [{ $eq: ["$status", "Delivered"] }, 1, 0] },
+            },
+            deliveredExternal: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $eq: ["$source", "external"] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            cancelledTotal: {
+              $sum: {
+                $cond: [{ $in: ["$status", ["Cancelled", "Rejected"]] }, 1, 0],
+              },
+            },
+            // Pickup wait: ReadyForPickup -> PickedUp (how fast the rider collects).
+            pickupSum: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.ReadyForPickup", null] },
+                      { $ne: ["$timestamps.PickedUp", null] },
+                    ],
+                  },
+                  {
+                    $divide: [
+                      {
+                        $subtract: [
+                          "$timestamps.PickedUp",
+                          "$timestamps.ReadyForPickup",
+                        ],
+                      },
+                      60000,
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
+            pickupCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.ReadyForPickup", null] },
+                      { $ne: ["$timestamps.PickedUp", null] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            // Delivery ride: PickedUp -> Delivered.
+            deliverySum: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.PickedUp", null] },
+                      { $ne: ["$timestamps.Delivered", null] },
+                    ],
+                  },
+                  {
+                    $divide: [
+                      {
+                        $subtract: [
+                          "$timestamps.Delivered",
+                          "$timestamps.PickedUp",
+                        ],
+                      },
+                      60000,
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
+            deliveryCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.PickedUp", null] },
+                      { $ne: ["$timestamps.Delivered", null] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            // Total handling: ReadyForPickup -> Delivered.
+            totalSum: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.ReadyForPickup", null] },
+                      { $ne: ["$timestamps.Delivered", null] },
+                    ],
+                  },
+                  {
+                    $divide: [
+                      {
+                        $subtract: [
+                          "$timestamps.Delivered",
+                          "$timestamps.ReadyForPickup",
+                        ],
+                      },
+                      60000,
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
+            totalCount: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ["$status", "Delivered"] },
+                      { $ne: ["$timestamps.ReadyForPickup", null] },
+                      { $ne: ["$timestamps.Delivered", null] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+  const breakdownRow = deliveredBreakdownRows[0];
+  const deliveredTotal = breakdownRow?.deliveredTotal ?? 0;
+  const deliveredExternal = breakdownRow?.deliveredExternal ?? 0;
+  const deliveredBreakdown = {
+    total: deliveredTotal,
+    external: deliveredExternal,
+    platform: Math.max(0, deliveredTotal - deliveredExternal),
+    from: dateRange.from ?? null,
+    to: dateRange.to ?? null,
+  };
+  const timing = {
+    avgPickupMinutes:
+      breakdownRow && breakdownRow.pickupCount > 0
+        ? breakdownRow.pickupSum / breakdownRow.pickupCount
+        : 0,
+    avgDeliveryMinutes:
+      breakdownRow && breakdownRow.deliveryCount > 0
+        ? breakdownRow.deliverySum / breakdownRow.deliveryCount
+        : 0,
+    avgTotalMinutes:
+      breakdownRow && breakdownRow.totalCount > 0
+        ? breakdownRow.totalSum / breakdownRow.totalCount
+        : 0,
+    cancelledTrips: breakdownRow?.cancelledTotal ?? 0,
+    sampleSize: breakdownRow?.totalCount ?? 0,
+  };
 
   const restaurantIds = [
     ...new Set(
@@ -5410,6 +5642,8 @@ export async function getAdminRiderDetails(
         }))
       : [],
     summary: stats,
+    deliveredBreakdown,
+    timing,
     availability: {
       ...availability,
       isOnline: rider.isAvailableForAssignments !== false,
@@ -5433,6 +5667,7 @@ export async function getAdminRiderDetails(
           stringValue(order.customerSnapshot?.name) ||
           stringValue(order.customerSnapshot?.fullName, "Customer"),
         status: stringValue(order.status),
+        isExternal: order.source === "external",
         total: numberValue(order.pricing?.total),
         createdAt: serializeDate(order.createdAt),
         assignedAt: serializeDate(dispatchMeta.assignedAt),
@@ -5460,6 +5695,7 @@ export async function getAdminRiderDetails(
           stringValue(order.customerSnapshot?.name) ||
           stringValue(order.customerSnapshot?.fullName, "Customer"),
         status: stringValue(order.status),
+        isExternal: order.source === "external",
         total: numberValue(order.pricing?.total),
         deliveryFee: numberValue(order.pricing?.deliveryFee),
         createdAt: serializeDate(order.createdAt),

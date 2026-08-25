@@ -1223,6 +1223,55 @@ export async function listPayoutHistoryWithFilters(params: {
   return { items, total }
 }
 
+// Best-selling items among the orders included in a specific payout — item-level aggregation
+// over those orders' snapshots (mirrors the dashboard's topItems shape).
+async function aggregatePayoutTopItems(restaurantId: string, payoutId: string) {
+  const rows = await LedgerEntryModel.aggregate([
+    {
+      $match: {
+        restaurantId: toObjectId(restaurantId),
+        payoutBatchId: toObjectId(payoutId),
+        entryType: "earning",
+        orderId: { $ne: null }
+      }
+    },
+    { $lookup: { from: "orders", localField: "orderId", foreignField: "_id", as: "order" } },
+    { $unwind: "$order" },
+    { $unwind: "$order.itemsSnapshot" },
+    {
+      $group: {
+        _id: {
+          itemId: "$order.itemsSnapshot.itemId",
+          name: { $ifNull: ["$order.itemsSnapshot.name", "$order.itemsSnapshot.itemName"] }
+        },
+        quantity: { $sum: { $ifNull: ["$order.itemsSnapshot.quantity", 0] } },
+        revenue: {
+          $sum: {
+            $ifNull: [
+              "$order.itemsSnapshot.lineTotal",
+              {
+                $multiply: [
+                  { $ifNull: ["$order.itemsSnapshot.quantity", 0] },
+                  { $ifNull: ["$order.itemsSnapshot.unitPrice", 0] }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    { $sort: { quantity: -1, revenue: -1 } },
+    { $limit: 5 }
+  ])
+
+  return (rows as Array<Record<string, any>>).map((row) => ({
+    id: String(row._id?.itemId ?? row._id?.name ?? ""),
+    name: row._id?.name || "Item",
+    quantity: Number(row.quantity ?? 0),
+    revenue: Number(row.revenue ?? 0)
+  }))
+}
+
 export async function listPayoutTransactionsWithFilters(params: {
   ownerId: string
   search?: string
@@ -1279,9 +1328,14 @@ export async function listPayoutTransactionsWithFilters(params: {
     }
   ])
 
+  const topItems = params.payoutId
+    ? await aggregatePayoutTopItems(restaurantId, params.payoutId)
+    : []
+
   return {
     items: result?.items ?? [],
-    total: result?.meta?.[0]?.total ?? 0
+    total: result?.meta?.[0]?.total ?? 0,
+    topItems
   }
 }
 

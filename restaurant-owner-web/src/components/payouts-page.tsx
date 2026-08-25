@@ -60,10 +60,10 @@ import {
 } from "@/lib/backend-mappers"
 import { resolveOtpResendSeconds } from "@/lib/otp-timing"
 import {
+  useOwnerDashboardSummaryQuery,
   useOwnerPayoutHistoryQuery,
   useOwnerPayoutSummaryQuery,
   useOwnerPayoutTransactionsQuery,
-  useRequestOwnerPayoutMutation,
   useUpdateOwnerPayoutMethodMutation,
 } from "@/hooks/use-owner-api"
 import { Badge } from "@/components/ui/badge"
@@ -299,7 +299,9 @@ export function PayoutsPage() {
     }
   )
   const updatePayoutMethodMutation = useUpdateOwnerPayoutMethodMutation()
-  const requestPayoutMutation = useRequestOwnerPayoutMutation()
+  // Today's best sellers — used inside the downloadable/printable statement.
+  const dashboardSummaryQuery = useOwnerDashboardSummaryQuery(true)
+  const topSellingItems = (dashboardSummaryQuery.data?.topItems ?? []).slice(0, 5)
   const hasPayoutData =
     Boolean(payoutSummaryQuery.data) ||
     Boolean(payoutHistoryQuery.data) ||
@@ -547,41 +549,12 @@ export function PayoutsPage() {
     statusFilter === "all" &&
     typeFilter === "all" &&
     sortBy === "latest"
-  const hasVerifiedPayoutMethod =
-    payoutMethod.isVerified === true && Boolean(payoutMethod.accountNumber?.trim())
-  const hasActivePayoutRequest =
-    payoutSummaryQuery.data?.hasActivePayoutRequest === true ||
-    requestedPayoutBalance > 0
-  const minimumPayoutAmount =
-    payoutSummaryQuery.data?.minimumPayoutAmountTaka ?? 0
-  const canRequestPayout =
-    availableBalance > 0 &&
-    availableBalance >= minimumPayoutAmount &&
-    hasVerifiedPayoutMethod &&
-    !hasActivePayoutRequest &&
-    !requestPayoutMutation.isPending
-
   function resetFilters() {
     setSearch("")
     setDateFilter({ ...defaultOrderDateFilter, preset: "last7Days" })
     setStatusFilter("all")
     setTypeFilter("all")
     setSortBy("latest")
-  }
-
-  async function handleRequestPayout() {
-    if (!canRequestPayout) return
-    try {
-      await requestPayoutMutation.mutateAsync()
-      toast.success("Payout request sent to admin.", {
-        description: `${formatPayoutMoney(availableBalance)} full available balance has been reserved for review.`,
-      })
-    } catch (error) {
-      toast.error("Unable to request payout.", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      })
-    }
   }
 
   function handleDownloadReport() {
@@ -925,6 +898,26 @@ export function PayoutsPage() {
         <div class="box"><div class="muted">Paid out</div><strong>${escapeHtml(formatPayoutMoney(paidOutBalance))}</strong></div>
         <div class="box"><div class="muted">Lifetime net</div><strong>${escapeHtml(formatPayoutMoney(lifetimeEarnings))}</strong></div>
       </div>
+      ${
+        topSellingItems.length
+          ? `<h2>Top selling items (today)</h2>
+      <table>
+        <thead><tr><th>#</th><th>Item</th><th class="right">Sold</th><th class="right">Revenue</th></tr></thead>
+        <tbody>${topSellingItems
+          .map(
+            (item, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(item.name)}</td>
+                <td class="right">${escapeHtml(String(item.quantity))}</td>
+                <td class="right">${escapeHtml(formatPayoutMoney(item.revenue))}</td>
+              </tr>
+            `
+          )
+          .join("")}</tbody>
+      </table>`
+          : ""
+      }
       <h2>${escapeHtml(isHistory ? "Payout rows" : "Transaction rows")}</h2>
       <table>
         <thead>
@@ -1202,22 +1195,9 @@ export function PayoutsPage() {
               <div className="mt-3 grid gap-2 text-muted-foreground sm:grid-cols-2">
                 <div>Last payout: {lastCompletedPayout ? formatPayoutMoney(lastCompletedPayout.amount) : "--"}</div>
                 <div>Next settlement: {nextPayoutDate}</div>
-                <div>Owner request: full available balance only</div>
-                <div>Admin action: approve, process, or fail payout</div>
+                <div>Payout: settled by Foodbela finance</div>
+                <div>You receive: available balance, paid automatically</div>
               </div>
-              {!hasVerifiedPayoutMethod ? (
-                <p className="mt-3 text-xs font-medium text-amber-700">
-                  Verify your payout method before requesting payout.
-                </p>
-              ) : hasActivePayoutRequest ? (
-                <p className="mt-3 text-xs font-medium text-sky-700">
-                  A payout request is already pending or processing.
-                </p>
-              ) : availableBalance > 0 && availableBalance < minimumPayoutAmount ? (
-                <p className="mt-3 text-xs font-medium text-amber-700">
-                  Minimum payout is {formatPayoutMoney(minimumPayoutAmount)}.
-                </p>
-              ) : null}
             </div>
 
             {summaryBalances ? (
@@ -1242,18 +1222,6 @@ export function PayoutsPage() {
 
             <div className="flex flex-wrap gap-2">
               <Button
-                onClick={handleRequestPayout}
-                disabled={!canRequestPayout}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {requestPayoutMutation.isPending ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <WalletCards className="size-4" />
-                )}
-                Request full payout
-              </Button>
-              <Button
                 variant="outline"
                 onClick={
                   activeTab === "history"
@@ -1270,7 +1238,8 @@ export function PayoutsPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Owner request reserves the full available balance, then admin finance completes the payout.
+              Payouts are settled and completed by Foodbela finance — your available balance is
+              paid out automatically, no request needed.
             </p>
           </CardContent>
         </Card>

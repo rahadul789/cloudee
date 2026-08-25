@@ -608,7 +608,7 @@ function OfferCard({
   const { copy } = useDeliveryCopy();
   const payment = getPaymentMethodBadge(order.paymentMethod);
   return (
-    <View style={[styles.card, styles.offerCard]}>
+    <View style={[styles.card, styles.offerCard, order.isExternal ? styles.cardExternal : null]}>
       <Pressable onPress={onOpen}>
         <View style={styles.cardTop}>
           <Text style={styles.orderNumber} numberOfLines={1}>
@@ -617,7 +617,8 @@ function OfferCard({
           <View style={styles.badgeRow}>
             {order.isExternal ? (
               <View style={styles.externalChip}>
-                <Text style={styles.externalChipText}>External</Text>
+                <Ionicons name="storefront" size={11} color="#6D28D9" />
+                <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
               </View>
             ) : null}
             {order.isUrgent ? (
@@ -689,7 +690,13 @@ function TaskCard({
   const assigned = minutesAgo(order.assignedAt, t);
   const showSetLive = isPicked && !order.isFocusedLiveTrip;
   return (
-    <View style={[styles.card, lateness ? styles.cardLate : null]}>
+    <View
+      style={[
+        styles.card,
+        order.isExternal ? styles.cardExternal : null,
+        lateness ? styles.cardLate : null,
+      ]}
+    >
       <Pressable onPress={onOpen}>
         {/* Top row: order number · round map-jump icon (badge-sized) · status badge. */}
         <View style={styles.cardTop}>
@@ -718,8 +725,14 @@ function TaskCard({
             </View>
           </View>
         </View>
-        {order.isFocusedLiveTrip || lateness ? (
+        {order.isExternal || order.isFocusedLiveTrip || lateness ? (
           <View style={styles.cardChipsRow}>
+            {order.isExternal ? (
+              <View style={styles.externalChip}>
+                <Ionicons name="storefront" size={11} color="#6D28D9" />
+                <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
+              </View>
+            ) : null}
             {order.isFocusedLiveTrip ? (
               <View style={styles.liveBadge}>
                 <View style={styles.liveDot} />
@@ -846,6 +859,18 @@ function OrderDetail({
                 ? t.pickupLate(lateness.minutes)
                 : t.deliveryLate(lateness.minutes)}
           </Text>
+        </View>
+      ) : null}
+
+      {order.isExternal ? (
+        <View style={styles.externalBanner}>
+          <View style={styles.externalBannerIcon}>
+            <Ionicons name="storefront" size={16} color="#FFFFFF" />
+          </View>
+          <View style={styles.externalBannerBody}>
+            <Text style={styles.externalBannerTitle}>{t.externalOrder}</Text>
+            <Text style={styles.externalBannerText}>{t.externalNote}</Text>
+          </View>
         </View>
       ) : null}
 
@@ -1214,6 +1239,9 @@ const styles = StyleSheet.create({
   peekIdRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   peekMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   externalChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1221,7 +1249,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#EDE9FE",
     borderColor: "#C4B5FD",
   },
-  externalChipText: { fontSize: 11, fontWeight: "900", color: "#6D28D9" },
+  externalChipText: { fontSize: 11, fontWeight: "900", color: "#6D28D9", letterSpacing: 0.3 },
+  // A violet accent so off-platform (external) orders are unmistakable in the list.
+  cardExternal: { borderColor: "#C4B5FD", backgroundColor: "#FAF8FF" },
+  externalBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D8B4FE",
+    backgroundColor: "#F5F0FF",
+    padding: 12,
+  },
+  externalBannerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7C3AED",
+  },
+  externalBannerBody: { flex: 1, minWidth: 0 },
+  externalBannerTitle: {
+    fontSize: 12.5,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    color: "#6D28D9",
+  },
+  externalBannerText: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    color: "#7C3AED",
+  },
   urgentChip: {
     borderRadius: 999,
     paddingHorizontal: 8,

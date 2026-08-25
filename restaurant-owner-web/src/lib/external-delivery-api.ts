@@ -69,11 +69,15 @@ export function createExternalDelivery(body: CreateExternalDeliveryInput) {
 
 export function listExternalDeliveries(params?: {
   tab?: "live" | "history"
+  from?: string
+  to?: string
   page?: number
   pageSize?: number
 }) {
   const searchParams = new URLSearchParams()
   if (params?.tab) searchParams.set("tab", params.tab)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
   if (params?.page) searchParams.set("page", `${params.page}`)
   if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
   const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
@@ -83,6 +87,21 @@ export function listExternalDeliveries(params?: {
     page: number
     pageSize: number
   }>(`/owner/external-deliveries${query}`)
+}
+
+export type OwnerExternalDeliveryStats = {
+  requests: number
+  delivered: number
+  orderValue: number
+  youReceive: number
+}
+
+export function getExternalDeliveryStats(params?: { from?: string; to?: string }) {
+  const searchParams = new URLSearchParams()
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
+  return api.get<OwnerExternalDeliveryStats>(`/owner/external-deliveries/stats${query}`)
 }
 
 export function cancelExternalDelivery(orderId: string, reason?: string) {

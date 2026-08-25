@@ -208,6 +208,10 @@ export type AdminReportsResponse = {
     averageServiceMinutes: number
     reviewCount: number
     averageRating: number
+    externalDeliveries: {
+      count: number
+      revenue: number
+    }
   }
   comparison: {
     previousDeliveredRevenue: number
@@ -843,12 +847,27 @@ export type AdminRiderDetails = AdminRiderSummary & {
     totalDeliveryMinutes: number
     deliveredWithDuration: number
   }
+  deliveredBreakdown: {
+    total: number
+    external: number
+    platform: number
+    from: string | null
+    to: string | null
+  }
+  timing: {
+    avgPickupMinutes: number
+    avgDeliveryMinutes: number
+    avgTotalMinutes: number
+    cancelledTrips: number
+    sampleSize: number
+  }
   activeOrders: Array<{
     id: string
     orderNumber: string
     restaurantName: string
     customerName: string
     status: string
+    isExternal: boolean
     total: number
     createdAt: string | null
     assignedAt: string | null
@@ -868,6 +887,7 @@ export type AdminRiderDetails = AdminRiderSummary & {
     restaurantName: string
     customerName: string
     status: string
+    isExternal: boolean
     total: number
     deliveryFee: number
     createdAt: string | null
@@ -3868,6 +3888,7 @@ export type AdminOrderListItem = {
   orderNumber: string
   status: string
   isUrgent: boolean
+  isExternal: boolean
   restaurantId: string
   restaurantName: string
   customerId: string
@@ -5575,9 +5596,16 @@ export async function getAdminLiveMap() {
   return response.data
 }
 
-export async function getAdminRider(riderId: string) {
+export async function getAdminRider(
+  riderId: string,
+  params?: { from?: string; to?: string }
+) {
+  const searchParams = new URLSearchParams()
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : ""
   const response = await adminRequest<AdminRiderDetails>(
-    `/admin/riders/${riderId}`
+    `/admin/riders/${riderId}${query}`
   )
   return response.data
 }
@@ -6703,6 +6731,7 @@ export async function listAdminOrders(params?: {
   assignment?: "all" | "assigned" | "unassigned" | "stale"
   attention?: "all" | "riderDelay" | "extraTime"
   reviewState?: "all" | "reviewed" | "requested" | "pending"
+  source?: "all" | "platform" | "external"
   sortBy?: "newest" | "oldest" | "highestValue" | "recentlyUpdated"
   page?: number
   pageSize?: number
@@ -6728,6 +6757,9 @@ export async function listAdminOrders(params?: {
   }
   if (params?.reviewState && params.reviewState !== "all") {
     searchParams.set("reviewState", params.reviewState)
+  }
+  if (params?.source && params.source !== "all") {
+    searchParams.set("source", params.source)
   }
   if (params?.sortBy) searchParams.set("sortBy", params.sortBy)
   if (params?.page) searchParams.set("page", `${params.page}`)

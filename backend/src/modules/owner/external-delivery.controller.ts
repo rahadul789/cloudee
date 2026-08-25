@@ -8,6 +8,7 @@ import {
   cancelExternalDelivery,
   createExternalDelivery,
   getExternalDeliveryById,
+  getExternalDeliveryStats,
   getOwnerExternalDeliveryConfig,
   listExternalDeliveries,
 } from "./external-delivery.service"
@@ -34,10 +35,22 @@ const createSchema = z.object({
   paymentMode: z.enum(["cod", "online"]),
 })
 
+const dayString = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .optional()
+
 const listQuerySchema = z.object({
   tab: z.enum(["live", "history"]).optional(),
+  from: dayString,
+  to: dayString,
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+
+const statsQuerySchema = z.object({
+  from: dayString,
+  to: dayString,
 })
 
 const cancelSchema = z.object({
@@ -74,11 +87,26 @@ export const getOwnerExternalDeliveries = asyncHandler(
   async (req: AuthenticatedRequest, res: Response) => {
     const query = listQuerySchema.parse({
       tab: getStringParam(req.query.tab) || undefined,
+      from: getStringParam(req.query.from) || undefined,
+      to: getStringParam(req.query.to) || undefined,
       page: getStringParam(req.query.page) || undefined,
       pageSize: getStringParam(req.query.pageSize) || undefined,
     })
     const { restaurantId } = await getOwnerRestaurantContext(getOwnerId(req))
     const data = await listExternalDeliveries({ restaurantId, ...query })
+    return sendSuccess(res, { data })
+  },
+)
+
+// GET /owner/external-deliveries/stats — KPI totals for the top of the screen (date-filtered).
+export const getOwnerExternalDeliveryStats = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const query = statsQuerySchema.parse({
+      from: getStringParam(req.query.from) || undefined,
+      to: getStringParam(req.query.to) || undefined,
+    })
+    const { restaurantId } = await getOwnerRestaurantContext(getOwnerId(req))
+    const data = await getExternalDeliveryStats({ restaurantId, ...query })
     return sendSuccess(res, { data })
   },
 )

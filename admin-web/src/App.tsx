@@ -21,6 +21,7 @@ import {
   MessageSquareText,
   Moon,
   Plus,
+  PackageCheck,
   RefreshCcw,
   ReceiptText,
   Search,
@@ -1886,6 +1887,17 @@ function DashboardPage() {
             ? "text-rose-600 bg-rose-50"
             : "text-violet-600 bg-violet-50",
           drawer: "finance",
+        },
+        {
+          label: "External deliveries",
+          value: formatDashboardNumber(
+            data.overview.externalDeliveries?.count ?? 0
+          ),
+          helper: `${formatDashboardCurrency(
+            data.overview.externalDeliveries?.revenue ?? 0
+          )} · off-platform, settled separately`,
+          icon: PackageCheck,
+          tone: "text-violet-600 bg-violet-50",
         },
         {
           label: "SMS balance",

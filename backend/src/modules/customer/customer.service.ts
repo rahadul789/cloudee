@@ -89,6 +89,7 @@ import {
   resolveServiceZoneForCoordinates,
 } from "../service-area/service-area.service";
 import { resolveServiceHoursConfig } from "../service-area/service-hours";
+import { notifyNewCustomerSignup } from "../monitoring/business-telegram.service";
 import { computeRestaurantAvailability } from "./restaurant-availability";
 import { getActivePublicPoll } from "./poll.service";
 import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service";
@@ -1144,6 +1145,13 @@ export async function verifyCustomerPhoneSignin(params: {
     if (referralLink && !referralLink.rejected) {
       await grantRefereeWelcomeVoucherToCustomer({ customer });
     }
+    // Brand-new customer just completed signup+login — notify the business Telegram bot.
+    // Fire-and-forget: a Telegram hiccup must never break the signup flow.
+    void notifyNewCustomerSignup({
+      fullName: customer.fullName ?? "",
+      phone: customer.phone ?? otpSession.phone,
+      referredBy: params.referralCode ?? null,
+    }).catch(() => {});
   } else {
     assertCustomerAccountAccessible(customer);
 

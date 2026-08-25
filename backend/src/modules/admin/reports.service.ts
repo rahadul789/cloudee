@@ -207,7 +207,19 @@ export async function getAdminReports(params: ReportParams) {
   const range = buildRange(params);
   const deliveredDate = deliveredDateExpression();
   const terminalDate = terminalDateExpression();
-  const orderScopeFilter = buildOrderServiceAreaScopeFilter(params);
+  // External deliveries are off-platform (owner-initiated, settled separately). They must NOT
+  // enter any platform report/dashboard KPI (revenue, orders, trend, margin, reconciliation).
+  // `source` is absent on regular orders and on ledger/review docs, so `$ne "external"` matches
+  // those (missing field ≠ "external") and only drops the explicit external orders.
+  const orderScopeFilter = {
+    ...buildOrderServiceAreaScopeFilter(params),
+    source: { $ne: "external" },
+  };
+  // Raw area scope (no source constraint) — used to measure external deliveries on their own.
+  const externalOrderScopeFilter = {
+    ...buildOrderServiceAreaScopeFilter(params),
+    source: "external",
+  };
   const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
   const riderScopeFilter = buildRiderServiceAreaScopeFilter(params);
   const [scopedRestaurantIds, scopedRiderIds, scopedCustomerIds] = await Promise.all([
@@ -286,6 +298,7 @@ export async function getAdminReports(params: ReportParams) {
     activeUsersTodayIds,
     activeUsersMonthIds,
     repeatCustomerRows,
+    externalDeliveredRows,
   ] = await Promise.all([
     OrderModel.aggregate<Record<string, any>>([
       { $match: { status: "Delivered", ...orderScopeFilter } },
@@ -660,6 +673,19 @@ export async function getAdminReports(params: ReportParams) {
         },
       },
     ]),
+    // External deliveries in this timeframe — tracked separately, never mixed into platform KPIs.
+    OrderModel.aggregate<Record<string, any>>([
+      { $match: { status: "Delivered", ...externalOrderScopeFilter } },
+      { $addFields: { reportDeliveredAt: deliveredDate } },
+      { $match: rangeMatchOn("reportDeliveredAt", range.start, range.end) },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+        },
+      },
+    ]),
   ]);
 
   const activeUsersToday = Array.isArray(activeUsersTodayIds)
@@ -677,6 +703,11 @@ export async function getAdminReports(params: ReportParams) {
       : 0;
 
   const delivered = deliveredRows[0] ?? {};
+  const externalDelivered = externalDeliveredRows[0] ?? {};
+  const externalDeliveries = {
+    count: numberValue(externalDelivered.count),
+    revenue: numberValue(externalDelivered.revenue),
+  };
   const previousDelivered = previousDeliveredRows[0] ?? {};
   const ledger = ledgerRows[0] ?? {};
   const refundLedger = refundLedgerRows[0] ?? {};
@@ -765,6 +796,7 @@ export async function getAdminReports(params: ReportParams) {
       averageServiceMinutes: Number(numberValue(delivered.averageServiceMinutes).toFixed(1)),
       reviewCount: numberValue(reviews.count),
       averageRating: Number(numberValue(reviews.averageRating).toFixed(1)),
+      externalDeliveries,
     },
     comparison: {
       previousDeliveredRevenue: previousRevenue,

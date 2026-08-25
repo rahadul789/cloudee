@@ -151,6 +151,12 @@ const envSchema = z.object({
   TELEGRAM_SYSTEM_CHAT_ID: optionalTrimmedString,
   TELEGRAM_OTP_BOT_TOKEN: optionalTrimmedString,
   TELEGRAM_OTP_CHAT_ID: optionalTrimmedString,
+  // Dedicated "Foodbela External" bot — new external-delivery requests.
+  TELEGRAM_EXTERNAL_BOT_TOKEN: optionalTrimmedString,
+  TELEGRAM_EXTERNAL_CHAT_ID: optionalTrimmedString,
+  // Dedicated "Foodbela Business" bot — new customer signups.
+  TELEGRAM_BUSINESS_BOT_TOKEN: optionalTrimmedString,
+  TELEGRAM_BUSINESS_CHAT_ID: optionalTrimmedString,
   WHATSAPP_ACCESS_TOKEN: optionalTrimmedString,
   WHATSAPP_PHONE_NUMBER_ID: optionalTrimmedString,
   WHATSAPP_OTP_TEMPLATE: optionalTrimmedString,

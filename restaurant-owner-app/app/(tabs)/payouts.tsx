@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,15 +19,17 @@ import { StatusPill, type StatusTone } from "@/src/components/status-pill";
 import {
   type OwnerPayoutHistory,
   type OwnerPayoutSummary,
-  useRequestOwnerPayoutMutation,
+  type OwnerPayoutTransaction,
+  useOwnerDashboardSummaryQuery,
   useOwnerPayoutHistoryQuery,
   useOwnerPayoutSummaryQuery,
+  useOwnerPayoutTransactionsQuery,
 } from "@/src/hooks/use-owner-api";
 import {
   type TranslationKey,
   useOwnerTranslation,
 } from "@/src/i18n/translations";
-import { formatCurrency } from "@/src/lib/format";
+import { formatCurrency, localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 type PayoutTab = "cycle" | "lifetime" | "history";
@@ -46,12 +48,37 @@ const payoutTabs: {
 export default function PayoutsScreen() {
   const { language, t } = useOwnerTranslation();
   const payoutQuery = useOwnerPayoutSummaryQuery();
-  const requestPayoutMutation = useRequestOwnerPayoutMutation();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // The statement is per-payout: opened from a "View statement" button inside a payout's
+  // detail sheet, scoped to that specific payout.
+  const [statementPayout, setStatementPayout] = useState<OwnerPayoutHistory | null>(null);
+  const [statementTab, setStatementTab] = useState<"breakdown" | "topSellers">("breakdown");
+  // The exact per-payout order rows — same endpoint the owner-web uses, so totals match 100%.
+  const statementTxQuery = useOwnerPayoutTransactionsQuery(
+    statementPayout?._id ?? null,
+    Boolean(statementPayout),
+  );
+  const statementOrderTx = (statementTxQuery.data?.items ?? []).filter(
+    (transaction) => transaction.type !== "payout",
+  );
+  const statementTotals = statementOrderTx.reduce(
+    (totals, transaction) => ({
+      gross: totals.gross + transaction.grossAmount,
+      commission: totals.commission + transaction.commission,
+      discount: totals.discount + transaction.discountCost,
+      net: totals.net + transaction.netAmount,
+    }),
+    { gross: 0, commission: 0, discount: 0, net: 0 },
+  );
+  // Best sellers WITHIN this payout's orders (from the backend), not today's dashboard data.
+  const statementTopItems = statementTxQuery.data?.topItems ?? [];
   const [activeTab, setActiveTab] = useState<PayoutTab>("cycle");
   const [selectedPayout, setSelectedPayout] = useState<OwnerPayoutHistory | null>(null);
   const [historyPageSize, setHistoryPageSize] = useState(PAYOUT_HISTORY_PAGE_STEP);
   const payoutHistoryQuery = useOwnerPayoutHistoryQuery(true, historyPageSize);
+  // Today's best sellers — shares the home dashboard's cached query (no extra request) and
+  // fits the same-day settlement model ("what sold today").
+  const dashboardQuery = useOwnerDashboardSummaryQuery();
   const summary = payoutQuery.data;
   const history = payoutHistoryQuery.data?.items ?? [];
   const canLoadMoreHistory = Boolean(
@@ -61,18 +88,6 @@ export default function PayoutsScreen() {
   );
   const payoutMethod = summary?.payoutMethod;
   const payoutMethodStatus = getPayoutMethodStatus(payoutMethod, t);
-  const hasVerifiedPayoutMethod =
-    payoutMethod?.isVerified === true && Boolean(payoutMethod.accountNumber?.trim());
-  const hasActivePayoutRequest =
-    summary?.hasActivePayoutRequest === true ||
-    (summary?.requestedPayoutBalance ?? 0) > 0;
-  const minimumPayoutAmount = summary?.minimumPayoutAmountTaka ?? 0;
-  const canRequestPayout =
-    (summary?.availableBalance ?? 0) > 0 &&
-    (summary?.availableBalance ?? 0) >= minimumPayoutAmount &&
-    hasVerifiedPayoutMethod &&
-    !hasActivePayoutRequest &&
-    !requestPayoutMutation.isPending;
   const nextPayoutLabel = getNextPayoutLabel(
     summary?.nextSettlementAvailableAt,
     summary?.availableBalance,
@@ -87,39 +102,14 @@ export default function PayoutsScreen() {
   async function refreshPayouts() {
     setIsRefreshing(true);
     try {
-      await Promise.all([payoutQuery.refetch(), payoutHistoryQuery.refetch()]);
+      await Promise.all([
+        payoutQuery.refetch(),
+        payoutHistoryQuery.refetch(),
+        dashboardQuery.refetch(),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
-  }
-
-  function requestFullPayout() {
-    if (!canRequestPayout) return;
-
-    Alert.alert(
-      t("payouts.requestConfirmTitle"),
-      `${formatCurrency(summary?.availableBalance)} ${t("payouts.requestConfirmBody")}`,
-      [
-        { text: t("payouts.notNow"), style: "cancel" },
-        {
-          text: t("payouts.requestPayout"),
-          onPress: async () => {
-            try {
-              await requestPayoutMutation.mutateAsync();
-              Alert.alert(
-                t("payouts.requestSentTitle"),
-                t("payouts.requestSentBody"),
-              );
-            } catch (error) {
-              Alert.alert(
-                t("payouts.requestFailedTitle"),
-                error instanceof Error ? error.message : t("payouts.tryAgain"),
-              );
-            }
-          },
-        },
-      ],
-    );
   }
 
   return (
@@ -334,49 +324,8 @@ export default function PayoutsScreen() {
                     <ActivityIndicator size="small" color={palette.primary} />
                   ) : null}
                 </View>
-                <View style={styles.requestCard}>
-                  <View style={styles.requestCopy}>
-                    <Text style={styles.requestTitle}>{t("payouts.requestTitle")}</Text>
-                    <Text style={styles.requestText}>
-                      {t("payouts.requestText")}
-                    </Text>
-                    {!hasVerifiedPayoutMethod ? (
-                      <Text style={styles.requestWarning}>
-                        {t("payouts.verifyFirst")}
-                      </Text>
-                    ) : hasActivePayoutRequest ? (
-                      <Text style={styles.requestInfo}>
-                        {t("payouts.alreadyPending")}
-                      </Text>
-                    ) : (summary?.availableBalance ?? 0) > 0 &&
-                      (summary?.availableBalance ?? 0) < minimumPayoutAmount ? (
-                      <Text style={styles.requestWarning}>
-                        {t("payouts.minimumPayoutIs")} {formatCurrency(minimumPayoutAmount)}.
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={!canRequestPayout}
-                    onPress={requestFullPayout}
-                    style={({ pressed }) => [
-                      styles.requestButton,
-                      !canRequestPayout ? styles.requestButtonDisabled : null,
-                      pressed ? styles.requestButtonPressed : null,
-                    ]}
-                  >
-                    {requestPayoutMutation.isPending ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Text style={styles.requestButtonText}>
-                          {formatCurrency(summary?.availableBalance)}
-                        </Text>
-                        <Ionicons name="send-outline" size={16} color="#FFFFFF" />
-                      </>
-                    )}
-                  </Pressable>
-                </View>
+                {/* Payouts are admin-initiated (settled centrally), so the owner view is
+                    read-only — no self-service request button. */}
                 {history.length ? (
                   <View style={styles.historyList}>
                     {history.map((payout) => (
@@ -442,9 +391,242 @@ export default function PayoutsScreen() {
         snapPoints={[0.68, 0.9]}
       >
         {selectedPayout ? (
-          <PayoutDetailsSheet payout={selectedPayout} language={language} t={t} />
+          <PayoutDetailsSheet
+            payout={selectedPayout}
+            language={language}
+            t={t}
+            onViewStatement={() => {
+              const payout = selectedPayout;
+              setSelectedPayout(null);
+              setStatementTab("breakdown");
+              setStatementPayout(payout);
+            }}
+          />
         ) : null}
       </AppBottomSheet>
+
+      {/* Per-payout statement — opened from a payout's detail sheet, scoped to that payout.
+          Read-only, in-app (no native PDF/print dependency → OTA-updatable). */}
+      <Modal
+        visible={Boolean(statementPayout)}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setStatementPayout(null)}
+      >
+        {statementPayout ? (
+          <Screen>
+            <View style={styles.statementHeader}>
+              <View style={styles.statementHeaderCopy}>
+                <Text style={styles.statementTitle}>{t("payouts.statement")}</Text>
+                <Text style={styles.statementSubtitle} numberOfLines={1}>
+                  {dashboardQuery.data?.restaurant?.name
+                    ? `${dashboardQuery.data.restaurant.name} · `
+                    : ""}
+                  {formatDate(
+                    statementPayout.processedAt ?? statementPayout.requestedAt,
+                    language,
+                  )}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => setStatementPayout(null)}
+                style={styles.statementClose}
+              >
+                <Ionicons name="close" size={22} color={palette.foreground} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.statementContent}>
+              <View style={styles.statementBalanceCard}>
+                <Text style={styles.statementBalanceLabel}>{t("payouts.amount")}</Text>
+                <Text style={styles.statementBalanceValue}>
+                  {formatCurrency(statementPayout.amount)}
+                </Text>
+                <View style={styles.statementStatusRow}>
+                  <StatusPill
+                    label={formatPayoutStatus(statementPayout.status, t)}
+                    tone={getPayoutStatusTone(statementPayout.status)}
+                  />
+                  {payoutMethod?.type ? (
+                    <View style={styles.statementMethodChip}>
+                      <Ionicons
+                        name={
+                          payoutMethod.type === "bank" ? "card-outline" : "wallet-outline"
+                        }
+                        size={13}
+                        color={palette.mutedForeground}
+                      />
+                      <Text style={styles.statementMethodChipText}>
+                        {payoutMethod.type === "bank" ? "Bank" : "bKash"}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.statementBalanceMetaRow}>
+                  <View style={styles.statementBalanceMetaItem}>
+                    <Text style={styles.statementMetaLabel}>{t("payouts.requested")}</Text>
+                    <Text style={styles.statementMetaValue}>
+                      {formatDate(statementPayout.requestedAt, language)}
+                    </Text>
+                  </View>
+                  <View style={styles.statementBalanceMetaItem}>
+                    <Text style={styles.statementMetaLabel}>{t("payouts.processed")}</Text>
+                    <Text style={styles.statementMetaValue}>
+                      {statementPayout.processedAt
+                        ? formatDate(statementPayout.processedAt, language)
+                        : "--"}
+                    </Text>
+                  </View>
+                </View>
+                {statementPayout.providerTransactionId ? (
+                  <View style={styles.statementRefRow}>
+                    <Text style={styles.statementMetaLabel}>{t("payouts.transactionId")}</Text>
+                    <Text style={styles.statementRefValue} numberOfLines={1}>
+                      {statementPayout.providerTransactionId}
+                    </Text>
+                  </View>
+                ) : null}
+                {statementPayout.batchReference ? (
+                  <View style={styles.statementRefRow}>
+                    <Text style={styles.statementMetaLabel}>{t("payouts.batch")}</Text>
+                    <Text style={styles.statementRefValue} numberOfLines={1}>
+                      {statementPayout.batchReference}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Separate views: the per-payout order breakdown (100% synced with the web)
+                  and, behind its own tab, the top-selling items. */}
+              <View style={styles.statementToggle}>
+                <Pressable
+                  style={[
+                    styles.statementToggleBtn,
+                    statementTab === "breakdown" ? styles.statementToggleBtnActive : null,
+                  ]}
+                  onPress={() => setStatementTab("breakdown")}
+                >
+                  <Text
+                    style={[
+                      styles.statementToggleText,
+                      statementTab === "breakdown" ? styles.statementToggleTextActive : null,
+                    ]}
+                  >
+                    {t("payouts.orderBreakdown")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.statementToggleBtn,
+                    statementTab === "topSellers" ? styles.statementToggleBtnActive : null,
+                  ]}
+                  onPress={() => setStatementTab("topSellers")}
+                >
+                  <Text
+                    style={[
+                      styles.statementToggleText,
+                      statementTab === "topSellers" ? styles.statementToggleTextActive : null,
+                    ]}
+                  >
+                    {t("payouts.topSellers")}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {statementTab === "breakdown" ? (
+                <>
+                  <View style={styles.statTileRow}>
+                    <StatTile
+                      label={t("payouts.orders")}
+                      value={localizeDigits(String(statementOrderTx.length))}
+                    />
+                    <StatTile
+                      label={t("payouts.foodSales")}
+                      value={formatCurrency(statementTotals.gross)}
+                    />
+                  </View>
+                  <View style={styles.statTileRow}>
+                    <StatTile
+                      label={t("payouts.commission")}
+                      value={`-${formatCurrency(statementTotals.commission)}`}
+                      tone="danger"
+                    />
+                    <StatTile
+                      label={t("payouts.ownerDiscount")}
+                      value={`-${formatCurrency(statementTotals.discount)}`}
+                      tone="warning"
+                    />
+                  </View>
+                  <View style={styles.statementEarningCard}>
+                    <Text style={styles.statementEarningLabel}>{t("payouts.ownerEarning")}</Text>
+                    <Text style={styles.statementEarningValue}>
+                      {formatCurrency(statementTotals.net)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.statementSection}>
+                    <Text style={styles.statementSectionTitle}>
+                      {t("payouts.includedOrders")}
+                    </Text>
+                    {statementTxQuery.isLoading ? (
+                      <ActivityIndicator size="small" color={palette.primary} />
+                    ) : statementOrderTx.length ? (
+                      <View style={styles.txTable}>
+                        <View style={styles.txHeaderRow}>
+                          <Text style={[styles.txHeadCell, styles.txColOrder]} numberOfLines={1}>
+                            {t("payouts.orderCol")}
+                          </Text>
+                          <Text style={[styles.txHeadCell, styles.txColNum]} numberOfLines={1}>
+                            {t("payouts.foodSales")}
+                          </Text>
+                          <Text style={[styles.txHeadCell, styles.txColNum]} numberOfLines={1}>
+                            {t("payouts.commission")}
+                          </Text>
+                          <Text style={[styles.txHeadCell, styles.txColNum]} numberOfLines={1}>
+                            {t("payouts.ownerEarning")}
+                          </Text>
+                        </View>
+                        {statementOrderTx.map((transaction) => (
+                          <StatementOrderRow key={transaction.id} transaction={transaction} />
+                        ))}
+                      </View>
+                    ) : (
+                      <Text style={styles.statementEmpty}>{t("payouts.noTransactions")}</Text>
+                    )}
+                  </View>
+                </>
+              ) : (
+                <View style={styles.statementSection}>
+                  <Text style={styles.statementSectionTitle}>{t("payouts.topSellers")}</Text>
+                  {statementTxQuery.isLoading ? (
+                    <ActivityIndicator size="small" color={palette.primary} />
+                  ) : statementTopItems.length ? (
+                    statementTopItems.map((item, index) => (
+                      <View key={`${item.id}-${index}`} style={styles.statementItemRow}>
+                        <Text style={styles.statementItemRank}>{index + 1}</Text>
+                        <View style={styles.statementItemBody}>
+                          <Text style={styles.statementItemName} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <Text style={styles.statementItemMeta}>
+                            {localizeDigits(String(item.quantity))} {t("payouts.sold")}
+                          </Text>
+                        </View>
+                        <Text style={styles.statementItemValue}>
+                          {formatCurrency(item.revenue)}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.statementEmpty}>{t("payouts.topSellersEmpty")}</Text>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+          </Screen>
+        ) : null}
+      </Modal>
     </Screen>
   );
 }
@@ -501,6 +683,94 @@ function getPayoutMethodStatus(
     tone: "warning",
     detail: text("payouts.method.verifyFromAccount"),
   };
+}
+
+function StatementLine({
+  label,
+  value,
+  negative,
+  strong,
+}: {
+  label: string;
+  value: string;
+  negative?: boolean;
+  strong?: boolean;
+}) {
+  return (
+    <View style={styles.statementLine}>
+      <Text style={[styles.statementLineLabel, strong ? styles.statementLineStrong : null]}>
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.statementLineValue,
+          negative ? styles.statementLineNegative : null,
+          strong ? styles.statementLineStrong : null,
+        ]}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "danger" | "warning" | "success";
+}) {
+  return (
+    <View style={styles.statTile}>
+      <Text style={styles.statTileLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text
+        style={[
+          styles.statTileValue,
+          tone === "danger"
+            ? styles.statTextDanger
+            : tone === "warning"
+              ? styles.statTextWarning
+              : tone === "success"
+                ? styles.statTextSuccess
+                : null,
+        ]}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function StatementOrderRow({ transaction }: { transaction: OwnerPayoutTransaction }) {
+  return (
+    <View style={styles.txDataRow}>
+      <View style={styles.txColOrder}>
+        <Text style={styles.txOrderNum} numberOfLines={1}>
+          {transaction.orderNumber}
+        </Text>
+        {transaction.orderStatus ? (
+          <Text style={styles.txOrderStatus} numberOfLines={1}>
+            {transaction.orderStatus}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={[styles.txCell, styles.txColNum]} numberOfLines={1}>
+        {formatCurrency(transaction.grossAmount)}
+      </Text>
+      <Text style={[styles.txCell, styles.txColNum, styles.statTextDanger]} numberOfLines={1}>
+        -{formatCurrency(transaction.commission)}
+      </Text>
+      <Text style={[styles.txCell, styles.txColNum, styles.statTextSuccess]} numberOfLines={1}>
+        {formatCurrency(transaction.netAmount)}
+      </Text>
+    </View>
+  );
 }
 
 function SummaryTile({
@@ -581,10 +851,12 @@ function PayoutDetailsSheet({
   payout,
   language,
   t,
+  onViewStatement,
 }: {
   payout: OwnerPayoutHistory;
   language: "bn" | "en";
   t: (key: TranslationKey) => string;
+  onViewStatement: () => void;
 }) {
   const reference =
     payout.providerTransactionId ||
@@ -657,6 +929,18 @@ function PayoutDetailsSheet({
           </View>
         </View>
       ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={onViewStatement}
+        style={({ pressed }) => [
+          styles.downloadButton,
+          pressed ? styles.downloadButtonPressed : null,
+        ]}
+      >
+        <Ionicons name="document-text-outline" size={17} color={palette.foreground} />
+        <Text style={styles.downloadButtonText}>{t("payouts.viewStatement")}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1033,6 +1317,438 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     lineHeight: 21,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  topSellersCard: {
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 15,
+    gap: 12,
+  },
+  topSellersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  topSellersIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.warningSoft,
+  },
+  topSellerList: {
+    gap: 10,
+  },
+  topSellerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  topSellerRank: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  topSellerRankText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "900",
+    color: palette.primary,
+  },
+  topSellerBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  topSellerName: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  topSellerMeta: {
+    marginTop: 1,
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  topSellerRevenue: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  topSellersEmpty: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+  },
+  downloadButton: {
+    minHeight: 48,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  downloadButtonPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.99 }],
+  },
+  downloadButtonDisabled: {
+    opacity: 0.6,
+  },
+  downloadButtonText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  // ── statement modal ──
+  statementHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  statementHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statementTitle: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statementSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  statementClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
+  },
+  statementContent: {
+    padding: 18,
+    gap: 14,
+    paddingBottom: 40,
+  },
+  statementBalanceCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 16,
+    gap: 4,
+  },
+  statementBalanceLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    color: palette.mutedForeground,
+  },
+  statementBalanceValue: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statementBalanceMetaRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 10,
+  },
+  statementBalanceMetaItem: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: palette.surfaceMuted,
+    padding: 10,
+    gap: 2,
+  },
+  statementMetaLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  statementMetaValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statementStatusRow: {
+    flexDirection: "row",
+    marginTop: 10,
+  },
+  statementRefRow: {
+    marginTop: 12,
+    gap: 2,
+  },
+  statementRefValue: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  statementMethodChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  statementMethodChipText: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  statementToggle: {
+    flexDirection: "row",
+    gap: 6,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceMuted,
+    padding: 4,
+  },
+  statementToggleBtn: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statementToggleBtnActive: {
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  statementToggleText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  statementToggleTextActive: {
+    color: palette.foreground,
+  },
+  statTileRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  statTile: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 12,
+    gap: 3,
+  },
+  statTileLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  statTileValue: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statTextDanger: { color: palette.danger },
+  statTextWarning: { color: palette.warning },
+  statTextSuccess: { color: palette.success },
+  statementEarningCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#BFE6D1",
+    backgroundColor: palette.successSoft,
+    padding: 14,
+    gap: 3,
+  },
+  statementEarningLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    color: palette.success,
+  },
+  statementEarningValue: {
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: "900",
+    color: palette.success,
+  },
+  statementEmpty: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: palette.mutedForeground,
+    paddingVertical: 6,
+  },
+  txTable: {
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  txHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: palette.surfaceMuted,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  txHeadCell: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  txDataRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  txColOrder: {
+    flex: 1.5,
+    minWidth: 0,
+  },
+  txColNum: {
+    flex: 1,
+    textAlign: "right",
+  },
+  txOrderNum: {
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  txOrderStatus: {
+    marginTop: 1,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  txCell: {
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  statementSection: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    padding: 15,
+    gap: 10,
+  },
+  statementSectionTitle: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statementDivider: {
+    height: 1,
+    backgroundColor: palette.border,
+    marginVertical: 2,
+  },
+  statementLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  statementLineLabel: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  statementLineValue: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  statementLineNegative: {
+    color: palette.danger,
+  },
+  statementLineStrong: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  statementItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  statementItemRank: {
+    width: 22,
+    fontSize: 13,
+    fontWeight: "900",
+    color: palette.primary,
+  },
+  statementItemBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statementItemName: {
+    fontSize: 13.5,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  statementItemMeta: {
+    marginTop: 1,
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  statementItemValue: {
+    fontSize: 13.5,
+    lineHeight: 18,
     fontWeight: "900",
     color: palette.foreground,
   },

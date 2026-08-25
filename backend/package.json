@@ -20,6 +20,8 @@
     "perf:seed": "tsx scripts/perf-seed.ts",
     "seed:showcase": "tsx scripts/reset-showcase-seed.ts --seed-only",
     "db:reset-showcase": "tsx scripts/reset-showcase-seed.ts",
+    "db:reset-preserve-auth:preview": "tsx scripts/reset-preserve-auth-seed.ts --preview",
+    "db:reset-preserve-auth": "tsx scripts/reset-preserve-auth-seed.ts",
     "cleanup:scheduler-events": "tsx src/scripts/cleanup-transient-scheduler-events.ts",
     "backfill:voucher-redeemed-count": "tsx src/scripts/backfill-voucher-redeemed-count.ts",
     "alert:test": "tsx src/scripts/send-test-alert.ts",

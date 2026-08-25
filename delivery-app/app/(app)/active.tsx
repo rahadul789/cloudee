@@ -245,7 +245,11 @@ export default function ActiveOrdersScreen() {
           const amountLabel = formatCompactMoney(item.pricing?.total);
           return (
             <Pressable
-              style={[styles.card, isLateOrder ? styles.cardLate : null]}
+              style={[
+                styles.card,
+                item.isExternal ? styles.cardExternal : null,
+                isLateOrder ? styles.cardLate : null,
+              ]}
               onPress={() => router.push(`/orders/${item.id}`)}
             >
               <View style={styles.cardTopRow}>
@@ -261,7 +265,7 @@ export default function ActiveOrdersScreen() {
                   {item.isExternal ? (
                     <View style={styles.externalChip}>
                       <Ionicons name="storefront-outline" size={11} color="#6D28D9" />
-                      <Text style={styles.externalChipText}>External</Text>
+                      <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
                     </View>
                   ) : null}
                   {item.isFocusedLiveTrip ? (
@@ -402,6 +406,10 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: palette.warning,
     backgroundColor: palette.warningSoft,
+  },
+  cardExternal: {
+    borderColor: "#C4B5FD",
+    backgroundColor: "#FAF8FF",
   },
   cardTopRow: {
     flexDirection: "row",

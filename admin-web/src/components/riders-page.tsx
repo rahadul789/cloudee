@@ -868,6 +868,56 @@ function RiderActionsMenu({
   )
 }
 
+type RiderDatePreset = "today" | "7d" | "30d" | "month" | "all" | "custom"
+
+const RIDER_DATE_PRESETS: Array<{ value: RiderDatePreset; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+  { value: "month", label: "This month" },
+  { value: "all", label: "All time" },
+  { value: "custom", label: "Custom" },
+]
+
+function riderDayString(date: Date): string {
+  const y = date.getFullYear()
+  const m = `${date.getMonth() + 1}`.padStart(2, "0")
+  const d = `${date.getDate()}`.padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function resolveRiderDateRange(
+  preset: RiderDatePreset,
+  customFrom: string,
+  customTo: string
+): { from: string | null; to: string | null } {
+  const now = new Date()
+  const today = riderDayString(now)
+  switch (preset) {
+    case "today":
+      return { from: today, to: today }
+    case "7d": {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 6)
+      return { from: riderDayString(start), to: today }
+    }
+    case "30d": {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 29)
+      return { from: riderDayString(start), to: today }
+    }
+    case "month": {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1)
+      return { from: riderDayString(start), to: today }
+    }
+    case "custom":
+      return { from: customFrom || null, to: customTo || null }
+    case "all":
+    default:
+      return { from: null, to: null }
+  }
+}
+
 function RiderDetailsSheet({
   riderId,
   open,
@@ -891,9 +941,20 @@ function RiderDetailsSheet({
   ) => void
 }) {
   const queryClient = useQueryClient()
+  const [datePreset, setDatePreset] = React.useState<RiderDatePreset>("all")
+  const [customFrom, setCustomFrom] = React.useState("")
+  const [customTo, setCustomTo] = React.useState("")
+  const dateRange = React.useMemo(
+    () => resolveRiderDateRange(datePreset, customFrom, customTo),
+    [datePreset, customFrom, customTo]
+  )
   const detailsQuery = useQuery({
-    queryKey: ["admin-rider", riderId],
-    queryFn: () => getAdminRider(riderId),
+    queryKey: ["admin-rider", riderId, dateRange.from ?? "", dateRange.to ?? ""],
+    queryFn: () =>
+      getAdminRider(riderId, {
+        from: dateRange.from ?? undefined,
+        to: dateRange.to ?? undefined,
+      }),
     enabled: open && Boolean(riderId),
     refetchInterval: open && riderId ? refreshIntervalMs || false : false,
     refetchIntervalInBackground: false,
@@ -906,6 +967,22 @@ function RiderDetailsSheet({
   const [adjustmentAmount, setAdjustmentAmount] = React.useState("")
   const [adjustmentNote, setAdjustmentNote] = React.useState("")
   const [paymentReference, setPaymentReference] = React.useState("")
+  const availabilityMutation = useMutation({
+    mutationFn: updateAdminRiderAvailability,
+    onSuccess: (_data, variables) => {
+      toast.success(
+        variables.isAvailableForAssignments
+          ? "Rider set online."
+          : "Rider set offline."
+      )
+      invalidateRiderQueries(queryClient, riderId)
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Availability update failed."
+      )
+    },
+  })
   const payrollSettingsMutation = useMutation({
     mutationFn: updateAdminRiderPayrollSettings,
     onSuccess: () => {
@@ -1072,6 +1149,24 @@ function RiderDetailsSheet({
                         Reject KYC
                       </Button>
                     ) : null}
+                    <Button
+                      size="sm"
+                      variant={rider.availability.isOnline ? "outline" : "default"}
+                      disabled={availabilityMutation.isPending}
+                      onClick={() =>
+                        availabilityMutation.mutate({
+                          riderId: rider.id,
+                          isAvailableForAssignments: !rider.availability.isOnline,
+                        })
+                      }
+                    >
+                      {rider.availability.isOnline ? (
+                        <WifiOff className="size-4" />
+                      ) : (
+                        <Wifi className="size-4" />
+                      )}
+                      {rider.availability.isOnline ? "Set offline" : "Set online"}
+                    </Button>
                     {rider.status !== "active" ? (
                       <Button
                         size="sm"
@@ -1108,6 +1203,43 @@ function RiderDetailsSheet({
                 </div>
               </div>
 
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Delivery period
+                </span>
+                {RIDER_DATE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.value}
+                    type="button"
+                    size="sm"
+                    variant={datePreset === preset.value ? "default" : "outline"}
+                    className="h-7 px-2.5 text-xs"
+                    onClick={() => setDatePreset(preset.value)}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+                {datePreset === "custom" ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={customFrom}
+                      max={customTo || undefined}
+                      onChange={(event) => setCustomFrom(event.target.value)}
+                      className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    />
+                    <span className="text-xs text-muted-foreground">→</span>
+                    <input
+                      type="date"
+                      value={customTo}
+                      min={customFrom || undefined}
+                      onChange={(event) => setCustomTo(event.target.value)}
+                      className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid gap-3 md:grid-cols-4">
                 <StatCard
                   label="Active orders"
@@ -1121,13 +1253,44 @@ function RiderDetailsSheet({
                 />
                 <StatCard
                   label="Delivered trips"
-                  value={`${rider.summary.deliveredTrips}`}
-                  helper="Completed deliveries"
+                  value={`${rider.deliveredBreakdown?.total ?? rider.summary.deliveredTrips}`}
+                  helper={
+                    (rider.deliveredBreakdown?.external ?? 0) > 0
+                      ? `${rider.deliveredBreakdown?.platform ?? 0} platform · ${
+                          rider.deliveredBreakdown?.external ?? 0
+                        } external`
+                      : datePreset === "all"
+                        ? "Completed deliveries"
+                        : "Delivered in period"
+                  }
                 />
                 <StatCard
                   label="Salary default"
                   value={formatCurrency(rider.payroll.baseSalary)}
                   helper="Not counted until paid"
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-4">
+                <StatCard
+                  label="Avg pickup wait"
+                  value={formatMinutes(rider.timing?.avgPickupMinutes ?? 0)}
+                  helper="Ready → picked up"
+                />
+                <StatCard
+                  label="Avg delivery time"
+                  value={formatMinutes(rider.timing?.avgDeliveryMinutes ?? 0)}
+                  helper="Picked up → delivered"
+                />
+                <StatCard
+                  label="Avg total handling"
+                  value={formatMinutes(rider.timing?.avgTotalMinutes ?? 0)}
+                  helper={`Ready → delivered · ${rider.timing?.sampleSize ?? 0} trip(s)`}
+                />
+                <StatCard
+                  label="Cancelled / rejected"
+                  value={`${rider.timing?.cancelledTrips ?? 0}`}
+                  helper={datePreset === "all" ? "All time" : "In period"}
                 />
               </div>
 
@@ -1145,9 +1308,30 @@ function RiderDetailsSheet({
                   <TabsTrigger value="earnings">Payroll</TabsTrigger>
                   <TabsTrigger value="performance">Performance</TabsTrigger>
                   <TabsTrigger value="live-assignment">Live assignment</TabsTrigger>
-                  <TabsTrigger value="active">Active orders</TabsTrigger>
-                  <TabsTrigger value="trips">Recent trips</TabsTrigger>
-                  <TabsTrigger value="devices">Devices</TabsTrigger>
+                  <TabsTrigger value="active">
+                    Active orders
+                    {rider.activeOrders.length > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+                        {rider.activeOrders.length}
+                      </span>
+                    ) : null}
+                  </TabsTrigger>
+                  <TabsTrigger value="trips">
+                    Recent trips
+                    {rider.recentTrips.length > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+                        {rider.recentTrips.length}
+                      </span>
+                    ) : null}
+                  </TabsTrigger>
+                  <TabsTrigger value="devices">
+                    Devices
+                    {rider.pushTokens.length > 0 ? (
+                      <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+                        {rider.pushTokens.length}
+                      </span>
+                    ) : null}
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview">
@@ -1658,7 +1842,17 @@ function RiderLiveAssignmentPanel({
                 {orders.map((order) => (
                   <TableRow key={order.id}>
                     <TableCell>
-                      <div className="font-medium">{order.orderNumber}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{order.orderNumber}</span>
+                        {order.isExternal ? (
+                          <Badge
+                            variant="outline"
+                            className="border-violet-200 bg-violet-50 text-violet-700"
+                          >
+                            External
+                          </Badge>
+                        ) : null}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         {order.customerName}
                       </div>
@@ -1797,7 +1991,17 @@ function RiderOrdersTable({
               {orders.map((order) => (
                 <TableRow key={order.id}>
                   <TableCell>
-                    <div className="font-medium">{order.orderNumber}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{order.orderNumber}</span>
+                      {order.isExternal ? (
+                        <Badge
+                          variant="outline"
+                          className="border-violet-200 bg-violet-50 text-violet-700"
+                        >
+                          External
+                        </Badge>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {formatDate(order.createdAt)}
                     </div>
@@ -1954,11 +2158,43 @@ function RiderTripsTable({
 }: {
   trips: AdminRiderDetails["recentTrips"]
 }) {
+  const [sourceFilter, setSourceFilter] = React.useState<
+    "all" | "platform" | "external"
+  >("all")
+  const externalCount = trips.filter((trip) => trip.isExternal).length
+  const filteredTrips = trips.filter((trip) =>
+    sourceFilter === "all"
+      ? true
+      : sourceFilter === "external"
+        ? trip.isExternal
+        : !trip.isExternal
+  )
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent trips</CardTitle>
-        <CardDescription>Delivered and terminal rider trips.</CardDescription>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-1">
+            <CardTitle>Recent trips</CardTitle>
+            <CardDescription>Delivered and terminal rider trips.</CardDescription>
+          </div>
+          {externalCount > 0 ? (
+            <div className="flex items-center gap-1">
+              {(["all", "platform", "external"] as const).map((value) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={sourceFilter === value ? "default" : "outline"}
+                  className="h-7 px-2.5 text-xs capitalize"
+                  onClick={() => setSourceFilter(value)}
+                >
+                  {value}
+                  {value === "external" ? ` (${externalCount})` : ""}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="overflow-hidden rounded-lg border">
@@ -1973,10 +2209,20 @@ function RiderTripsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {trips.map((trip) => (
+              {filteredTrips.map((trip) => (
                 <TableRow key={trip.id}>
                   <TableCell>
-                    <div className="font-medium">{trip.orderNumber}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{trip.orderNumber}</span>
+                      {trip.isExternal ? (
+                        <Badge
+                          variant="outline"
+                          className="border-violet-200 bg-violet-50 text-violet-700"
+                        >
+                          External
+                        </Badge>
+                      ) : null}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {formatDate(trip.deliveredAt ?? trip.createdAt)}
                     </div>
@@ -1991,7 +2237,7 @@ function RiderTripsTable({
                   </TableCell>
                 </TableRow>
               ))}
-              {trips.length === 0 ? (
+              {filteredTrips.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={5}

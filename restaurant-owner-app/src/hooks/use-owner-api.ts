@@ -1074,6 +1074,100 @@ export function useOwnerPayoutHistoryQuery(enabled = true, pageSize = 8) {
   });
 }
 
+// One order/ledger row inside a payout — SAME endpoint the owner-web uses, so the app's
+// per-payout breakdown stays 100% in sync with the web's "Included order transactions".
+export type OwnerPayoutTransaction = {
+  id: string;
+  orderNumber: string;
+  type: "earning" | "payout" | "refund";
+  orderStatus: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  grossAmount: number;
+  commission: number;
+  discountCost: number;
+  deliveryCost: number;
+  netAmount: number;
+  createdAt: string;
+  deliveredAt: string | null;
+};
+
+// The RAW backend shape (ledger entry). Field names differ from the clean type above, so we
+// MUST map — otherwise `type`/`orderNumber`/`_id` come back undefined (broke filtering + keys).
+type OwnerPayoutTransactionRaw = {
+  _id: string;
+  orderId?: string | null;
+  relatedOrderNumber?: string | null;
+  relatedOrderStatus?: string | null;
+  relatedOrderPaymentMethod?: string | null;
+  relatedOrderPaymentStatus?: string | null;
+  relatedOrderDeliveredAt?: string | null;
+  relatedOrderCreatedAt?: string | null;
+  payoutBatchId?: string | null;
+  entryType: "earning" | "refund" | "payout" | "adjustment";
+  grossAmount?: number;
+  commission?: number;
+  discountCost?: number;
+  deliveryCost?: number;
+  netAmount: number;
+  settlementStatus: "pending" | "available" | "paid_out";
+  createdAt: string;
+};
+
+function mapOwnerPayoutTransaction(
+  entry: OwnerPayoutTransactionRaw,
+): OwnerPayoutTransaction {
+  return {
+    id: entry._id,
+    orderNumber:
+      entry.relatedOrderNumber ?? entry.orderId ?? entry.payoutBatchId ?? entry._id,
+    type:
+      entry.entryType === "payout"
+        ? "payout"
+        : entry.entryType === "refund"
+          ? "refund"
+          : "earning",
+    orderStatus: entry.relatedOrderStatus ?? "",
+    paymentMethod: entry.relatedOrderPaymentMethod ?? "",
+    paymentStatus: entry.relatedOrderPaymentStatus ?? "",
+    grossAmount: entry.grossAmount ?? Math.max(entry.netAmount, 0),
+    commission: entry.commission ?? 0,
+    discountCost: entry.discountCost ?? 0,
+    deliveryCost: entry.deliveryCost ?? 0,
+    netAmount: entry.netAmount,
+    createdAt: entry.createdAt,
+    deliveredAt: entry.relatedOrderDeliveredAt ?? entry.relatedOrderCreatedAt ?? null,
+  };
+}
+
+export type OwnerPayoutTransactionsResult = {
+  items: OwnerPayoutTransaction[];
+  total: number;
+  topItems: OwnerDashboardTopItem[];
+};
+
+export function useOwnerPayoutTransactionsQuery(
+  payoutId: string | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["owner", "payouts", "transactions", payoutId],
+    enabled: enabled && Boolean(payoutId),
+    queryFn: async (): Promise<OwnerPayoutTransactionsResult> => {
+      const response = await apiGet<{
+        items: OwnerPayoutTransactionRaw[];
+        total: number;
+        topItems?: OwnerDashboardTopItem[];
+      }>(`/owner/payout-transactions?payoutId=${payoutId}&pageSize=200`);
+      return {
+        items: (response.data.items ?? []).map(mapOwnerPayoutTransaction),
+        total: response.data.total ?? 0,
+        topItems: response.data.topItems ?? [],
+      };
+    },
+  });
+}
+
 export function useRequestOwnerPayoutMutation() {
   const queryClient = useQueryClient();
 

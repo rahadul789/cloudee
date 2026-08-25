@@ -1790,7 +1790,14 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
   const onlinePaymentDate = onlinePaymentDateExpression();
   const refundPaidDate = refundPaidDateExpression();
   const effectiveRangeStage = { $match: rangeMatchOn("effectiveAt", range.start, range.end) };
-  const orderScopeFilter = buildOrderServiceAreaScopeFilter(params);
+  // Off-platform (external / owner-initiated) deliveries are settled separately and must NOT
+  // enter the platform P&L, cash, or the delivered-order↔ledger reconciliation — otherwise
+  // they show as an unmatched "Ledger mismatch" (external orders create no restaurant ledger
+  // earning). `source` is absent on ledger docs, so $ne leaves ledger aggregations untouched.
+  const orderScopeFilter = {
+    ...buildOrderServiceAreaScopeFilter(params),
+    source: { $ne: "external" },
+  };
   const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
   const hasServiceAreaScope =
     Object.keys(orderScopeFilter).length > 0 ||
@@ -3040,7 +3047,12 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
   const page = clampPage(params.page);
   const pageSize = clampPageSize(params.pageSize);
   const search = params.search?.trim().toLowerCase() ?? "";
-  const orderScopeFilter = buildOrderServiceAreaScopeFilter(params);
+  // External deliveries settle off-platform — exclude them from the platform money
+  // transactions (their COD/online collection is tracked in the external settlement flow).
+  const orderScopeFilter = {
+    ...buildOrderServiceAreaScopeFilter(params),
+    source: { $ne: "external" },
+  };
   const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
   const riderScopeFilter = buildRiderServiceAreaScopeFilter(params);
   const hasServiceAreaScope = Boolean(params.zoneId || params.districtId);
@@ -3374,6 +3386,8 @@ export async function listAdminCodReconciliation(params: PageParams = {}) {
   const query = {
     status: "Delivered",
     paymentMethod: "Cash",
+    // External COD is collected + settled off-platform — never in platform COD reconciliation.
+    source: { $ne: "external" },
   };
 
   const [orders, total, summaryRows] = await Promise.all([
@@ -4448,6 +4462,8 @@ export async function listAdminFinanceRefunds(params: RefundListParams) {
 
   if (restaurantId) query.restaurantId = restaurantId;
   Object.assign(query, buildOrderServiceAreaScopeFilter(params));
+  // External deliveries never enter platform refunds (they settle off-platform).
+  query.source = { $ne: "external" };
 
   if (params.status && params.status !== "all") {
     if (params.status === "needs_review") {

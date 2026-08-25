@@ -97,6 +97,9 @@ export async function applyFailedDeliveryFinance(params: {
 }) {
   try {
     const { order, reason } = params
+    // External deliveries settle through their own off-platform flow — never apply the
+    // platform's failed-delivery compensation (rider trip pay / restaurant ledger comp).
+    if (order.source === "external") return
     const fault = deriveFailedDeliveryFault(reason)
     const settings = await getFailedDeliveryFinanceSettings()
     const orderId = String(order._id ?? "")

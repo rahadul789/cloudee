@@ -26,10 +26,48 @@ import {
   cancelExternalDelivery,
   createExternalDelivery,
   getExternalDeliveryConfig,
+  getExternalDeliveryStats,
   listExternalDeliveries,
   type ExternalSettlementStatus,
   type OwnerExternalDelivery,
 } from "@/lib/external-delivery-api"
+
+type DatePreset = "today" | "7d" | "30d" | "month" | "all" | "custom"
+
+function toDayString(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, "0")
+  const day = `${date.getDate()}`.padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function presetRange(preset: DatePreset): { from?: string; to?: string } {
+  const now = new Date()
+  const today = toDayString(now)
+  if (preset === "today") return { from: today, to: today }
+  if (preset === "7d") {
+    const start = new Date(now)
+    start.setDate(now.getDate() - 6)
+    return { from: toDayString(start), to: today }
+  }
+  if (preset === "30d") {
+    const start = new Date(now)
+    start.setDate(now.getDate() - 29)
+    return { from: toDayString(start), to: today }
+  }
+  if (preset === "month") {
+    return { from: toDayString(new Date(now.getFullYear(), now.getMonth(), 1)), to: today }
+  }
+  return {}
+}
+
+const PRESET_LABELS: Record<Exclude<DatePreset, "custom">, string> = {
+  today: "Today",
+  "7d": "7 days",
+  "30d": "30 days",
+  month: "This month",
+  all: "All",
+}
 
 function formatTk(value?: number | null) {
   return `Tk ${Number(value || 0).toLocaleString(undefined, {
@@ -281,9 +319,52 @@ function DeliveryRow({
   )
 }
 
+function KpiCard({
+  label,
+  value,
+  tone,
+  loading,
+}: {
+  label: string
+  value: string
+  tone?: "success"
+  loading?: boolean
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        {loading ? (
+          <Loader2 className="mt-1 size-4 animate-spin text-muted-foreground" />
+        ) : (
+          <div
+            className={`mt-1 truncate text-2xl font-semibold ${
+              tone === "success" ? "text-emerald-700" : ""
+            }`}
+          >
+            {value}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ExternalDeliveryPage() {
   const queryClient = useQueryClient()
   const [tab, setTab] = React.useState<"live" | "history">("live")
+  const [preset, setPreset] = React.useState<DatePreset>("30d")
+  const [customFrom, setCustomFrom] = React.useState("")
+  const [customTo, setCustomTo] = React.useState("")
+
+  const range = React.useMemo(
+    () =>
+      preset === "custom"
+        ? { from: customFrom || undefined, to: customTo || undefined }
+        : presetRange(preset),
+    [preset, customFrom, customTo],
+  )
+  const rangeKey = `${range.from ?? ""}:${range.to ?? ""}`
 
   const configQuery = useQuery({
     queryKey: ["owner-external-delivery-config"],
@@ -291,9 +372,22 @@ export function ExternalDeliveryPage() {
     staleTime: 30_000,
   })
 
+  const statsQuery = useQuery({
+    queryKey: ["owner-external-stats", rangeKey],
+    queryFn: () => getExternalDeliveryStats(range),
+    staleTime: 10_000,
+    enabled: configQuery.data?.enabled === true,
+  })
+  const stats = statsQuery.data
+
   const listQuery = useQuery({
-    queryKey: ["owner-external-deliveries", tab],
-    queryFn: () => listExternalDeliveries({ tab, pageSize: 50 }),
+    queryKey: ["owner-external-deliveries", tab, tab === "history" ? rangeKey : ""],
+    queryFn: () =>
+      listExternalDeliveries(
+        tab === "history"
+          ? { tab, from: range.from, to: range.to, pageSize: 100 }
+          : { tab, pageSize: 50 },
+      ),
     staleTime: 10_000,
     enabled: configQuery.data?.enabled === true,
   })
@@ -351,6 +445,51 @@ export function ExternalDeliveryPage() {
       ) : (
         <>
           <NewRequestForm deliveryFee={configQuery.data?.deliveryFeeTaka ?? 0} />
+
+          {/* KPIs + date filter (drives the totals and the History list). */}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {(["today", "7d", "30d", "month", "all"] as const).map((key) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={preset === key ? "default" : "outline"}
+                  onClick={() => setPreset(key)}
+                >
+                  {PRESET_LABELS[key]}
+                </Button>
+              ))}
+              <div className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-sm">
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={(event) => {
+                    setCustomFrom(event.target.value)
+                    setPreset("custom")
+                  }}
+                  className="bg-transparent outline-none"
+                />
+                <span className="text-muted-foreground">→</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(event) => {
+                    setCustomTo(event.target.value)
+                    setPreset("custom")
+                  }}
+                  className="bg-transparent outline-none"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <KpiCard label="Requests" value={String(stats?.requests ?? 0)} loading={statsQuery.isLoading} />
+              <KpiCard label="Delivered" value={String(stats?.delivered ?? 0)} loading={statsQuery.isLoading} tone="success" />
+              <KpiCard label="Order value" value={formatTk(stats?.orderValue)} loading={statsQuery.isLoading} />
+              <KpiCard label="You received" value={formatTk(stats?.youReceive)} loading={statsQuery.isLoading} tone="success" />
+            </div>
+          </div>
 
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">

@@ -7,6 +7,7 @@ import { AppError } from "../../common/utils/app-error"
 import { RestaurantModel } from "../auth/auth.model"
 import { resolveRestaurantServiceAreaSnapshot } from "../service-area/service-area.service"
 import { runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
+import { notifyExternalDeliveryRequest } from "../monitoring/business-telegram.service"
 import { OrderModel } from "./operational.model"
 
 // ── Off-platform / owner-initiated delivery (Flow 2) — a fully SEPARATE module ─
@@ -296,6 +297,18 @@ export async function createExternalDelivery(
     districtId: serviceAreaSnapshot?.districtId,
   }).catch(() => {})
 
+  // Notify the business Telegram bot about the new external request. Fire-and-forget.
+  void notifyExternalDeliveryRequest({
+    restaurantName: String(restaurant?.name ?? "Restaurant"),
+    orderNumber: created.orderNumber,
+    customerName,
+    customerPhone,
+    dropAddress,
+    orderValue,
+    deliveryFee,
+    paymentMode: params.paymentMode,
+  }).catch(() => {})
+
   return {
     orderId: String(created._id),
     orderNumber: created.orderNumber,
@@ -351,9 +364,23 @@ function shapeExternalOrder(order: Record<string, any>) {
 export type ExternalDeliveryListItem = ReturnType<typeof shapeExternalOrder>
 
 // List an owner's off-platform delivery orders (newest first), with a light status filter.
+// Parse an inclusive [from, to] day range (YYYY-MM-DD) into UTC-ish Date bounds. Returns null
+// when neither bound is given, so callers can skip the filter entirely.
+function buildExternalDateRange(from?: string, to?: string) {
+  const start = from ? new Date(`${from}T00:00:00.000`) : null
+  const end = to ? new Date(`${to}T23:59:59.999`) : null
+  if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) {
+    return null
+  }
+  if (!start && !end) return null
+  return { start, end }
+}
+
 export async function listExternalDeliveries(params: {
   restaurantId: string
   tab?: "live" | "history"
+  from?: string
+  to?: string
   page?: number
   pageSize?: number
 }) {
@@ -365,6 +392,15 @@ export async function listExternalDeliveries(params: {
   }
   if (params.tab === "live") query.status = { $in: liveStatuses }
   if (params.tab === "history") query.status = { $in: historyStatuses }
+
+  // Date range filters History + is ignored for Live (owner always wants all active ones).
+  const range = params.tab !== "live" ? buildExternalDateRange(params.from, params.to) : null
+  if (range) {
+    query.createdAt = {
+      ...(range.start ? { $gte: range.start } : {}),
+      ...(range.end ? { $lte: range.end } : {}),
+    }
+  }
 
   const page = Math.max(1, params.page ?? 1)
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20))
@@ -383,6 +419,72 @@ export async function listExternalDeliveries(params: {
     total,
     page,
     pageSize,
+  }
+}
+
+// KPI totals for the owner's external deliveries within an optional date range. `orderValue`
+// and `youReceive` count only Delivered (completed) orders, so the numbers reflect real,
+// settled business rather than in-flight or cancelled requests.
+export async function getExternalDeliveryStats(params: {
+  restaurantId: string
+  from?: string
+  to?: string
+}) {
+  const match: Record<string, unknown> = {
+    restaurantId: mongoose.Types.ObjectId.isValid(params.restaurantId)
+      ? new mongoose.Types.ObjectId(params.restaurantId)
+      : params.restaurantId,
+    source: "external",
+  }
+  const range = buildExternalDateRange(params.from, params.to)
+  if (range) {
+    match.createdAt = {
+      ...(range.start ? { $gte: range.start } : {}),
+      ...(range.end ? { $lte: range.end } : {}),
+    }
+  }
+
+  const [row] = await OrderModel.aggregate<{
+    requests: number
+    delivered: number
+    orderValue: number
+    youReceive: number
+  }>([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        requests: { $sum: 1 },
+        delivered: {
+          $sum: { $cond: [{ $eq: ["$status", "Delivered"] }, 1, 0] },
+        },
+        orderValue: {
+          $sum: {
+            $cond: [
+              { $eq: ["$status", "Delivered"] },
+              { $ifNull: ["$external.orderValue", 0] },
+              0,
+            ],
+          },
+        },
+        youReceive: {
+          $sum: {
+            $cond: [
+              { $eq: ["$status", "Delivered"] },
+              { $ifNull: ["$external.netToOwner", 0] },
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ])
+
+  return {
+    requests: row?.requests ?? 0,
+    delivered: row?.delivered ?? 0,
+    orderValue: row?.orderValue ?? 0,
+    youReceive: row?.youReceive ?? 0,
   }
 }
 

@@ -5262,6 +5262,11 @@ export async function reconcileAdminRestaurantFinance(params: {
   const deliveredOrders = await OrderModel.find({
     restaurantId: safeRestaurantId,
     status: "Delivered",
+    // External deliveries settle through their own off-platform flow (no commission, no
+    // restaurant payout) — they must NEVER get a standard earning ledger entry. Excluding
+    // them here mirrors the owner-side ensureRestaurantEarningLedgerEntries, and the
+    // delete-orphans step below cleans up any external earning a previous run created.
+    source: { $ne: "external" },
   }).lean();
   const deliveredOrderIds = deliveredOrders.map((order) => order._id);
   const financeSettings = await getOperationalFinanceSettings();
