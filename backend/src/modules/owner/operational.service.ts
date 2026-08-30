@@ -903,6 +903,7 @@ export async function listCategoriesWithFilters(params: {
   const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
   const matchStage: Record<string, unknown> = {
     restaurantId: new mongoose.Types.ObjectId(restaurantId),
+    isDeleted: { $ne: true },
   };
 
   if (params.status && params.status !== "all") {
@@ -940,7 +941,12 @@ export async function listCategoriesWithFilters(params: {
           from: "menuitems",
           let: { categoryId: "$_id" },
           pipeline: [
-            { $match: { $expr: { $eq: ["$categoryId", "$$categoryId"] } } },
+            {
+              $match: {
+                $expr: { $eq: ["$categoryId", "$$categoryId"] },
+                isDeleted: { $ne: true },
+              },
+            },
             { $count: "count" },
           ],
           as: "menuItemStats",
@@ -1064,14 +1070,179 @@ export async function deleteCategoryPermanently(params: {
     );
   }
 
-  await MenuItemModel.deleteMany({
+  const now = new Date();
+
+  // Soft-delete: move the category (and cascade its items) into the recoverable trash instead of
+  // erasing them. `statusBeforeDelete` remembers the visible status so restore is faithful. Items
+  // already in the trash keep their own delete metadata (skip them here).
+  await MenuItemModel.updateMany(
+    { restaurantId, categoryId: params.categoryId, isDeleted: { $ne: true } },
+    [
+      {
+        $set: {
+          statusBeforeDelete: "$status",
+          status: "deleted",
+          isDeleted: true,
+          deletedAt: now,
+          deletedBy: "owner",
+        },
+      },
+    ],
+  );
+
+  category.set({
+    statusBeforeDelete: category.status,
+    status: "deleted",
+    isDeleted: true,
+    deletedAt: now,
+    deletedBy: "owner",
+  });
+  await category.save();
+  flushCustomerAvailabilityCaches();
+  emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", {
+    categoryId: params.categoryId,
+    deleted: true,
+  });
+  emitSocketEvent(`restaurant:${restaurantId}`, "menu.updated", {
+    categoryId: params.categoryId,
+    deleted: true,
+  });
+
+  return { deleted: true };
+}
+
+export async function listDeletedMenu(params: { ownerId: string }) {
+  const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
+  const [categories, items] = await Promise.all([
+    CategoryModel.find({ restaurantId, isDeleted: true })
+      .sort({ deletedAt: -1 })
+      .lean(),
+    MenuItemModel.find({ restaurantId, isDeleted: true })
+      .sort({ deletedAt: -1 })
+      .lean(),
+  ]);
+
+  const deletedCategoryIds = new Set(
+    categories.map((category) => String(category._id)),
+  );
+
+  return {
+    categories: categories.map((category) => ({
+      id: String(category._id),
+      name: category.name,
+      itemCount: items.filter(
+        (item) => String(item.categoryId) === String(category._id),
+      ).length,
+      deletedAt: category.deletedAt ?? null,
+      deletedBy: category.deletedBy || "owner",
+    })),
+    items: items.map((item) => ({
+      id: String(item._id),
+      name: item.name,
+      basePrice: item.basePrice,
+      image: item.images?.[0]?.url ?? "",
+      categoryId: String(item.categoryId),
+      // An item whose parent category is also in the trash can only be restored by restoring the
+      // category (or the restore call auto-revives the category) — flag it for the UI.
+      categoryDeleted: deletedCategoryIds.has(String(item.categoryId)),
+      deletedAt: item.deletedAt ?? null,
+      deletedBy: item.deletedBy || "owner",
+    })),
+  };
+}
+
+// Core restore keyed on restaurantId so both the owner (self-service trash) and admin (oversight)
+// paths share the same clash guards + item cascade. Emits the restaurant storefront channel; the
+// owner wrapper adds the owner realtime channel on top.
+export async function restoreCategoryForRestaurant(params: {
+  restaurantId: string;
+  categoryId: string;
+}) {
+  const { restaurantId, categoryId } = params;
+  const category = await CategoryModel.findOne({
+    _id: categoryId,
+    restaurantId,
+    isDeleted: true,
+  });
+
+  if (!category) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "CATEGORY_NOT_FOUND",
+      "Deleted category not found",
+    );
+  }
+
+  // Guard against a name/slug clash with a live category created after the delete.
+  const clash = await CategoryModel.findOne({
+    restaurantId,
+    isDeleted: false,
+    $or: [{ name: category.name }, { slug: category.slug }],
+  }).lean();
+  if (clash) {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "CATEGORY_NAME_TAKEN",
+      "A category with this name already exists. Rename it before restoring.",
+    );
+  }
+
+  category.set({
+    status: category.statusBeforeDelete === "archived" ? "archived" : "active",
+    isDeleted: false,
+    deletedAt: null,
+    deletedBy: "",
+    statusBeforeDelete: "",
+  });
+  await category.save();
+
+  // Restore every trashed item under this category (the cascade partner of the delete). Skip a
+  // slug clash per item so a manually-recreated item name is never duplicated.
+  const trashedItems = await MenuItemModel.find({
+    restaurantId,
+    categoryId,
+    isDeleted: true,
+  });
+  for (const item of trashedItems) {
+    const itemClash = await MenuItemModel.findOne({
+      restaurantId,
+      isDeleted: false,
+      slug: item.slug,
+    }).lean();
+    if (itemClash) continue;
+    item.set({
+      status: item.statusBeforeDelete === "archived" ? "archived" : "active",
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: "",
+      statusBeforeDelete: "",
+    });
+    await item.save();
+  }
+
+  flushCustomerAvailabilityCaches();
+  emitSocketEvent(`restaurant:${restaurantId}`, "menu.updated", {
+    categoryId,
+    restored: true,
+  });
+
+  return { restored: true };
+}
+
+export async function restoreCategory(params: {
+  ownerId: string;
+  categoryId: string;
+}) {
+  const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
+  const result = await restoreCategoryForRestaurant({
     restaurantId,
     categoryId: params.categoryId,
   });
-  await CategoryModel.deleteOne({ _id: params.categoryId, restaurantId });
-  flushCustomerAvailabilityCaches();
-
-  return { deleted: true };
+  emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", {
+    categoryId: params.categoryId,
+    restored: true,
+  });
+  return result;
 }
 
 export async function listMenuItems(ownerId: string) {
@@ -1162,7 +1333,10 @@ export async function getOwnerSidebarSummary(ownerId: string) {
       restaurantId,
       status: { $in: [...liveStatuses] },
     }),
-    CategoryModel.countDocuments({ restaurantId: restaurantObjectId }),
+    CategoryModel.countDocuments({
+      restaurantId: restaurantObjectId,
+      isDeleted: { $ne: true },
+    }),
     MenuItemModel.countDocuments({
       restaurantId,
       status: "active",
@@ -1453,7 +1627,14 @@ export async function deleteMenuItemPermanently(params: {
     );
   }
 
-  await MenuItemModel.deleteOne({ _id: params.itemId, restaurantId });
+  menuItem.set({
+    statusBeforeDelete: menuItem.status,
+    status: "deleted",
+    isDeleted: true,
+    deletedAt: new Date(),
+    deletedBy: "owner",
+  });
+  await menuItem.save();
   flushCustomerAvailabilityCaches();
   emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", {
     itemId: params.itemId,
@@ -1465,6 +1646,89 @@ export async function deleteMenuItemPermanently(params: {
   });
 
   return { deleted: true };
+}
+
+export async function restoreMenuItemForRestaurant(params: {
+  restaurantId: string;
+  itemId: string;
+}) {
+  const { restaurantId, itemId } = params;
+  const menuItem = await MenuItemModel.findOne({
+    _id: itemId,
+    restaurantId,
+    isDeleted: true,
+  });
+
+  if (!menuItem) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "MENU_ITEM_NOT_FOUND",
+      "Deleted item not found",
+    );
+  }
+
+  const clash = await MenuItemModel.findOne({
+    restaurantId,
+    isDeleted: false,
+    slug: menuItem.slug,
+  }).lean();
+  if (clash) {
+    throw new AppError(
+      StatusCodes.CONFLICT,
+      "MENU_ITEM_NAME_TAKEN",
+      "An item with this name already exists. Rename it before restoring.",
+    );
+  }
+
+  // An item cannot live under a deleted category — auto-revive the parent category (to its own
+  // pre-delete status) so the restored item is actually reachable.
+  const category = await CategoryModel.findOne({
+    _id: menuItem.categoryId,
+    restaurantId,
+  });
+  if (category && category.isDeleted) {
+    category.set({
+      status: category.statusBeforeDelete === "archived" ? "archived" : "active",
+      isDeleted: false,
+      deletedAt: null,
+      deletedBy: "",
+      statusBeforeDelete: "",
+    });
+    await category.save();
+  }
+
+  menuItem.set({
+    status: menuItem.statusBeforeDelete === "archived" ? "archived" : "active",
+    isDeleted: false,
+    deletedAt: null,
+    deletedBy: "",
+    statusBeforeDelete: "",
+  });
+  await menuItem.save();
+
+  flushCustomerAvailabilityCaches();
+  emitSocketEvent(`restaurant:${restaurantId}`, "menu.updated", {
+    itemId,
+    restored: true,
+  });
+
+  return { restored: true };
+}
+
+export async function restoreMenuItem(params: {
+  ownerId: string;
+  itemId: string;
+}) {
+  const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
+  const result = await restoreMenuItemForRestaurant({
+    restaurantId,
+    itemId: params.itemId,
+  });
+  emitSocketEvent(`owner:${params.ownerId}`, "menu.updated", {
+    itemId: params.itemId,
+    restored: true,
+  });
+  return result;
 }
 
 export async function listOrders(params: {
@@ -1553,7 +1817,7 @@ export async function listOrders(params: {
   const isHistoryList =
     params.tab === "history" ||
     Boolean(params.status && historyStatuses.has(params.status));
-  const sort: Record<string, SortOrder> =
+  const baseSort: Record<string, SortOrder> =
     params.sortBy === "oldest"
       ? isHistoryList
         ? { updatedAt: 1, createdAt: 1 }
@@ -1563,6 +1827,11 @@ export async function listOrders(params: {
         : isHistoryList
           ? { updatedAt: -1, createdAt: -1 }
           : { createdAt: -1 };
+  // Live lists float urgent orders to the very top so the owner prepares them first —
+  // history keeps its normal chronological order.
+  const sort: Record<string, SortOrder> = isHistoryList
+    ? baseSort
+    : { isUrgent: -1, ...baseSort };
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, params.pageSize ?? 20));
 
@@ -1924,28 +2193,42 @@ export async function transitionOrder(params: {
     );
   }
 
+  // Accept-and-prepare: accepting a New order starts preparation immediately — no separate
+  // "Accepted → start preparing" step. The order jumps straight to Preparing with BOTH
+  // acceptedAt and preparingAt stamped now. The customer-app anchors its prep timer on
+  // acceptedAt and consumes the backend preparationTiming, so it stays fully compatible: the
+  // customer just skips the brief "kitchen starts soon" state and sees "food is preparing".
+  const isAcceptAndPrepare =
+    currentOrder.status === "New" && params.nextStatus === "Accepted";
+  const effectiveNextStatus = isAcceptAndPrepare ? "Preparing" : params.nextStatus;
+
   const now = new Date();
   const restaurant =
-    params.nextStatus === "Preparing"
+    effectiveNextStatus === "Preparing"
       ? await RestaurantModel.findById(restaurantId).lean()
       : null;
   const plannedPrepMinutes = clampPreparationMinutes(params.preparationMinutes);
+  let nextTimestamps = applyOrderStatusTimestamp(
+    currentOrder.timestamps as Record<string, unknown> | undefined,
+    effectiveNextStatus,
+    now,
+  );
+  if (isAcceptAndPrepare) {
+    // Preserve acceptedAt even though the "Accepted" state is skipped.
+    nextTimestamps = applyOrderStatusTimestamp(nextTimestamps, "Accepted", now);
+  }
   const setPayload: Record<string, unknown> = {
-    status: params.nextStatus,
-    timestamps: applyOrderStatusTimestamp(
-      currentOrder.timestamps as Record<string, unknown> | undefined,
-      params.nextStatus,
-      now,
-    ),
+    status: effectiveNextStatus,
+    timestamps: nextTimestamps,
   };
 
   // Owner chose a per-order prep time (from the accept dropdown). Persist it before prep
   // starts so buildPreparationMetaForStart uses it as the base minutes instead of the avg.
-  if (plannedPrepMinutes !== null && params.nextStatus !== "Preparing") {
+  if (plannedPrepMinutes !== null && effectiveNextStatus !== "Preparing") {
     setPayload["preparationMeta.plannedBaseMinutes"] = plannedPrepMinutes;
   }
 
-  if (params.nextStatus === "Preparing") {
+  if (effectiveNextStatus === "Preparing") {
     const content = await getPlatformContent();
     const settings = await getOwnerAutomationSettings(
       content as Record<string, any>,
@@ -2012,7 +2295,7 @@ export async function transitionOrder(params: {
         history: {
           $each: [
             {
-              status: params.nextStatus,
+              status: effectiveNextStatus,
               actor: params.actor,
               note: params.note ?? "",
               createdAt: now,
@@ -2105,10 +2388,10 @@ export async function transitionOrder(params: {
     customerId: order.customerId,
     orderId: order.id,
     orderNumber: order.orderNumber,
-    nextStatus: params.nextStatus,
+    nextStatus: effectiveNextStatus,
   });
 
-  if (params.nextStatus === "ReadyForPickup") {
+  if (effectiveNextStatus === "ReadyForPickup") {
     void runAutoDispatchForReadyOrders().catch(() => undefined);
   }
 

@@ -282,8 +282,17 @@ async function sendTelegramAlert(message: AlertMessage) {
     /Admin path:\s*(\/[^\s\n]+)/g,
     (_match, path: string) => `Admin URL: ${buildAdminUrl(path)}`,
   );
+  const severityEmoji =
+    message.severity === "critical"
+      ? "🔴"
+      : message.severity === "warning"
+        ? "⚠️"
+        : message.severity === "recovery"
+          ? "✅"
+          : "ℹ️";
+  const layerEmoji = message.layer === "system" ? "🛠️" : "📟";
   const text = [
-    `Foodbela ${message.layer === "system" ? "SYSTEM" : "OPS"} ${message.severity.toUpperCase()}: ${message.title}`,
+    `${severityEmoji} ${layerEmoji} Foodbela ${message.layer === "system" ? "SYSTEM" : "OPS"} ${message.severity.toUpperCase()}: ${message.title}`,
     "",
     body,
     formatDetails(message.details),

@@ -33,6 +33,9 @@ import {
 import {
   deleteOwnerCategory,
   deleteOwnerMenuItem,
+  getOwnerDeletedMenu,
+  restoreOwnerCategory,
+  restoreOwnerMenuItem,
   getOwnerCategories,
   getOwnerMenuApprovalRequests,
   getOwnerMenuItems,
@@ -90,6 +93,9 @@ ownerRouter.get("/menu-approval-requests", getOwnerMenuApprovalRequests)
 ownerRouter.post("/menu-items", postOwnerMenuItem)
 ownerRouter.patch("/menu-items/:itemId", patchOwnerMenuItem)
 ownerRouter.delete("/menu-items/:itemId", deleteOwnerMenuItem)
+ownerRouter.get("/menu/trash", getOwnerDeletedMenu)
+ownerRouter.post("/categories/:categoryId/restore", restoreOwnerCategory)
+ownerRouter.post("/menu-items/:itemId/restore", restoreOwnerMenuItem)
 ownerRouter.get("/orders", getOwnerOrders)
 ownerRouter.get("/orders/:orderId", getOwnerOrderById)
 ownerRouter.get("/riders/assignment-options", getOwnerRiderAssignmentOptions)

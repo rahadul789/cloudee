@@ -1235,7 +1235,7 @@ function mapRestaurantOrderHistory(
     paymentStatus: stringValue(order.paymentStatus),
     total: numberValue(order.pricing?.total),
     subtotal: numberValue(order.pricing?.subtotal),
-    deliveryFee: numberValue(order.pricing?.deliveryFee),
+    deliveryFee: numberValue(order.pricing?.deliveryFee) + numberValue(order.pricing?.urgentDeliveryFee),
     customerName: stringValue(
       order.customerSnapshot?.fullName ?? order.customerSnapshot?.name,
     ),
@@ -1598,7 +1598,10 @@ export async function getAdminRestaurantDetails(
     OpeningHoursModel.findOne({ restaurantId: safeRestaurantId }).lean(),
     getRestaurantStats([safeRestaurantId]),
     Promise.all([
-      CategoryModel.countDocuments({ restaurantId: safeRestaurantId }),
+      CategoryModel.countDocuments({
+        restaurantId: safeRestaurantId,
+        isDeleted: { $ne: true },
+      }),
       CategoryModel.countDocuments({
         restaurantId: safeRestaurantId,
         status: "active",
@@ -1607,7 +1610,10 @@ export async function getAdminRestaurantDetails(
         restaurantId: safeRestaurantId,
         status: "archived",
       }),
-      MenuItemModel.countDocuments({ restaurantId: safeRestaurantId }),
+      MenuItemModel.countDocuments({
+        restaurantId: safeRestaurantId,
+        isDeleted: { $ne: true },
+      }),
       MenuItemModel.countDocuments({
         restaurantId: safeRestaurantId,
         status: "active",
@@ -1619,14 +1625,17 @@ export async function getAdminRestaurantDetails(
       MenuItemModel.countDocuments({
         restaurantId: safeRestaurantId,
         availability: "available",
+        isDeleted: { $ne: true },
       }),
       MenuItemModel.countDocuments({
         restaurantId: safeRestaurantId,
         availability: "unavailable",
+        isDeleted: { $ne: true },
       }),
       MenuItemModel.countDocuments({
         restaurantId: safeRestaurantId,
         isPopular: true,
+        isDeleted: { $ne: true },
       }),
     ]),
     OrderModel.aggregate<{
@@ -4268,13 +4277,13 @@ export async function getAdminRestaurantIntelligence(
       .limit(MAX_RESTAURANT_INTELLIGENCE_ORDERS)
       .lean(),
     CategoryModel.find(
-      { restaurantId: safeRestaurantId },
+      { restaurantId: safeRestaurantId, isDeleted: { $ne: true } },
       { name: 1, status: 1, displayOrder: 1 },
     )
       .sort({ displayOrder: 1, name: 1 })
       .lean(),
     MenuItemModel.find(
-      { restaurantId: safeRestaurantId },
+      { restaurantId: safeRestaurantId, isDeleted: { $ne: true } },
       {
         name: 1,
         categoryId: 1,
@@ -5307,7 +5316,10 @@ export async function reconcileAdminRestaurantFinance(params: {
     const platformDiscountCost = getOrderPlatformDiscountCost(order);
     const commissionBase = grossAmount;
     const commission = Math.round(commissionBase * (commissionRate / 100));
-    const deliveryCost = numberValue(order.pricing?.deliveryFee);
+    // Total delivery the platform earns = base fee + urgent surcharge.
+    const deliveryCost =
+      numberValue(order.pricing?.deliveryFee) +
+      numberValue(order.pricing?.urgentDeliveryFee);
     const netAmount = grossAmount - commission - discountCost;
     const existingLedger = ledgerByOrderId.get(objectIdString(order._id));
 

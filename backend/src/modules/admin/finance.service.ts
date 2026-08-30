@@ -1930,7 +1930,16 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
           deliveredOrders: { $sum: 1 },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
           deliveredSubtotalGross: { $sum: { $ifNull: ["$pricing.subtotal", 0] } },
-          deliveryFees: { $sum: { $ifNull: ["$pricing.deliveryFee", 0] } },
+          // Total delivery revenue = base delivery fee + urgent-delivery surcharge (both are
+          // platform income). Kept as one "deliveryFees" figure so gross income/margin are right.
+          deliveryFees: {
+            $sum: {
+              $add: [
+                { $ifNull: ["$pricing.deliveryFee", 0] },
+                { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+              ],
+            },
+          },
           onlineCollected: {
             $sum: {
               $cond: [
@@ -2094,7 +2103,14 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
         $group: {
           _id: dateKeyExpression("$reportDeliveredAt"),
           deliveredOrders: { $sum: 1 },
-          deliveryFees: { $sum: { $ifNull: ["$pricing.deliveryFee", 0] } },
+          deliveryFees: {
+            $sum: {
+              $add: [
+                { $ifNull: ["$pricing.deliveryFee", 0] },
+                { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+              ],
+            },
+          },
           onlineCollected: {
             $sum: {
               $cond: [
@@ -2227,8 +2243,54 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
               ],
             },
           },
-          platformCost: { $sum: { $ifNull: ["$appliedVouchers.platformDiscountCost", 0] } },
-          ownerCost: { $sum: { $ifNull: ["$appliedVouchers.ownerDiscountCost", 0] } },
+          // Use the stored per-voucher split when present; otherwise derive it from the
+          // voucher's discount × share % so shared vouchers never show a false Tk 0 cost.
+          platformCost: {
+            $sum: {
+              $ifNull: [
+                "$appliedVouchers.platformDiscountCost",
+                {
+                  $round: [
+                    {
+                      $divide: [
+                        {
+                          $multiply: [
+                            { $ifNull: ["$appliedVouchers.discountAmount", 0] },
+                            { $ifNull: ["$appliedVouchers.platformSharePercent", 0] },
+                          ],
+                        },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              ],
+            },
+          },
+          ownerCost: {
+            $sum: {
+              $ifNull: [
+                "$appliedVouchers.ownerDiscountCost",
+                {
+                  $round: [
+                    {
+                      $divide: [
+                        {
+                          $multiply: [
+                            { $ifNull: ["$appliedVouchers.discountAmount", 0] },
+                            { $ifNull: ["$appliedVouchers.ownerSharePercent", 100] },
+                          ],
+                        },
+                        100,
+                      ],
+                    },
+                    0,
+                  ],
+                },
+              ],
+            },
+          },
           revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
           name: { $last: "$appliedVouchers.name" },
         },
@@ -2279,7 +2341,14 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
         $group: {
           _id: "$riderId",
           deliveredTrips: { $sum: 1 },
-          deliveryFees: { $sum: { $ifNull: ["$pricing.deliveryFee", 0] } },
+          deliveryFees: {
+            $sum: {
+              $add: [
+                { $ifNull: ["$pricing.deliveryFee", 0] },
+                { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+              ],
+            },
+          },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
           riderName: { $last: "$riderSnapshot.name" },
           riderPhone: { $last: "$riderSnapshot.phone" },
@@ -4556,7 +4625,7 @@ export async function listAdminFinanceRefunds(params: RefundListParams) {
       paymentStatus: stringValue(order.paymentStatus),
       transactionId: stringValue(order.paymentSnapshot?.transactionId),
       subtotal: numberValue(order.pricing?.subtotal),
-      deliveryFee: numberValue(order.pricing?.deliveryFee),
+      deliveryFee: numberValue(order.pricing?.deliveryFee) + numberValue(order.pricing?.urgentDeliveryFee),
       discount: numberValue(order.pricing?.discount),
       total: numberValue(order.pricing?.total),
       voucherCodes: Array.isArray(order.appliedVouchers)

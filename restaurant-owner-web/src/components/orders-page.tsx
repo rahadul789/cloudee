@@ -271,11 +271,13 @@ function OrdersTable({
                   <TableRow
                     key={order.id}
                     className={
-                      delayState?.tone === "critical"
-                        ? "bg-rose-50/60 hover:bg-rose-50/70"
-                        : order.currentStatus === "ReadyForPickup"
-                          ? "bg-violet-50/50 hover:bg-violet-50/70"
-                          : undefined
+                      order.isUrgent
+                        ? "bg-amber-50/70 hover:bg-amber-100/70"
+                        : delayState?.tone === "critical"
+                          ? "bg-rose-50/60 hover:bg-rose-50/70"
+                          : order.currentStatus === "ReadyForPickup"
+                            ? "bg-violet-50/50 hover:bg-violet-50/70"
+                            : undefined
                     }
                   >
                     <TableCell>

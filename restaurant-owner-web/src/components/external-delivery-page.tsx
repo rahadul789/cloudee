@@ -275,7 +275,10 @@ function DeliveryRow({
   onCancel: (order: OwnerExternalDelivery) => void
   cancelling: boolean
 }) {
-  const canCancel = order.status === "ReadyForPickup" && !order.riderId
+  // Owner can cancel any in-flight external delivery (ready or picked up), even after a rider
+  // is assigned — the rider is notified immediately by the backend.
+  const canCancel =
+    order.status === "ReadyForPickup" || order.status === "PickedUp"
   return (
     <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">

@@ -414,7 +414,10 @@ async function ensureRestaurantEarningLedgerEntries(
     const platformDiscountCost = getOrderPlatformDiscountCost(order)
     const commissionBase = grossAmount
     const commission = Math.round(commissionBase * (commissionRate / 100))
-    const deliveryCost = numberValue(order.pricing?.deliveryFee)
+    // Total delivery the platform earns = base fee + urgent surcharge.
+    const deliveryCost =
+      numberValue(order.pricing?.deliveryFee) +
+      numberValue(order.pricing?.urgentDeliveryFee)
     const netAmount = grossAmount - commission - discountCost
     const existingLedger = ledgerByOrderId.get(String(order._id))
 
@@ -2073,6 +2076,10 @@ async function buildDashboardSummary(params: {
   const { restaurant, restaurantId } = await getOwnerFinanceContext(params.ownerId)
   const range = getDashboardRange(params)
   const previousRange = buildPreviousRange(range)
+  // Off-platform (external) deliveries have their own dedicated screen + settlement flow and are
+  // NOT part of the Foodbela sales/orders dashboard. ($ne also matches legacy orders that predate
+  // the `source` field.)
+  const excludeExternal = { source: { $ne: "external" } } as const
 
   const [
     filteredOrders,
@@ -2093,12 +2100,14 @@ async function buildDashboardSummary(params: {
   ] = await Promise.all([
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       createdAt: { $gte: range.start, $lte: range.end }
     })
       .select({ status: 1, pricing: 1, customerSnapshot: 1, createdAt: 1 })
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Delivered",
       ...buildDeliveredRangeClause(range)
     })
@@ -2106,12 +2115,14 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       createdAt: { $gte: previousRange.start, $lte: previousRange.end }
     })
       .select({ status: 1, pricing: 1, createdAt: 1 })
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Delivered",
       ...buildDeliveredRangeClause(previousRange)
     })
@@ -2119,6 +2130,7 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Cancelled",
       ...buildCancelledRangeClause(range)
     })
@@ -2126,6 +2138,7 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Cancelled",
       ...buildCancelledRangeClause(previousRange)
     })
@@ -2133,6 +2146,7 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Rejected",
       ...buildRejectedRangeClause(range)
     })
@@ -2140,6 +2154,7 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: "Rejected",
       ...buildRejectedRangeClause(previousRange)
     })
@@ -2147,10 +2162,12 @@ async function buildDashboardSummary(params: {
       .lean(),
     OrderModel.countDocuments({
       restaurantId,
+      ...excludeExternal,
       status: { $in: ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"] }
     }),
     OrderModel.countDocuments({
       restaurantId,
+      ...excludeExternal,
       status: { $in: ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"] },
       createdAt: { $gte: previousRange.start, $lte: previousRange.end }
     }),
@@ -2162,6 +2179,7 @@ async function buildDashboardSummary(params: {
       {
         $match: {
           restaurantId: toObjectId(restaurantId),
+          ...excludeExternal,
           createdAt: { $gte: range.start, $lte: range.end },
           status: { $nin: ["Cancelled", "Rejected"] }
         }
@@ -2200,6 +2218,7 @@ async function buildDashboardSummary(params: {
     ]),
     OrderModel.find({
       restaurantId,
+      ...excludeExternal,
       status: { $in: ["New", "Accepted", "Preparing", "ReadyForPickup", "PickedUp"] }
     })
       .sort({ createdAt: -1 })

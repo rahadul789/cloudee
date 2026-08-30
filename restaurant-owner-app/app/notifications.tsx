@@ -47,6 +47,10 @@ function resolveOwnerPath(path?: string) {
   const orderPathMatch = value.match(/^\/orders\/([A-Za-z0-9_-]+)(?:[?#].*)?$/);
   if (orderPathMatch?.[1]) return `/orders/${orderPathMatch[1]}`;
 
+  // Voucher deep-links (e.g. /vouchers?mode=details&voucherId=...) keep their query so the
+  // voucher screen opens the right voucher's details.
+  if (value.match(/^\/vouchers(?:[?#].*)?$/)) return value;
+
   const query = value.split("?", 2)[1] ?? "";
   const orderId = query ? new URLSearchParams(query).get("order") || new URLSearchParams(query).get("orderId") : "";
   return orderId ? `/orders/${orderId}` : "/(tabs)/today";

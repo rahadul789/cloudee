@@ -702,6 +702,8 @@ export type OwnerVoucherResponse = {
   createdByType: "owner" | "admin" | "system"
   createdById: string
   fundedBy: "owner" | "platform" | "shared"
+  ownerSharePercent?: number
+  platformSharePercent?: number
   stackingRule: "exclusive" | "stackable"
   priority: number
   mode: "auto" | "coupon"
@@ -713,7 +715,8 @@ export type OwnerVoucherResponse = {
   maxTotalUses: number
   maxUsesPerUser: number
   allowRepeatUsage: boolean
-  status: "Draft" | "Active"
+  status: "Draft" | "PendingApproval" | "Active" | "Rejected"
+  reviewNote?: string
   applicability: "all" | "categories" | "items"
   categoryIds: string[]
   itemIds: string[]
@@ -1483,6 +1486,8 @@ export function mapOwnerVoucher(voucher: OwnerVoucherResponse): Voucher {
     createdByType: voucher.createdByType ?? "owner",
     createdById: voucher.createdById ?? "",
     fundedBy: voucher.fundedBy ?? "owner",
+    ownerSharePercent: voucher.ownerSharePercent ?? 100,
+    platformSharePercent: voucher.platformSharePercent ?? 0,
     stackingRule: voucher.stackingRule ?? "exclusive",
     priority: voucher.priority ?? 0,
     mode: voucher.mode ?? "auto",
@@ -1493,6 +1498,7 @@ export function mapOwnerVoucher(voucher: OwnerVoucherResponse): Voucher {
     maxUsesPerUser: voucher.maxUsesPerUser > 0 ? voucher.maxUsesPerUser : 1,
     allowRepeatUsage: voucher.allowRepeatUsage ?? false,
     status: voucher.status ?? "Draft",
+    reviewNote: voucher.reviewNote ?? "",
     applicability: voucher.applicability ?? "all",
     categoryIds: (voucher.categoryIds ?? []).map((id) => `${id}`),
     itemIds: (voucher.itemIds ?? []).map((id) => `${id}`),

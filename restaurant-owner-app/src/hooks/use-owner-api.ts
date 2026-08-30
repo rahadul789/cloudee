@@ -228,6 +228,8 @@ export type OwnerMenuItem = {
 export type OwnerVoucher = {
   _id: string;
   fundedBy: "owner" | "platform" | "shared";
+  ownerSharePercent?: number;
+  platformSharePercent?: number;
   stackingRule: "exclusive" | "stackable";
   mode: "auto" | "coupon";
   type: "flat" | "percentage" | "free_delivery";
@@ -238,7 +240,9 @@ export type OwnerVoucher = {
   maxTotalUses?: number | null;
   maxUsesPerUser?: number | null;
   allowRepeatUsage?: boolean;
-  status: "Draft" | "Active";
+  status: "Draft" | "PendingApproval" | "Active" | "Rejected";
+  // Admin's note when a requested voucher is approved/rejected.
+  reviewNote?: string;
   applicability: "all" | "categories" | "items";
   categoryIds?: string[];
   itemIds?: string[];
@@ -261,7 +265,9 @@ export type OwnerVoucher = {
 };
 
 export type OwnerVoucherPayload = {
-  fundedBy: "owner";
+  fundedBy: "owner" | "shared" | "platform";
+  ownerSharePercent?: number;
+  platformSharePercent?: number;
   stackingRule: "exclusive";
   mode: "auto" | "coupon";
   type: "flat" | "percentage";
@@ -1317,6 +1323,57 @@ export function useUnregisterOwnerPushTokenMutation() {
         `/owner/push-tokens?expoPushToken=${query}`,
       );
       return response.data;
+    },
+  });
+}
+
+// ── Report issues (support cases) — same /owner/support-cases endpoint the owner web uses,
+// so the app and web stay in sync (one backend, one data source).
+export type OwnerSupportCase = {
+  _id: string;
+  kind: "report" | "question";
+  subject: string;
+  categoryId: string;
+  message: string;
+  status: "open" | "in_progress" | "resolved" | "closed";
+  priority: "low" | "medium" | "high";
+  replies?: Array<{ message: string; adminName?: string; createdAt: string }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function useOwnerSupportCasesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ["owner", "support-cases"],
+    enabled,
+    queryFn: async () => {
+      const response = await apiGet<OwnerListResponse<OwnerSupportCase>>(
+        "/owner/support-cases?page=1&pageSize=30",
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useCreateOwnerSupportCaseMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      kind: "report" | "question";
+      subject: string;
+      categoryId: string;
+      message: string;
+    }) => {
+      const response = await apiPost<OwnerSupportCase>(
+        "/owner/support-cases",
+        payload,
+      );
+      return response.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["owner", "support-cases"],
+      });
     },
   });
 }

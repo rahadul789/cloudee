@@ -1749,6 +1749,9 @@ function DashboardPage() {
       listAdminOrders({
         pageSize: 30,
         sortBy: "recentlyUpdated",
+        // Foodbela (platform) orders only — off-platform external deliveries are counted
+        // separately in their own "External deliveries" KPI, never mixed into the live count.
+        source: "platform",
       }),
     staleTime: 15_000,
   })
@@ -1780,10 +1783,9 @@ function DashboardPage() {
   const orders = ordersQuery.data?.items ?? []
   const restaurants = restaurantsQuery.data?.items ?? []
   const ridersSummary = ridersQuery.data?.summary ?? {}
-  const liveOrders =
-    (ordersQuery.data?.summary?.liveOrders ?? 0) +
-    (ordersQuery.data?.summary?.readyForPickup ?? 0) +
-    (ordersQuery.data?.summary?.pickedUp ?? 0)
+  // `summary.liveOrders` already counts every live status (New→PickedUp), so readyForPickup and
+  // pickedUp must NOT be added again — doing so double-counted those two statuses.
+  const liveOrders = ordersQuery.data?.summary?.liveOrders ?? 0
   const lateOrders = orders
     .filter((order) => order.isLate)
     .sort((left, right) => right.lateMinutes - left.lateMinutes)

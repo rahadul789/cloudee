@@ -444,17 +444,26 @@ export function summarizeAppliedVouchers(
     discountAmount?: number;
   }>,
 ) {
-  return vouchers.map((voucher) => ({
-    id: voucher.id,
-    code: voucher.code,
-    name: voucher.name,
-    type: voucher.type,
-    mode: voucher.mode,
-    fundedBy: voucher.fundedBy,
-    scopeType: (voucher as any).scopeType,
-    audienceType: (voucher as any).audienceType,
-    ownerSharePercent: voucher.ownerSharePercent,
-    platformSharePercent: voucher.platformSharePercent,
-    discountAmount: voucher.discountAmount,
-  }));
+  return vouchers.map((voucher) => {
+    const discount = voucher.discountAmount ?? 0;
+    const ownerShare = voucher.ownerSharePercent ?? 100;
+    const platformShare = voucher.platformSharePercent ?? 0;
+    return {
+      id: voucher.id,
+      code: voucher.code,
+      name: voucher.name,
+      type: voucher.type,
+      mode: voucher.mode,
+      fundedBy: voucher.fundedBy,
+      scopeType: (voucher as any).scopeType,
+      audienceType: (voucher as any).audienceType,
+      ownerSharePercent: voucher.ownerSharePercent,
+      platformSharePercent: voucher.platformSharePercent,
+      discountAmount: voucher.discountAmount,
+      // Per-voucher Tk split so admin voucher ROI can attribute platform vs owner cost
+      // (a shared voucher must never show a false Tk 0 platform/owner cost).
+      ownerDiscountCost: Math.round((discount * ownerShare) / 100),
+      platformDiscountCost: Math.round((discount * platformShare) / 100),
+    };
+  });
 }

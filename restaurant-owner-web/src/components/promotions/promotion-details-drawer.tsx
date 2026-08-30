@@ -109,7 +109,9 @@ export function PromotionDetailsDrawer({
                   variant="outline"
                   className={getLifecycleBadgeClass(lifecycleStatus)}
                 >
-                  {lifecycleStatus}
+                  {lifecycleStatus === "PendingApproval"
+                    ? "Pending approval"
+                    : lifecycleStatus}
                 </Badge>
                 <Badge variant="secondary">
                   {getVoucherModeLabel(voucher.mode)}
@@ -138,6 +140,23 @@ export function PromotionDetailsDrawer({
 
         <ScrollArea className="h-[calc(100vh-88px)]">
           <div className="space-y-6 px-6 py-6">
+            {voucher.status === "Rejected" ? (
+              <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4">
+                <p className="text-sm font-semibold text-rose-800">
+                  Not approved
+                </p>
+                <p className="mt-1 text-sm text-rose-700">
+                  {voucher.reviewNote?.trim() || "No reason was given."}
+                </p>
+              </div>
+            ) : voucher.status === "PendingApproval" ? (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-800">
+                  Waiting for admin approval — this voucher goes live once
+                  approved.
+                </p>
+              </div>
+            ) : null}
             <section className="grid gap-4 md:grid-cols-2">
               <Card className="rounded-2xl shadow-none">
                 <CardHeader>

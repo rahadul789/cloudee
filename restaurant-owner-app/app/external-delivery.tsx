@@ -33,6 +33,7 @@ import {
   type ExternalSettlementStatus,
   type OwnerExternalDelivery,
 } from "@/src/lib/external-delivery-api";
+import { localizeDigits } from "@/src/lib/format";
 import { palette } from "@/src/theme/palette";
 
 type MainTab = "new" | "live" | "history";
@@ -183,7 +184,7 @@ export default function ExternalDeliveryScreen() {
   const c = COPY[language];
 
   const [tab, setTab] = useState<MainTab>("new");
-  const [preset, setPreset] = useState<DatePreset>("30d");
+  const [preset, setPreset] = useState<DatePreset>("today");
   const [customFrom, setCustomFrom] = useState<string | null>(null);
   const [customTo, setCustomTo] = useState<string | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -219,11 +220,13 @@ export default function ExternalDeliveryScreen() {
   });
   const stats = statsQuery.data;
 
+  // Always fetch the live list (not only on the Live tab) so the tab can show a live count badge.
   const liveQuery = useQuery({
     queryKey: ["owner-external-list", "live"],
     queryFn: () => listExternalDeliveries({ tab: "live", pageSize: 50 }),
-    enabled: enabled && tab === "live",
+    enabled,
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   const historyQuery = useInfiniteQuery({
@@ -355,7 +358,10 @@ export default function ExternalDeliveryScreen() {
 
   function renderOrder(order: OwnerExternalDelivery) {
     const tone = SETTLEMENT_TONE[order.settlementStatus];
-    const canCancel = order.status === "ReadyForPickup" && !order.riderId;
+    // Owner can cancel any in-flight external delivery (ready or picked up), even after a
+    // rider is assigned — the rider gets an immediate cancel popup from the backend.
+    const canCancel =
+      order.status === "ReadyForPickup" || order.status === "PickedUp";
     return (
       <View style={styles.orderCard}>
         <View style={styles.orderTop}>
@@ -408,7 +414,7 @@ export default function ExternalDeliveryScreen() {
 
       <View style={styles.tabBar}>
         <TabButton label={c.tabNew} icon="add-circle-outline" active={tab === "new"} onPress={() => setTab("new")} />
-        <TabButton label={c.tabLive} icon="bicycle-outline" active={tab === "live"} onPress={() => setTab("live")} />
+        <TabButton label={c.tabLive} icon="bicycle-outline" active={tab === "live"} onPress={() => setTab("live")} badge={liveItems.length} />
         <TabButton label={c.tabHistory} icon="time-outline" active={tab === "history"} onPress={() => setTab("history")} />
       </View>
 
@@ -422,11 +428,13 @@ export default function ExternalDeliveryScreen() {
       ) : tab === "new" ? (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 18 : 0}
         >
           <ScrollView
             contentContainerStyle={styles.formContent}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.intro}>{c.intro}</Text>
@@ -655,16 +663,23 @@ function TabButton({
   icon,
   active,
   onPress,
+  badge = 0,
 }: {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   active: boolean;
   onPress: () => void;
+  badge?: number;
 }) {
   return (
     <Pressable style={[styles.mainTab, active && styles.mainTabActive]} onPress={onPress}>
       <Ionicons name={icon} size={16} color={active ? palette.primary : palette.mutedForeground} />
       <Text style={[styles.mainTabText, active && styles.mainTabTextActive]}>{label}</Text>
+      {badge > 0 ? (
+        <View style={styles.mainTabBadge}>
+          <Text style={styles.mainTabBadgeText}>{localizeDigits(String(badge))}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -871,7 +886,17 @@ const styles = StyleSheet.create({
   },
   mainTabText: { fontSize: 12.5, fontWeight: "800", color: palette.mutedForeground },
   mainTabTextActive: { color: palette.primary },
-  formContent: { padding: 18, paddingBottom: 48, gap: 14 },
+  mainTabBadge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: palette.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainTabBadgeText: { fontSize: 11, fontWeight: "900", color: "#FFFFFF" },
+  formContent: { padding: 18, paddingBottom: 140, gap: 14 },
   listContent: { padding: 18, paddingBottom: 40 },
   listHeader: { gap: 12, marginBottom: 12 },
   kpiRow: { flexDirection: "row", gap: 12 },

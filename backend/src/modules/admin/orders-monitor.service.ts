@@ -352,8 +352,8 @@ const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   primaryRiderId: "",
   primaryRiderFallbackEnabled: true,
   algorithm: "nearest_eligible_balanced",
-  ownerAcceptanceTimeoutMinutes: 5,
-  maxActiveOrdersPerRider: 3,
+  ownerAcceptanceTimeoutMinutes: 3,
+  maxActiveOrdersPerRider: 15,
   staleLocationCutoffMinutes: 20,
   assignmentTimeoutMinutes: 8,
   prepStartGraceMinutes: 3,
@@ -368,8 +368,8 @@ const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   surgeReadyOrderThreshold: 4,
   surgeUnassignedOrderThreshold: 2,
   autoCancelUnacceptedOrdersEnabled: true,
-  autoCancelAfterMinutes: 12,
-  autoCancelNotifyBeforeMinutes: 3,
+  autoCancelAfterMinutes: 8,
+  autoCancelNotifyBeforeMinutes: 5,
 };
 
 const adminOrderTransitions: Record<string, AdminOrderNextStatus[]> = {
@@ -821,7 +821,12 @@ async function getRiderOrderStatsMap(riderIds: string[]) {
           $sum: {
             $cond: [
               { $eq: ["$status", "Delivered"] },
-              { $ifNull: ["$pricing.deliveryFee", 0] },
+              {
+                $add: [
+                  { $ifNull: ["$pricing.deliveryFee", 0] },
+                  { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+                ],
+              },
               0,
             ],
           },
@@ -2890,7 +2895,10 @@ function mapAdminPaymentTransaction(
     ),
     amount: numberValue(order.pricing?.total),
     subtotal: numberValue(order.pricing?.subtotal),
-    deliveryFee: numberValue(order.pricing?.deliveryFee),
+    // Total delivery the customer paid = base + urgent surcharge.
+    deliveryFee:
+      numberValue(order.pricing?.deliveryFee) +
+      numberValue(order.pricing?.urgentDeliveryFee),
     discount:
       numberValue(
         order.pricing?.discountAmount,
@@ -3279,7 +3287,7 @@ function mapAdminOrderListItem(
       : [],
     total: numberValue(order.pricing?.total),
     subtotal: numberValue(order.pricing?.subtotal),
-    deliveryFee: numberValue(order.pricing?.deliveryFee),
+    deliveryFee: numberValue(order.pricing?.deliveryFee) + numberValue(order.pricing?.urgentDeliveryFee),
     discount:
       numberValue(
         order.pricing?.discountAmount,
@@ -4433,7 +4441,16 @@ export async function getAdminOrderMonitorDetails(
         : {},
     pricing: {
       subtotal: order.pricing?.subtotal ?? 0,
+      // Base delivery fee. Urgent delivery is a separate opt-in surcharge on top; the
+      // "total delivery" a customer paid is deliveryFee + urgentDeliveryFee.
       deliveryFee: order.pricing?.deliveryFee ?? 0,
+      urgentDeliveryFee: numberValue(order.pricing?.urgentDeliveryFee),
+      deliveryFeeTotal:
+        numberValue(order.pricing?.deliveryFee) +
+        numberValue(order.pricing?.urgentDeliveryFee),
+      // Other checkout add-ons kept explicit so the receipt reconciles to `total`.
+      platformFee: numberValue(order.pricing?.platformFee),
+      rainSurcharge: numberValue(order.pricing?.rainSurcharge),
       discount: discountAmount + firstOrderDiscountAmount,
       firstOrderDiscountAmount,
       ownerDiscountCost: numberValue(
@@ -5697,7 +5714,7 @@ export async function getAdminRiderDetails(
         status: stringValue(order.status),
         isExternal: order.source === "external",
         total: numberValue(order.pricing?.total),
-        deliveryFee: numberValue(order.pricing?.deliveryFee),
+        deliveryFee: numberValue(order.pricing?.deliveryFee) + numberValue(order.pricing?.urgentDeliveryFee),
         createdAt: serializeDate(order.createdAt),
         deliveredAt: serializeDate(getOrderTimestamp(order, "Delivered")),
       };

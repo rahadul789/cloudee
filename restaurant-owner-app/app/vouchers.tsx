@@ -41,6 +41,9 @@ type VoucherForm = {
   maxTotalUses: string;
   maxUsesPerUser: string;
   allowRepeatUsage: boolean;
+  // Platform co-funding request: "0" = owner funds it fully; >0 = ask the platform to fund
+  // that % of each discount (a "shared" voucher). Admin decides on approval.
+  platformSharePercent: string;
   status: "Active" | "Draft";
   startsAt: string;
   endsAt: string;
@@ -78,6 +81,7 @@ function createDefaultForm(): VoucherForm {
     maxTotalUses: "",
     maxUsesPerUser: "1",
     allowRepeatUsage: false,
+    platformSharePercent: "0",
     status: "Active",
     startsAt: startsAt.toISOString(),
     endsAt: endsAt.toISOString(),
@@ -205,7 +209,10 @@ export default function VouchersScreen() {
       maxTotalUses: String(voucher.maxTotalUses ?? ""),
       maxUsesPerUser: String(voucher.maxUsesPerUser ?? 1),
       allowRepeatUsage: voucher.allowRepeatUsage === true,
-      status: voucher.status,
+      platformSharePercent: String(voucher.platformSharePercent ?? 0),
+      // The form only tracks Active/Draft; the real status (pending/rejected) is admin-driven
+      // and shown on the card. Editing always re-submits for approval on the backend anyway.
+      status: voucher.status === "Draft" ? "Draft" : "Active",
       startsAt: voucher.startsAt,
       endsAt: voucher.endsAt,
     });
@@ -269,8 +276,16 @@ export default function VouchersScreen() {
   }
 
   function buildPayload(): OwnerVoucherPayload {
+    // Owner proposes how much the platform should co-fund. 0 → owner funds it fully;
+    // >0 → a "shared" voucher request the admin decides on.
+    const platformShare = Math.min(
+      100,
+      Math.max(0, Math.round(Number(form.platformSharePercent || "0"))),
+    );
     return {
-      fundedBy: "owner",
+      fundedBy: platformShare > 0 ? "shared" : "owner",
+      ownerSharePercent: 100 - platformShare,
+      platformSharePercent: platformShare,
       stackingRule: "exclusive",
       mode: "coupon",
       type: form.type,
@@ -616,6 +631,16 @@ export default function VouchersScreen() {
             />
           </View>
 
+          <SegmentedControl
+            label={t("voucher.funding")}
+            value={form.platformSharePercent === "50" ? "50" : "0"}
+            options={[
+              { label: t("voucher.fundingFull"), value: "0" },
+              { label: t("voucher.fundingShared"), value: "50" },
+            ]}
+            onChange={(value) => updateForm("platformSharePercent", value)}
+          />
+
           <View style={styles.twoColumn}>
             <InputGroup
               label={t("voucher.maxUses")}
@@ -820,16 +845,18 @@ function VoucherListCard({
 
 function VoucherStatusBadge({ status }: { status: OwnerVoucher["status"] }) {
   const { t } = useOwnerTranslation();
-  const isActive = status === "Active";
+  const config =
+    status === "Active"
+      ? { label: t("voucher.active"), bg: "#DCFCE7", fg: "#15803D" }
+      : status === "PendingApproval"
+        ? { label: t("voucher.pendingReview"), bg: "#FEF3C7", fg: "#B45309" }
+        : status === "Rejected"
+          ? { label: t("voucher.rejected"), bg: "#FEE2E2", fg: "#B91C1C" }
+          : { label: t("voucher.draft"), bg: "#F1F5F9", fg: "#475569" };
   return (
-    <View style={[styles.statusBadge, isActive ? styles.statusBadgeActive : null]}>
-      <Text
-        style={[
-          styles.statusBadgeText,
-          isActive ? styles.statusBadgeTextActive : null,
-        ]}
-      >
-        {isActive ? t("voucher.active") : t("voucher.draft")}
+    <View style={[styles.statusBadge, { backgroundColor: config.bg }]}>
+      <Text style={[styles.statusBadgeText, { color: config.fg }]}>
+        {config.label}
       </Text>
     </View>
   );
@@ -940,6 +967,23 @@ function VoucherDetailsView({
           {formatDateTime(voucher.startsAt, t)} to {formatDateTime(voucher.endsAt, t)}
         </Text>
       </View>
+
+      {voucher.status === "Rejected" ? (
+        <View style={styles.rejectCard}>
+          <View style={styles.rejectHeader}>
+            <Ionicons name="close-circle" size={18} color="#B91C1C" />
+            <Text style={styles.rejectTitle}>{t("voucher.rejectedTitle")}</Text>
+          </View>
+          <Text style={styles.rejectReason}>
+            {voucher.reviewNote?.trim() || t("voucher.rejectedNoReason")}
+          </Text>
+        </View>
+      ) : voucher.status === "PendingApproval" ? (
+        <View style={styles.pendingCard}>
+          <Ionicons name="time-outline" size={18} color="#B45309" />
+          <Text style={styles.pendingText}>{t("voucher.pendingInfo")}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.analyticsGrid}>
         <AnalyticsCard
@@ -1727,6 +1771,28 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 9,
   },
+  rejectCard: {
+    borderRadius: 16,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1.5,
+    borderColor: "#FCA5A5",
+    padding: 14,
+    gap: 6,
+  },
+  rejectHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  rejectTitle: { fontSize: 14, fontWeight: "800", color: "#B91C1C" },
+  rejectReason: { fontSize: 14, lineHeight: 20, color: "#7F1D1D" },
+  pendingCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 16,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    padding: 14,
+  },
+  pendingText: { flex: 1, fontSize: 13, lineHeight: 18, color: "#92400E", fontWeight: "600" },
   detailsHeroTop: {
     flexDirection: "row",
     alignItems: "center",

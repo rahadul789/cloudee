@@ -1,6 +1,9 @@
 import * as React from "react"
 import { Flame, ImagePlus, Plus, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
+import { toast } from "sonner"
+
+import { imageHint, validateImageFile } from "@/lib/image-upload"
 
 import {
   createMenuItemSlug,
@@ -368,6 +371,13 @@ export function MenuItemDialog({
 
     if (!file) return
 
+    const validation = validateImageFile(file)
+    if (!validation.ok) {
+      toast.error(validation.title, { description: validation.description })
+      event.target.value = ""
+      return
+    }
+
     if (uploadedPreviewUrlRef.current) {
       URL.revokeObjectURL(uploadedPreviewUrlRef.current)
     }
@@ -463,6 +473,7 @@ export function MenuItemDialog({
                       </Button>
                     ) : null}
                   </div>
+                  <p className="text-[11px] text-muted-foreground">{imageHint("menu")}</p>
                   <Input value={form.imageUrl} onChange={(event) => updateForm("imageUrl", event.target.value)} placeholder="Or paste image URL" />
                 </div>
               </div>

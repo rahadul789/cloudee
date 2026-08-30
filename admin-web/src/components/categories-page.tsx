@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Search,
   Tags,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -28,6 +29,7 @@ import {
   getAdminZoneScope,
   subscribeAdminZoneScope,
 } from "@/lib/admin-zone-scope"
+import { AdminMenuTrashDialog } from "@/components/menu-trash-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -125,6 +127,7 @@ export function CategoriesPage() {
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<string[]>([])
   const [moderationReason, setModerationReason] = React.useState("")
   const [notifyOwner, setNotifyOwner] = React.useState(true)
+  const [isTrashOpen, setIsTrashOpen] = React.useState(false)
   const [adminZoneScope, setAdminZoneScope] = React.useState(() =>
     getAdminZoneScope()
   )
@@ -267,6 +270,7 @@ export function CategoriesPage() {
 
   return (
     <>
+      <AdminMenuTrashDialog open={isTrashOpen} onOpenChange={setIsTrashOpen} />
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
@@ -280,6 +284,10 @@ export function CategoriesPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => setIsTrashOpen(true)}>
+            <Trash2 className="size-4" />
+            Recently deleted
+          </Button>
           <Button type="button" variant="outline" onClick={exportVisibleCsv}>
             <Download className="size-4" />
             Export visible

@@ -108,14 +108,14 @@ const envSchema = z.object({
     .string()
     .regex(/^\d{4,6}$/)
     .default("123456"),
-  OTP_EXPIRY_SECONDS: z.coerce.number().int().positive().default(300),
-  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(60),
+  OTP_EXPIRY_SECONDS: z.coerce.number().int().positive().default(120),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).default(30),
   SMS_API_URL: z.string().url().default("https://api.sms.net.bd/sendsms"),
   SMS_API_KEY: z.string().optional(),
   SMS_SENDER_ID: z.string().optional(),
   // Boot default for the active SMS gateway; the admin panel (auth.otp.smsProvider)
   // overrides this at runtime. Secrets/IDs for the new provider live below.
-  SMS_PROVIDER: z.enum(["smsbd", "sslwireless"]).default("smsbd"),
+  SMS_PROVIDER: z.enum(["smsbd", "sslwireless"]).default("sslwireless"),
   SSL_SMS_API_URL: z
     .string()
     .url()

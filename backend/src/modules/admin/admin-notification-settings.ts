@@ -57,6 +57,9 @@ export function classifyAdminAlertType(
   if (alertType.startsWith("customer_custom_offer")) {
     return "campaigns";
   }
+  if (alertType === "owner_voucher_pending") {
+    return "campaigns";
+  }
   if (alertType.startsWith("notification_schedule_")) {
     return "campaigns";
   }

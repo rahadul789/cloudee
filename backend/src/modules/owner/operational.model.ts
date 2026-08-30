@@ -42,8 +42,15 @@ const categorySchema = new Schema(
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, trim: true },
     description: { type: String, default: "" },
-    status: { type: String, enum: ["active", "archived"], default: "active" },
+    status: { type: String, enum: ["active", "archived", "deleted"], default: "active" },
     displayOrder: { type: Number, default: 0 },
+    // Soft-delete trash: a deleted category is hidden everywhere (status "deleted") but kept so
+    // the owner (or admin) can restore it. `isDeleted` drives the partial unique indexes below
+    // so a same-named category can be created again after deletion.
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: "" },
+    statusBeforeDelete: { type: String, default: "" },
     adminModeration: {
       lastAction: { type: String, default: "" },
       reason: { type: String, default: "" },
@@ -55,8 +62,14 @@ const categorySchema = new Schema(
   { timestamps: true }
 )
 
-categorySchema.index({ restaurantId: 1, name: 1 }, { unique: true })
-categorySchema.index({ restaurantId: 1, slug: 1 }, { unique: true })
+categorySchema.index(
+  { restaurantId: 1, name: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+)
+categorySchema.index(
+  { restaurantId: 1, slug: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+)
 categorySchema.index({ restaurantId: 1, status: 1, displayOrder: 1 })
 
 const menuItemSchema = new Schema(
@@ -78,7 +91,7 @@ const menuItemSchema = new Schema(
       ],
       default: []
     },
-    status: { type: String, enum: ["active", "archived"], default: "active" },
+    status: { type: String, enum: ["active", "archived", "deleted"], default: "active" },
     availability: { type: String, enum: ["available", "unavailable"], default: "available" },
     kind: { type: String, enum: ["simple", "variant"], default: "simple" },
     basePrice: { type: Number, required: true, min: 0 },
@@ -89,12 +102,21 @@ const menuItemSchema = new Schema(
       ref: "MenuItem",
       default: []
     },
-    isPopular: { type: Boolean, default: false }
+    isPopular: { type: Boolean, default: false },
+    // Soft-delete trash (see categorySchema): a deleted item stays recoverable and `isDeleted`
+    // keeps it out of the partial unique slug index so the name can be reused.
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: String, default: "" },
+    statusBeforeDelete: { type: String, default: "" }
   },
   { timestamps: true }
 )
 
-menuItemSchema.index({ restaurantId: 1, slug: 1 }, { unique: true })
+menuItemSchema.index(
+  { restaurantId: 1, slug: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+)
 menuItemSchema.index({ restaurantId: 1, status: 1, availability: 1, isPopular: -1, createdAt: -1 })
 menuItemSchema.index({ restaurantId: 1, categoryId: 1, status: 1, availability: 1 })
 menuItemSchema.index({ restaurantId: 1, recommendedItemIds: 1 })

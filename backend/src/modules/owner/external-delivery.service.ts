@@ -8,6 +8,8 @@ import { RestaurantModel } from "../auth/auth.model"
 import { resolveRestaurantServiceAreaSnapshot } from "../service-area/service-area.service"
 import { runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
 import { notifyExternalDeliveryRequest } from "../monitoring/business-telegram.service"
+import { emitSocketEvent } from "../../config/socket"
+import { sendPushToRider } from "../rider/push.service"
 import { OrderModel } from "./operational.model"
 
 // ── Off-platform / owner-initiated delivery (Flow 2) — a fully SEPARATE module ─
@@ -522,18 +524,23 @@ export async function cancelExternalDelivery(params: {
   }
 
   const riderId = String(order.get("riderId") ?? "").trim()
-  if (order.status !== "ReadyForPickup" || riderId) {
+  // Owner may cancel any in-flight external delivery (before it is delivered) — even after a
+  // rider has been assigned or has already picked it up. The assigned rider is notified
+  // immediately below so they stop the delivery.
+  if (!["ReadyForPickup", "PickedUp"].includes(order.status)) {
     throw new AppError(
       StatusCodes.CONFLICT,
       "EXTERNAL_ORDER_NOT_CANCELLABLE",
-      "This delivery can no longer be cancelled. Please contact support.",
+      "This delivery can no longer be cancelled.",
     )
   }
 
   const now = new Date()
+  const orderNumber = String(order.get("orderNumber") ?? "")
   order.status = "Cancelled"
   order.set("cancelledBy", "owner")
   order.set("terminalReason", params.reason?.trim() || "Cancelled by owner")
+  order.set("riderId", "")
   order.set("external", {
     ...(order.get("external") ?? {}),
     settlementStatus: "cancelled",
@@ -550,6 +557,36 @@ export async function cancelExternalDelivery(params: {
     createdAt: now,
   } as any)
   await order.save()
+
+  // Notify the assigned rider immediately: drop the order from their active list
+  // (rider.order.updated) and pop a clear cancel notice (rider.assignment.updated), plus a
+  // push as a fallback. Fire-and-forget — a notification hiccup must not fail the cancel.
+  if (riderId) {
+    const plain = order.toObject()
+    emitSocketEvent(`rider:${riderId}`, "rider.order.updated", plain)
+    emitSocketEvent(`rider:${riderId}`, "rider.assignment.updated", {
+      orderId: String(order._id ?? ""),
+      orderNumber,
+      message: `এক্সটার্নাল ডেলিভারি ${orderNumber} রেস্টুরেন্ট বাতিল করেছে। এই অর্ডারটি আর ডেলিভার করবেন না।`,
+      assignmentAction: "cancelled",
+    })
+    try {
+      await sendPushToRider({
+        riderId,
+        payload: {
+          title: "ডেলিভারি বাতিল হয়েছে",
+          body: `এক্সটার্নাল অর্ডার ${orderNumber} বাতিল হয়েছে। এই অর্ডারটি আর ডেলিভার করবেন না।`,
+          data: {
+            type: "rider_order_cancelled",
+            orderId: String(order._id ?? ""),
+            path: "/(app)/active",
+          },
+        },
+      })
+    } catch {
+      // Cancel already saved; a push failure must not fail it.
+    }
+  }
 
   return shapeExternalOrder(order.toObject() as Record<string, any>)
 }
@@ -782,9 +819,23 @@ export async function getExternalDeliveryReports(params: {
             $cond: [{ $in: ["$status", ["Cancelled", "Rejected"]] }, 1, 0],
           },
         },
-        collectAmount: { $sum: "$external.collectAmount" },
-        deliveryFee: { $sum: "$external.deliveryFee" },
-        netToOwner: { $sum: "$external.netToOwner" },
+        // Money is only real for Delivered orders — cancelled/in-flight orders still carry
+        // collectAmount/netToOwner from creation but no cash actually moved, so exclude them.
+        collectAmount: {
+          $sum: {
+            $cond: [{ $eq: ["$status", "Delivered"] }, "$external.collectAmount", 0],
+          },
+        },
+        deliveryFee: {
+          $sum: {
+            $cond: [{ $eq: ["$status", "Delivered"] }, "$external.deliveryFee", 0],
+          },
+        },
+        netToOwner: {
+          $sum: {
+            $cond: [{ $eq: ["$status", "Delivered"] }, "$external.netToOwner", 0],
+          },
+        },
         settledToOwner: {
           $sum: {
             $cond: [

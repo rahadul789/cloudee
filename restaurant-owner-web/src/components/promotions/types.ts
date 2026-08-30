@@ -7,7 +7,11 @@ export type VoucherType =
   | "free-delivery"
   | "threshold-discount"
 
-export type VoucherStatus = "Active" | "Draft"
+export type VoucherStatus =
+  | "Active"
+  | "Draft"
+  | "PendingApproval"
+  | "Rejected"
 
 export type VoucherApplicability = "all" | "categories" | "items"
 export type VoucherCreatorType = "owner" | "admin" | "system"
@@ -39,6 +43,8 @@ export type Voucher = {
   createdByType: VoucherCreatorType
   createdById: string
   fundedBy: VoucherFundingSource
+  ownerSharePercent?: number
+  platformSharePercent?: number
   stackingRule: VoucherStackingRule
   priority: number
   mode: VoucherMode
@@ -49,6 +55,7 @@ export type Voucher = {
   maxUsesPerUser: number
   allowRepeatUsage: boolean
   status: VoucherStatus
+  reviewNote?: string
   applicability: VoucherApplicability
   categoryIds: string[]
   itemIds: string[]
@@ -69,7 +76,9 @@ export type VoucherFormState = {
   maxTotalUses: string
   maxUsesPerUser: string
   allowRepeatUsage: boolean
+  platformSharePercent: string
   status: VoucherStatus
+  reviewNote?: string
   applicability: VoucherApplicability
   categoryIds: string[]
   itemIds: string[]
@@ -277,6 +286,7 @@ export function getInitialVoucherFormState(): VoucherFormState {
     maxTotalUses: "",
     maxUsesPerUser: "1",
     allowRepeatUsage: false,
+    platformSharePercent: "0",
     status: "Active",
     applicability: "all",
     categoryIds: [],
@@ -301,6 +311,7 @@ export function getVoucherFormStateFromVoucher(
       voucher.maxTotalUses === null ? "" : String(voucher.maxTotalUses),
     maxUsesPerUser: String(voucher.maxUsesPerUser),
     allowRepeatUsage: voucher.allowRepeatUsage,
+    platformSharePercent: String(voucher.platformSharePercent ?? 0),
     status: voucher.status,
     applicability: voucher.applicability,
     categoryIds: voucher.categoryIds,
@@ -311,6 +322,8 @@ export function getVoucherFormStateFromVoucher(
 }
 
 export function getVoucherLifecycleStatus(voucher: Voucher) {
+  if (voucher.status === "PendingApproval") return "PendingApproval"
+  if (voucher.status === "Rejected") return "Rejected"
   if (voucher.status === "Draft") return "Draft"
 
   const now = Date.now()

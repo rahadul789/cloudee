@@ -585,7 +585,17 @@ const voucherSchema = new Schema(
     // guard at order placement, decremented on release). Used to enforce
     // maxTotalUses race-free. Only meaningful when maxTotalUses > 0.
     redeemedCount: { type: Number, default: 0 },
-    status: { type: String, enum: ["Draft", "Active"], default: "Draft" },
+    // Draft/Active as before; owner-created vouchers now enter "PendingApproval" and only
+    // become "Active" once an admin approves them ("Rejected" if declined). Only "Active"
+    // vouchers are ever applied at checkout (see resolveActiveVoucher), so a pending/rejected
+    // voucher is inert platform-wide.
+    status: {
+      type: String,
+      enum: ["Draft", "PendingApproval", "Active", "Rejected"],
+      default: "Draft",
+    },
+    // Admin's note when approving/rejecting an owner-requested voucher (shown to the owner).
+    reviewNote: { type: String, default: "", trim: true },
     applicability: { type: String, enum: ["all", "categories", "items"], default: "all" },
     categoryIds: { type: [Schema.Types.ObjectId], default: [] },
     itemIds: { type: [Schema.Types.ObjectId], default: [] },

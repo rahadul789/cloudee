@@ -71,7 +71,7 @@ import {
   PREPARATION_TIME_OPTIONS,
 } from "@/lib/preparation"
 import { getStoreCoverSrc, getStoreLogoSrc } from "@/lib/store-profile"
-import { validateImageFile } from "@/lib/image-upload"
+import { imageHint, validateImageFile } from "@/lib/image-upload"
 import { cn } from "@/lib/utils"
 import {
   formatBangladeshPhonePlaceholder,
@@ -788,7 +788,7 @@ export function StoreSettingsPage() {
               Store Profile
             </Badge>
           </div>
-          <div className="absolute right-4 bottom-4">
+          <div className="absolute right-4 bottom-4 flex flex-col items-end gap-1">
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border bg-background/95 px-3 py-2 text-sm font-medium shadow-sm">
               {uploadingTarget === "cover" ? (
                 <LoaderCircle className="size-4 animate-spin" />
@@ -807,6 +807,9 @@ export function StoreSettingsPage() {
                 }}
               />
             </label>
+            <span className="rounded-md bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white/90 backdrop-blur">
+              {imageHint("cover")}
+            </span>
           </div>
         </div>
 
@@ -845,24 +848,29 @@ export function StoreSettingsPage() {
             </div>
           </div>
 
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium">
-            {uploadingTarget === "logo" ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <ImagePlus className="size-4" />
-            )}
-            {uploadingTarget === "logo" ? "Uploading..." : "Update Logo"}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                void handleStoreImageUpload("logo", file ?? null)
-                event.target.value = ""
-              }}
-            />
-          </label>
+          <div className="flex flex-col gap-1">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium">
+              {uploadingTarget === "logo" ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <ImagePlus className="size-4" />
+              )}
+              {uploadingTarget === "logo" ? "Uploading..." : "Update Logo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  void handleStoreImageUpload("logo", file ?? null)
+                  event.target.value = ""
+                }}
+              />
+            </label>
+            <span className="text-[11px] text-muted-foreground">
+              {imageHint("logo")}
+            </span>
+          </div>
         </CardContent>
       </Card>
 

@@ -44,6 +44,7 @@ import {
 } from "@/components/categories/types"
 import { CategoryDetailsDrawer } from "@/components/categories/category-details-drawer"
 import { CategoryEditDrawer } from "@/components/categories/category-edit-drawer"
+import { MenuTrashDialog } from "@/components/menu/menu-trash-dialog"
 import { useCategories } from "@/components/categories/categories-context"
 import { useMenuItems } from "@/components/menu/menu-items-context"
 import {
@@ -241,12 +242,12 @@ function CategoryActions({
             </AlertDialogMedia>
             <AlertDialogTitle>Delete category?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove <strong>{category.name}</strong> from
-              your categories list.{" "}
+              <strong>{category.name}</strong> will be moved to{" "}
+              <strong>Recently deleted</strong>.{" "}
               {category.totalItems > 0
-                ? `${category.totalItems} item${category.totalItems === 1 ? "" : "s"} are currently assigned to this category.`
+                ? `Its ${category.totalItems} item${category.totalItems === 1 ? "" : "s"} will be hidden too, and restored together with the category.`
                 : "No menu items are currently assigned to this category."}{" "}
-              This action cannot be undone.
+              You can restore it within 30 days.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -385,6 +386,7 @@ export function CategoriesPage() {
     queryKey: ["owner", "categories"],
   })
   const [isAddCategoryOpen, setIsAddCategoryOpen] = React.useState(false)
+  const [isTrashOpen, setIsTrashOpen] = React.useState(false)
   const [viewingCategory, setViewingCategory] = React.useState<Category | null>(
     null
   )
@@ -715,6 +717,7 @@ export function CategoriesPage() {
 
   return (
     <div className="space-y-4 px-4 lg:px-6">
+      <MenuTrashDialog open={isTrashOpen} onOpenChange={setIsTrashOpen} />
       <CategoryEditDrawer
         open={isAddCategoryOpen}
         onOpenChange={setIsAddCategoryOpen}
@@ -841,6 +844,10 @@ export function CategoriesPage() {
           </div>
 
           <div className="flex items-center justify-end gap-3">
+            <Button variant="outline" onClick={() => setIsTrashOpen(true)}>
+              <Trash2 className="size-4" />
+              Recently deleted
+            </Button>
             <Button onClick={() => setIsAddCategoryOpen(true)}>
               <Plus className="size-4" />
               Add Category

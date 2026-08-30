@@ -46,10 +46,10 @@ import { palette } from "@/src/theme/palette";
 
 // Per-order prep-time choices (mirrors the backend 5–45 bounds). The owner can tweak this
 // before accepting; defaults to the restaurant average.
-const PREPARATION_TIME_OPTIONS = [10, 15, 20, 25, 30, 35, 40, 45] as const;
+const PREPARATION_TIME_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45] as const;
 
 // Stepper bounds for adjusting the prep time with the − / + buttons (no manual typing).
-const PREP_MIN_MINUTES = 10;
+const PREP_MIN_MINUTES = 5;
 const PREP_MAX_MINUTES = 45;
 const PREP_STEP_MINUTES = 5;
 

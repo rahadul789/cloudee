@@ -310,7 +310,14 @@ export async function getAdminReports(params: ReportParams) {
           deliveredOrders: { $sum: 1 },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
           deliveredSubtotalGross: { $sum: { $ifNull: ["$pricing.subtotal", 0] } },
-          deliveryFees: { $sum: { $ifNull: ["$pricing.deliveryFee", 0] } },
+          deliveryFees: {
+            $sum: {
+              $add: [
+                { $ifNull: ["$pricing.deliveryFee", 0] },
+                { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+              ],
+            },
+          },
           discountAmount: { $sum: { $ifNull: ["$pricing.discountAmount", { $ifNull: ["$pricing.discount", 0] }] } },
           averageServiceMinutes: {
             $avg: {
@@ -543,7 +550,14 @@ export async function getAdminReports(params: ReportParams) {
         $group: {
           _id: "$riderId",
           deliveredTrips: { $sum: 1 },
-          deliveryFees: { $sum: { $ifNull: ["$pricing.deliveryFee", 0] } },
+          deliveryFees: {
+            $sum: {
+              $add: [
+                { $ifNull: ["$pricing.deliveryFee", 0] },
+                { $ifNull: ["$pricing.urgentDeliveryFee", 0] },
+              ],
+            },
+          },
           riderName: { $last: "$riderSnapshot.name" },
           riderPhone: { $last: "$riderSnapshot.phone" },
         },

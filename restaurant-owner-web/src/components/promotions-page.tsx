@@ -100,7 +100,14 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useAppStore } from "@/store/app-store"
 
-type LifecycleFilter = "all" | "Active" | "Scheduled" | "Expired" | "Draft"
+type LifecycleFilter =
+  | "all"
+  | "Active"
+  | "Scheduled"
+  | "Expired"
+  | "Draft"
+  | "PendingApproval"
+  | "Rejected"
 type SortKey = "newestUpdated" | "highestUses" | "highestDiscount" | "endingSoon"
 
 const pageSizeOptions = [5, 10, 20, 30]
@@ -112,6 +119,14 @@ function formatMoney(value: number) {
 function getLifecycleBadgeClass(status: ReturnType<typeof getVoucherLifecycleStatus>) {
   if (status === "Active") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+
+  if (status === "PendingApproval") {
+    return "border-amber-300 bg-amber-100 text-amber-800"
+  }
+
+  if (status === "Rejected") {
+    return "border-rose-200 bg-rose-50 text-rose-700"
   }
 
   if (status === "Scheduled") {
@@ -154,8 +169,16 @@ function mapVoucherTypeToBackend(type: VoucherType) {
 }
 
 function buildVoucherPayload(payload: VoucherSubmitPayload) {
+  // Owner proposes how much the platform should co-fund. 0 → owner funds it fully; >0 → a
+  // "shared" voucher request the admin decides on when approving.
+  const platformShare = Math.min(
+    100,
+    Math.max(0, Math.round(payload.platformSharePercent ?? 0)),
+  )
   return {
-    fundedBy: "owner",
+    fundedBy: platformShare > 0 ? "shared" : "owner",
+    ownerSharePercent: 100 - platformShare,
+    platformSharePercent: platformShare,
     stackingRule: "exclusive",
     priority: 0,
     mode: payload.mode,
@@ -867,7 +890,9 @@ export function PromotionsPage() {
                               variant="outline"
                               className={getLifecycleBadgeClass(lifecycleStatus)}
                             >
-                              {lifecycleStatus}
+                              {lifecycleStatus === "PendingApproval"
+                                ? "Pending approval"
+                                : lifecycleStatus}
                             </Badge>
                           </div>
                         </TableCell>

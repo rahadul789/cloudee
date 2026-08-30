@@ -21,7 +21,7 @@ type RiderAssignmentPayload = {
   orderId?: string;
   orderNumber?: string;
   message?: string;
-  assignmentAction?: "assigned" | "reassigned" | "unassigned";
+  assignmentAction?: "assigned" | "reassigned" | "unassigned" | "cancelled";
 };
 
 type RiderRestaurantUpdatedPayload = {
@@ -85,6 +85,12 @@ export function RiderSocketBridge() {
           : language === "bn"
             ? "অ্যাসাইনমেন্ট আপডেট"
             : "Assignment updated",
+      orderCancelled:
+        typeof riderSocketText?.orderCancelled === "string"
+          ? riderSocketText.orderCancelled
+          : language === "bn"
+            ? "❌ ডেলিভারি বাতিল হয়েছে"
+            : "❌ Delivery cancelled",
       newAssignment:
         typeof riderSocketText?.newAssignment === "string"
           ? riderSocketText.newAssignment
@@ -248,9 +254,11 @@ export function RiderSocketBridge() {
 
       showAssignmentNotice({
         title:
-          payload.assignmentAction === "unassigned"
-            ? riderSocketCopy.assignmentUpdated
-            : riderSocketCopy.newAssignment,
+          payload.assignmentAction === "cancelled"
+            ? riderSocketCopy.orderCancelled
+            : payload.assignmentAction === "unassigned"
+              ? riderSocketCopy.assignmentUpdated
+              : riderSocketCopy.newAssignment,
         message: payload.message ?? riderSocketCopy.assignmentChanged,
         orderId,
       });

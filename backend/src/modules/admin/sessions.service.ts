@@ -432,3 +432,38 @@ export async function revokeAdminActorSessions(params: {
   }
   return { revoked: result.modifiedCount }
 }
+
+// Force-logs-out every logged-in customer at once by revoking all their active refresh sessions.
+// Respects the admin's zone/area scope: with no zone given it is truly platform-wide, with a zone
+// it only touches customers who order in that area (same scoping the rest of the sessions view uses).
+// Revoking is non-destructive — the customer's next refresh fails and the app logs them out; they
+// simply sign in again. (Not instant: an active 45m access token keeps working until it expires.)
+export async function revokeAllCustomerSessions(params: {
+  zoneId?: string
+  districtId?: string
+}) {
+  const config = getConfig("customer")
+  const query: Record<string, unknown> = {
+    revokedAt: null,
+    expiresAt: { $gt: new Date() },
+  }
+
+  const scopedActorIds = await buildScopedActorIds(params as SessionListParams)
+  if (scopedActorIds) {
+    const customerIds = scopedActorIds.customer
+    // Zone given but no in-scope customers resolved → revoke nothing (never widen to all).
+    if (!customerIds || customerIds.length === 0) {
+      return { revoked: 0, scoped: true }
+    }
+    query[config.actorField] = { $in: customerIds }
+  }
+
+  const result = await config.model.updateMany(query, {
+    $set: { revokedAt: new Date() },
+  })
+
+  if (result.modifiedCount > 0) {
+    invalidateAdminSessionsCache()
+  }
+  return { revoked: result.modifiedCount, scoped: Boolean(scopedActorIds) }
+}

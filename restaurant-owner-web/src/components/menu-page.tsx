@@ -27,6 +27,7 @@ import {
   type MenuItemSubmitPayload,
 } from "@/components/menu/menu-item-drawer"
 import { MenuItemDetailsDrawer } from "@/components/menu/menu-item-details-drawer"
+import { MenuTrashDialog } from "@/components/menu/menu-trash-dialog"
 import { useMenuItems } from "@/components/menu/menu-items-context"
 import {
   type MenuItem,
@@ -320,11 +321,9 @@ function MenuItemActions({
             </AlertDialogMedia>
             <AlertDialogTitle>Delete menu item?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove <strong>{item.name}</strong> from
-              your menu. It includes {item.variants.length} variant
-              {item.variants.length === 1 ? "" : "s"} and{" "}
-              {item.addOnGroups.length} add-on group
-              {item.addOnGroups.length === 1 ? "" : "s"}.
+              <strong>{item.name}</strong> will be removed from your menu and
+              moved to <strong>Recently deleted</strong>, where you can restore
+              it for the next 30 days.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -483,6 +482,7 @@ export function MenuPage() {
     queryKey: ["owner", "menu-items"],
   })
   const [isAddOpen, setIsAddOpen] = React.useState(false)
+  const [isTrashOpen, setIsTrashOpen] = React.useState(false)
   const [viewingItem, setViewingItem] = React.useState<MenuItem | null>(null)
   const [editingItem, setEditingItem] = React.useState<MenuItem | null>(null)
   const [search, setSearch] = React.useState("")
@@ -930,6 +930,8 @@ export function MenuPage() {
         }}
       />
 
+      <MenuTrashDialog open={isTrashOpen} onOpenChange={setIsTrashOpen} />
+
       <MenuApprovalPanel approvals={activeMenuApprovals} />
 
       <div className="rounded-2xl border bg-card p-4 shadow-sm">
@@ -1045,6 +1047,10 @@ export function MenuPage() {
           </div>
 
           <div className="flex items-center justify-end gap-3">
+            <Button variant="outline" onClick={() => setIsTrashOpen(true)}>
+              <Trash2 className="size-4" />
+              Recently deleted
+            </Button>
             <Button onClick={() => setIsAddOpen(true)}>
               <Plus className="size-4" />
               Add Item
@@ -1237,7 +1243,8 @@ export function MenuPage() {
               You are about to delete <strong>{selectedIds.length}</strong>{" "}
               selected item{selectedIds.length === 1 ? "" : "s"} with{" "}
               <strong>{selectedVariantCount}</strong> total variant
-              {selectedVariantCount === 1 ? "" : "s"}.
+              {selectedVariantCount === 1 ? "" : "s"}. You can restore them from{" "}
+              <strong>Recently deleted</strong> within 30 days.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -194,7 +194,8 @@ export function AppSidebar() {
         <NavUser
           user={{
             name: ownerAccount.ownerName || "Owner Account",
-            email: ownerAccount.email || ownerAccount.phone || "No email added",
+            // Show the phone the account was opened with (not email) in the sidebar footer.
+            email: ownerAccount.phone || ownerAccount.email || "No phone number",
             avatar: ownerAccount.profileImageUrl,
           }}
         />

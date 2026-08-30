@@ -1795,7 +1795,7 @@ export async function listAdminCustomerOrders(
       paymentStatus: stringValue(order.paymentStatus),
       total: numberValue(order.pricing?.total),
       subtotal: numberValue(order.pricing?.subtotal),
-      deliveryFee: numberValue(order.pricing?.deliveryFee),
+      deliveryFee: numberValue(order.pricing?.deliveryFee) + numberValue(order.pricing?.urgentDeliveryFee),
       createdAt: serializeDate(order.createdAt),
       acceptedAt: serializeDate(order.timestamps?.Accepted ?? order.timestamps?.acceptedAt),
       readyAt: serializeDate(order.timestamps?.ReadyForPickup ?? order.timestamps?.readyForPickupAt),

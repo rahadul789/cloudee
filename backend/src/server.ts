@@ -19,6 +19,10 @@ import {
   startAppAlertScheduler,
   stopAppAlertScheduler,
 } from "./modules/monitoring/app-alert-scheduler"
+import {
+  startMenuTrashPurgeScheduler,
+  stopMenuTrashPurgeScheduler,
+} from "./modules/owner/menu-trash-purge"
 
 async function bootstrap() {
   const app = createApp()
@@ -39,6 +43,7 @@ async function bootstrap() {
     startPlatformContentScheduler()
     startAdminNotificationScheduler()
     startAppAlertScheduler()
+    startMenuTrashPurgeScheduler()
   })
 
   let isShuttingDown = false
@@ -51,6 +56,7 @@ async function bootstrap() {
     stopPlatformContentScheduler()
     stopAdminNotificationScheduler()
     stopAppAlertScheduler()
+    stopMenuTrashPurgeScheduler()
 
     const forceExitTimer = setTimeout(() => {
       logger.error("Backend shutdown timed out")

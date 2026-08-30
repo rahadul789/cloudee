@@ -325,6 +325,7 @@ export default function OrdersScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.orderCard,
+          order.isUrgent ? styles.orderCardUrgent : null,
           isLate ? styles.orderCardLate : null,
           pressed ? styles.orderCardPressed : null,
         ]}
@@ -745,6 +746,12 @@ const styles = StyleSheet.create({
   orderCardLate: {
     borderColor: "rgba(239, 68, 68, 0.32)",
     backgroundColor: "#FFF7F8",
+  },
+  // "Lucrative" amber-gold wash so urgent (paid-priority) orders stand out and get prepped first.
+  orderCardUrgent: {
+    borderColor: "#F59E0B",
+    borderWidth: 1.5,
+    backgroundColor: "#FFF8EC",
   },
   // Matches the customer app's press feedback: a small scale/lift rather than a
   // heavy fade, which washed the card out.

@@ -1191,8 +1191,16 @@ function OrderDetailsSheet({
                 />
                 <StatCard
                   label="Delivery fee"
-                  value={formatCurrency(details.pricing.deliveryFee)}
-                  helper="Delivery charge"
+                  value={formatCurrency(
+                    details.pricing.deliveryFeeTotal ??
+                      details.pricing.deliveryFee +
+                        (details.pricing.urgentDeliveryFee ?? 0)
+                  )}
+                  helper={
+                    (details.pricing.urgentDeliveryFee ?? 0) > 0
+                      ? `Base ${formatCurrency(details.pricing.deliveryFee)} + ⚡ Urgent ${formatCurrency(details.pricing.urgentDeliveryFee ?? 0)}`
+                      : "Delivery charge"
+                  }
                 />
                 <StatCard
                   label="Discount"

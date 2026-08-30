@@ -6,6 +6,10 @@ import { AdminAuditLogModel, AdminModel } from "./admin.model";
 import { RestaurantModel } from "../auth/auth.model";
 import { CategoryModel, MenuItemModel, NotificationModel, OrderModel } from "../owner/operational.model";
 import { buildRestaurantServiceAreaScopeFilter } from "../service-area/service-area.service";
+import {
+  restoreCategoryForRestaurant,
+  restoreMenuItemForRestaurant,
+} from "../owner/operational.service";
 
 type CategoryStatus = "active" | "archived";
 const BLOCKED_CATEGORY_KEYWORDS = ["fake", "test", "demo", "xxx", "adult"];
@@ -149,6 +153,9 @@ function buildBasePipeline(params: ListAdminCategoriesParams) {
       value,
     ]),
   );
+  // Soft-deleted (trashed) categories never appear in the normal admin listing — they live in the
+  // dedicated deleted-menu oversight view instead.
+  match.isDeleted = { $ne: true };
   if (params.status && params.status !== "all") match.status = params.status;
   if (params.restaurantId && params.restaurantId !== "all" && mongoose.Types.ObjectId.isValid(params.restaurantId)) {
     match.restaurantId = new mongoose.Types.ObjectId(params.restaurantId);
@@ -176,7 +183,12 @@ function buildBasePipeline(params: ListAdminCategoriesParams) {
         from: "menuitems",
         let: { categoryId: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ["$categoryId", "$$categoryId"] } } },
+          {
+            $match: {
+              $expr: { $eq: ["$categoryId", "$$categoryId"] },
+              isDeleted: { $ne: true },
+            },
+          },
           {
             $group: {
               _id: null,
@@ -205,6 +217,7 @@ function buildBasePipeline(params: ListAdminCategoriesParams) {
         pipeline: [
           {
             $match: {
+              isDeleted: { $ne: true },
               $expr: {
                 $and: [
                   { $eq: ["$restaurantId", "$$restaurantId"] },
@@ -521,7 +534,7 @@ export async function getAdminCategoryDetails(
 
   const [menuItems, auditLogs, duplicateSuggestions] = await Promise.all([
     MenuItemModel.find(
-      { categoryId: category._id },
+      { categoryId: category._id, isDeleted: { $ne: true } },
       { name: 1, status: 1, availability: 1, basePrice: 1, isPopular: 1, images: 1, updatedAt: 1 },
     )
       .sort({ updatedAt: -1 })
@@ -665,4 +678,140 @@ export async function bulkUpdateAdminCategoryStatus(params: {
   }
 
   return { updated: results.length, items: results };
+}
+
+type DeletedMenuScope = {
+  zoneId?: string;
+  districtId?: string;
+  restaurantId?: string;
+};
+
+// Admin oversight of the owner trash: every soft-deleted category/item across restaurants in the
+// admin's service-area scope, so a wrongly-deleted item can be recovered even if the owner does not.
+export async function listAdminDeletedMenu(params: DeletedMenuScope) {
+  const [deletedCategories, deletedItems] = await Promise.all([
+    CategoryModel.find({ isDeleted: true }).sort({ deletedAt: -1 }).lean(),
+    MenuItemModel.find({ isDeleted: true }).sort({ deletedAt: -1 }).lean(),
+  ]);
+
+  const restaurantIdStrings = new Set<string>();
+  for (const category of deletedCategories) restaurantIdStrings.add(objectIdString(category.restaurantId));
+  for (const item of deletedItems) restaurantIdStrings.add(objectIdString(item.restaurantId));
+
+  let restaurantIds = [...restaurantIdStrings]
+    .filter((id) => id && mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+
+  if (params.restaurantId && mongoose.Types.ObjectId.isValid(params.restaurantId)) {
+    const wanted = params.restaurantId;
+    restaurantIds = restaurantIds.filter((id) => id.toString() === wanted);
+  }
+
+  const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
+  const restaurants = restaurantIds.length
+    ? await RestaurantModel.find(
+        { _id: { $in: restaurantIds }, ...restaurantScopeFilter },
+        { name: 1 },
+      ).lean()
+    : [];
+  const restaurantNameById = new Map<string, string>();
+  for (const restaurant of restaurants) {
+    restaurantNameById.set(objectIdString(restaurant._id), stringValue(restaurant.name, "Restaurant"));
+  }
+  const inScope = (restaurantId: unknown) => restaurantNameById.has(objectIdString(restaurantId));
+
+  const scopedCategories = deletedCategories.filter((category) => inScope(category.restaurantId));
+  const scopedItems = deletedItems.filter((item) => inScope(item.restaurantId));
+  const deletedCategoryIds = new Set(scopedCategories.map((category) => objectIdString(category._id)));
+
+  return {
+    categories: scopedCategories.map((category) => ({
+      id: objectIdString(category._id),
+      name: stringValue(category.name, "Category"),
+      restaurantId: objectIdString(category.restaurantId),
+      restaurantName: restaurantNameById.get(objectIdString(category.restaurantId)) ?? "Restaurant",
+      itemCount: scopedItems.filter(
+        (item) => objectIdString(item.categoryId) === objectIdString(category._id),
+      ).length,
+      deletedAt: serializeDate(category.deletedAt),
+      deletedBy: stringValue(category.deletedBy, "owner"),
+    })),
+    items: scopedItems.map((item) => ({
+      id: objectIdString(item._id),
+      name: stringValue(item.name, "Menu item"),
+      basePrice: numberValue(item.basePrice),
+      imageUrl: Array.isArray(item.images) ? stringValue(item.images[0]?.url) : "",
+      restaurantId: objectIdString(item.restaurantId),
+      restaurantName: restaurantNameById.get(objectIdString(item.restaurantId)) ?? "Restaurant",
+      categoryId: objectIdString(item.categoryId),
+      categoryDeleted: deletedCategoryIds.has(objectIdString(item.categoryId)),
+      deletedAt: serializeDate(item.deletedAt),
+      deletedBy: stringValue(item.deletedBy, "owner"),
+    })),
+  };
+}
+
+async function assertRestaurantInAdminScope(restaurantId: unknown, params: DeletedMenuScope) {
+  const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
+  if (Object.keys(restaurantScopeFilter).length === 0) return;
+  const allowed = await RestaurantModel.exists({ _id: restaurantId, ...restaurantScopeFilter });
+  if (!allowed) {
+    throw new AppError(StatusCodes.NOT_FOUND, "NOT_IN_SCOPE", "Item is outside your area scope");
+  }
+}
+
+export async function restoreAdminCategory(params: {
+  categoryId: string;
+  adminId?: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  if (!mongoose.Types.ObjectId.isValid(params.categoryId)) {
+    throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Deleted category not found");
+  }
+  const category = await CategoryModel.findOne({ _id: params.categoryId, isDeleted: true }).lean();
+  if (!category) {
+    throw new AppError(StatusCodes.NOT_FOUND, "CATEGORY_NOT_FOUND", "Deleted category not found");
+  }
+  await assertRestaurantInAdminScope(category.restaurantId, params);
+
+  const result = await restoreCategoryForRestaurant({
+    restaurantId: objectIdString(category.restaurantId),
+    categoryId: params.categoryId,
+  });
+
+  await writeCategoryAudit({
+    adminId: params.adminId,
+    categoryId: params.categoryId,
+    action: "restore",
+    title: "Category restored from trash by admin",
+    description: "",
+    metadata: {
+      restaurantId: objectIdString(category.restaurantId),
+      categoryName: stringValue(category.name),
+    },
+  });
+
+  return result;
+}
+
+export async function restoreAdminMenuItem(params: {
+  itemId: string;
+  adminId?: string;
+  zoneId?: string;
+  districtId?: string;
+}) {
+  if (!mongoose.Types.ObjectId.isValid(params.itemId)) {
+    throw new AppError(StatusCodes.NOT_FOUND, "MENU_ITEM_NOT_FOUND", "Deleted item not found");
+  }
+  const item = await MenuItemModel.findOne({ _id: params.itemId, isDeleted: true }).lean();
+  if (!item) {
+    throw new AppError(StatusCodes.NOT_FOUND, "MENU_ITEM_NOT_FOUND", "Deleted item not found");
+  }
+  await assertRestaurantInAdminScope(item.restaurantId, params);
+
+  return restoreMenuItemForRestaurant({
+    restaurantId: objectIdString(item.restaurantId),
+    itemId: params.itemId,
+  });
 }

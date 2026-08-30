@@ -52,7 +52,7 @@ function numberValue(value: unknown, fallback: number, min: number, max: number)
 export function getEnvAlertDeliverySettings(): AlertDeliverySettings {
   return {
     recipientEmails: uniqueEmails(splitCsv(env.ALERT_RECIPIENT_EMAILS)),
-    notificationChannel: "both",
+    notificationChannel: "telegram",
     fromEmail: (env.ALERT_FROM_EMAIL ?? "").trim().toLowerCase(),
     fromName: env.ALERT_FROM_NAME,
     cooldownMinutes: env.ALERT_COOLDOWN_MINUTES,

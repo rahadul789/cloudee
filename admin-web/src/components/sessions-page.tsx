@@ -15,9 +15,11 @@ import {
 import { toast } from "sonner"
 
 import {
+  LOGOUT_ALL_CUSTOMERS_PHRASE,
   listAdminSessions,
   revokeAdminActorSessions,
   revokeAdminSession,
+  revokeAllCustomerSessions,
   type AdminSessionFilterStatus,
   type AdminSessionItem,
   type AdminSessionRole,
@@ -30,6 +32,7 @@ import {
 import { useAdminRefreshPolicy } from "@/lib/refresh-policy"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -238,6 +241,8 @@ export function SessionsPage() {
   )
   const [pendingRevoke, setPendingRevoke] =
     React.useState<PendingRevokeAction | null>(null)
+  const [isLogoutAllOpen, setIsLogoutAllOpen] = React.useState(false)
+  const [logoutAllConfirm, setLogoutAllConfirm] = React.useState("")
   const pageSize = 50
   const adminScopeKey = `${adminZoneScope.type}:${adminZoneScope.id || "all"}`
 
@@ -286,6 +291,28 @@ export function SessionsPage() {
       toast.error(error instanceof Error ? error.message : "Could not revoke sessions")
     },
   })
+
+  const logoutAllMutation = useMutation({
+    mutationFn: revokeAllCustomerSessions,
+    onSuccess: (data) => {
+      if (!data.confirmed) {
+        toast.error("Confirmation did not match")
+        return
+      }
+      toast.success(`Logged out ${data.revoked} customer session(s)`)
+      setIsLogoutAllOpen(false)
+      setLogoutAllConfirm("")
+      void invalidateSessions()
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Could not log out customers"
+      )
+    },
+  })
+
+  const scopeLabel =
+    adminZoneScope.type === "all" ? "all areas" : adminZoneScope.label
 
   const sessions = sessionsQuery.data?.items ?? []
   const total = sessionsQuery.data?.total ?? 0
@@ -357,18 +384,31 @@ export function SessionsPage() {
             account.
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => void sessionsQuery.refetch()}
-          disabled={sessionsQuery.isFetching}
-        >
-          {sessionsQuery.isFetching ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCcw className="size-4" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => {
+              setLogoutAllConfirm("")
+              setIsLogoutAllOpen(true)
+            }}
+          >
+            <ShieldOff className="size-4" />
+            Log out all customers
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void sessionsQuery.refetch()}
+            disabled={sessionsQuery.isFetching}
+          >
+            {sessionsQuery.isFetching ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCcw className="size-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -583,6 +623,64 @@ export function SessionsPage() {
             >
               {isMutating ? <Loader2 className="size-4 animate-spin" /> : null}
               Revoke
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isLogoutAllOpen}
+        onOpenChange={(open) => {
+          if (!open && !logoutAllMutation.isPending) {
+            setIsLogoutAllOpen(false)
+            setLogoutAllConfirm("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <ShieldOff className="size-5" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Log out every customer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This revokes the active sessions of <strong>every customer in {scopeLabel}</strong>,
+              forcing them to sign in again. It does not delete anything or change
+              any account. Customers with an active session may stay in for up to
+              45 minutes until their access token expires.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Type <strong>{LOGOUT_ALL_CUSTOMERS_PHRASE}</strong> to confirm.
+            </p>
+            <Input
+              value={logoutAllConfirm}
+              onChange={(event) => setLogoutAllConfirm(event.target.value)}
+              placeholder={LOGOUT_ALL_CUSTOMERS_PHRASE}
+              autoFocus
+              disabled={logoutAllMutation.isPending}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={logoutAllMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={
+                logoutAllMutation.isPending ||
+                logoutAllConfirm.trim() !== LOGOUT_ALL_CUSTOMERS_PHRASE
+              }
+              onClick={(event) => {
+                event.preventDefault()
+                logoutAllMutation.mutate()
+              }}
+            >
+              {logoutAllMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : null}
+              Log out all
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

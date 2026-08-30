@@ -2534,13 +2534,19 @@ export type AdminVoucherType =
   | "free-delivery"
   | "free_delivery"
   | "threshold-discount"
-export type AdminVoucherStatus = "Active" | "Draft"
+export type AdminVoucherStatus =
+  | "Active"
+  | "Draft"
+  | "PendingApproval"
+  | "Rejected"
 export type AdminVoucherLifecycle =
   | "all"
   | "Active"
   | "Scheduled"
   | "Expired"
   | "Draft"
+  | "PendingApproval"
+  | "Rejected"
   | "Archived"
 
 export type AdminVoucherAnalytics = {
@@ -2662,6 +2668,7 @@ export type AdminRestaurantVoucher = {
   maxTotalDiscountBudget?: number
   consumedDiscountBudget?: number
   status: AdminVoucherStatus
+  reviewNote?: string
   applicability: "all" | "categories" | "items"
   categoryIds: string[]
   itemIds: string[]
@@ -3777,6 +3784,10 @@ export type AdminOrderDetails = {
   pricing: {
     subtotal: number
     deliveryFee: number
+    urgentDeliveryFee?: number
+    deliveryFeeTotal?: number
+    platformFee?: number
+    rainSurcharge?: number
     discount: number
     firstOrderDiscountAmount?: number
     ownerDiscountCost?: number
@@ -5356,6 +5367,26 @@ export async function revokeAdminActorSessions(params: {
     `/admin/sessions/${params.role}/users/${params.actorId}/revoke`,
     { method: "POST" }
   )
+  return response.data
+}
+
+export const LOGOUT_ALL_CUSTOMERS_PHRASE = "LOGOUT ALL CUSTOMERS"
+
+// Force-logs-out every customer (respecting the active zone/area scope). The typed confirmation
+// phrase is echoed to the server as a second guard against an accidental trigger.
+export async function revokeAllCustomerSessions() {
+  const response = await adminRequest<{
+    revoked: number
+    scoped: boolean
+    confirmed: boolean
+  }>("/admin/sessions/customers/logout-all", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      confirm: LOGOUT_ALL_CUSTOMERS_PHRASE,
+      ...getAdminZoneScopeQueryParams(),
+    }),
+  })
   return response.data
 }
 
@@ -8179,6 +8210,30 @@ export async function archiveAdminVoucher(voucherId: string, reason?: string) {
   return response.data
 }
 
+export async function approveAdminVoucher(voucherId: string, reviewNote?: string) {
+  const response = await adminRequest<AdminRestaurantVoucher>(
+    `/admin/vouchers/${voucherId}/approve`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reviewNote }),
+    }
+  )
+  return response.data
+}
+
+export async function rejectAdminVoucher(voucherId: string, reviewNote?: string) {
+  const response = await adminRequest<AdminRestaurantVoucher>(
+    `/admin/vouchers/${voucherId}/reject`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reviewNote }),
+    }
+  )
+  return response.data
+}
+
 export async function restoreAdminVoucher(voucherId: string) {
   const response = await adminRequest<AdminRestaurantVoucher>(
     `/admin/vouchers/${voucherId}/restore`,
@@ -8421,6 +8476,68 @@ export async function bulkUpdateAdminFoodCategoryStatus(params: {
         notifyOwner: Boolean(params.notifyOwner),
       }),
     }
+  )
+  return response.data
+}
+
+export interface AdminDeletedCategory {
+  id: string
+  name: string
+  restaurantId: string
+  restaurantName: string
+  itemCount: number
+  deletedAt: string | null
+  deletedBy: string
+}
+
+export interface AdminDeletedMenuItem {
+  id: string
+  name: string
+  basePrice: number
+  imageUrl: string
+  restaurantId: string
+  restaurantName: string
+  categoryId: string
+  categoryDeleted: boolean
+  deletedAt: string | null
+  deletedBy: string
+}
+
+export async function listAdminDeletedMenu(params?: { restaurantId?: string }) {
+  const query = new URLSearchParams()
+  const scope = getAdminZoneScopeQueryParams()
+  Object.entries({ ...scope, ...(params ?? {}) }).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "all") {
+      query.set(key, String(value))
+    }
+  })
+  const response = await adminRequest<{
+    categories: AdminDeletedCategory[]
+    items: AdminDeletedMenuItem[]
+  }>(`/admin/menu/trash${query.toString() ? `?${query.toString()}` : ""}`)
+  return response.data
+}
+
+function buildAdminScopeQuery() {
+  const query = new URLSearchParams()
+  Object.entries(getAdminZoneScopeQueryParams()).forEach(([key, value]) => {
+    if (value) query.set(key, String(value))
+  })
+  return query.toString() ? `?${query.toString()}` : ""
+}
+
+export async function restoreAdminDeletedCategory(categoryId: string) {
+  const response = await adminRequest<{ restored: true }>(
+    `/admin/menu/trash/categories/${categoryId}/restore${buildAdminScopeQuery()}`,
+    { method: "POST" }
+  )
+  return response.data
+}
+
+export async function restoreAdminDeletedMenuItem(itemId: string) {
+  const response = await adminRequest<{ restored: true }>(
+    `/admin/menu/trash/items/${itemId}/restore${buildAdminScopeQuery()}`,
+    { method: "POST" }
   )
   return response.data
 }
@@ -8881,6 +8998,11 @@ export async function uploadAdminMedia(
   context = "admin_media",
   resourceType = "image",
 ) {
+  // Central 3 MB guard for every admin image upload (CMS, polls, restaurant media, …).
+  // Non-image files (e.g. KYC PDFs) skip this — they keep their own larger doc limit.
+  if (file.type.startsWith("image/") && file.size > 3 * 1024 * 1024) {
+    throw new Error("Image is too large — please upload one smaller than 3 MB.")
+  }
   const signatureResponse = await adminRequest<{
     cloudName: string
     folder: string

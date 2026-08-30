@@ -8,16 +8,10 @@ import { logger } from "../../config/logger";
 
 type TelegramTarget = { token: string; chatId: string };
 
-// External requests -> dedicated External bot (falls back to the OPS bot, then base bot).
+// External requests -> dedicated External bot only (base bot as a last-resort safety net).
 function getExternalTarget(): TelegramTarget | null {
-  const token =
-    env.TELEGRAM_EXTERNAL_BOT_TOKEN ||
-    env.TELEGRAM_OPS_BOT_TOKEN ||
-    env.TELEGRAM_BOT_TOKEN;
-  const chatId =
-    env.TELEGRAM_EXTERNAL_CHAT_ID ||
-    env.TELEGRAM_OPS_CHAT_ID ||
-    env.TELEGRAM_CHAT_ID;
+  const token = env.TELEGRAM_EXTERNAL_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
+  const chatId = env.TELEGRAM_EXTERNAL_CHAT_ID || env.TELEGRAM_CHAT_ID;
   return token && chatId ? { token, chatId } : null;
 }
 

@@ -105,10 +105,7 @@ export default function AccountScreen() {
                 {restaurantName}
               </Text>
               <Text numberOfLines={1} style={styles.accountHolder}>
-                {t("account.holder")}: {ownerName}
-              </Text>
-              <Text style={styles.subtitle}>
-                {t("account.subtitle")}
+                {ownerName}
               </Text>
               <View style={styles.heroPillRow}>
                 <InfoPill icon="call-outline" text={owner?.phone ?? t("account.phoneUnavailable")} />
@@ -236,8 +233,13 @@ export default function AccountScreen() {
               icon="desktop-outline"
               tint="#EAF0FF"
               title={t("account.manage.webTitle")}
-              caption={t("account.manage.webCaption")}
               onPress={() => router.push("/owner-web-link" as never)}
+            />
+            <AccountNavCard
+              icon="help-buoy-outline"
+              tint="#FFE4E6"
+              title={t("account.manage.reportTitle")}
+              onPress={() => router.push("/report-issues" as never)}
             />
           </View>
 
@@ -376,11 +378,10 @@ function getPayoutMethodStatus(
   return { label: t("payouts.method.unverified"), tone: "warning" };
 }
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function SectionHeader({ title }: { title: string; subtitle?: string }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionSubtitle}>{subtitle}</Text>
     </View>
   );
 }
@@ -431,9 +432,6 @@ function OverviewCard({
         {value}
       </Text>
       <Text style={styles.overviewLabel}>{label}</Text>
-      <Text numberOfLines={1} style={styles.overviewCaption}>
-        {caption}
-      </Text>
     </>
   );
 
@@ -479,7 +477,6 @@ function LanguageOption({
     >
       <View style={styles.languageCopy}>
         <Text style={styles.languageTitle}>{title}</Text>
-        <Text style={styles.languageCaption}>{caption}</Text>
       </View>
       <View style={[styles.languageCheck, active ? styles.languageCheckActive : null]}>
         {active ? (
@@ -520,7 +517,6 @@ function AccountNavCard({
       </View>
       <View style={styles.navCopy}>
         <Text style={styles.navTitle}>{title}</Text>
-        {caption ? <Text style={styles.navCaption}>{caption}</Text> : null}
       </View>
       <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
     </Pressable>
@@ -535,10 +531,10 @@ const styles = StyleSheet.create({
   hero: {
     paddingHorizontal: 20,
     paddingTop: 18,
-    paddingBottom: 24,
-    backgroundColor: palette.primarySoft,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    paddingBottom: 26,
+    backgroundColor: "#0F1420",
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
     gap: 18,
   },
   heroTopRow: {
@@ -557,22 +553,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: "800",
-    letterSpacing: 1,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
-    color: palette.primary,
+    color: "rgba(255,255,255,0.62)",
   },
   identityCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
     padding: 16,
-    borderRadius: 26,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000000",
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
   },
   avatar: {
     width: 70,
@@ -593,16 +589,16 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   name: {
-    fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "900",
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "800",
     color: palette.foreground,
   },
   accountHolder: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "900",
-    color: palette.foreground,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    color: palette.mutedForeground,
   },
   subtitle: {
     fontSize: 13,
@@ -648,27 +644,26 @@ const styles = StyleSheet.create({
   },
   languageOption: {
     flex: 1,
-    minHeight: 86,
-    borderRadius: 20,
+    minHeight: 50,
+    borderRadius: 14,
     backgroundColor: palette.surface,
-    padding: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   // With the card border gone, the active language is carried by the tinted fill and
   // the filled check circle.
   languageOptionActive: {
     backgroundColor: "#FFF7FB",
+    borderColor: palette.primary,
   },
   languageCopy: {
     flex: 1,
-    gap: 3,
   },
   languageTitle: {
     fontSize: 14,

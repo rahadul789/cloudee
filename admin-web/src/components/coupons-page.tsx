@@ -24,12 +24,14 @@ import {
   subscribeAdminZoneScope,
 } from "@/lib/admin-zone-scope"
 import {
+  approveAdminVoucher,
   archiveAdminVoucher,
   createAdminVoucher,
   getAdminRestaurantPromotionTargets,
   listAdminCustomers,
   listAdminRestaurants,
   listAdminVouchers,
+  rejectAdminVoucher,
   restoreAdminVoucher,
   sendAdminVoucherPushCampaign,
   updateAdminVoucher,
@@ -185,6 +187,8 @@ function toInputDate(value?: string | null) {
 
 function getVoucherLifecycleStatus(voucher: AdminRestaurantVoucher) {
   if (voucher.archivedAt) return "Archived"
+  if (voucher.status === "PendingApproval") return "PendingApproval"
+  if (voucher.status === "Rejected") return "Rejected"
   if (voucher.status === "Draft") return "Draft"
   const now = Date.now()
   const startsAt = new Date(voucher.startsAt).getTime()
@@ -230,6 +234,10 @@ function formatVoucherDiscount(
 function getLifecycleBadgeClass(status: string) {
   if (status === "Active")
     return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (status === "PendingApproval")
+    return "border-amber-300 bg-amber-100 text-amber-800"
+  if (status === "Rejected")
+    return "border-rose-200 bg-rose-50 text-rose-700"
   if (status === "Scheduled") return "border-sky-200 bg-sky-50 text-sky-700"
   if (status === "Expired") return "border-muted bg-muted text-muted-foreground"
   if (status === "Archived")
@@ -1534,10 +1542,16 @@ function VoucherDetailsSheet({
   voucher,
   onOpenChange,
   onEdit,
+  onApprove,
+  onReject,
+  reviewPending,
 }: {
   voucher: AdminRestaurantVoucher | null
   onOpenChange: (open: boolean) => void
   onEdit: (voucher: AdminRestaurantVoucher) => void
+  onApprove: (voucher: AdminRestaurantVoucher) => void
+  onReject: (voucher: AdminRestaurantVoucher) => void
+  reviewPending: boolean
 }) {
   if (!voucher) return null
   const lifecycle = getVoucherLifecycleStatus(voucher)
@@ -1578,7 +1592,7 @@ function VoucherDetailsSheet({
               variant="outline"
               className={getLifecycleBadgeClass(lifecycle)}
             >
-              {lifecycle}
+              {lifecycle === "PendingApproval" ? "Pending approval" : lifecycle}
             </Badge>
             <Badge variant="secondary">
               {getVoucherTypeLabel(voucher.type)}
@@ -1592,15 +1606,41 @@ function VoucherDetailsSheet({
               </Badge>
             ) : null}
             <Badge variant="outline">Created by {voucher.createdByType}</Badge>
-            <Button
-              size="sm"
-              className="ml-auto"
-              onClick={() => onEdit(voucher)}
-            >
-              <Pencil className="size-4" />
-              Edit
-            </Button>
+            <div className="ml-auto flex gap-2">
+              {lifecycle === "PendingApproval" ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={reviewPending}
+                    onClick={() => onReject(voucher)}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={reviewPending}
+                    onClick={() => onApprove(voucher)}
+                  >
+                    Approve
+                  </Button>
+                </>
+              ) : null}
+              <Button
+                size="sm"
+                variant={lifecycle === "PendingApproval" ? "outline" : "default"}
+                onClick={() => onEdit(voucher)}
+              >
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            </div>
           </div>
+          {voucher.reviewNote ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Review note: {voucher.reviewNote}
+            </p>
+          ) : null}
         </div>
         <div className="flex-1 overflow-y-auto p-6">
           <Tabs defaultValue="overview" className="space-y-4">
@@ -2193,6 +2233,30 @@ export function CouponsPage() {
       ),
   })
 
+  const approveMutation = useMutation({
+    mutationFn: ({ voucherId, reviewNote }: { voucherId: string; reviewNote?: string }) =>
+      approveAdminVoucher(voucherId, reviewNote),
+    onSuccess: () => {
+      toast.success("Voucher approved — it is now live")
+      setSelectedVoucher(null)
+      void queryClient.invalidateQueries({ queryKey: ["admin-vouchers"] })
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to approve voucher"),
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ voucherId, reviewNote }: { voucherId: string; reviewNote?: string }) =>
+      rejectAdminVoucher(voucherId, reviewNote),
+    onSuccess: () => {
+      toast.success("Voucher rejected")
+      setSelectedVoucher(null)
+      void queryClient.invalidateQueries({ queryKey: ["admin-vouchers"] })
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Failed to reject voucher"),
+  })
+
   const vouchers = (vouchersQuery.data?.items ?? []).filter((voucher) =>
     audienceFilter === "personalized"
       ? voucher.audienceType === "selected_users"
@@ -2397,6 +2461,10 @@ export function CouponsPage() {
                 <SelectItem value="Scheduled">Scheduled</SelectItem>
                 <SelectItem value="Expired">Expired</SelectItem>
                 <SelectItem value="Draft">Draft</SelectItem>
+                <SelectItem value="PendingApproval">
+                  Pending approval
+                </SelectItem>
+                <SelectItem value="Rejected">Rejected</SelectItem>
                 <SelectItem value="Archived">Archived</SelectItem>
               </SelectContent>
             </Select>
@@ -2694,6 +2762,15 @@ export function CouponsPage() {
       <VoucherDetailsSheet
         voucher={selectedVoucher}
         onEdit={openEdit}
+        reviewPending={approveMutation.isPending || rejectMutation.isPending}
+        onApprove={(voucher) =>
+          approveMutation.mutate({ voucherId: voucher._id })
+        }
+        onReject={(voucher) => {
+          const reviewNote =
+            window.prompt("Reason for rejection (optional):") ?? undefined
+          rejectMutation.mutate({ voucherId: voucher._id, reviewNote })
+        }}
         onOpenChange={(open) => {
           if (!open) setSelectedVoucher(null)
         }}

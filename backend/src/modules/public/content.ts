@@ -474,8 +474,8 @@ export const platformContent = {
   },
   operations: {
     ownerApp: {
-      webDashboardUrl: "http://localhost:5173",
-      showCustomerPhoneNumbers: true,
+      webDashboardUrl: "https://owner.foodbela.com",
+      showCustomerPhoneNumbers: false,
       catalogDescriptionLimits: {
         menuItem: 120,
         category: 90,
@@ -713,9 +713,9 @@ export const platformContent = {
         "{{platformName}}: Refund completed for {{orderNumber}}. Amount {{amount}}. Ref {{refundReference}}.",
     },
     finance: {
-      settlementDelayDays: 3,
-      minimumPayoutAmountEnabled: true,
-      minimumPayoutAmountTaka: 500,
+      settlementDelayDays: 0,
+      minimumPayoutAmountEnabled: false,
+      minimumPayoutAmountTaka: 0,
       oneActivePayoutRequest: true,
     },
     adminNotifications: {
@@ -747,7 +747,7 @@ export const platformContent = {
     // it never pays out before an admin configures + enables it. Abuse is gated at
     // quote/placement time by the shared referral fraud engine (device/phone/wallet).
     firstOrderDiscount: {
-      enabled: false,
+      enabled: true,
       discountAmountTaka: 50,
       minimumOrderAmountTaka: 350,
       // "any" allows COD + bKash; "bkash_only" restricts the discount to prepaid
@@ -779,8 +779,8 @@ export const platformContent = {
       primaryRiderId: "",
       primaryRiderFallbackEnabled: true,
       algorithm: "nearest_eligible_balanced",
-      ownerAcceptanceTimeoutMinutes: 5,
-      maxActiveOrdersPerRider: 3,
+      ownerAcceptanceTimeoutMinutes: 3,
+      maxActiveOrdersPerRider: 15,
       staleLocationCutoffMinutes: 20,
       assignmentTimeoutMinutes: 8,
       prepStartGraceMinutes: 3,
@@ -797,14 +797,14 @@ export const platformContent = {
       surgeReadyOrderThreshold: 4,
       surgeUnassignedOrderThreshold: 2,
       autoCancelUnacceptedOrdersEnabled: true,
-      autoCancelAfterMinutes: 12,
-      autoCancelNotifyBeforeMinutes: 3,
+      autoCancelAfterMinutes: 8,
+      autoCancelNotifyBeforeMinutes: 5,
     },
   },
   auth: {
     otp: {
-      expiresInSeconds: 300,
-      resendCooldownSeconds: 60,
+      expiresInSeconds: 120,
+      resendCooldownSeconds: 30,
       // Once the user has manually resent at least once (SMS may be failing), every further
       // resend uses THIS longer cooldown instead of resendCooldownSeconds — buying support
       // time to read the code from the OTP Monitor / Telegram and deliver it by hand.
@@ -814,13 +814,16 @@ export const platformContent = {
       // When SMS is unreliable: on resend, relay the code to the "Foodbela OTP" Telegram
       // bot so support can read it out, and surface a "Call for instant OTP" button in the
       // app after this many resends. All admin-controlled; off by default.
-      telegramFallbackEnabled: false,
+      telegramFallbackEnabled: true,
       callButtonAfterResends: 2,
-      supportCallNumber: "",
+      supportCallNumber: "01883552285",
       // WhatsApp OTP alternative — shown one step before the call button. Off until the
       // WhatsApp Business API (credentials + approved template) is wired on the server.
       whatsappOtpEnabled: false,
       whatsappAfterResends: 1,
+      // Default SMS gateway + auto-failover to the other provider on a failed send.
+      smsProvider: "sslwireless",
+      smsFallbackEnabled: true,
     },
     rateLimits: {
       signinAttemptsPerWindow: 10,
@@ -849,7 +852,7 @@ export const platformContent = {
   },
   supportContact: {
     email: "support@foodbela.com",
-    phone: "01700000000",
+    phone: "01883552285",
     supportHours: "Daily, 9:00 AM - 11:00 PM",
     reportLabel: "Report Issue",
     directHelpNote:

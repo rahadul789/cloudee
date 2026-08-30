@@ -6,8 +6,11 @@ import { emitSocketEvent } from "../../config/socket"
 import { VoucherAuditModel, VoucherModel, VoucherRedemptionModel } from "../customer/customer.model"
 import { CustomerModel } from "../customer/customer.model"
 import { sendPushToCustomer } from "../customer/push.service"
+import { sendPushToOwner } from "../owner/push.service"
 import { markCustomerCustomOfferFulfilled } from "../customer/custom-offer.service"
-import { CategoryModel, MenuItemModel, OrderModel } from "../owner/operational.model"
+import { CategoryModel, MenuItemModel, NotificationModel, OrderModel } from "../owner/operational.model"
+import { sendOperationalAlert } from "../monitoring/alert-notifier"
+import { createAdminOperationalAlert } from "../admin/admin-alert.service"
 import { OwnerModel } from "../auth/auth.model"
 import { RestaurantModel } from "../auth/auth.model"
 import { ServiceZoneModel } from "../service-area/service-area.model"
@@ -656,6 +659,12 @@ async function buildVoucherQuery(params: VoucherListParams) {
     } else if (params.lifecycle === "Draft") {
       query.archivedAt = null
       query.status = "Draft"
+    } else if (params.lifecycle === "PendingApproval") {
+      query.archivedAt = null
+      query.status = "PendingApproval"
+    } else if (params.lifecycle === "Rejected") {
+      query.archivedAt = null
+      query.status = "Rejected"
     } else if (params.lifecycle === "Active") {
       query.archivedAt = null
       query.status = "Active"
@@ -991,7 +1000,12 @@ function buildVoucherCreatePayload(params: VoucherMutationParams & {
     allowRepeatUsage: params.allowRepeatUsage ?? false,
     maxTotalDiscountBudget: params.maxTotalDiscountBudget ?? 0,
     consumedDiscountBudget: 0,
-    status: params.status ?? "Draft",
+    // Owner-created vouchers always start in PendingApproval — an admin must approve before
+    // they can go Active. Admin-created vouchers keep their chosen status (Draft/Active).
+    status:
+      params.createdByType === "owner"
+        ? "PendingApproval"
+        : params.status ?? "Draft",
     applicability: scopeType === "restaurant" ? applicability : "all",
     categoryIds: scopeType === "restaurant" && applicability === "categories" ? params.categoryIds ?? [] : [],
     itemIds: scopeType === "restaurant" && applicability === "items" ? params.itemIds ?? [] : [],
@@ -1144,9 +1158,12 @@ export async function createOwnerVoucher(params: VoucherMutationParams & { owner
       restaurantId: restaurant.id,
       scopeType: "restaurant",
       selectedRestaurantIds: [],
-      fundedBy: "owner",
-      ownerSharePercent: 100,
-      platformSharePercent: 0,
+      // Owner proposes the funding split (owner-funded by default, or "shared"/"platform" as a
+      // request). It only takes effect once an admin approves — and the admin can adjust the
+      // split before approving. `normalizeFundingSplit` keeps owner/platform shares consistent.
+      fundedBy: params.fundedBy ?? "owner",
+      ownerSharePercent: params.ownerSharePercent,
+      platformSharePercent: params.platformSharePercent,
       createdByType: "owner",
       createdById: params.ownerId
     })
@@ -1163,6 +1180,53 @@ export async function createOwnerVoucher(params: VoucherMutationParams & { owner
     action: "created",
     voucherId: voucher.id
   })
+  // In-app admin bell notification (admin-web) — area-scoped so a zone/district admin only
+  // sees vouchers from restaurants in their area (metadata carries the restaurant's zone).
+  // Fully guarded (Promise chain catches even a synchronous throw) so a notification hiccup
+  // can NEVER fail the voucher create.
+  void Promise.resolve()
+    .then(() => {
+      const restaurantArea = ((restaurant as Record<string, any>).serviceArea ??
+        {}) as Record<string, any>
+      return createAdminOperationalAlert({
+        alertType: "owner_voucher_pending",
+        severity: "info",
+        title: "New voucher awaiting approval",
+        description: `${restaurant.name ?? "A restaurant"} submitted "${voucher.name}" (${voucher.fundedBy}-funded).`,
+        source: "operations",
+        entityType: "voucher",
+        entityId: voucher.id,
+        path: "/coupons",
+        iconKey: "ticket",
+        dedupeKey: `owner-voucher-pending:${voucher.id}`,
+        metadata: {
+          zoneId: restaurantArea.zoneId ?? "",
+          districtId: restaurantArea.districtId ?? "",
+          restaurantId: restaurant.id,
+          restaurantName: restaurant.name,
+          voucherName: voucher.name,
+          fundedBy: voucher.fundedBy,
+        },
+      })
+    })
+    .catch(() => undefined)
+  // Also ping the ops Telegram channel (non-order alert → no telegram from the bell path).
+  void sendOperationalAlert(
+    {
+      dedupeKey: `owner-voucher-pending:${voucher.id}`,
+      severity: "info",
+      layer: "operations",
+      title: "New voucher awaiting approval",
+      body: `${restaurant.name ?? "A restaurant"} submitted voucher "${voucher.name}" (${voucher.fundedBy}-funded) for approval.`,
+      details: {
+        restaurant: restaurant.name,
+        voucher: voucher.name,
+        fundedBy: voucher.fundedBy,
+        ownerSharePercent: voucher.ownerSharePercent,
+      },
+    },
+    { ignoreCooldown: true },
+  ).catch(() => undefined)
   return voucher
 }
 
@@ -1185,14 +1249,23 @@ export async function updateOwnerVoucher(params: VoucherPatchParams & {
     voucher,
     {
       ...params,
+      // Owners can never set the status directly — see the re-approval force below.
+      status: undefined,
       scopeType: "restaurant",
       selectedRestaurantIds: [],
-      fundedBy: "owner",
-      ownerSharePercent: 100,
-      platformSharePercent: 0
+      // Owner may revise the proposed funding split; admin still decides on re-approval.
+      fundedBy: params.fundedBy ?? "owner",
+      ownerSharePercent: params.ownerSharePercent,
+      platformSharePercent: params.platformSharePercent
     },
     restaurant.id
   )
+  // Any owner edit re-enters the approval queue: an owner must never be able to change a
+  // voucher after it was approved without a fresh admin review (no bypass).
+  if (updated.status !== "PendingApproval") {
+    updated.status = "PendingApproval"
+    await updated.save()
+  }
   await recordVoucherAudit({
     voucher: updated.toObject(),
     actorType: "owner",
@@ -1208,6 +1281,147 @@ export async function updateOwnerVoucher(params: VoucherPatchParams & {
     voucherId: updated.id
   })
   return updated
+}
+
+// Owner-facing in-app notification (the bell list) + realtime socket for a voucher review
+// decision. The push is sent separately by the caller.
+async function createOwnerVoucherReviewNotification(params: {
+  voucher: Record<string, any>
+  approved: boolean
+  reviewNote?: string
+}) {
+  const ownerId = String(params.voucher.createdById ?? "")
+  const restaurantId = String(params.voucher.restaurantId ?? "")
+  if (!ownerId) return
+  const name = String(params.voucher.name ?? "ভাউচার")
+  const title = params.approved
+    ? "✅ ভাউচার অনুমোদিত হয়েছে"
+    : "ভাউচার অনুমোদিত হয়নি"
+  const description = params.approved
+    ? `আপনার ভাউচার "${name}" এখন লাইভ।`
+    : params.reviewNote?.trim()
+      ? `"${name}" বাতিল: ${params.reviewNote.trim()}`
+      : `আপনার ভাউচার "${name}" অনুমোদিত হয়নি।`
+  const voucherId = String(params.voucher._id ?? "")
+  const notification = await NotificationModel.create({
+    ownerId,
+    restaurantId,
+    type: "promotion",
+    eventType: params.approved ? "voucher.approved" : "voucher.rejected",
+    entityType: "voucher",
+    entityId: voucherId,
+    title,
+    description,
+    // Deep-link straight to this voucher's details screen (shows the reject reason).
+    actionPath: `/vouchers?mode=details&voucherId=${voucherId}`,
+  })
+  emitSocketEvent(`owner:${ownerId}`, "notification.created", notification.toObject())
+}
+
+// Admin approves a pending owner voucher → it goes Active (customer-usable). Only vouchers
+// still awaiting approval can be approved, so a double-approve or approving a live voucher
+// is a no-op error rather than a silent state change.
+export async function approveOwnerVoucher(params: {
+  voucherId: string
+  adminId: string
+  reviewNote?: string
+}) {
+  const voucher = await VoucherModel.findOne({
+    _id: params.voucherId,
+    createdByType: "owner",
+    status: "PendingApproval",
+  })
+  if (!voucher) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "PENDING_VOUCHER_NOT_FOUND",
+      "This voucher is not awaiting approval.",
+    )
+  }
+  voucher.status = "Active"
+  voucher.set("reviewNote", params.reviewNote?.trim() || "")
+  await voucher.save()
+  await recordVoucherAudit({
+    voucher: voucher.toObject(),
+    actorType: "admin",
+    actorId: params.adminId,
+    action: "updated",
+    note: "approved",
+  })
+  const ownerId = String(voucher.createdById ?? "")
+  emitOwnerVoucherChanged({
+    ownerId,
+    restaurantId: String(voucher.restaurantId ?? ""),
+    action: "updated",
+    voucherId: voucher.id,
+  })
+  await createOwnerVoucherReviewNotification({
+    voucher: voucher.toObject(),
+    approved: true,
+  })
+  void sendPushToOwner({
+    ownerId,
+    payload: {
+      title: "✅ ভাউচার অনুমোদিত",
+      body: `আপনার ভাউচার "${voucher.name}" এখন লাইভ।`,
+      data: { type: "voucher_approved", voucherId: voucher.id, path: `/vouchers?mode=details&voucherId=${voucher.id}` },
+    },
+  }).catch(() => undefined)
+  return voucher
+}
+
+// Admin rejects a pending owner voucher → it goes Rejected (never customer-usable) with an
+// optional reason the owner sees.
+export async function rejectOwnerVoucher(params: {
+  voucherId: string
+  adminId: string
+  reviewNote?: string
+}) {
+  const voucher = await VoucherModel.findOne({
+    _id: params.voucherId,
+    createdByType: "owner",
+    status: "PendingApproval",
+  })
+  if (!voucher) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "PENDING_VOUCHER_NOT_FOUND",
+      "This voucher is not awaiting approval.",
+    )
+  }
+  voucher.status = "Rejected"
+  voucher.set("reviewNote", params.reviewNote?.trim() || "")
+  await voucher.save()
+  await recordVoucherAudit({
+    voucher: voucher.toObject(),
+    actorType: "admin",
+    actorId: params.adminId,
+    action: "updated",
+    note: "rejected",
+  })
+  const ownerId = String(voucher.createdById ?? "")
+  emitOwnerVoucherChanged({
+    ownerId,
+    restaurantId: String(voucher.restaurantId ?? ""),
+    action: "updated",
+    voucherId: voucher.id,
+  })
+  await createOwnerVoucherReviewNotification({
+    voucher: voucher.toObject(),
+    approved: false,
+    reviewNote: params.reviewNote,
+  })
+  void sendPushToOwner({
+    ownerId,
+    payload: {
+      title: "ভাউচার অনুমোদিত হয়নি",
+      body: params.reviewNote?.trim()
+        ? `"${voucher.name}" বাতিল: ${params.reviewNote.trim()}`
+        : `আপনার ভাউচার "${voucher.name}" অনুমোদিত হয়নি।`,
+      data: { type: "voucher_rejected", voucherId: voucher.id, path: `/vouchers?mode=details&voucherId=${voucher.id}` },
+    },
+  }).catch(() => undefined)
+  return voucher
 }
 
 export async function createAdminVoucher(params: VoucherMutationParams & {

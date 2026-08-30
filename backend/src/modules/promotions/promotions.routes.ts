@@ -2,6 +2,7 @@ import { Router } from "express"
 
 import { requireAuth, requireRole } from "../../common/middleware/auth"
 import {
+  approveAdminOwnerVoucher,
   archiveAdminVoucherById,
   deleteOwnerVoucherById,
   getAdminVouchers,
@@ -10,6 +11,7 @@ import {
   postVoucherDisplayEvent,
   patchOwnerVoucher,
   postAdminVoucher,
+  rejectAdminOwnerVoucher,
   restoreAdminVoucherById,
   sendAdminVoucherPushCampaignById,
   postOwnerVoucher
@@ -28,6 +30,8 @@ adminPromotionsRouter.use(requireAuth, requireRole("admin"))
 adminPromotionsRouter.get("/vouchers", getAdminVouchers)
 adminPromotionsRouter.post("/vouchers", postAdminVoucher)
 adminPromotionsRouter.patch("/vouchers/:voucherId", patchAdminVoucher)
+adminPromotionsRouter.patch("/vouchers/:voucherId/approve", approveAdminOwnerVoucher)
+adminPromotionsRouter.patch("/vouchers/:voucherId/reject", rejectAdminOwnerVoucher)
 adminPromotionsRouter.patch("/vouchers/:voucherId/archive", archiveAdminVoucherById)
 adminPromotionsRouter.patch("/vouchers/:voucherId/restore", restoreAdminVoucherById)
 adminPromotionsRouter.post("/vouchers/:voucherId/send-push", sendAdminVoucherPushCampaignById)

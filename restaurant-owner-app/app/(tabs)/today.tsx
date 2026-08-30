@@ -295,6 +295,7 @@ export default function TodayScreen() {
                   key={order._id}
                   style={({ pressed }) => [
                     styles.orderCard,
+                    order.isUrgent ? styles.orderCardUrgent : null,
                     isLate ? styles.orderCardLate : null,
                     pressed ? styles.orderCardPressed : null,
                   ]}
@@ -307,6 +308,13 @@ export default function TodayScreen() {
                 >
                   <View style={styles.orderRow}>
                     <View style={styles.orderTextBlock}>
+                      {order.isUrgent ? (
+                        <View style={styles.urgentBadge}>
+                          <Text style={styles.urgentBadgeText}>
+                            ⚡ {t("orders.urgent")}
+                          </Text>
+                        </View>
+                      ) : null}
                       <Text style={styles.orderNumber}>{order.orderNumber}</Text>
                       <Text style={styles.orderMeta}>
                         {order.customerSnapshot?.fullName || t("today.customer")} -{" "}
@@ -668,6 +676,28 @@ const styles = StyleSheet.create({
   orderCardLate: {
     borderColor: "rgba(239, 68, 68, 0.32)",
     backgroundColor: "#FFF7F8",
+  },
+  // "Lucrative" amber-gold wash so urgent (paid-priority) orders stand out and get prepped first.
+  orderCardUrgent: {
+    borderColor: "#F59E0B",
+    borderWidth: 1.5,
+    backgroundColor: "#FFF8EC",
+  },
+  urgentBadge: {
+    alignSelf: "flex-start",
+    marginBottom: 5,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 2,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+  },
+  urgentBadgeText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "900",
+    color: "#B45309",
   },
   orderCardPressed: {
     transform: [{ scale: 0.985 }, { translateY: 1 }],

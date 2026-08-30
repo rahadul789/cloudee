@@ -683,8 +683,8 @@ const platformContentSchema = z.object({
           .url()
           .max(500)
           .optional()
-          .default("http://localhost:5173"),
-        showCustomerPhoneNumbers: z.boolean().optional().default(true),
+          .default("https://owner.foodbela.com"),
+        showCustomerPhoneNumbers: z.boolean().optional().default(false),
         catalogDescriptionLimits: z
           .object({
             menuItem: z
@@ -707,8 +707,8 @@ const platformContentSchema = z.object({
       })
       .optional()
       .default({
-        webDashboardUrl: "http://localhost:5173",
-        showCustomerPhoneNumbers: true,
+        webDashboardUrl: "https://owner.foodbela.com",
+        showCustomerPhoneNumbers: false,
         catalogDescriptionLimits: DEFAULT_CATALOG_DESCRIPTION_LIMITS,
       }),
     // When false, the customer app hides the assigned rider's phone number on the
@@ -913,16 +913,16 @@ const platformContentSchema = z.object({
     }),
     finance: z
       .object({
-        settlementDelayDays: z.number().int().min(0).max(30).optional().default(3),
-        minimumPayoutAmountEnabled: z.boolean().optional().default(true),
-        minimumPayoutAmountTaka: z.number().int().min(0).max(100000).optional().default(500),
+        settlementDelayDays: z.number().int().min(0).max(30).optional().default(0),
+        minimumPayoutAmountEnabled: z.boolean().optional().default(false),
+        minimumPayoutAmountTaka: z.number().int().min(0).max(100000).optional().default(0),
         oneActivePayoutRequest: z.boolean().optional().default(true),
       })
       .optional()
       .default({
-        settlementDelayDays: 3,
-        minimumPayoutAmountEnabled: true,
-        minimumPayoutAmountTaka: 500,
+        settlementDelayDays: 0,
+        minimumPayoutAmountEnabled: false,
+        minimumPayoutAmountTaka: 0,
         oneActivePayoutRequest: true,
       }),
     adminNotifications: z
@@ -992,7 +992,7 @@ const platformContentSchema = z.object({
       }),
     firstOrderDiscount: z
       .object({
-        enabled: z.boolean().optional().default(false),
+        enabled: z.boolean().optional().default(true),
         discountAmountTaka: z.number().int().min(1).max(100000).optional().default(50),
         minimumOrderAmountTaka: z.number().int().min(0).max(100000).optional().default(350),
         paymentRestriction: z
@@ -1018,7 +1018,7 @@ const platformContentSchema = z.object({
       })
       .optional()
       .default({
-        enabled: false,
+        enabled: true,
         discountAmountTaka: 50,
         minimumOrderAmountTaka: 350,
         paymentRestriction: "any",
@@ -1089,8 +1089,8 @@ const platformContentSchema = z.object({
       surgeReadyOrderThreshold: z.number().int().min(1).max(100),
       surgeUnassignedOrderThreshold: z.number().int().min(1).max(100),
       autoCancelUnacceptedOrdersEnabled: z.boolean().optional().default(true),
-      autoCancelAfterMinutes: z.number().int().min(2).max(240).optional().default(12),
-      autoCancelNotifyBeforeMinutes: z.number().int().min(1).max(60).optional().default(3),
+      autoCancelAfterMinutes: z.number().int().min(2).max(240).optional().default(8),
+      autoCancelNotifyBeforeMinutes: z.number().int().min(1).max(60).optional().default(5),
     }),
   }),
   auth: z.object({
@@ -1112,16 +1112,16 @@ const platformContentSchema = z.object({
         .refine((value) => value.includes("{{code}}"), {
           message: "OTP message template must include {{code}}",
         }),
-      telegramFallbackEnabled: z.boolean().optional().default(false),
+      telegramFallbackEnabled: z.boolean().optional().default(true),
       callButtonAfterResends: z.number().int().min(1).max(5).optional().default(2),
-      supportCallNumber: z.string().trim().max(20).optional().default(""),
+      supportCallNumber: z.string().trim().max(20).optional().default("01883552285"),
       whatsappOtpEnabled: z.boolean().optional().default(false),
       whatsappAfterResends: z.number().int().min(0).max(5).optional().default(1),
       // Which SMS gateway sends OTP/transactional SMS. Unset → falls back to env.SMS_PROVIDER.
       smsProvider: z.enum(["smsbd", "sslwireless"]).optional(),
       // When ON, a failed send on the chosen provider auto-retries once via the OTHER
       // provider (default OFF = clean single-provider switch).
-      smsFallbackEnabled: z.boolean().optional().default(false),
+      smsFallbackEnabled: z.boolean().optional().default(true),
       // For SSL Wireless: which registered sender ID to use (resolves to the matching
       // env SID). Switching masking <-> non-masking is just this toggle.
       sslSenderType: z

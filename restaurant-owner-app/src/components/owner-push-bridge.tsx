@@ -52,6 +52,11 @@ function resolveNotificationPath(path?: unknown) {
     return path;
   }
 
+  // Voucher deep-links (/vouchers?mode=details&voucherId=...) open the voucher's details.
+  if (path.match(/^\/vouchers(?:[?#].*)?$/)) {
+    return path;
+  }
+
   return "/(tabs)/today";
 }
 

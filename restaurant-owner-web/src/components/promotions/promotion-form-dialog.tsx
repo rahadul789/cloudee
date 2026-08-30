@@ -43,6 +43,7 @@ export type VoucherSubmitPayload = {
   maxTotalUses: number | null
   maxUsesPerUser: number
   allowRepeatUsage: boolean
+  platformSharePercent?: number
   status: VoucherStatus
   applicability: VoucherApplicability
   categoryIds: string[]
@@ -233,6 +234,7 @@ export function PromotionFormDialog({
         : null,
       maxUsesPerUser: form.allowRepeatUsage ? Number(form.maxUsesPerUser) : 1,
       allowRepeatUsage: form.allowRepeatUsage,
+      platformSharePercent: Number(form.platformSharePercent || "0"),
       status: form.status,
       applicability: form.applicability,
       categoryIds: form.applicability === "categories" ? form.categoryIds : [],
@@ -340,6 +342,25 @@ export function PromotionFormDialog({
                   {errors.minimumOrderAmount}
                 </p>
               ) : null}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Platform co-fund %
+              </label>
+              <Input
+                value={form.platformSharePercent}
+                onChange={(event) =>
+                  updateForm(
+                    "platformSharePercent",
+                    event.target.value.replace(/\D/g, "").slice(0, 3)
+                  )
+                }
+                placeholder="0"
+              />
+              <p className="text-xs text-muted-foreground">
+                0 = you fund it fully. Above 0 requests the platform to share
+                that % of each discount (admin decides on approval).
+              </p>
             </div>
           </div>
 

@@ -24,7 +24,7 @@ export async function sendOtpToTelegram(params: {
   if (!target) return { sent: false as const, reason: "not_configured" as const };
 
   const header =
-    params.kind === "call_request" ? "🔴 CALL REQUESTED" : "📱 OTP resend";
+    params.kind === "call_request" ? "📞 CALL REQUESTED" : "🔐 OTP resend";
   const text = [
     header,
     `Phone: ${params.phone}`,

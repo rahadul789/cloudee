@@ -9,6 +9,9 @@ import { sendSuccess } from "../../common/utils/api-response"
 import {
   deleteCategoryPermanently,
   deleteMenuItemPermanently,
+  listDeletedMenu,
+  restoreCategory,
+  restoreMenuItem,
   createCategory,
   createMenuItem,
   extendOrderPreparation,
@@ -304,6 +307,27 @@ export const deleteOwnerMenuItem = asyncHandler(async (req: AuthenticatedRequest
     itemId: getStringParam(req.params.itemId)
   })
   return sendSuccess(res, { message: "Menu item deleted successfully", data })
+})
+
+export const getOwnerDeletedMenu = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await listDeletedMenu({ ownerId: getOwnerId(req) })
+  return sendSuccess(res, { data })
+})
+
+export const restoreOwnerCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await restoreCategory({
+    ownerId: getOwnerId(req),
+    categoryId: getStringParam(req.params.categoryId)
+  })
+  return sendSuccess(res, { message: "Category restored successfully", data })
+})
+
+export const restoreOwnerMenuItem = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await restoreMenuItem({
+    ownerId: getOwnerId(req),
+    itemId: getStringParam(req.params.itemId)
+  })
+  return sendSuccess(res, { message: "Menu item restored successfully", data })
 })
 
 export const getOwnerOrders = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {

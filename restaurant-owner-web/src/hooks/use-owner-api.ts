@@ -659,6 +659,53 @@ export function useDeleteOwnerMenuItemMutation() {
   })
 }
 
+export interface OwnerDeletedCategory {
+  id: string
+  name: string
+  itemCount: number
+  deletedAt: string | null
+  deletedBy: string
+}
+
+export interface OwnerDeletedMenuItem {
+  id: string
+  name: string
+  basePrice: number
+  image: string
+  categoryId: string
+  categoryDeleted: boolean
+  deletedAt: string | null
+  deletedBy: string
+}
+
+export interface OwnerDeletedMenuResponse {
+  categories: OwnerDeletedCategory[]
+  items: OwnerDeletedMenuItem[]
+}
+
+export function useOwnerDeletedMenuQuery(enabled: boolean) {
+  return useQuery({
+    queryKey: ["owner", "menu-trash"],
+    enabled,
+    queryFn: ({ signal }) =>
+      api.get<OwnerDeletedMenuResponse>("/owner/menu/trash", signal),
+  })
+}
+
+export function useRestoreOwnerCategoryMutation() {
+  return useMutation({
+    mutationFn: (categoryId: string) =>
+      api.post<{ restored: true }>(`/owner/categories/${categoryId}/restore`, {}),
+  })
+}
+
+export function useRestoreOwnerMenuItemMutation() {
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      api.post<{ restored: true }>(`/owner/menu-items/${itemId}/restore`, {}),
+  })
+}
+
 export function useOwnerOrdersQuery(
   enabled: boolean,
   params?: {

@@ -2,6 +2,8 @@ import * as React from "react"
 import { BarChart3, Loader2, Plus, RefreshCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { validateImageFile } from "@/lib/image-upload"
+
 import {
   closeAdminPoll,
   createAdminPoll,
@@ -183,6 +185,11 @@ export function PollManagerSection() {
 
   async function handleImage(file?: File | null) {
     if (!file) return
+    const validation = validateImageFile(file)
+    if (!validation.ok) {
+      toast.error(validation.title, { description: validation.description })
+      return
+    }
     setUploading(true)
     try {
       const asset = await uploadAdminMedia(file)

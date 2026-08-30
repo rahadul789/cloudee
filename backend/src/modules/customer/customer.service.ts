@@ -5600,7 +5600,10 @@ export async function placeCustomerOrder(params: {
       const platformDiscountCost = quote.pricing.platformDiscountCost ?? 0;
       const commissionBase = subtotal;
       const commission = Math.round(commissionBase * (commissionRate / 100));
-      const deliveryCost = quote.pricing.deliveryFee;
+      // Total delivery the platform earns on this order = base fee + urgent surcharge.
+      const deliveryCost =
+        (quote.pricing.deliveryFee ?? 0) +
+        (quote.pricing.urgentDeliveryFee ?? 0);
       const netAmount = subtotal - commission - discountCost;
 
       await LedgerEntryModel.create(

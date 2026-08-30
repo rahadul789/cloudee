@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from "../../common/middleware/auth"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
+  approveOwnerVoucher,
   archiveAdminVoucher,
   createAdminVoucher,
   createOwnerVoucher,
@@ -12,6 +13,7 @@ import {
   listAdminVouchers,
   listOwnerVouchers,
   listOwnerVouchersWithFilters,
+  rejectOwnerVoucher,
   restoreAdminVoucher,
   recordVoucherDisplayEvent,
   sendAdminVoucherPushCampaign,
@@ -98,6 +100,10 @@ const ownerVoucherListQuerySchema = z.object({
 
 const archiveVoucherSchema = z.object({
   reason: z.string().optional()
+})
+
+const reviewVoucherSchema = z.object({
+  reviewNote: z.string().max(500).optional()
 })
 
 const voucherDisplayEventSchema = z.object({
@@ -223,6 +229,30 @@ export const archiveAdminVoucherById = asyncHandler(
       reason: payload.reason
     })
     return sendSuccess(res, { message: "Voucher archived successfully", data })
+  }
+)
+
+export const approveAdminOwnerVoucher = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = reviewVoucherSchema.parse(req.body)
+    const data = await approveOwnerVoucher({
+      adminId: getOwnerId(req),
+      voucherId: getStringParam(req.params.voucherId),
+      reviewNote: payload.reviewNote
+    })
+    return sendSuccess(res, { message: "Voucher approved successfully", data })
+  }
+)
+
+export const rejectAdminOwnerVoucher = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = reviewVoucherSchema.parse(req.body)
+    const data = await rejectOwnerVoucher({
+      adminId: getOwnerId(req),
+      voucherId: getStringParam(req.params.voucherId),
+      reviewNote: payload.reviewNote
+    })
+    return sendSuccess(res, { message: "Voucher rejected", data })
   }
 )
 

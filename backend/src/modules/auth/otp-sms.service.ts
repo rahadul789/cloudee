@@ -106,22 +106,22 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 export function getFallbackOtpDeliveryConfig(): OtpDeliveryConfig {
   return {
     platformName: "Foodbela",
-    expiresInSeconds: clampInteger(env.OTP_EXPIRY_SECONDS, 300, 60, 900),
+    expiresInSeconds: clampInteger(env.OTP_EXPIRY_SECONDS, 120, 60, 900),
     resendCooldownSeconds: clampInteger(
       env.OTP_RESEND_COOLDOWN_SECONDS,
-      60,
+      30,
       15,
       300,
     ),
     manualResendCooldownSeconds: 90,
     messageTemplate: DEFAULT_OTP_MESSAGE_TEMPLATE,
-    telegramFallbackEnabled: false,
+    telegramFallbackEnabled: true,
     callButtonAfterResends: 2,
-    supportCallNumber: "",
+    supportCallNumber: "01883552285",
     whatsappOtpEnabled: false,
     whatsappAfterResends: 1,
     smsProvider: env.SMS_PROVIDER,
-    smsFallbackEnabled: false,
+    smsFallbackEnabled: true,
     sslSenderType: "non_masking",
   };
 }

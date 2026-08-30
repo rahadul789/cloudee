@@ -8,6 +8,9 @@ import {
   bulkUpdateAdminCategoryStatus,
   getAdminCategoryDetails,
   listAdminCategories,
+  listAdminDeletedMenu,
+  restoreAdminCategory,
+  restoreAdminMenuItem,
   updateAdminCategoryStatus,
 } from "./categories.service";
 
@@ -70,6 +73,36 @@ export const patchAdminCategoryStatus = asyncHandler(async (req: AuthenticatedRe
     message: payload.status === "archived" ? "Category archived" : "Category restored",
     data,
   });
+});
+
+const deletedMenuQuerySchema = z.object({
+  zoneId: z.string().optional(),
+  districtId: z.string().optional(),
+  restaurantId: z.string().optional(),
+});
+
+export const getAdminDeletedMenu = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const query = deletedMenuQuerySchema.parse(req.query);
+  const data = await listAdminDeletedMenu(query);
+  return sendSuccess(res, { data });
+});
+
+export const postAdminRestoreCategory = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await restoreAdminCategory({
+    categoryId: getStringParam(req.params.categoryId),
+    adminId: req.user?.id ?? "",
+    ...getAdminAreaScope(req),
+  });
+  return sendSuccess(res, { message: "Category restored", data });
+});
+
+export const postAdminRestoreMenuItem = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await restoreAdminMenuItem({
+    itemId: getStringParam(req.params.itemId),
+    adminId: req.user?.id ?? "",
+    ...getAdminAreaScope(req),
+  });
+  return sendSuccess(res, { message: "Menu item restored", data });
 });
 
 export const patchAdminCategoriesBulkStatus = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
