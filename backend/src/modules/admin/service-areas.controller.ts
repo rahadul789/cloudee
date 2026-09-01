@@ -101,7 +101,7 @@ const zonePayloadSchema = z.object({
       primaryRiderId: z.string().trim().optional(),
       primaryRiderFallbackEnabled: z.boolean().nullable().optional(),
       algorithm: z
-        .enum(["nearest_eligible_balanced", "least_loaded_first"])
+        .enum(["balanced_rotation", "nearest_eligible_balanced", "least_loaded_first"])
         .nullable()
         .optional(),
       maxActiveOrdersPerRiderOverride: z.coerce.number().int().min(1).nullable().optional(),

@@ -78,7 +78,23 @@ import {
 const MAX_ORDER_HISTORY_ENTRIES = 100;
 const ADMIN_LIVE_MAP_ACTIVE_ORDER_WINDOW_HOURS = 12;
 
-type DispatchAlgorithm = "nearest_eligible_balanced" | "least_loaded_first";
+type DispatchAlgorithm =
+  | "balanced_rotation"
+  | "nearest_eligible_balanced"
+  | "least_loaded_first";
+
+const DISPATCH_ALGORITHMS: readonly DispatchAlgorithm[] = [
+  "balanced_rotation",
+  "nearest_eligible_balanced",
+  "least_loaded_first",
+];
+
+function isDispatchAlgorithm(value: unknown): value is DispatchAlgorithm {
+  return (
+    typeof value === "string" &&
+    DISPATCH_ALGORITHMS.includes(value as DispatchAlgorithm)
+  );
+}
 type DispatchMode = "fleet" | "primary_rider";
 type RiderPayrollStatus = "draft" | "approved" | "paid";
 type AdminAreaScopeParams = {
@@ -197,6 +213,9 @@ type RiderAssignmentCandidate = {
   hasActiveTracking: boolean;
   distanceKm: number | null;
   hasFreshLocation: boolean;
+  // Most recent time this rider was assigned an order (null = never/recently idle). Drives the
+  // round-robin tie-break in the "balanced_rotation" algorithm so orders spread evenly.
+  lastAssignedAt: Date | null;
 };
 
 type DispatchDecisionLogEntry = {
@@ -351,7 +370,9 @@ const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   dispatchMode: "fleet",
   primaryRiderId: "",
   primaryRiderFallbackEnabled: true,
-  algorithm: "nearest_eligible_balanced",
+  // Default: spread orders evenly across all eligible riders (round-robin), so no single rider is
+  // favoured when several are idle. Admin can still switch to nearest/least-loaded.
+  algorithm: "balanced_rotation",
   ownerAcceptanceTimeoutMinutes: 3,
   maxActiveOrdersPerRider: 15,
   staleLocationCutoffMinutes: 20,
@@ -1202,10 +1223,9 @@ function getDispatchSettingsFromContent(
       typeof dispatch.primaryRiderFallbackEnabled === "boolean"
         ? dispatch.primaryRiderFallbackEnabled
         : DEFAULT_DISPATCH_SETTINGS.primaryRiderFallbackEnabled,
-    algorithm:
-      dispatch.algorithm === "least_loaded_first"
-        ? "least_loaded_first"
-        : DEFAULT_DISPATCH_SETTINGS.algorithm,
+    algorithm: isDispatchAlgorithm(dispatch.algorithm)
+      ? dispatch.algorithm
+      : DEFAULT_DISPATCH_SETTINGS.algorithm,
     ownerAcceptanceTimeoutMinutes:
       typeof dispatch.ownerAcceptanceTimeoutMinutes === "number"
         ? dispatch.ownerAcceptanceTimeoutMinutes
@@ -1304,11 +1324,9 @@ async function getDispatchSettingsForServiceArea(
       typeof overrides.primaryRiderFallbackEnabled === "boolean"
         ? overrides.primaryRiderFallbackEnabled
         : baseSettings.primaryRiderFallbackEnabled,
-    algorithm:
-      overrides.algorithm === "least_loaded_first" ||
-      overrides.algorithm === "nearest_eligible_balanced"
-        ? overrides.algorithm
-        : baseSettings.algorithm,
+    algorithm: isDispatchAlgorithm(overrides.algorithm)
+      ? overrides.algorithm
+      : baseSettings.algorithm,
     autoReassignTimedOutOrders:
       typeof overrides.autoReassignTimedOutOrders === "boolean"
         ? overrides.autoReassignTimedOutOrders
@@ -1409,27 +1427,44 @@ async function listDispatchEligibleRiders(params: {
     })
   );
   const riderIds = zoneAllowedRiders.map((rider) => rider._id.toString());
+  // Window used to derive each rider's most-recent-assignment time for round-robin fairness.
+  const recentAssignmentSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const activeCounts = riderIds.length
     ? await OrderModel.aggregate<{
         _id: string;
         activeOrders: number;
         liveTrips: number;
+        lastAssignedAt: Date | null;
       }>([
         {
           $match: {
             riderId: { $in: riderIds },
-            status: { $in: ["ReadyForPickup", "PickedUp"] },
+            // Currently-carried orders (for load) OR any order assigned in the last 24h (for the
+            // round-robin recency signal).
+            $or: [
+              { status: { $in: ["ReadyForPickup", "PickedUp"] } },
+              { createdAt: { $gte: recentAssignmentSince } },
+            ],
           },
         },
         {
           $group: {
             _id: "$riderId",
-            activeOrders: { $sum: 1 },
+            activeOrders: {
+              $sum: {
+                $cond: [
+                  { $in: ["$status", ["ReadyForPickup", "PickedUp"]] },
+                  1,
+                  0,
+                ],
+              },
+            },
             liveTrips: {
               $sum: {
                 $cond: [{ $eq: ["$status", "PickedUp"] }, 1, 0],
               },
             },
+            lastAssignedAt: { $max: "$createdAt" },
           },
         },
       ])
@@ -1472,6 +1507,7 @@ async function listDispatchEligibleRiders(params: {
         distanceKm,
         hasFreshLocation:
           locationAgeMinutes <= params.settings.staleLocationCutoffMinutes,
+        lastAssignedAt: countEntry?.lastAssignedAt ?? null,
       } satisfies RiderAssignmentCandidate;
     })
     .filter(
@@ -1511,6 +1547,31 @@ function pickBestRiderForOrder(params: {
     : withinCapacity;
 
   const ranked = [...filteredCandidates].sort((left, right) => {
+    if (settings.algorithm === "balanced_rotation") {
+      // 1) Least current load, then 2) round-robin by who was assigned least recently (never-
+      // assigned goes first), so orders spread evenly across all idle riders — the closest rider
+      // no longer wins every idle tie. Distance is only the final deterministic tie-break.
+      if (left.activeOrders !== right.activeOrders) {
+        return left.activeOrders - right.activeOrders;
+      }
+      const leftAssignedAt = left.lastAssignedAt
+        ? left.lastAssignedAt.getTime()
+        : 0;
+      const rightAssignedAt = right.lastAssignedAt
+        ? right.lastAssignedAt.getTime()
+        : 0;
+      if (leftAssignedAt !== rightAssignedAt) {
+        return leftAssignedAt - rightAssignedAt;
+      }
+      if (Number(left.hasFreshLocation) !== Number(right.hasFreshLocation)) {
+        return Number(right.hasFreshLocation) - Number(left.hasFreshLocation);
+      }
+      return (
+        (left.distanceKm ?? Number.POSITIVE_INFINITY) -
+        (right.distanceKm ?? Number.POSITIVE_INFINITY)
+      );
+    }
+
     if (settings.algorithm === "least_loaded_first") {
       if (left.activeOrders !== right.activeOrders) {
         return left.activeOrders - right.activeOrders;

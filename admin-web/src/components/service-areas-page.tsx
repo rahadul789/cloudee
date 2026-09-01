@@ -94,7 +94,7 @@ type ZoneFormState = {
   dispatchMode: "fleet" | "primary_rider"
   primaryRiderId: string
   primaryRiderFallbackEnabled: boolean
-  algorithm: "nearest_eligible_balanced" | "least_loaded_first"
+  algorithm: "balanced_rotation" | "nearest_eligible_balanced" | "least_loaded_first"
   maxActiveOrdersPerRiderOverride: string
   staleLocationCutoffMinutes: string
   retryCooldownMinutes: string
@@ -139,7 +139,7 @@ const defaultZoneForm: ZoneFormState = {
   dispatchMode: "fleet",
   primaryRiderId: "",
   primaryRiderFallbackEnabled: true,
-  algorithm: "nearest_eligible_balanced",
+  algorithm: "balanced_rotation",
   maxActiveOrdersPerRiderOverride: "",
   staleLocationCutoffMinutes: "20",
   retryCooldownMinutes: "3",
@@ -206,9 +206,10 @@ function zoneToForm(zone: AdminServiceZone): ZoneFormState {
     primaryRiderFallbackEnabled:
       zone.dispatch?.primaryRiderFallbackEnabled !== false,
     algorithm:
-      zone.dispatch?.algorithm === "least_loaded_first"
-        ? "least_loaded_first"
-        : "nearest_eligible_balanced",
+      zone.dispatch?.algorithm === "least_loaded_first" ||
+      zone.dispatch?.algorithm === "nearest_eligible_balanced"
+        ? zone.dispatch.algorithm
+        : "balanced_rotation",
     maxActiveOrdersPerRiderOverride:
       zone.dispatch?.maxActiveOrdersPerRiderOverride == null
         ? ""
@@ -415,7 +416,9 @@ function ZoneCard({
         <Badge variant="outline">
           {zone.dispatch?.algorithm === "least_loaded_first"
             ? "Least loaded"
-            : "Nearest balanced"}
+            : zone.dispatch?.algorithm === "nearest_eligible_balanced"
+              ? "Nearest balanced"
+              : "Balanced rotation"}
         </Badge>
         <Badge variant="outline">
           Max restaurant {zone.delivery?.maxRestaurantDistanceKm ?? "-"} km
@@ -1169,6 +1172,9 @@ export function ServiceAreasPage() {
                         }))
                       }
                     >
+                      <NativeSelectOption value="balanced_rotation">
+                        Balanced rotation (even split)
+                      </NativeSelectOption>
                       <NativeSelectOption value="nearest_eligible_balanced">
                         Nearest balanced
                       </NativeSelectOption>

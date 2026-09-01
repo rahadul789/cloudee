@@ -3791,6 +3791,9 @@ export function SettingsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="balanced_rotation">
+                          Balanced rotation (even split)
+                        </SelectItem>
                         <SelectItem value="nearest_eligible_balanced">
                           Nearest balanced
                         </SelectItem>

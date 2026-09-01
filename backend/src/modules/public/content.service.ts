@@ -1070,7 +1070,7 @@ const platformContentSchema = z.object({
       dispatchMode: z.enum(["fleet", "primary_rider"]),
       primaryRiderId: z.string(),
       primaryRiderFallbackEnabled: z.boolean(),
-      algorithm: z.enum(["nearest_eligible_balanced", "least_loaded_first"]),
+      algorithm: z.enum(["balanced_rotation", "nearest_eligible_balanced", "least_loaded_first"]),
       ownerAcceptanceTimeoutMinutes: z.number().int().min(1).max(180),
       maxActiveOrdersPerRider: z.number().int().min(1).max(50),
       staleLocationCutoffMinutes: z.number().int().min(1).max(180),

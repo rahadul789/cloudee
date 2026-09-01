@@ -778,7 +778,8 @@ export const platformContent = {
       dispatchMode: "fleet",
       primaryRiderId: "",
       primaryRiderFallbackEnabled: true,
-      algorithm: "nearest_eligible_balanced",
+      // Default: round-robin even distribution across idle riders (admin can switch).
+      algorithm: "balanced_rotation",
       ownerAcceptanceTimeoutMinutes: 3,
       maxActiveOrdersPerRider: 15,
       staleLocationCutoffMinutes: 20,

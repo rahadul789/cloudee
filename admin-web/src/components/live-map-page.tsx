@@ -1141,7 +1141,8 @@ function getDispatchAlgorithmLabel(settings?: AdminDispatchSettings | null) {
   if (!settings.autoAssignmentEnabled) return "Manual mode"
   if (settings.dispatchMode === "primary_rider") return "Primary rider"
   if (settings.algorithm === "least_loaded_first") return "Least loaded"
-  return "Nearest balanced"
+  if (settings.algorithm === "nearest_eligible_balanced") return "Nearest balanced"
+  return "Balanced rotation"
 }
 
 function getDispatchAlgorithmDetail(settings?: AdminDispatchSettings | null) {
@@ -1155,7 +1156,10 @@ function getDispatchAlgorithmDetail(settings?: AdminDispatchSettings | null) {
   if (settings.algorithm === "least_loaded_first") {
     return "Prioritizes rider capacity"
   }
-  return "Balances distance and load"
+  if (settings.algorithm === "nearest_eligible_balanced") {
+    return "Balances distance and load"
+  }
+  return "Even round-robin across idle riders"
 }
 
 export function LiveMapPage() {

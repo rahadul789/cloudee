@@ -4083,7 +4083,7 @@ function DispatchControlsPanel({
         autoReassignTimedOutOrders: true,
         dispatchMode: "fleet",
         primaryRiderFallbackEnabled: true,
-        algorithm: "least_loaded_first",
+        algorithm: "balanced_rotation",
         maxActiveOrdersPerRider: 3,
         assignmentTimeoutMinutes: 8,
         retryCooldownMinutes: 3,
@@ -4112,7 +4112,7 @@ function DispatchControlsPanel({
   const activePreset =
     draft.dispatchMode === "primary_rider"
       ? "launch"
-      : draft.algorithm === "least_loaded_first" &&
+      : draft.algorithm === "balanced_rotation" &&
           draft.maxActiveOrdersPerRider === 3
         ? "balanced"
         : draft.algorithm === "nearest_eligible_balanced" &&
@@ -4446,6 +4446,9 @@ function DispatchControlsPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="balanced_rotation">
+                    Balanced rotation (even split)
+                  </SelectItem>
                   <SelectItem value="nearest_eligible_balanced">
                     Nearest balanced
                   </SelectItem>

@@ -130,7 +130,7 @@ const serviceZoneSchema = new Schema(
           primaryRiderFallbackEnabled: { type: Boolean, default: null },
           algorithm: {
             type: String,
-            enum: ["nearest_eligible_balanced", "least_loaded_first"],
+            enum: ["balanced_rotation", "nearest_eligible_balanced", "least_loaded_first"],
             default: null
           },
           maxActiveOrdersPerRiderOverride: { type: Number, default: null, min: 1 },

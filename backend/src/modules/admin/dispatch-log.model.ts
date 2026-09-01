@@ -23,7 +23,7 @@ const dispatchDecisionLogSchema = new Schema(
     restaurantName: { type: String, default: "" },
     algorithm: {
       type: String,
-      enum: ["nearest_eligible_balanced", "least_loaded_first"],
+      enum: ["balanced_rotation", "nearest_eligible_balanced", "least_loaded_first"],
       required: true
     },
     assignmentSource: {

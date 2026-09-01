@@ -369,7 +369,7 @@ export type AdminServiceZone = {
     dispatchMode?: "fleet" | "primary_rider" | null
     primaryRiderId?: string
     primaryRiderFallbackEnabled?: boolean | null
-    algorithm?: "nearest_eligible_balanced" | "least_loaded_first" | null
+    algorithm?: "balanced_rotation" | "nearest_eligible_balanced" | "least_loaded_first" | null
     maxActiveOrdersPerRiderOverride?: number | null
     staleLocationCutoffMinutes?: number | null
     retryCooldownMinutes?: number | null
@@ -4211,7 +4211,7 @@ export type AdminDispatchSettings = {
   dispatchMode: "fleet" | "primary_rider"
   primaryRiderId: string
   primaryRiderFallbackEnabled: boolean
-  algorithm: "nearest_eligible_balanced" | "least_loaded_first"
+  algorithm: "balanced_rotation" | "nearest_eligible_balanced" | "least_loaded_first"
   ownerAcceptanceTimeoutMinutes: number
   maxActiveOrdersPerRider: number
   staleLocationCutoffMinutes: number
@@ -4255,7 +4255,7 @@ export type AdminDispatchSettings = {
     orderId: string
     orderNumber: string
     restaurantName: string
-    algorithm: "nearest_eligible_balanced" | "least_loaded_first"
+    algorithm: "balanced_rotation" | "nearest_eligible_balanced" | "least_loaded_first"
     assignmentSource: "manual_admin" | "auto_dispatch"
     outcome: "assigned" | "reassigned" | "no_match" | "skipped"
     selectedRiderName: string
@@ -4747,7 +4747,7 @@ export type PlatformContent = {
       dispatchMode: "fleet" | "primary_rider"
       primaryRiderId: string
       primaryRiderFallbackEnabled: boolean
-      algorithm: "nearest_eligible_balanced" | "least_loaded_first"
+      algorithm: "balanced_rotation" | "nearest_eligible_balanced" | "least_loaded_first"
       ownerAcceptanceTimeoutMinutes: number
       maxActiveOrdersPerRider: number
       staleLocationCutoffMinutes: number

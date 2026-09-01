@@ -253,6 +253,7 @@ function applyZoneDispatchSettings(
       current.primaryRiderFallbackEnabled,
     ),
     algorithm:
+      dispatch.algorithm === "balanced_rotation" ||
       dispatch.algorithm === "least_loaded_first" ||
       dispatch.algorithm === "nearest_eligible_balanced"
         ? dispatch.algorithm
