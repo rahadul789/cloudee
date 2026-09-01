@@ -1142,12 +1142,14 @@ function AdminZoneScopeSelector() {
         <Button
           type="button"
           variant="outline"
-          className="hidden h-9 max-w-[220px] justify-start gap-2 rounded-full px-3 lg:inline-flex"
+          // Always visible (incl. phones) so the area/zone can be chosen on mobile too; compact on
+          // small screens (narrower, single-line label), full detail from sm up.
+          className="inline-flex h-9 max-w-[150px] shrink-0 justify-start gap-2 rounded-full px-2 sm:max-w-[220px] sm:px-3"
         >
-          {scope.type === "all" ? <Globe2 className="size-4" /> : <MapPin className="size-4" />}
+          {scope.type === "all" ? <Globe2 className="size-4 shrink-0" /> : <MapPin className="size-4 shrink-0" />}
           <span className="min-w-0 text-left">
             <span className="block truncate text-xs font-semibold">{selectedLabel}</span>
-            <span className="block truncate text-[10px] text-muted-foreground">{selectedDetail}</span>
+            <span className="hidden truncate text-[10px] text-muted-foreground sm:block">{selectedDetail}</span>
           </span>
         </Button>
       </DropdownMenuTrigger>
