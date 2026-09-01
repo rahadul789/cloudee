@@ -117,7 +117,10 @@ const defaultZoneForm: ZoneFormState = {
   surchargeStartsAfterKm: "2",
   surchargeStepMeters: "1000",
   surchargeAmountTaka: "10",
-  maxRestaurantDistanceKm: "7",
+  // Left empty on purpose: an empty (0) value makes the backend fall back to the zone radius,
+  // so a customer's restaurant reach matches the zone size by default and never silently
+  // over-reaches. Admin can still type a specific km to override.
+  maxRestaurantDistanceKm: "",
   rainSurchargeEnabled: false,
   rainSurchargeTaka: "20",
   platformFeeOverride: false,
@@ -869,6 +872,7 @@ export function ServiceAreasPage() {
                   <Label>Max restaurant distance km</Label>
                   <Input
                     value={zoneForm.maxRestaurantDistanceKm}
+                    placeholder={`Same as radius (${zoneForm.radiusKm || "—"} km)`}
                     onChange={(event) =>
                       setZoneForm((current) => ({
                         ...current,
@@ -876,6 +880,10 @@ export function ServiceAreasPage() {
                       }))
                     }
                   />
+                  <p className="text-xs text-muted-foreground">
+                    How far from the customer restaurants can be. Leave empty to
+                    match the zone radius.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Rain extra charge</Label>

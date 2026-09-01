@@ -23,6 +23,8 @@
     "db:reset-showcase": "tsx scripts/reset-showcase-seed.ts",
     "db:reset-preserve-auth:preview": "tsx scripts/reset-preserve-auth-seed.ts --preview",
     "db:reset-preserve-auth": "tsx scripts/reset-preserve-auth-seed.ts",
+    "db:cleanup-netrokona:preview": "tsx scripts/cleanup-keep-netrokona-catalog.ts --preview",
+    "db:cleanup-netrokona": "tsx scripts/cleanup-keep-netrokona-catalog.ts --apply",
     "cleanup:scheduler-events": "tsx src/scripts/cleanup-transient-scheduler-events.ts",
     "backfill:voucher-redeemed-count": "tsx src/scripts/backfill-voucher-redeemed-count.ts",
     "alert:test": "tsx src/scripts/send-test-alert.ts",

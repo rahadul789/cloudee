@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import { validateImageFile } from "@/lib/image-upload"
+import { uploadImageToCloudinary, validateImageFile } from "@/lib/image-upload"
 import { PREPARATION_TIME_OPTIONS } from "@/lib/preparation"
 import {
   buildOnboardingDraftPayload,
@@ -460,6 +460,8 @@ export function OnboardingPage() {
   const [tagInput, setTagInput] = React.useState("")
   const [cuisineInput, setCuisineInput] = React.useState("")
   const [isLocating, setIsLocating] = React.useState(false)
+  const [uploadingImageTarget, setUploadingImageTarget] =
+    React.useState<UploadTarget | null>(null)
   const [isMapLoading, setIsMapLoading] = React.useState(false)
   const [mapLoadStartedAt, setMapLoadStartedAt] = React.useState<number | null>(
     null
@@ -902,7 +904,7 @@ export function OnboardingPage() {
     })
   }
 
-  function handleImageUpload(target: UploadTarget, file: File | null) {
+  async function handleImageUpload(target: UploadTarget, file: File | null) {
     if (!file) return
 
     const validation = validateImageFile(file)
@@ -913,24 +915,44 @@ export function OnboardingPage() {
       return
     }
 
+    const field = target === "logo" ? "logoUrl" : "coverImageUrl"
+
+    // Instant local preview while the upload runs. The blob is NEVER the persisted value — the
+    // hosted Cloudinary URL replaces it on success (a blob URL would show nowhere but this tab).
     const previousPreviewUrl = uploadedImagePreviewUrlsRef.current[target]
     if (previousPreviewUrl) {
       URL.revokeObjectURL(previousPreviewUrl)
     }
     const previewUrl = URL.createObjectURL(file)
     uploadedImagePreviewUrlsRef.current[target] = previewUrl
+    setDraftStoreSettings((current) => ({ ...current, [field]: previewUrl }))
+    setUploadingImageTarget(target)
 
-    setDraftStoreSettings((current) => ({
-      ...current,
-      [target === "logo" ? "logoUrl" : "coverImageUrl"]: previewUrl,
-    }))
-
-    toast.success(target === "logo" ? "Logo uploaded" : "Cover uploaded", {
-      description:
-        target === "logo"
-          ? "Your store logo is ready for review."
-          : "Your cover image is ready for review.",
-    })
+    try {
+      const uploaded = await uploadImageToCloudinary(file, "foodbela/owner/store")
+      setDraftStoreSettings((current) => ({ ...current, [field]: uploaded.url }))
+      toast.success(target === "logo" ? "Logo uploaded" : "Cover uploaded", {
+        description:
+          target === "logo"
+            ? "Your store logo is ready for review."
+            : "Your cover image is ready for review.",
+      })
+    } catch (error) {
+      // Upload failed — clear the temporary blob so a broken URL is never submitted.
+      setDraftStoreSettings((current) =>
+        current[field] === previewUrl ? { ...current, [field]: "" } : current
+      )
+      toast.error("Image upload failed", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setUploadingImageTarget(null)
+      if (uploadedImagePreviewUrlsRef.current[target] === previewUrl) {
+        URL.revokeObjectURL(previewUrl)
+        uploadedImagePreviewUrlsRef.current[target] = null
+      }
+    }
   }
 
   function removeImageUpload(target: UploadTarget) {
@@ -2532,7 +2554,10 @@ export function OnboardingPage() {
                   : "Submit for Review"}
               </Button>
             ) : (
-              <Button onClick={handleNext} disabled={saveAction !== "idle"}>
+              <Button
+                onClick={handleNext}
+                disabled={saveAction !== "idle" || uploadingImageTarget !== null}
+              >
                 {saveAction === "next" ? (
                   <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}

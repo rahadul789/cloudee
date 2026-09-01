@@ -268,7 +268,35 @@ export async function emitOrderRealtimeUpdate(
 ) {
   const restaurantId = String(order.restaurantId ?? "").trim();
   const orderId = String(order._id ?? order.id ?? "").trim();
-  const ownerFacingOrder = await buildOwnerFacingOrderPayload(order);
+
+  // Load the order context once and build both the owner- and customer-facing payloads from it.
+  const [content, restaurant] = await Promise.all([
+    getPlatformContent(),
+    restaurantId ? RestaurantModel.findById(restaurantId).lean() : null,
+  ]);
+  const contentRecord = content as Record<string, any>;
+  const settings = await getOwnerAutomationSettings(
+    contentRecord,
+    order.serviceAreaSnapshot as Record<string, any> | undefined,
+  );
+  // Built from the pristine order (before any owner-only decoration) plus the SAME preparationTiming
+  // the REST payload computes — so a live update reflects the owner's per-order prep choice, not the
+  // restaurant average. Without this the app receives no preparationTiming on the socket and falls
+  // back to the average prep time.
+  const customerFacingOrder = {
+    ...order,
+    preparationTiming: buildOrderPreparationTiming({
+      order,
+      restaurant: restaurant as Record<string, any> | null,
+      prepStartGraceMinutes: settings.prepStartGraceMinutes,
+      maxExtraMinutes: settings.preparationMaxExtraMinutes,
+    }),
+  };
+  const ownerFacingOrder = decorateOwnerOrderAutomation(
+    applyOwnerOrderPrivacy(order, getOwnerAppSettings(contentRecord)),
+    settings,
+    restaurant as Record<string, any> | null,
+  );
 
   if (restaurantId) {
     const restaurantOwner = await OwnerModel.findOne({
@@ -294,7 +322,7 @@ export async function emitOrderRealtimeUpdate(
     emitSocketEvent(
       `customer:${order.customerId}`,
       "customer.order.updated",
-      order,
+      customerFacingOrder,
     );
   }
 
@@ -2093,11 +2121,10 @@ export async function assignOwnerRiderToOrder(params: {
         : "assigned",
   });
   emitSocketEvent(`rider:${rider.id}`, "rider.order.updated", order.toObject());
-  emitSocketEvent(
-    `customer:${order.customerId}`,
-    "customer.order.updated",
-    order.toObject(),
-  );
+  emitSocketEvent(`customer:${order.customerId}`, "customer.order.updated", {
+    ...order.toObject(),
+    preparationTiming: ownerOrderObject.preparationTiming,
+  });
   emitAdminOrderUpdated(order.toObject());
   emitAdminLiveMapUpdated({
     type: "rider.assignment",
@@ -2360,11 +2387,13 @@ export async function transitionOrder(params: {
     "order.updated",
     ownerOrderObject,
   );
-  emitSocketEvent(
-    `customer:${order.customerId}`,
-    "customer.order.updated",
-    orderObject,
-  );
+  // Give the customer the SAME preparationTiming (built from the owner's per-order prep choice) so
+  // the live update shows the chosen prep time, not the restaurant average. Reuses the owner
+  // object's already-computed timing; the raw orderObject keeps owner-only fields out.
+  emitSocketEvent(`customer:${order.customerId}`, "customer.order.updated", {
+    ...orderObject,
+    preparationTiming: ownerOrderObject.preparationTiming,
+  });
   emitAdminOrderUpdated(orderObject);
   emitAdminLiveMapUpdated({
     type: "order.transition",
@@ -2507,11 +2536,10 @@ export async function extendOrderPreparation(params: {
     "order.updated",
     ownerOrderObject,
   );
-  emitSocketEvent(
-    `customer:${updatedOrder.customerId}`,
-    "customer.order.updated",
-    orderObject,
-  );
+  emitSocketEvent(`customer:${updatedOrder.customerId}`, "customer.order.updated", {
+    ...orderObject,
+    preparationTiming: ownerOrderObject.preparationTiming,
+  });
   emitAdminOrderUpdated(orderObject);
   emitAdminLiveMapUpdated({
     type: "order.preparation_extended",
@@ -2726,11 +2754,10 @@ export async function transitionOrderBySystem(params: {
     "order.updated",
     ownerFacingOrder,
   );
-  emitSocketEvent(
-    `customer:${updatedOrder.customerId}`,
-    "customer.order.updated",
-    updatedOrder.toObject(),
-  );
+  emitSocketEvent(`customer:${updatedOrder.customerId}`, "customer.order.updated", {
+    ...updatedOrder.toObject(),
+    preparationTiming: ownerFacingOrder.preparationTiming,
+  });
   emitAdminOrderUpdated(updatedOrder.toObject());
   if (updatedOrder.riderId) {
     emitSocketEvent(

@@ -137,6 +137,7 @@ import {
   roundCurrencyAmount,
   trimLimitedString,
 } from "./customer-shared.util";
+import { replaceCloudinaryImage } from "../../common/utils/cloudinary";
 
 const CUSTOMER_REFRESH_EXPIRY_DAYS = 3650;
 const DEFAULT_CUSTOMER_ORDER_PAGE_SIZE = 80;
@@ -1567,6 +1568,7 @@ export async function updateCustomerProfile(params: {
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   const customer = await getCustomerById(customerId);
+  const previousProfileImagePublicId = customer.profileImage?.publicId ?? "";
 
   if (params.fullName !== undefined) {
     customer.fullName = params.fullName.trim();
@@ -1599,6 +1601,14 @@ export async function updateCustomerProfile(params: {
   }
 
   await customer.save();
+
+  // Profile pic has no history dependency — purge the replaced Cloudinary asset (post-save).
+  if (params.profileImage !== undefined) {
+    replaceCloudinaryImage(
+      previousProfileImagePublicId,
+      customer.profileImage?.publicId,
+    );
+  }
 
   return {
     customer: {

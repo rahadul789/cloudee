@@ -3,7 +3,11 @@ import { Flame, ImagePlus, LoaderCircle, Plus, Ticket, Trash2, X } from "lucide-
 import { Link } from "react-router-dom"
 import { toast } from "sonner"
 
-import { imageHint, validateImageFile } from "@/lib/image-upload"
+import {
+  imageHint,
+  uploadImageToCloudinary,
+  validateImageFile,
+} from "@/lib/image-upload"
 
 import {
   createMenuItemSlug,
@@ -139,6 +143,10 @@ export function MenuItemDrawer({
   )
   const [isSlugTouched, setIsSlugTouched] = React.useState(false)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
+  const [isUploadingImage, setIsUploadingImage] = React.useState(false)
+  // Local blob shown only WHILE the Cloudinary upload is in flight; the form's real imageUrl is
+  // set to the hosted https URL on success (never the blob).
+  const [localPreview, setLocalPreview] = React.useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const uploadedPreviewUrlRef = React.useRef<string | null>(null)
 
@@ -443,25 +451,47 @@ export function MenuItemDrawer({
     })
   }
 
-  function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageUpload(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = event.target.files?.[0]
+    // Reset the input so re-selecting the same file still fires onChange.
+    event.target.value = ""
 
     if (!file) return
 
     const validation = validateImageFile(file)
     if (!validation.ok) {
       toast.error(validation.title, { description: validation.description })
-      event.target.value = ""
       return
     }
 
+    // Show an instant local preview while the real upload runs. This blob is NEVER stored in the
+    // form — only the hosted Cloudinary URL is (a blob URL would show nowhere but this browser).
     if (uploadedPreviewUrlRef.current) {
       URL.revokeObjectURL(uploadedPreviewUrlRef.current)
     }
-
     const previewUrl = URL.createObjectURL(file)
     uploadedPreviewUrlRef.current = previewUrl
-    updateForm("imageUrl", previewUrl)
+    setLocalPreview(previewUrl)
+    setIsUploadingImage(true)
+
+    try {
+      const uploaded = await uploadImageToCloudinary(file, "foodbela/owner/menu")
+      updateForm("imageUrl", uploaded.url)
+    } catch (error) {
+      toast.error("Image upload failed", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      })
+    } finally {
+      setIsUploadingImage(false)
+      setLocalPreview(null)
+      if (uploadedPreviewUrlRef.current) {
+        URL.revokeObjectURL(uploadedPreviewUrlRef.current)
+        uploadedPreviewUrlRef.current = null
+      }
+    }
   }
 
   return (
@@ -572,16 +602,21 @@ export function MenuItemDrawer({
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-sm font-medium">Item Image</label>
                   <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-3 md:flex-row md:items-center">
-                    <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-background">
-                      {form.imageUrl ? (
+                    <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border bg-background">
+                      {localPreview || form.imageUrl ? (
                         <img
-                          src={form.imageUrl}
+                          src={localPreview ?? form.imageUrl}
                           alt="Menu preview"
                           className="size-full object-cover"
                         />
                       ) : (
                         <ImagePlus className="size-5 text-muted-foreground" />
                       )}
+                      {isUploadingImage ? (
+                        <div className="absolute inset-0 flex items-center justify-center bg-background/60">
+                          <LoaderCircle className="size-5 animate-spin text-primary" />
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex-1 space-y-3">
                       <input
@@ -595,10 +630,20 @@ export function MenuItemDrawer({
                         <Button
                           type="button"
                           variant="outline"
+                          disabled={isUploadingImage}
                           onClick={() => fileInputRef.current?.click()}
                         >
-                          <ImagePlus className="size-4" />
-                          Upload Image
+                          {isUploadingImage ? (
+                            <>
+                              <LoaderCircle className="size-4 animate-spin" />
+                              Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <ImagePlus className="size-4" />
+                              Upload Image
+                            </>
+                          )}
                         </Button>
                         {form.imageUrl ? (
                           <Button
@@ -1018,11 +1063,15 @@ export function MenuItemDrawer({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || isUploadingImage}>
                 {isSubmitting ? (
                   <LoaderCircle className="size-4 animate-spin" />
                 ) : null}
-                {isSubmitting ? "Saving..." : submitLabel}
+                {isSubmitting
+                  ? "Saving..."
+                  : isUploadingImage
+                    ? "Uploading image..."
+                    : submitLabel}
               </Button>
             </div>
           </div>

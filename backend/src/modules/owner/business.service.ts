@@ -6,7 +6,10 @@ import type { SortOrder } from "mongoose"
 import { env } from "../../config/env"
 import { emitSocketEvent } from "../../config/socket"
 import { enqueueBackgroundTask } from "../../common/utils/background-task"
-import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
+import {
+  deleteCloudinaryAsset,
+  replaceCloudinaryImage,
+} from "../../common/utils/cloudinary"
 import {
   createAdminOperationalAlert,
   resolveAdminOperationalAlertByDedupeKey
@@ -363,6 +366,10 @@ export async function updateStoreSettings(params: {
 }) {
   const { owner, restaurant, restaurantId } = await getOwnerBusinessContext(params.ownerId)
   const previousContactPhone = restaurant.contact?.phone ?? ""
+  // Capture the currently-stored image ids so a replaced cover/logo can be purged from Cloudinary
+  // after the save (see replaceCloudinaryImage below).
+  const previousLogoPublicId = restaurant.logo?.publicId ?? ""
+  const previousCoverPublicId = restaurant.coverImage?.publicId ?? ""
 
   if (params.name !== undefined) restaurant.name = params.name
   if (params.description !== undefined) restaurant.description = params.description
@@ -493,6 +500,13 @@ export async function updateStoreSettings(params: {
   }
 
   await restaurant.save()
+  // Cover/logo have no history dependency — purge the replaced Cloudinary asset (post-save).
+  if (params.logo !== undefined) {
+    replaceCloudinaryImage(previousLogoPublicId, restaurant.logo?.publicId)
+  }
+  if (params.coverImage !== undefined) {
+    replaceCloudinaryImage(previousCoverPublicId, restaurant.coverImage?.publicId)
+  }
   emitSocketEvent(`owner:${params.ownerId}`, "store.updated", {
     restaurantId,
     type: "store_settings_updated"
@@ -1175,33 +1189,6 @@ export function createUploadSignature(params: {
   }
 }
 
-export async function deleteCloudinaryAsset(params: {
-  publicId: string
-  resourceType?: string
-}) {
-  const timestamp = Math.floor(Date.now() / 1000)
-  const resourceType = params.resourceType ?? "image"
-  const signatureBase = `public_id=${params.publicId}&timestamp=${timestamp}${env.CLOUDINARY_API_SECRET}`
-  const signature = crypto.createHash("sha1").update(signatureBase).digest("hex")
-  const body = new URLSearchParams({
-    public_id: params.publicId,
-    timestamp: String(timestamp),
-    api_key: env.CLOUDINARY_API_KEY,
-    signature,
-  })
-  const response = await fetchWithTimeout(
-    `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/${resourceType}/destroy`,
-    {
-      method: "POST",
-      body,
-      timeoutMs: 5_000,
-    }
-  ).catch(() => null)
-
-  if (!response?.ok) {
-    return { deleted: false }
-  }
-
-  const payload = (await response.json()) as { result?: string }
-  return { deleted: payload.result === "ok" || payload.result === "not found" }
-}
+// Cloudinary asset helpers now live in a neutral util (avoids a business ↔ customer import cycle).
+// Re-exported here so existing importers of this module keep working.
+export { deleteCloudinaryAsset, replaceCloudinaryImage }

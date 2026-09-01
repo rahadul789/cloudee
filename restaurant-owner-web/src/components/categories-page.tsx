@@ -764,7 +764,7 @@ export function CategoriesPage() {
 
       <div className="rounded-2xl border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-1 flex-col gap-3 lg:flex-row">
+          <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:flex-wrap">
             <div className="relative w-full lg:max-w-xs">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -843,7 +843,7 @@ export function CategoriesPage() {
             </Button>
           </div>
 
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <Button variant="outline" onClick={() => setIsTrashOpen(true)}>
               <Trash2 className="size-4" />
               Recently deleted

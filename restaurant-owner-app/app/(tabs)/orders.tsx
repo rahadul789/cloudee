@@ -17,6 +17,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { OwnerStatusBadge } from "@/src/components/owner-status-badge";
 import { EnforcementNotice } from "@/src/components/enforcement-notice";
 import { OwnerHeaderActions } from "@/src/components/owner-header-actions";
@@ -27,6 +28,7 @@ import {
   type OwnerOrderStatus,
   useOwnerOrdersQuery,
   useOwnerOrderTransitionMutation,
+  useOwnerStoreSettingsQuery,
 } from "@/src/hooks/use-owner-api";
 import { useNow } from "@/src/hooks/use-now";
 import {
@@ -53,6 +55,18 @@ import {
   isOrderHistoryStatus,
 } from "@/src/lib/order-status";
 import { palette } from "@/src/theme/palette";
+
+// Per-order prep options at accept — kept in sync with the owner web dropdown.
+const PREP_OPTIONS = [5, 10, 15, 20, 25, 30, 35, 40, 45] as const;
+const DEFAULT_PREP_MINUTES = 20;
+
+function nearestPrepOption(minutes: number) {
+  return PREP_OPTIONS.reduce(
+    (closest, option) =>
+      Math.abs(option - minutes) < Math.abs(closest - minutes) ? option : closest,
+    PREP_OPTIONS[0],
+  );
+}
 
 const filters: {
   labelKey: TranslationKey;
@@ -139,7 +153,15 @@ export default function OrdersScreen() {
   const [pendingAction, setPendingAction] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [orderPageSize, setOrderPageSize] = useState(OWNER_ORDER_PAGE_STEP);
+  // Per-order prep time the owner chooses when accepting (mirrors the owner web flow). Without it
+  // the customer app only ever sees the restaurant average prep time.
+  const [acceptSheetOrder, setAcceptSheetOrder] = useState<OwnerOrder | null>(null);
+  const [acceptPrepMinutes, setAcceptPrepMinutes] = useState(DEFAULT_PREP_MINUTES);
   const { t } = useOwnerTranslation();
+  const storeQuery = useOwnerStoreSettingsQuery();
+  const averagePrepMinutes = nearestPrepOption(
+    storeQuery.data?.preparationTimeMinutes ?? DEFAULT_PREP_MINUTES,
+  );
   const now = useNow(1000, isFocused);
   const isHistoryStatus = isOrderHistoryStatus(selectedStatus);
   const ordersQuery = useOwnerOrdersQuery(isFocused, {
@@ -223,6 +245,7 @@ export default function OrdersScreen() {
     order: OwnerOrder,
     nextStatus: "Accepted" | "Rejected" | "Preparing" | "ReadyForPickup" | "Cancelled",
     note?: string,
+    preparationMinutes?: number,
   ) {
     const actionKey = `${order._id}:${nextStatus}`;
     setPendingAction(actionKey);
@@ -231,6 +254,7 @@ export default function OrdersScreen() {
         orderId: order._id,
         nextStatus,
         note,
+        preparationMinutes,
       });
     } catch (error) {
       Alert.alert(
@@ -240,6 +264,20 @@ export default function OrdersScreen() {
     } finally {
       setPendingAction("");
     }
+  }
+
+  function openAcceptSheet(order: OwnerOrder) {
+    // Default to the order's own base (avg for a new order) or the restaurant average.
+    const base = order.preparationTiming?.baseMinutes ?? averagePrepMinutes;
+    setAcceptPrepMinutes(nearestPrepOption(base));
+    setAcceptSheetOrder(order);
+  }
+
+  async function confirmAccept() {
+    const order = acceptSheetOrder;
+    if (!order) return;
+    setAcceptSheetOrder(null);
+    await transitionOrder(order, "Accepted", undefined, acceptPrepMinutes);
   }
 
   function confirmReject(order: OwnerOrder) {
@@ -423,7 +461,7 @@ export default function OrdersScreen() {
             <Pressable
               style={pressableAction(styles.acceptButton)}
               disabled={isCardPending}
-              onPress={() => transitionOrder(order, "Accepted")}
+              onPress={() => openAcceptSheet(order)}
             >
               {isActionPending("Accepted") ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -612,6 +650,49 @@ export default function OrdersScreen() {
           ) : null
         }
       />
+
+      <AppBottomSheet
+        visible={Boolean(acceptSheetOrder)}
+        onClose={() => setAcceptSheetOrder(null)}
+        title={t("orders.prepSheetTitle")}
+        subtitle={t("orders.prepSheetSubtitle")}
+        leadingIcon="time"
+        snapPoints={[0.5, 0.7]}
+        contentContainerStyle={styles.prepSheetContent}
+        footer={
+          <Pressable
+            style={pressableAction(styles.acceptButton)}
+            onPress={() => void confirmAccept()}
+          >
+            <Text style={styles.acceptButtonText}>
+              {t("orders.accept")} · {localizeDigits(String(acceptPrepMinutes))}{" "}
+              {t("orders.prepMinutesShort")}
+            </Text>
+          </Pressable>
+        }
+      >
+        <View style={styles.prepGrid}>
+          {PREP_OPTIONS.map((minutes) => {
+            const active = minutes === acceptPrepMinutes;
+            return (
+              <Pressable
+                key={minutes}
+                style={[styles.prepChip, active ? styles.prepChipActive : null]}
+                onPress={() => setAcceptPrepMinutes(minutes)}
+              >
+                <Text
+                  style={[
+                    styles.prepChipText,
+                    active ? styles.prepChipTextActive : null,
+                  ]}
+                >
+                  {localizeDigits(String(minutes))} {t("orders.prepMinutesShort")}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </AppBottomSheet>
     </Screen>
   );
 }
@@ -890,6 +971,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  prepSheetContent: {
+    paddingBottom: 8,
+  },
+  prepGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  prepChip: {
+    minWidth: 78,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    alignItems: "center",
+  },
+  prepChipActive: {
+    backgroundColor: palette.foreground,
+    borderColor: palette.foreground,
+  },
+  prepChipText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  prepChipTextActive: {
     color: "#FFFFFF",
   },
   rejectButton: {

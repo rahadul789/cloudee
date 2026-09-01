@@ -7258,7 +7258,12 @@ async function emitOrderRealtimeUpdates(order: Record<string, any>) {
 
   if (owner?._id) emitSocketEvent(`owner:${owner._id.toString()}`, "order.updated", ownerFacingOrder);
   if (restaurantId) emitSocketEvent(`restaurant:${restaurantId}`, "order.updated", ownerFacingOrder);
-  if (order.customerId) emitSocketEvent(`customer:${order.customerId}`, "customer.order.updated", order);
+  // Customer gets the same computed preparationTiming (owner's per-order prep choice), not the avg.
+  if (order.customerId)
+    emitSocketEvent(`customer:${order.customerId}`, "customer.order.updated", {
+      ...order,
+      preparationTiming,
+    });
   if (order.riderId) emitSocketEvent(`rider:${order.riderId}`, "rider.order.updated", order);
   emitSocketEvent("admin:ops", "admin.order.updated", {
     orderId: String(order._id ?? ""),
