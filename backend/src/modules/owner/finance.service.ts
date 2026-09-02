@@ -484,7 +484,11 @@ async function ensureRestaurantEarningLedgerEntries(
   )
 }
 
-async function _ensureRestaurantLedgerFresh(
+// Materialises a restaurant's earning ledger from its delivered orders (creates any missing entry,
+// updates amounts, matures pending→available), guarded by a short TTL cache so it can be called on
+// every finance/payout read without hammering the DB. This is the safety net that keeps the ledger
+// (and payouts) in sync with delivered orders even if an order-placement ledger write ever slipped.
+export async function ensureRestaurantLedgerFresh(
   restaurantId: string,
   settlementDelayDays: number,
   options: { force?: boolean } = {}
@@ -528,6 +532,30 @@ async function _ensureRestaurantLedgerFresh(
   }
 
   pruneLedgerFreshnessCache()
+}
+
+// Backfills EVERY (or a scoped set of) restaurant's earning ledger — used by the admin finance
+// surfaces so the platform-wide numbers are always synced with delivered orders. Each restaurant is
+// TTL-guarded (via ensureRestaurantLedgerFresh) so repeated finance loads stay cheap, and a single
+// restaurant's failure never blocks the rest.
+export async function ensureAllRestaurantLedgersFresh(params?: {
+  restaurantIds?: Array<mongoose.Types.ObjectId | string> | null
+  settlementDelayDays?: number
+  force?: boolean
+}) {
+  const settlementDelayDays =
+    params?.settlementDelayDays ??
+    (await getOperationalFinanceSettings()).settlementDelayDays
+  const ids =
+    params?.restaurantIds ??
+    (await RestaurantModel.find({}).select({ _id: 1 }).lean()).map(
+      (restaurant) => restaurant._id
+    )
+  for (const id of ids) {
+    await ensureRestaurantLedgerFresh(String(id), settlementDelayDays, {
+      force: params?.force,
+    }).catch(() => undefined)
+  }
 }
 
 async function promoteMatureLedgerEntries(restaurantId: string) {
@@ -615,6 +643,9 @@ async function getOwnerFinanceContext(ownerId: string) {
 
 export async function getLedgerSummary(restaurantId: string) {
   const financeSettings = await getOperationalFinanceSettings()
+  // Heal the ledger before summarising: create any missing earning entry for delivered orders so
+  // the owner's payout/ledger always reflects every delivered order (TTL-guarded, cheap on repeat).
+  await ensureRestaurantLedgerFresh(restaurantId, financeSettings.settlementDelayDays)
   await promoteMatureLedgerEntries(restaurantId)
   const [
     pendingAggregate,

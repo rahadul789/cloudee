@@ -19,6 +19,7 @@ import {
 } from "../owner/finance.model";
 import {
   aggregateFinalizedLedgerEntries,
+  ensureAllRestaurantLedgersFresh,
   invalidateOwnerFinanceCaches,
   reconcileRestaurantLedgerStatuses,
 } from "../owner/finance.service";
@@ -1813,6 +1814,11 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
   const payoutScopeMatch = scopedRestaurantIds
     ? { restaurantId: { $in: scopedRestaurantIds } }
     : {};
+  // Heal every (or the scoped) restaurant's earning ledger from delivered orders BEFORE the finance
+  // aggregations run, so the delivered-order↔ledger reconciliation and payouts always reflect all
+  // delivered orders — no more "Ledger mismatch" from an order that never got a ledger entry.
+  // TTL-guarded per restaurant, so repeated finance loads stay cheap.
+  await ensureAllRestaurantLedgersFresh({ restaurantIds: scopedRestaurantIds });
   const riderScopeFilter = buildRiderServiceAreaScopeFilter(params);
   const scopedLedgerEarningMatch = { entryType: "earning", ...orderScopeFilter };
   const scopedWalletLedgerMatch = {
@@ -1930,6 +1936,40 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
           deliveredOrders: { $sum: 1 },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
           deliveredSubtotalGross: { $sum: { $ifNull: ["$pricing.subtotal", 0] } },
+          // Same payout-eligibility rule the restaurant ledger uses (finance-rules): exclude
+          // refunded/failed/unsettled-bkash delivered orders. This is what the ledger↔delivered
+          // reconciliation compares, so a refunded delivered order never shows as a false mismatch.
+          deliveredEligibleSubtotalGross: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $not: [
+                        {
+                          $in: [
+                            "$paymentStatus",
+                            ["failed", "refund_pending", "refunded"],
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      $or: [
+                        {
+                          $in: ["$paymentStatus", ["paid", "refund_rejected"]],
+                        },
+                        { $eq: ["$paymentMethod", "Cash"] },
+                        { $in: ["$paymentMethod", [null, ""]] },
+                      ],
+                    },
+                  ],
+                },
+                { $ifNull: ["$pricing.subtotal", 0] },
+                0,
+              ],
+            },
+          },
           // Total delivery revenue = base delivery fee + urgent-delivery surcharge (both are
           // platform income). Kept as one "deliveryFees" figure so gross income/margin are right.
           deliveryFees: {
@@ -2533,8 +2573,19 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
 
   const ledgerGrossAmount = numberValue(ledger.grossAmount);
   const deliveredSubtotalGross = numberValue(delivered.deliveredSubtotalGross);
-  const reconciliationDifference = Math.round(deliveredSubtotalGross - ledgerGrossAmount);
-  const reconciliationTolerance = Math.max(5, Math.round(deliveredSubtotalGross * 0.005));
+  // Reconcile against the payout-ELIGIBLE delivered subtotal — the same set the ledger gross counts
+  // — so the two sides compare like-for-like (a refunded/unsettled delivered order is excluded from
+  // both and can't trigger a false "Ledger mismatch").
+  const deliveredEligibleSubtotalGross = numberValue(
+    delivered.deliveredEligibleSubtotalGross,
+  );
+  const reconciliationDifference = Math.round(
+    deliveredEligibleSubtotalGross - ledgerGrossAmount,
+  );
+  const reconciliationTolerance = Math.max(
+    5,
+    Math.round(deliveredEligibleSubtotalGross * 0.005),
+  );
   const alerts: Array<{
     type: "success" | "warning" | "danger" | "info";
     title: string;
@@ -2674,7 +2725,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       totalLiabilities,
     },
     reconciliation: {
-      orderSubtotalGross: deliveredSubtotalGross,
+      orderSubtotalGross: deliveredEligibleSubtotalGross,
       ledgerGrossAmount,
       difference: reconciliationDifference,
       tolerance: reconciliationTolerance,
