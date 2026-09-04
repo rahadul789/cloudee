@@ -638,10 +638,11 @@ function fillPlatformDailySeries(params: {
     const payout = payoutMap.get(key);
     const commission = numberValue(ledger?.commission);
     const deliveryFees = numberValue(order?.deliveryFees);
+    const markup = numberValue(order?.markup);
     const platformDiscountCost = numberValue(ledger?.platformDiscountCost);
     const refundsPaid = numberValue(refund?.refundsPaid);
     const payoutsPaid = numberValue(payout?.payoutsPaid);
-    const revenue = commission + deliveryFees;
+    const revenue = commission + markup + deliveryFees;
     const operatingExpense = platformDiscountCost;
 
     points.push({
@@ -650,6 +651,7 @@ function fillPlatformDailySeries(params: {
       deliveredOrders: numberValue(order?.deliveredOrders),
       revenue,
       commission,
+      markup,
       deliveryFees,
       operatingExpense,
       platformDiscountCost,
@@ -1935,7 +1937,17 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
           _id: null,
           deliveredOrders: { $sum: 1 },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
-          deliveredSubtotalGross: { $sum: { $ifNull: ["$pricing.subtotal", 0] } },
+          // REAL restaurant subtotal (restaurantSubtotal for markup orders → subtotal for
+          // commission/legacy) — the same basis the restaurant ledger gross uses, so the two
+          // reconcile like-for-like.
+          deliveredSubtotalGross: {
+            $sum: {
+              $ifNull: [
+                "$pricing.restaurantSubtotal",
+                { $ifNull: ["$pricing.subtotal", 0] },
+              ],
+            },
+          },
           // Same payout-eligibility rule the restaurant ledger uses (finance-rules): exclude
           // refunded/failed/unsettled-bkash delivered orders. This is what the ledger↔delivered
           // reconciliation compares, so a refunded delivered order never shows as a false mismatch.
@@ -1965,7 +1977,45 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
                     },
                   ],
                 },
-                { $ifNull: ["$pricing.subtotal", 0] },
+                {
+                  $ifNull: [
+                    "$pricing.restaurantSubtotal",
+                    { $ifNull: ["$pricing.subtotal", 0] },
+                  ],
+                },
+                0,
+              ],
+            },
+          },
+          // Platform markup income on payout-eligible delivered orders — the zero-commission
+          // restaurants' contribution to platform revenue. 0 for commission orders.
+          deliveredEligibleMarkup: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    {
+                      $not: [
+                        {
+                          $in: [
+                            "$paymentStatus",
+                            ["failed", "refund_pending", "refunded"],
+                          ],
+                        },
+                      ],
+                    },
+                    {
+                      $or: [
+                        {
+                          $in: ["$paymentStatus", ["paid", "refund_rejected"]],
+                        },
+                        { $eq: ["$paymentMethod", "Cash"] },
+                        { $in: ["$paymentMethod", [null, ""]] },
+                      ],
+                    },
+                  ],
+                },
+                { $ifNull: ["$pricing.platformMarkup", 0] },
                 0,
               ],
             },
@@ -2151,6 +2201,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
               ],
             },
           },
+          // Per-day platform markup income (zero-commission restaurants) for the trend chart.
+          markup: { $sum: { $ifNull: ["$pricing.platformMarkup", 0] } },
           onlineCollected: {
             $sum: {
               $cond: [
@@ -2540,7 +2592,11 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
 
   const platformCommission = numberValue(ledger.commission);
   const deliveryFeeRevenue = numberValue(delivered.deliveryFees);
-  const platformGrossRevenue = platformCommission + deliveryFeeRevenue + manualIncome;
+  // Zero-commission "markup" restaurants: the platform's income is the markup added on top of
+  // the customer price (commission is 0 for these), so it's a first-class revenue line here.
+  const platformMarkupRevenue = numberValue(delivered.deliveredEligibleMarkup);
+  const platformGrossRevenue =
+    platformCommission + platformMarkupRevenue + deliveryFeeRevenue + manualIncome;
   const platformVoucherCost = numberValue(ledger.platformDiscountCost);
   const riderPayrollExpense = payrollSummary.netPayable;
   const operatingExpense = platformVoucherCost + riderPayrollExpense + manualExpense;
@@ -2678,6 +2734,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     health,
     revenue: {
       platformCommission,
+      platformMarkupRevenue,
       deliveryFeeRevenue,
       platformGrossRevenue,
       deliveredOrders: numberValue(delivered.deliveredOrders),

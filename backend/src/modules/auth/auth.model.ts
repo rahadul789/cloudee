@@ -526,6 +526,24 @@ const restaurantSchema = new Schema(
       type: new Schema(
         {
           commissionRate: { type: Number, min: 0, max: 100, default: 15 },
+          // Pricing model for this restaurant.
+          //  - "commission": normal flow. Customer sees the owner's real menu price;
+          //    Foodbela keeps commissionRate% of the subtotal.
+          //  - "markup": zero-commission restaurants. The owner's real menu price is
+          //    kept private (owner endpoints show it untouched); every customer-facing
+          //    endpoint adds platformMarkupPercent% on top of each item price, rounded.
+          //    Foodbela's income is the markup (subtotal - restaurantSubtotal), and
+          //    commission is forced to 0 for these restaurants.
+          // Additive + backward-compatible: existing restaurants default to "commission",
+          // so live orders/ledgers/apps behave exactly as before.
+          pricingModel: {
+            type: String,
+            enum: ["commission", "markup"],
+            default: "commission",
+          },
+          // Percentage added on top of each item's real price for "markup" restaurants.
+          // Ignored when pricingModel === "commission". Applied per-item then rounded.
+          platformMarkupPercent: { type: Number, min: 0, max: 100, default: 0 },
           // Per-restaurant minimum order override. null = inherit the platform default
           // (operations.minimumOrderAmount); a number overrides it (0 = no minimum here).
           minimumOrderAmount: { type: Number, min: 0, default: null },

@@ -768,38 +768,15 @@ export default function HomeScreen() {
 
   const nearbyRestaurantsForSection = useMemo(() => {
     if (!isHomeRestaurantSectionActive(nearbySectionConfig)) return [];
-    const featuredIds = new Set(
-      featuredRestaurants.map((restaurant) => restaurant._id),
-    );
-    const offerIds = new Set(
-      offerRestaurants.map((restaurant) => restaurant._id),
-    );
-    const discoverNewIds = new Set(
-      discoverNewRestaurants.map((restaurant) => restaurant._id),
-    );
-    const popularNearYouIds = new Set(
-      popularNearYouRestaurants.map((restaurant) => restaurant._id),
-    );
-    const filtered = nearbyRestaurants.filter(
-      (restaurant) =>
-        !featuredIds.has(restaurant._id) &&
-        !offerIds.has(restaurant._id) &&
-        !discoverNewIds.has(restaurant._id) &&
-        !popularNearYouIds.has(restaurant._id),
-    );
-
-    return (filtered.length ? filtered : nearbyRestaurants).slice(
+    // "Nearby" means literally the closest restaurants — show them as-is (nearest first, from the
+    // backend), independent of what the other sections show. Intentionally NOT de-duplicated
+    // against Featured/Offers/Discover/Popular: a restaurant can be both featured AND nearby, and
+    // the nearest ones must never get consumed by an upper section and vanish from here.
+    return nearbyRestaurants.slice(
       0,
       getHomeRestaurantSectionLimit(nearbySectionConfig, 8),
     );
-  }, [
-    discoverNewRestaurants,
-    featuredRestaurants,
-    nearbyRestaurants,
-    nearbySectionConfig,
-    offerRestaurants,
-    popularNearYouRestaurants,
-  ]);
+  }, [nearbyRestaurants, nearbySectionConfig]);
 
   const shouldShowHomeFeedSkeleton =
     !isSearching && homeQuery.isLoading && !homeFeed;

@@ -10,6 +10,7 @@ import {
   getAdminRestaurantPromotionTargets,
   getAdminRestaurants,
   patchAdminRestaurantCommission,
+  patchAdminRestaurantPricingModel,
   patchAdminRestaurantMinimumOrder,
   patchAdminRestaurantDeliveryPricing,
   patchAdminRestaurantEnforcement,
@@ -80,6 +81,10 @@ adminRestaurantsRouter.patch(
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/commission",
   patchAdminRestaurantCommission,
+);
+adminRestaurantsRouter.patch(
+  "/restaurants/:restaurantId/pricing-model",
+  patchAdminRestaurantPricingModel,
 );
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/minimum-order",

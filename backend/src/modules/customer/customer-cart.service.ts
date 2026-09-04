@@ -41,6 +41,11 @@ import {
   resolveActiveVoucher,
   summarizeAppliedVouchers,
 } from "./customer-voucher.service";
+import {
+  isMarkupRestaurant,
+  markupComponentPrice,
+  resolveRestaurantMarkupPercent,
+} from "../../common/utils/order-pricing";
 import type {
   CartInputItem,
   CustomerCacheRecord,
@@ -403,12 +408,17 @@ function assertRestaurantServiceableForDelivery(params: {
   return deliveryDistanceKm;
 }
 
+// markupPercent defaults to 0 (commission restaurants), where markupComponentPrice is a
+// pure identity — so the real and customer sums are byte-for-byte identical. For markup
+// restaurants each selected option is marked up individually and rounded, matching exactly
+// what the menu endpoint marked up, so the app's summed line equals the quoted line.
 function resolveSelectedVariantPrice(
   variants: Array<{
     name?: string;
     options?: Array<{ label?: string; priceDelta?: number }>;
   }>,
   selectedVariantOptions?: Array<{ groupName: string; optionLabel: string }>,
+  markupPercent = 0,
 ) {
   if (!selectedVariantOptions?.length) return 0;
 
@@ -419,7 +429,7 @@ function resolveSelectedVariantPrice(
     const option = group?.options?.find(
       (item) => item.label === selectedOption.optionLabel,
     );
-    return total + (option?.priceDelta ?? 0);
+    return total + markupComponentPrice(option?.priceDelta ?? 0, markupPercent);
   }, 0);
 }
 
@@ -429,6 +439,7 @@ function resolveSelectedAddOnPrice(
     options?: Array<{ label?: string; price?: number }>;
   }>,
   selectedAddOnOptions?: Array<{ groupName: string; optionLabel: string }>,
+  markupPercent = 0,
 ) {
   if (!selectedAddOnOptions?.length) return 0;
 
@@ -439,7 +450,7 @@ function resolveSelectedAddOnPrice(
     const option = group?.options?.find(
       (item) => item.label === selectedOption.optionLabel,
     );
-    return total + (option?.price ?? 0);
+    return total + markupComponentPrice(option?.price ?? 0, markupPercent);
   }, 0);
 }
 
@@ -588,6 +599,11 @@ export async function quoteCustomerCart(params: {
         categories.map((category) => [category._id.toString(), category]),
       );
 
+      // Zero-commission "markup" restaurants: every customer-facing price gets this % added
+      // on top (per component, rounded). 0 for commission restaurants, where every markup
+      // helper below is a pure identity — so their pricing stays byte-for-byte unchanged.
+      const markupPercent = resolveRestaurantMarkupPercent(restaurant);
+
       const resolvedItems = params.items.map((cartItem) => {
         const menuItem = menuItemMap.get(cartItem.itemId);
 
@@ -599,38 +615,62 @@ export async function quoteCustomerCart(params: {
           );
         }
 
-        const variantPrice = resolveSelectedVariantPrice(
-          (menuItem.variants ?? []).map((variant) => ({
-            name: variant.name,
-            options: (variant.options ?? []).map((option) => ({
-              label: option.label,
-              priceDelta: option.priceDelta,
-            })),
+        const variantGroups = (menuItem.variants ?? []).map((variant) => ({
+          name: variant.name,
+          options: (variant.options ?? []).map((option) => ({
+            label: option.label,
+            priceDelta: option.priceDelta,
           })),
+        }));
+        const addOnGroups = (menuItem.addOnGroups ?? []).map((group) => ({
+          name: group.name,
+          options: (group.options ?? []).map((option) => ({
+            label: option.label,
+            price: option.price,
+          })),
+        }));
+
+        // REAL (owner) selection price — always at markup 0. Drives restaurantSubtotal,
+        // commission + payout in settlement. The owner never sees the marked-up number.
+        const restaurantVariantPrice = resolveSelectedVariantPrice(
+          variantGroups,
           cartItem.selectedVariantOptions,
         );
-
-        const addOnPrice = resolveSelectedAddOnPrice(
-          (menuItem.addOnGroups ?? []).map((group) => ({
-            name: group.name,
-            options: (group.options ?? []).map((option) => ({
-              label: option.label,
-              price: option.price,
-            })),
-          })),
+        const restaurantAddOnPrice = resolveSelectedAddOnPrice(
+          addOnGroups,
           cartItem.selectedAddOnOptions,
         );
+        const restaurantUnitPrice =
+          menuItem.basePrice + restaurantVariantPrice + restaurantAddOnPrice;
+        const restaurantLineTotal = restaurantUnitPrice * cartItem.quantity;
 
-        const unitPrice = menuItem.basePrice + variantPrice + addOnPrice;
+        // CUSTOMER (marked-up) selection price — each component marked up + rounded exactly
+        // as the menu endpoint does, so the app's summed line matches this quoted line.
+        const customerBasePrice = markupComponentPrice(
+          menuItem.basePrice,
+          markupPercent,
+        );
+        const variantPrice = resolveSelectedVariantPrice(
+          variantGroups,
+          cartItem.selectedVariantOptions,
+          markupPercent,
+        );
+        const addOnPrice = resolveSelectedAddOnPrice(
+          addOnGroups,
+          cartItem.selectedAddOnOptions,
+          markupPercent,
+        );
+        const unitPrice = customerBasePrice + variantPrice + addOnPrice;
         const lineTotal = unitPrice * cartItem.quantity;
         const categoryId = menuItem.categoryId.toString();
         const category = categoryMap.get(categoryId);
         const image = Array.isArray(menuItem.images) ? menuItem.images[0] : null;
 
         // Platform-funded markdown applies to the (base + variant) portion only — add-ons
-        // are always charged in full. Owner is settled on the full unitPrice (Option A); the
-        // platform absorbs markdownPerUnit. Threshold is evaluated on the exact selection.
-        const markdownableUnit = menuItem.basePrice + variantPrice;
+        // are always charged in full. Computed on the customer-facing (marked-up) portion so
+        // the strike-through the customer sees is consistent; the owner is still settled on
+        // the full real restaurantUnitPrice. Threshold is evaluated on the exact selection.
+        const markdownableUnit = customerBasePrice + variantPrice;
         const markdownRule = pickRuleForItem(
           menuItem as unknown as Parameters<typeof pickRuleForItem>[0],
           markdownRules,
@@ -651,8 +691,13 @@ export async function quoteCustomerCart(params: {
           categorySlug: category?.slug ?? "",
           imageUrl: image?.url ?? "",
           quantity: cartItem.quantity,
+          // Customer-facing (marked-up) price — what the app displays + charges.
           unitPrice,
           lineTotal,
+          // Real owner price, carried so owner order views can show it (owner never sees
+          // the markup). Equal to unitPrice/lineTotal for commission restaurants.
+          restaurantUnitPrice,
+          restaurantLineTotal,
           // Markdown view: full price the owner is paid on vs. what the customer pays.
           markdownPerUnit,
           effectiveUnitPrice,
@@ -664,9 +709,17 @@ export async function quoteCustomerCart(params: {
         };
       });
 
-      // Owner subtotal stays at full price (drives commission + payout in settlement). The
-      // markdown is a platform-funded reduction of what the customer actually pays.
+      // pricing.subtotal is the CUSTOMER-FACING (marked-up) subtotal — the app renders it as
+      // "Items subtotal" and it must match the summed item lines above. restaurantSubtotal is
+      // the REAL owner subtotal (drives commission/ledger/payout); platformMarkup is the
+      // platform's income from the markup. For commission restaurants the two subtotals are
+      // equal and platformMarkup is 0.
       const subtotal = resolvedItems.reduce((sum, item) => sum + item.lineTotal, 0);
+      const restaurantSubtotal = resolvedItems.reduce(
+        (sum, item) => sum + item.restaurantLineTotal,
+        0,
+      );
+      const platformMarkup = Math.max(0, subtotal - restaurantSubtotal);
       const menuMarkdownAmount = resolvedItems.reduce(
         (sum, item) => sum + item.markdownPerUnit * item.quantity,
         0,
@@ -832,6 +885,14 @@ export async function quoteCustomerCart(params: {
         },
         pricing: {
           subtotal,
+          // Zero-commission markup snapshot. restaurantSubtotal is the REAL owner subtotal
+          // (== subtotal for commission restaurants); platformMarkup is the platform's income
+          // from the markup (0 for commission). pricingModel is stamped on the order so its
+          // commission stays 0 forever regardless of later restaurant model changes.
+          restaurantSubtotal,
+          platformMarkup,
+          pricingModel: isMarkupRestaurant(restaurant) ? "markup" : "commission",
+          platformMarkupPercent: markupPercent,
           menuMarkdownAmount,
           deliveryFee,
           rainSurcharge,

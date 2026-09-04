@@ -1309,6 +1309,9 @@ export type AdminRestaurantSummary = {
   featuredPosition: number | null
   isSponsored: boolean
   commissionRate: number
+  /** "markup" = zero-commission; platformMarkupPercent% is added to customer menu prices. */
+  pricingModel: "commission" | "markup"
+  platformMarkupPercent: number
   /** Per-restaurant minimum order override; null = inherit the platform default. */
   minimumOrderAmount: number | null
   profileCompletionPercentage: number
@@ -3077,6 +3080,7 @@ export type AdminPlatformFinanceResponse = {
   health: "healthy" | "watch" | "risk"
   revenue: {
     platformCommission: number
+    platformMarkupRevenue: number
     deliveryFeeRevenue: number
     platformGrossRevenue: number
     deliveredOrders: number
@@ -7604,6 +7608,30 @@ export async function updateAdminRestaurantCommission(params: {
       }),
     }
   )
+  return response.data
+}
+
+export async function updateAdminRestaurantPricingModel(params: {
+  restaurantId: string
+  pricingModel: "commission" | "markup"
+  platformMarkupPercent?: number
+}) {
+  const response = await adminRequest<{
+    id: string
+    name: string
+    pricingModel: "commission" | "markup"
+    platformMarkupPercent: number
+    updatedAt: string | null
+  }>(`/admin/restaurants/${params.restaurantId}/pricing-model`, {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      pricingModel: params.pricingModel,
+      platformMarkupPercent: params.platformMarkupPercent,
+    }),
+  })
   return response.data
 }
 

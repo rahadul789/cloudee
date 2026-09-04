@@ -69,6 +69,7 @@ import {
   startReviewCase,
   updateAdminOrderStatus,
   updateAdminRestaurantCommission,
+  updateAdminRestaurantPricingModel,
   updateAdminRestaurantMinimumOrder,
   updateAdminRestaurantDeliveryPricing,
   updateAdminRestaurantEnforcement,
@@ -1658,6 +1659,10 @@ function RestaurantDetailsSheet({
 }) {
   const queryClient = useQueryClient()
   const [commissionDraft, setCommissionDraft] = React.useState("")
+  const [pricingModelDraft, setPricingModelDraft] = React.useState<
+    "commission" | "markup"
+  >("commission")
+  const [markupPercentDraft, setMarkupPercentDraft] = React.useState("0")
   const [featuredPositionDraft, setFeaturedPositionDraft] = React.useState("1")
   const [deliveryBaseFeeDraft, setDeliveryBaseFeeDraft] = React.useState("20")
   const [deliveryStartsAfterDraft, setDeliveryStartsAfterDraft] =
@@ -1724,6 +1729,8 @@ function RestaurantDetailsSheet({
   React.useEffect(() => {
     if (!details) return
     setCommissionDraft(`${details.commissionRate}`)
+    setPricingModelDraft(details.pricingModel === "markup" ? "markup" : "commission")
+    setMarkupPercentDraft(`${details.platformMarkupPercent ?? 0}`)
     setFeaturedPositionDraft(`${details.featuredPosition ?? 1}`)
     setDeliveryBaseFeeDraft(`${details.deliveryPricing.override.baseFeeTaka ?? 20}`)
     setDeliveryStartsAfterDraft(
@@ -1796,6 +1803,22 @@ function RestaurantDetailsSheet({
     onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Commission update failed."
+      )
+    },
+  })
+
+  const pricingModelMutation = useMutation({
+    mutationFn: updateAdminRestaurantPricingModel,
+    onSuccess: () => {
+      toast.success("Pricing model updated.")
+      void queryClient.invalidateQueries({ queryKey: ["admin-restaurants"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-restaurant-details", restaurantId],
+      })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Pricing model update failed."
       )
     },
   })
@@ -1911,6 +1934,20 @@ function RestaurantDetailsSheet({
     const commissionRate = Number(commissionDraft)
     if (Number.isNaN(commissionRate)) return
     commissionMutation.mutate({ restaurantId, commissionRate })
+  }
+
+  function savePricingModel() {
+    if (pricingModelDraft === "markup") {
+      const platformMarkupPercent = Number(markupPercentDraft)
+      if (Number.isNaN(platformMarkupPercent)) return
+      pricingModelMutation.mutate({
+        restaurantId,
+        pricingModel: "markup",
+        platformMarkupPercent,
+      })
+      return
+    }
+    pricingModelMutation.mutate({ restaurantId, pricingModel: "commission" })
   }
 
   function updateDeliveryPricing(enabled: boolean) {
@@ -2159,6 +2196,12 @@ function RestaurantDetailsSheet({
                 updateCustomBadgeSetting(enabled)
               }}
               onCommissionSave={updateCommission}
+              pricingModelDraft={pricingModelDraft}
+              setPricingModelDraft={setPricingModelDraft}
+              markupPercentDraft={markupPercentDraft}
+              setMarkupPercentDraft={setMarkupPercentDraft}
+              pricingModelPending={pricingModelMutation.isPending}
+              onPricingModelSave={savePricingModel}
               onDeliveryPricingSave={() =>
                 updateDeliveryPricing(
                   details?.deliveryPricing.override.enabled === true
@@ -3940,6 +3983,12 @@ function RestaurantDetailsContent({
   onCustomBadgeSave,
   onCustomBadgeToggle,
   onCommissionSave,
+  pricingModelDraft,
+  setPricingModelDraft,
+  markupPercentDraft,
+  setMarkupPercentDraft,
+  pricingModelPending,
+  onPricingModelSave,
   onDeliveryPricingSave,
   onDeliveryPricingToggle,
   onDistanceSurchargeToggle,
@@ -3957,6 +4006,12 @@ function RestaurantDetailsContent({
   details: AdminRestaurantDetails
   commissionDraft: string
   setCommissionDraft: (value: string) => void
+  pricingModelDraft: "commission" | "markup"
+  setPricingModelDraft: (value: "commission" | "markup") => void
+  markupPercentDraft: string
+  setMarkupPercentDraft: (value: string) => void
+  pricingModelPending: boolean
+  onPricingModelSave: () => void
   featuredPositionDraft: string
   setFeaturedPositionDraft: (value: string) => void
   visibilityPending: boolean
@@ -4206,6 +4261,49 @@ function RestaurantDetailsContent({
                     Save
                   </Button>
                 </div>
+              </div>
+              <div className="rounded-lg border bg-background p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">Zero-commission markup</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      When on, no commission is taken. Instead this % is added on
+                      top of every customer-facing menu price for profit. The owner
+                      always keeps seeing their real price.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={pricingModelDraft === "markup"}
+                    disabled={pricingModelPending}
+                    onCheckedChange={(checked) =>
+                      setPricingModelDraft(checked ? "markup" : "commission")
+                    }
+                  />
+                </div>
+                {pricingModelDraft === "markup" ? (
+                  <div className="mt-3">
+                    <Label htmlFor="detail-markup-percent">Markup %</Label>
+                    <Input
+                      id="detail-markup-percent"
+                      className="mt-1"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={markupPercentDraft}
+                      onChange={(event) =>
+                        setMarkupPercentDraft(event.target.value)
+                      }
+                    />
+                  </div>
+                ) : null}
+                <Button
+                  variant="outline"
+                  className="mt-3 w-full"
+                  disabled={pricingModelPending}
+                  onClick={onPricingModelSave}
+                >
+                  Save pricing model
+                </Button>
               </div>
               <MinimumOrderControl
                 restaurantId={details.id}

@@ -12,6 +12,10 @@ import {
   buildRelatedOrderPayoutEligibilityMatch,
   isRestaurantPayoutEligibleOrder
 } from "./finance-rules"
+import {
+  getOrderRestaurantSubtotal,
+  isMarkupOrder
+} from "../../common/utils/order-pricing"
 import { LedgerEntryModel, PayoutBatchModel } from "./finance.model"
 import { ReviewModel } from "./experience.model"
 import { OrderModel } from "./operational.model"
@@ -249,8 +253,11 @@ function getOrderPlatformDiscountCost(order: Record<string, any>) {
 }
 
 function getOrderSubtotalForOwner(order: Record<string, any>) {
-  if (typeof order.pricing?.subtotal === "number" && Number.isFinite(order.pricing.subtotal)) {
-    return Math.max(0, order.pricing.subtotal)
+  // The owner is ALWAYS settled on the real restaurant subtotal — never the customer-facing
+  // marked-up one. For commission/legacy orders restaurantSubtotal === pricing.subtotal.
+  const restaurantSubtotal = getOrderRestaurantSubtotal(order)
+  if (restaurantSubtotal !== null) {
+    return restaurantSubtotal
   }
 
   const total = numberValue(order.pricing?.total)
@@ -265,7 +272,11 @@ function getOrderRestaurantNetSalesForOwner(order: Record<string, any>) {
 function getOrderNetEarnings(order: Record<string, any>, restaurant: Record<string, any>) {
   const deliveredAt = getOrderDeliveredAt(order)
   const grossAmount = getOrderSubtotalForOwner(order)
-  const commissionRate = resolveCommissionRateForDate(restaurant, deliveredAt)
+  // Markup orders are zero-commission (snapshot on the order), so the owner keeps 100% of
+  // the real subtotal; the platform's cut is the markup, not a commission.
+  const commissionRate = isMarkupOrder(order)
+    ? 0
+    : resolveCommissionRateForDate(restaurant, deliveredAt)
   const commission = Math.round(grossAmount * (commissionRate / 100))
   const discountCost = getOrderOwnerDiscountCost(order)
 
@@ -280,8 +291,11 @@ function getOrderNetEarnings(order: Record<string, any>, restaurant: Record<stri
 }
 
 function ownerSubtotalAggregateExpression() {
+  // Real owner subtotal: restaurantSubtotal (markup orders) → pricing.subtotal
+  // (commission/legacy) → total − delivery + discount (very old orders).
   return {
     $ifNull: [
+      "$pricing.restaurantSubtotal",
       "$pricing.subtotal",
       {
         $add: [
@@ -408,8 +422,11 @@ async function ensureRestaurantEarningLedgerEntries(
         ? "available"
         : "pending"
       : "pending"
-    const grossAmount = numberValue(order.pricing?.subtotal)
-    const commissionRate = resolveCommissionRateForDate(restaurant, deliveredAt)
+    // Real restaurant subtotal drives the ledger; markup orders are zero-commission.
+    const grossAmount = getOrderRestaurantSubtotal(order) ?? 0
+    const commissionRate = isMarkupOrder(order)
+      ? 0
+      : resolveCommissionRateForDate(restaurant, deliveredAt)
     const discountCost = getOrderOwnerDiscountCost(order)
     const platformDiscountCost = getOrderPlatformDiscountCost(order)
     const commissionBase = grossAmount

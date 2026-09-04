@@ -309,7 +309,16 @@ export async function getAdminReports(params: ReportParams) {
           _id: null,
           deliveredOrders: { $sum: 1 },
           deliveredRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
-          deliveredSubtotalGross: { $sum: { $ifNull: ["$pricing.subtotal", 0] } },
+          // REAL restaurant subtotal (markup orders → restaurantSubtotal; commission/legacy →
+          // subtotal), so "food sales" reflects the owner's price, not the customer markup.
+          deliveredSubtotalGross: {
+            $sum: {
+              $ifNull: [
+                "$pricing.restaurantSubtotal",
+                { $ifNull: ["$pricing.subtotal", 0] },
+              ],
+            },
+          },
           deliveryFees: {
             $sum: {
               $add: [

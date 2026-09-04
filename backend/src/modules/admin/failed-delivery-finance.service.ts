@@ -1,4 +1,5 @@
 import { logger } from "../../config/logger"
+import { getOrderRestaurantSubtotal } from "../../common/utils/order-pricing"
 import { RiderModel } from "../auth/auth.model"
 import { LedgerEntryModel, PlatformFinanceEntryModel } from "../owner/finance.model"
 import { getPlatformContent } from "../public/content.service"
@@ -105,7 +106,8 @@ export async function applyFailedDeliveryFinance(params: {
     const orderId = String(order._id ?? "")
     const orderNumber = String(order.orderNumber ?? orderId)
     const riderId = order.riderId ? String(order.riderId) : ""
-    const subtotal = Number(order.pricing?.subtotal ?? 0)
+    // Restaurant compensation is based on the owner's REAL subtotal, never the customer markup.
+    const subtotal = getOrderRestaurantSubtotal(order) ?? 0
 
     // 1) Rider failed-trip pay (reimbursement) — not the rider's fault for any reason.
     if (riderId && settings.riderFailedTripPay > 0) {

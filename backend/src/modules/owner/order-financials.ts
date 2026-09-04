@@ -1,3 +1,5 @@
+import { getOrderRestaurantSubtotal } from "../../common/utils/order-pricing"
+
 type VoucherSnapshot = Record<string, any>
 
 function numberValue(value: unknown, fallback = 0) {
@@ -46,8 +48,11 @@ function getAppliedVoucherDiscountSplit(order: Record<string, any>) {
 }
 
 export function getOrderSubtotalForOwner(order: Record<string, any>) {
-  if (typeof order.pricing?.subtotal === "number" && Number.isFinite(order.pricing.subtotal)) {
-    return Math.max(0, order.pricing.subtotal)
+  // Owner always sees the REAL restaurant subtotal, never the customer-facing marked-up one.
+  // For commission/legacy orders restaurantSubtotal === pricing.subtotal.
+  const restaurantSubtotal = getOrderRestaurantSubtotal(order)
+  if (restaurantSubtotal !== null) {
+    return restaurantSubtotal
   }
 
   const total = numberValue(order.pricing?.total)
@@ -111,6 +116,35 @@ export function filterOwnerVisibleAppliedVouchers(order: Record<string, any>) {
     .filter(Boolean)
 }
 
+// Owner must see the REAL per-item price, never the customer-facing marked-up one. The item
+// snapshot carries restaurantUnitPrice/restaurantLineTotal (== unitPrice/lineTotal for
+// commission restaurants); swap them in so every owner order view shows the owner's own price.
+function decorateOwnerVisibleItems(order: Record<string, any>) {
+  const items = Array.isArray(order.itemsSnapshot) ? order.itemsSnapshot : null
+  if (!items) return order.itemsSnapshot
+  return items.map((item: Record<string, any>) => {
+    if (
+      typeof item?.restaurantUnitPrice !== "number" ||
+      !Number.isFinite(item.restaurantUnitPrice)
+    ) {
+      return item
+    }
+    const restaurantLineTotal = numberValue(
+      item.restaurantLineTotal,
+      item.restaurantUnitPrice * numberValue(item.quantity, 1)
+    )
+    return {
+      ...item,
+      unitPrice: item.restaurantUnitPrice,
+      lineTotal: restaurantLineTotal,
+      // Owner is paid the full real price; there is no customer markdown from their side.
+      effectiveUnitPrice: item.restaurantUnitPrice,
+      effectiveLineTotal: restaurantLineTotal,
+      markdownPerUnit: 0
+    }
+  })
+}
+
 export function decorateOwnerFinancials<T extends Record<string, any>>(order: T) {
   const subtotal = getOrderSubtotalForOwner(order)
   const ownerDiscountCost = getOrderOwnerDiscountCost(order)
@@ -130,6 +164,7 @@ export function decorateOwnerFinancials<T extends Record<string, any>>(order: T)
       customerPaidTotal,
       ownerVisibleDiscount: ownerDiscountCost
     },
+    itemsSnapshot: decorateOwnerVisibleItems(order),
     appliedVouchers: filterOwnerVisibleAppliedVouchers(order)
   }
 }

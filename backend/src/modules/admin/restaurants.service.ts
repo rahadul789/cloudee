@@ -25,6 +25,10 @@ import {
   buildRelatedOrderPayoutEligibilityMatch,
   isRestaurantPayoutEligibleOrder,
 } from "../owner/finance-rules";
+import {
+  getOrderRestaurantSubtotal,
+  isMarkupOrder,
+} from "../../common/utils/order-pricing";
 import { getOperationalFinanceSettings } from "../public/content.service";
 import { invalidateCustomerRestaurantAvailabilityCaches } from "../customer/customer.service";
 import {
@@ -823,6 +827,14 @@ function mapRestaurantSummary(params: {
         : null,
     isSponsored: restaurant.discovery?.isSponsored === true,
     commissionRate: numberValue(restaurant.commercial?.commissionRate, 15),
+    // Zero-commission markup model: "markup" adds platformMarkupPercent% on top of every
+    // customer-facing menu price (owner keeps seeing their real price). Default "commission".
+    pricingModel:
+      restaurant.commercial?.pricingModel === "markup" ? "markup" : "commission",
+    platformMarkupPercent: numberValue(
+      restaurant.commercial?.platformMarkupPercent,
+      0,
+    ),
     // Raw per-restaurant override: null = inherit the platform minimumOrderAmount.
     minimumOrderAmount:
       typeof restaurant.commercial?.minimumOrderAmount === "number"
@@ -5135,6 +5147,71 @@ export async function updateAdminRestaurantCommission(params: {
   };
 }
 
+// Switch a restaurant between the commission model and the zero-commission markup model, and
+// set the markup percentage. Markup is applied server-side to customer-facing menu prices; the
+// owner always sees their real price. Flushes customer read caches so the new prices show up.
+export async function updateAdminRestaurantPricingModel(params: {
+  restaurantId: string;
+  pricingModel: "commission" | "markup";
+  platformMarkupPercent?: number;
+  adminId?: string;
+}) {
+  const restaurant = await getRestaurantOrThrow(params.restaurantId);
+  const commercial =
+    (restaurant.commercial as any)?.toObject?.() ??
+    restaurant.commercial ??
+    {};
+  const previousModel =
+    commercial.pricingModel === "markup" ? "markup" : "commission";
+  const previousPercent = numberValue(commercial.platformMarkupPercent, 0);
+  const pricingModel =
+    params.pricingModel === "markup" ? "markup" : "commission";
+  // Only meaningful for markup; clamped to 0–100 and rounded to a whole percent.
+  const platformMarkupPercent =
+    pricingModel === "markup"
+      ? Math.min(
+          100,
+          Math.max(0, Math.round(numberValue(params.platformMarkupPercent, 0))),
+        )
+      : 0;
+
+  restaurant.set("commercial", {
+    ...commercial,
+    pricingModel,
+    platformMarkupPercent,
+  });
+  await restaurant.save();
+  invalidateOwnerFinanceCaches(restaurant.id);
+  // Customer-visible: menu prices change → flush discovery/home/details/cart caches.
+  invalidateCustomerRestaurantAvailabilityCaches();
+
+  await createAdminAuditLog({
+    adminId: params.adminId,
+    entityType: "restaurant",
+    entityId: restaurant.id,
+    action: "pricing_model.updated",
+    title: "Pricing model updated",
+    description:
+      pricingModel === "markup"
+        ? `Switched to zero-commission markup at ${platformMarkupPercent}%.`
+        : "Switched to the commission model.",
+    metadata: {
+      previousModel,
+      previousPercent,
+      pricingModel,
+      platformMarkupPercent,
+    },
+  });
+
+  return {
+    id: restaurant.id,
+    name: restaurant.name,
+    pricingModel,
+    platformMarkupPercent,
+    updatedAt: serializeDate(restaurant.updatedAt),
+  };
+}
+
 export async function updateAdminRestaurantMinimumOrder(params: {
   restaurantId: string;
   minimumOrderAmount: number | null;
@@ -5310,8 +5387,11 @@ export async function reconcileAdminRestaurantFinance(params: {
     const settlementStatus = isPayoutEligibleOrder && availableAt && availableAt <= now
       ? ("available" as const)
       : ("pending" as const);
-    const grossAmount = numberValue(order.pricing?.subtotal);
-    const commissionRate = resolveCommissionRateForDate(restaurant, deliveredAt);
+    // Real restaurant subtotal drives the ledger; markup orders are zero-commission.
+    const grossAmount = getOrderRestaurantSubtotal(order) ?? 0;
+    const commissionRate = isMarkupOrder(order)
+      ? 0
+      : resolveCommissionRateForDate(restaurant, deliveredAt);
     const discountCost = getOrderOwnerDiscountCost(order);
     const platformDiscountCost = getOrderPlatformDiscountCost(order);
     const commissionBase = grossAmount;

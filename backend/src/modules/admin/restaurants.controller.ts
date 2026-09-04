@@ -17,6 +17,7 @@ import {
   reconcileAdminRestaurantFinance,
   restoreAdminRestaurantReview,
   updateAdminRestaurantCommission,
+  updateAdminRestaurantPricingModel,
   updateAdminRestaurantDeliveryPricing,
   updateAdminRestaurantEnforcement,
   updateAdminRestaurantMinimumOrder,
@@ -161,6 +162,11 @@ const merchandisingSchema = z.object({
 
 const commissionSchema = z.object({
   commissionRate: z.number().min(0).max(100),
+});
+
+const pricingModelSchema = z.object({
+  pricingModel: z.enum(["commission", "markup"]),
+  platformMarkupPercent: z.number().min(0).max(100).optional(),
 });
 
 const minimumOrderSchema = z.object({
@@ -396,6 +402,24 @@ export const patchAdminRestaurantCommission = asyncHandler(
 
     return sendSuccess(res, {
       message: "Restaurant commission updated",
+      data,
+    });
+  },
+);
+
+export const patchAdminRestaurantPricingModel = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = pricingModelSchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
+    const data = await updateAdminRestaurantPricingModel({
+      restaurantId: getStringParam(req.params.restaurantId),
+      pricingModel: payload.pricingModel,
+      platformMarkupPercent: payload.platformMarkupPercent,
+      adminId: getAdminId(req),
+    });
+
+    return sendSuccess(res, {
+      message: "Restaurant pricing model updated",
       data,
     });
   },

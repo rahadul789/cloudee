@@ -137,6 +137,10 @@ import {
   roundCurrencyAmount,
   trimLimitedString,
 } from "./customer-shared.util";
+import {
+  markupComponentPrice,
+  resolveRestaurantMarkupPercent,
+} from "../../common/utils/order-pricing";
 import { replaceCloudinaryImage } from "../../common/utils/cloudinary";
 
 const CUSTOMER_REFRESH_EXPIRY_DAYS = 3650;
@@ -2033,7 +2037,7 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
     return restaurants;
   }
 
-  const [pricingRows, reviewRows] = await Promise.all([
+  const [pricingRows, reviewRows, markupRows] = await Promise.all([
     MenuItemModel.aggregate<{
       _id: mongoose.Types.ObjectId;
       lowestMenuPrice: number | null;
@@ -2072,10 +2076,29 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
         },
       },
     ]),
+    // Per-restaurant markup config so the "from ৳X" card price matches the marked-up menu.
+    // Self-contained here (not reliant on caller projections). No-op for commission ones.
+    RestaurantModel.find({ _id: { $in: restaurantObjectIds } })
+      .select({ commercial: 1 })
+      .lean<Array<Record<string, any>>>(),
   ]);
 
+  const markupPercentByRestaurantId = new Map(
+    markupRows.map((row) => [
+      String(row._id),
+      resolveRestaurantMarkupPercent(row),
+    ]),
+  );
   const pricingByRestaurantId = new Map(
-    pricingRows.map((row) => [String(row._id), row.lowestMenuPrice ?? null]),
+    pricingRows.map((row) => [
+      String(row._id),
+      typeof row.lowestMenuPrice === "number"
+        ? markupComponentPrice(
+            row.lowestMenuPrice,
+            markupPercentByRestaurantId.get(String(row._id)) ?? 0,
+          )
+        : null,
+    ]),
   );
   const reviewsByRestaurantId = new Map(
     reviewRows.map((row) => [
@@ -3461,7 +3484,20 @@ export async function getCustomerDiscoveryHome(params?: {
       const nearbyRestaurants =
         nearbySection.isActive === false
           ? []
-          : candidateRestaurants.slice(0, 20);
+          : // "Nearby" is a pure-proximity list — sort strictly by distance from the customer
+            // (nearest first) so the app shows the closest restaurants, independent of the
+            // open-first/featured ordering the other sections use.
+            [...candidateRestaurants]
+              .sort(
+                (left, right) =>
+                  (typeof left.distanceKm === "number"
+                    ? left.distanceKm
+                    : Number.POSITIVE_INFINITY) -
+                  (typeof right.distanceKm === "number"
+                    ? right.distanceKm
+                    : Number.POSITIVE_INFINITY),
+              )
+              .slice(0, 20);
       const shouldLoadPopularCandidates =
         popularNearYouSection.isActive !== false;
       const popularRestaurantIds = shouldLoadPopularCandidates
@@ -3811,6 +3847,9 @@ export async function getCustomerRestaurantDetails(
           enforcement: 1,
           discovery: 1,
           settings: 1,
+          // Needed to apply the zero-commission markup to customer-facing menu prices.
+          // Stripped from the payload before it's returned (never exposed to the customer).
+          commercial: 1,
           preparationTimeMinutes: 1,
           createdAt: 1,
         })
@@ -4047,6 +4086,44 @@ export async function getCustomerRestaurantDetails(
       const recentReviews = reviewFacet.recent ?? [];
       const reviewSummary = reviewFacet.metrics?.[0];
 
+      // Zero-commission "markup" restaurants: add the platform markup to every customer-facing
+      // menu price (base + each variant delta + each add-on) BEFORE markdown/lowest-price are
+      // computed, so the whole details payload — and the cart quote, which marks up the same
+      // components identically — is consistent to the taka. No-op (0%) for commission
+      // restaurants, so their menu is byte-for-byte unchanged.
+      const detailsMarkupPercent = resolveRestaurantMarkupPercent(restaurant);
+      if (detailsMarkupPercent > 0) {
+        for (const item of menuItems) {
+          const anyItem = item as Record<string, any>;
+          if (typeof anyItem.basePrice === "number") {
+            anyItem.basePrice = markupComponentPrice(
+              anyItem.basePrice,
+              detailsMarkupPercent,
+            );
+          }
+          for (const variant of anyItem.variants ?? []) {
+            for (const option of variant.options ?? []) {
+              if (typeof option.priceDelta === "number") {
+                option.priceDelta = markupComponentPrice(
+                  option.priceDelta,
+                  detailsMarkupPercent,
+                );
+              }
+            }
+          }
+          for (const group of anyItem.addOnGroups ?? []) {
+            for (const option of group.options ?? []) {
+              if (typeof option.price === "number") {
+                option.price = markupComponentPrice(
+                  option.price,
+                  detailsMarkupPercent,
+                );
+              }
+            }
+          }
+        }
+      }
+
       // Attach platform-funded markdown (strike-through pricing) to each menu item. The
       // helper picks the most specific active rule per item; cart/order recompute the exact
       // amount per selected variant so display and settlement stay in sync.
@@ -4086,6 +4163,9 @@ export async function getCustomerRestaurantDetails(
           : null;
       restaurant.orderNote = getCustomerFacingOrderNoteSetting(restaurant);
       delete restaurant.settings;
+      // commercial (commissionRate, pricingModel, markup%) is internal — never expose it to
+      // the customer. The markup was already baked into the menu prices above.
+      delete restaurant.commercial;
 
       const reviewCustomerIds = [
         ...new Set(
@@ -5600,9 +5680,18 @@ export async function placeCustomerOrder(params: {
         }
       }
 
-      const subtotal = quote.pricing.subtotal;
-      const commissionRate =
-        typeof restaurant.commercial?.commissionRate === "number"
+      // Ledger settles on the REAL restaurant subtotal, never the customer-facing marked-up
+      // one. For a zero-commission markup order this is the owner's actual menu total and the
+      // commission is 0 (the platform's income is the markup, tracked separately in admin
+      // finance). For commission restaurants restaurantSubtotal === subtotal, so unchanged.
+      const isMarkup = quote.pricing.pricingModel === "markup";
+      const subtotal =
+        typeof quote.pricing.restaurantSubtotal === "number"
+          ? quote.pricing.restaurantSubtotal
+          : quote.pricing.subtotal;
+      const commissionRate = isMarkup
+        ? 0
+        : typeof restaurant.commercial?.commissionRate === "number"
           ? restaurant.commercial.commissionRate
           : 15;
       const discountCost =
