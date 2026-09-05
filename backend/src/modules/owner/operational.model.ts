@@ -191,8 +191,14 @@ const orderItemSnapshotSchema = new Schema(
     categorySlug: { type: String, default: "" },
     imageUrl: { type: String, default: "" },
     quantity: { type: Number, required: true, min: 1 },
+    // Customer-facing (marked-up) price the customer was charged.
     unitPrice: { type: Number, required: true, min: 0 },
     lineTotal: { type: Number, required: true, min: 0 },
+    // Real owner price for zero-commission "markup" restaurants. Persisted so owner order
+    // views + item sales reports show the owner's ACTUAL price, not the customer markup.
+    // Omitted/equal for commission restaurants (readers fall back to unitPrice/lineTotal).
+    restaurantUnitPrice: { type: Number, min: 0 },
+    restaurantLineTotal: { type: Number, min: 0 },
     selectedVariantOptions: { type: [Schema.Types.Mixed], default: [] },
     selectedAddOnOptions: { type: [Schema.Types.Mixed], default: [] }
   },

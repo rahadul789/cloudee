@@ -436,12 +436,33 @@ export default function OrdersScreen() {
           </View>
         ) : null}
 
-        {order.itemsSnapshot?.slice(0, 3).map((orderItem, index) => (
-          <Text key={`${orderItem.itemId ?? orderItem.name}-${index}`} style={styles.itemText}>
-            {localizeDigits(String(orderItem.quantity ?? 1))}x{" "}
-            {orderItem.name ?? t("today.items")}
-          </Text>
-        ))}
+        {order.itemsSnapshot?.slice(0, 3).map((orderItem, index) => {
+          // Selected variants + add-ons (e.g. "Extra Egg, Large") so the owner sees the exact
+          // configuration right on the card, not just the item name.
+          const options = [
+            ...(orderItem.selectedVariantOptions ?? []),
+            ...(orderItem.selectedAddOnOptions ?? []),
+          ]
+            .map((option) => option.optionLabel)
+            .filter(Boolean)
+            .join(", ");
+          return (
+            <View
+              key={`${orderItem.itemId ?? orderItem.name}-${index}`}
+              style={styles.itemLine}
+            >
+              <Text style={styles.itemText}>
+                {localizeDigits(String(orderItem.quantity ?? 1))}x{" "}
+                {orderItem.name ?? t("today.items")}
+              </Text>
+              {options ? (
+                <Text style={styles.itemOptionText} numberOfLines={1}>
+                  {options}
+                </Text>
+              ) : null}
+            </View>
+          );
+        })}
 
         {/* Action buttons only for live statuses — the whole card is already tappable to
             open details, so terminal orders (Delivered/Cancelled/…) need no button. */}
@@ -891,11 +912,20 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.foreground,
   },
+  itemLine: {
+    gap: 1,
+  },
   itemText: {
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "600",
     color: palette.mutedForeground,
+  },
+  itemOptionText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: palette.primary,
   },
   voucherAppliedPill: {
     alignSelf: "flex-start",

@@ -8,6 +8,7 @@ import {
   useRegisterOwnerPushTokenMutation,
   useUnregisterOwnerPushTokenMutation,
 } from "@/src/hooks/use-owner-api";
+import { wasNewOrderSoundedRecently } from "@/src/lib/new-order-sound";
 import { useOwnerLanguageStore } from "@/src/i18n/language-store";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
 
@@ -61,12 +62,25 @@ function resolveNotificationPath(path?: unknown) {
 }
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  // Runs only while the app is FOREGROUND (a killed/backgrounded app is sounded by the OS via
+  // the notification channel). New-order alerts are already played in-app by the socket bridge
+  // (deterministic, plays even with the app open), so we silence the foreground push for them
+  // to avoid a double chime; every other notification keeps its sound. The banner still shows.
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    const isNewOrder = data?.type === "order.created";
+    // Silence the foreground new-order push ONLY when the socket already chimed this exact
+    // order in-app. If the socket was down (so no in-app sound fired), let the push sound —
+    // the alert must never be missed.
+    const alreadyChimed =
+      isNewOrder && wasNewOrderSoundedRecently(String(data?.orderId ?? ""));
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !alreadyChimed,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 async function getExpoProjectId() {

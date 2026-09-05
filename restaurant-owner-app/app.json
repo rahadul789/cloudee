@@ -59,7 +59,8 @@
             "./assets/sounds/common.mp3"
           ]
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

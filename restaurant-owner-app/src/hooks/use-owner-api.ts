@@ -159,6 +159,7 @@ export type OwnerOrder = {
   itemsSnapshot?: {
     itemId?: string;
     name?: string;
+    imageUrl?: string;
     quantity?: number;
     unitPrice?: number;
     selectedVariantOptions?: { groupName: string; optionLabel: string }[];

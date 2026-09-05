@@ -83,3 +83,58 @@ export function getOrderPlatformMarkup(order: Record<string, any>): number {
   const value = Number(order?.pricing?.platformMarkup ?? 0);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
+
+// Aggregation expression that yields an order item's OWNER-REAL line revenue (item sales
+// reports show the owner their own price, never the customer markup). Precedence:
+//   1. itemsSnapshot.restaurantLineTotal — exact, stored on new markup orders.
+//   2. Older markup orders lack it, but the order pricing snapshot still records
+//      pricingModel + platformMarkupPercent, so remove the markup from the marked-up line
+//      total: round(markedLineTotal / (1 + pct/100)).
+//   3. Commission/legacy orders — the marked-up line total already IS the real price.
+//
+// `markedLineTotalExpr` is the customer-facing line-total expression the caller already uses
+// (its own lineTotal/unitPrice fallback chain). `restaurantLineTotalPath` and `pricingPrefix`
+// are field-path strings (e.g. "$itemsSnapshot.restaurantLineTotal" and "$pricing", or the
+// "$order."-prefixed variants when itemsSnapshot is unwound from a joined order).
+export function ownerRealLineTotalAggExpr(
+  markedLineTotalExpr: unknown,
+  restaurantLineTotalPath: string,
+  pricingPrefix: string,
+) {
+  return {
+    $ifNull: [
+      restaurantLineTotalPath,
+      {
+        $let: {
+          vars: {
+            markupPct: {
+              $cond: [
+                { $eq: [`${pricingPrefix}.pricingModel`, "markup"] },
+                { $ifNull: [`${pricingPrefix}.platformMarkupPercent`, 0] },
+                0,
+              ],
+            },
+            markedLineTotal: markedLineTotalExpr,
+          },
+          in: {
+            $cond: [
+              { $gt: ["$$markupPct", 0] },
+              {
+                $round: [
+                  {
+                    $divide: [
+                      "$$markedLineTotal",
+                      { $add: [1, { $divide: ["$$markupPct", 100] }] },
+                    ],
+                  },
+                  0,
+                ],
+              },
+              "$$markedLineTotal",
+            ],
+          },
+        },
+      },
+    ],
+  };
+}

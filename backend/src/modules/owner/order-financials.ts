@@ -116,30 +116,58 @@ export function filterOwnerVisibleAppliedVouchers(order: Record<string, any>) {
     .filter(Boolean)
 }
 
-// Owner must see the REAL per-item price, never the customer-facing marked-up one. The item
-// snapshot carries restaurantUnitPrice/restaurantLineTotal (== unitPrice/lineTotal for
-// commission restaurants); swap them in so every owner order view shows the owner's own price.
+// Owner must see the REAL per-item price, never the customer-facing marked-up one. Every owner
+// order view (app + web) renders itemsSnapshot.unitPrice, so we overwrite it here with the
+// owner's actual price:
+//   - New markup orders carry per-item restaurantUnitPrice/restaurantLineTotal → use those.
+//   - Older markup orders (placed before those fields existed) don't, but the order pricing
+//     snapshot still records pricingModel + platformMarkupPercent, so we remove the markup:
+//     realUnit = round(unitPrice / (1 + pct/100)). Matches the ৳209 → ৳180 the owner expects.
+//   - Commission/legacy orders are already real → left untouched.
 function decorateOwnerVisibleItems(order: Record<string, any>) {
   const items = Array.isArray(order.itemsSnapshot) ? order.itemsSnapshot : null
   if (!items) return order.itemsSnapshot
+
+  const pricing = order?.pricing ?? {}
+  const fallbackMarkupPercent =
+    pricing.pricingModel === "markup" &&
+    numberValue(pricing.platformMarkupPercent) > 0
+      ? numberValue(pricing.platformMarkupPercent)
+      : 0
+
   return items.map((item: Record<string, any>) => {
+    const quantity = numberValue(item?.quantity, 1)
+
+    let realUnitPrice: number | null = null
     if (
-      typeof item?.restaurantUnitPrice !== "number" ||
-      !Number.isFinite(item.restaurantUnitPrice)
+      typeof item?.restaurantUnitPrice === "number" &&
+      Number.isFinite(item.restaurantUnitPrice)
     ) {
-      return item
+      realUnitPrice = item.restaurantUnitPrice
+    } else if (
+      fallbackMarkupPercent > 0 &&
+      typeof item?.unitPrice === "number" &&
+      Number.isFinite(item.unitPrice)
+    ) {
+      realUnitPrice = Math.round(
+        item.unitPrice / (1 + fallbackMarkupPercent / 100)
+      )
     }
-    const restaurantLineTotal = numberValue(
+
+    // Commission / legacy item — unitPrice is already the owner's real price.
+    if (realUnitPrice === null) return item
+
+    const realLineTotal = numberValue(
       item.restaurantLineTotal,
-      item.restaurantUnitPrice * numberValue(item.quantity, 1)
+      realUnitPrice * quantity
     )
     return {
       ...item,
-      unitPrice: item.restaurantUnitPrice,
-      lineTotal: restaurantLineTotal,
+      unitPrice: realUnitPrice,
+      lineTotal: realLineTotal,
       // Owner is paid the full real price; there is no customer markdown from their side.
-      effectiveUnitPrice: item.restaurantUnitPrice,
-      effectiveLineTotal: restaurantLineTotal,
+      effectiveUnitPrice: realUnitPrice,
+      effectiveLineTotal: realLineTotal,
       markdownPerUnit: 0
     }
   })

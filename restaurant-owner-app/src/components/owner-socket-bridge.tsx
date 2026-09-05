@@ -13,6 +13,7 @@ import {
   getOwnerSocket,
 } from "@/src/lib/socket-client";
 import { patchOwnerOrderQueryCaches } from "@/src/lib/owner-order-cache";
+import { playNewOrderSound } from "@/src/lib/new-order-sound";
 import { useOwnerAuthStore } from "@/src/store/auth-store";
 
 function isForegroundAppState(state: AppStateStatus) {
@@ -62,6 +63,9 @@ export function OwnerSocketBridge() {
   const tokenRef = useRef("");
   const appStateRef = useRef(AppState.currentState);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Order ids we've already played the new-order sound for, so a socket reconnect that
+  // re-emits `order.created` (or a duplicate emit) never double-chimes the same order.
+  const soundedOrderIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!owner?.id || !accessToken) {
@@ -139,6 +143,20 @@ export function OwnerSocketBridge() {
       });
       scheduleOwnerRealtimeRefresh({ includePayouts: shouldRefreshPayouts });
     };
+    // A brand-new order arrived while the app is open. Play the alert sound in-app FIRST
+    // (top priority — never miss it), then run the normal cache update. The socket only
+    // delivers while foreground, so receiving this event means the owner is in the app.
+    const handleOrderCreated = (payload: OwnerOrder) => {
+      // order.created fires once, only when a brand-new order is placed (New, or Accepted when
+      // the restaurant auto-accepts) — either way the owner must hear it. Dedup by id so a
+      // socket reconnect that re-emits it never double-chimes.
+      const orderId = payload?._id;
+      if (orderId && !soundedOrderIdsRef.current.has(orderId)) {
+        soundedOrderIdsRef.current.add(orderId);
+        void playNewOrderSound(orderId);
+      }
+      handleOrderUpdated(payload);
+    };
     const handleNotificationCreated = (payload?: OwnerNotification) => {
       scheduleOwnerRealtimeRefresh({ includePayouts: payload?.type === "payout" });
       if (payload?.type === "review") {
@@ -184,7 +202,7 @@ export function OwnerSocketBridge() {
     };
 
     socket.on("connect", handleConnected);
-    socket.on("order.created", handleOrderUpdated);
+    socket.on("order.created", handleOrderCreated);
     socket.on("order.updated", handleOrderUpdated);
     socket.on("notification.created", handleNotificationCreated);
     socket.on("payout.method.updated", handlePayoutMethodUpdated);
@@ -202,7 +220,7 @@ export function OwnerSocketBridge() {
       }
       subscription.remove();
       socket.off("connect", handleConnected);
-      socket.off("order.created", handleOrderUpdated);
+      socket.off("order.created", handleOrderCreated);
       socket.off("order.updated", handleOrderUpdated);
       socket.off("notification.created", handleNotificationCreated);
       socket.off("payout.method.updated", handlePayoutMethodUpdated);

@@ -20,7 +20,13 @@ import {
   type RiderOrder,
 } from "@/src/hooks/use-rider-api";
 import { useDeliveryCopy } from "@/src/lib/copy";
-import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
+import {
+  DAY_MS,
+  dhakaStartOfMonth,
+  dhakaStartOfToday,
+  formatDateTime,
+  formatRelativeTime,
+} from "@/src/lib/date-time";
 import { getOrderStatusBadge, getOrderTimingInfo, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
@@ -29,43 +35,62 @@ import { RiderSidebar } from "@/src/components/rider-sidebar";
 import { useNetworkStatus } from "@/src/hooks/use-network-status";
 
 type StatusFilter = "all" | "Delivered" | "Cancelled" | "Rejected";
-type RangeFilter = "all" | "today" | "last7" | "thisMonth" | "last30";
+type RangeFilter = "all" | "today" | "yesterday" | "last7" | "thisMonth" | "last30";
 const HISTORY_PAGE_STEP = 20;
 
+// Filter on the SAME timestamp the card shows (delivered time for a delivered trip, etc.), not
+// the raw updatedAt — otherwise a later status/payout write drifts an old order into "today".
 function getOrderTime(order: RiderOrder) {
-  return new Date(order.updatedAt ?? order.createdAt ?? 0).getTime();
+  const timingValue = getOrderTimingInfo(order).value;
+  return new Date(timingValue ?? order.updatedAt ?? order.createdAt ?? 0).getTime();
 }
 
 function isWithinRange(order: RiderOrder, rangeFilter: RangeFilter) {
   if (rangeFilter === "all") return true;
 
   const orderTime = getOrderTime(order);
+  if (!Number.isFinite(orderTime) || orderTime <= 0) return false;
   const now = Date.now();
+  const startOfToday = dhakaStartOfToday(now);
 
   if (rangeFilter === "today") {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    return orderTime >= startOfDay.getTime() && orderTime <= now;
+    return orderTime >= startOfToday && orderTime <= now;
+  }
+
+  if (rangeFilter === "yesterday") {
+    return orderTime >= startOfToday - DAY_MS && orderTime < startOfToday;
   }
 
   if (rangeFilter === "thisMonth") {
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-    return orderTime >= startOfMonth.getTime() && orderTime <= now;
+    return orderTime >= dhakaStartOfMonth(now) && orderTime <= now;
   }
 
   if (rangeFilter === "last30") {
-    const startOfWindow = new Date();
-    startOfWindow.setDate(startOfWindow.getDate() - 29);
-    startOfWindow.setHours(0, 0, 0, 0);
-    return orderTime >= startOfWindow.getTime() && orderTime <= now;
+    return orderTime >= startOfToday - 29 * DAY_MS && orderTime <= now;
   }
 
-  const startOfWindow = new Date();
-  startOfWindow.setDate(startOfWindow.getDate() - 6);
-  startOfWindow.setHours(0, 0, 0, 0);
-  return orderTime >= startOfWindow.getTime() && orderTime <= now;
+  // last7
+  return orderTime >= startOfToday - 6 * DAY_MS && orderTime <= now;
+}
+
+function formatTaka(amount?: number | null) {
+  const value = typeof amount === "number" && Number.isFinite(amount) ? amount : 0;
+  return `৳${Math.round(value).toLocaleString("en-US")}`;
+}
+
+// Cash the rider actually collects on this trip. External orders carry an explicit
+// collectAmount; otherwise a COD order collects the full order total, while a prepaid/online
+// order collects nothing (already paid).
+function getCollectedAmount(order: RiderOrder) {
+  // Cash is only actually collected on a completed delivery — a cancelled/rejected COD order
+  // collected nothing.
+  if (order.status !== "Delivered") return 0;
+  if (typeof order.collectAmount === "number" && Number.isFinite(order.collectAmount)) {
+    return order.collectAmount;
+  }
+  const method = `${order.paymentMethod ?? ""}`.toLowerCase();
+  const isCod = method.includes("cash") || method.includes("cod");
+  return isCod ? (order.pricing?.total ?? 0) : 0;
 }
 
 function getStatusFilterLabel(copy: ReturnType<typeof useDeliveryCopy>["copy"], status: StatusFilter) {
@@ -78,6 +103,7 @@ function getStatusFilterLabel(copy: ReturnType<typeof useDeliveryCopy>["copy"], 
 function getRangeFilterLabel(copy: ReturnType<typeof useDeliveryCopy>["copy"], range: RangeFilter) {
   if (range === "all") return copy.common.allTime;
   if (range === "today") return copy.common.today;
+  if (range === "yesterday") return copy.common.yesterday;
   if (range === "last7") return copy.common.last7Days;
   if (range === "thisMonth") return "This month";
   return "Last 30 days";
@@ -95,12 +121,13 @@ export default function HistoryScreen() {
   const isNetworkOnline = useNetworkStatus();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
+  // Default to TODAY so "My Rides" opens on today's trips + today's collected amount.
+  const [rangeFilter, setRangeFilter] = useState<RangeFilter>("today");
   const [searchQuery, setSearchQuery] = useState("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [draftStatusFilter, setDraftStatusFilter] = useState<StatusFilter>("all");
-  const [draftRangeFilter, setDraftRangeFilter] = useState<RangeFilter>("all");
+  const [draftRangeFilter, setDraftRangeFilter] = useState<RangeFilter>("today");
   const orders = useMemo(() => ordersQuery.data ?? [], [ordersQuery.data]);
   const canLoadMoreHistory =
     orders.length >= pageSize && !ordersQuery.isLoading && !ordersQuery.isFetching;
@@ -128,6 +155,20 @@ export default function HistoryScreen() {
       }),
     [normalizedSearchQuery, orders, rangeFilter, statusFilter]
   );
+
+  // Delivered count + total delivery earning for the CURRENT filter/view, so the rider can see
+  // at a glance "how many I delivered and how much I earned" for the selected range.
+  const deliveredStats = useMemo(() => {
+    let count = 0;
+    let collected = 0;
+    for (const order of filteredOrders) {
+      if (order.status === "Delivered") {
+        count += 1;
+        collected += getCollectedAmount(order);
+      }
+    }
+    return { count, collected };
+  }, [filteredOrders]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -165,6 +206,8 @@ export default function HistoryScreen() {
     tripsCount:
       (historyText.tripsCount as ((count: number) => string) | undefined) ??
       ((count: number) => `${count} ${count === 1 ? "trip" : "trips"}`),
+    orderValue: (historyText.orderValue as string | undefined) ?? "Total",
+    collected: (historyText.collected as string | undefined) ?? "Collected",
   };
 
   const handleSearchChange = useCallback((value: string) => {
@@ -230,13 +273,38 @@ export default function HistoryScreen() {
               </View>
             </View>
 
+            {/* Delivered count + total delivery earning for the CURRENT filter — the rider's
+                key "how many did I deliver and how much did I earn" for the selected range. */}
+            <View style={styles.earningsCard}>
+              <View style={styles.earningsHeader}>
+                <Ionicons name="wallet-outline" size={15} color={palette.primary} />
+                <Text style={styles.earningsHeaderText}>
+                  {historyCopy.collected} · {getRangeFilterLabel(copy, rangeFilter)}
+                </Text>
+              </View>
+              <View style={styles.earningsStatsRow}>
+                <View style={styles.earningsStat}>
+                  <Text style={styles.earningsStatValue}>{deliveredStats.count}</Text>
+                  <Text style={styles.earningsStatLabel}>{copy.common.delivered}</Text>
+                </View>
+                <View style={styles.earningsDivider} />
+                <View style={styles.earningsStat}>
+                  <Text style={styles.earningsStatValueAccent}>
+                    {formatTaka(deliveredStats.collected)}
+                  </Text>
+                  <Text style={styles.earningsStatLabel}>{historyCopy.collected}</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Career context (lifetime, server-accurate) — separate from the filtered card. */}
             <View style={styles.summaryRow}>
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Today</Text>
-                <Text style={styles.summaryValue}>{perf?.deliveredToday ?? 0}</Text>
+                <Text style={styles.summaryLabel}>{copy.common.last7Days}</Text>
+                <Text style={styles.summaryValue}>{perf?.deliveredLast7Days ?? 0}</Text>
               </View>
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>This month</Text>
+                <Text style={styles.summaryLabel}>{historyCopy.thisMonth}</Text>
                 <Text style={styles.summaryValue}>{perf?.deliveredThisMonth ?? 0}</Text>
               </View>
               <View style={styles.summaryCard}>
@@ -396,6 +464,20 @@ export default function HistoryScreen() {
                   {timingInfo.value ? ` - ${formatRelativeTime(timingInfo.value)}` : ""}
                 </Text>
               </View>
+              {(item.pricing?.total ?? 0) > 0 || getCollectedAmount(item) > 0 ? (
+                <View style={styles.cardPriceRow}>
+                  <View style={styles.pricePair}>
+                    <Text style={styles.priceLabel}>{historyCopy.orderValue}</Text>
+                    <Text style={styles.priceValue}>{formatTaka(item.pricing?.total)}</Text>
+                  </View>
+                  <View style={styles.pricePairRight}>
+                    <Text style={styles.priceLabel}>{historyCopy.collected}</Text>
+                    <Text style={styles.priceValueAccent}>
+                      {formatTaka(getCollectedAmount(item))}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
             </Pressable>
           );
         }}
@@ -449,6 +531,7 @@ export default function HistoryScreen() {
                 {([
                   "all",
                   "today",
+                  "yesterday",
                   "last7",
                   "thisMonth",
                   "last30",
@@ -548,6 +631,92 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   summaryValue: { fontSize: 16, fontWeight: "800", color: palette.foreground },
+  earningsCard: {
+    borderRadius: 20,
+    padding: 16,
+    gap: 14,
+    backgroundColor: palette.primarySoft,
+    borderWidth: 1,
+    borderColor: "#FFCEE0",
+  },
+  earningsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  earningsHeaderText: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: palette.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  earningsStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  earningsStat: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+  },
+  earningsDivider: {
+    width: 1,
+    height: 38,
+    backgroundColor: "#FFCEE0",
+  },
+  earningsStatValue: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  earningsStatValueAccent: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: palette.primary,
+  },
+  earningsStatLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+    textTransform: "uppercase",
+  },
+  cardPriceRow: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  pricePair: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  pricePairRight: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+  },
+  priceLabel: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+    textTransform: "uppercase",
+  },
+  priceValue: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  priceValueAccent: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: palette.primary,
+  },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",

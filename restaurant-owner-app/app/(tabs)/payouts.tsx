@@ -1275,7 +1275,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   tile: {
-    width: "48.5%",
+    // Robust 2-up grid on every phone width: flexBasis < 50% so exactly two fit per row
+    // (the 10px gap can't push the second onto its own line the way width:"48.5%" did on
+    // narrow screens), and flexGrow lets the pair fill the row equally.
+    flexBasis: "46%",
+    flexGrow: 1,
+    minWidth: 0,
     minHeight: 96,
     borderRadius: 18,
     backgroundColor: palette.surface,

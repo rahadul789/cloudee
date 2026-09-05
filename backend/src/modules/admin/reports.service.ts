@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 
+import { ownerRealLineTotalAggExpr } from "../../common/utils/order-pricing";
+
 import { RestaurantModel, RiderModel } from "../auth/auth.model";
 import { CustomerModel, VoucherRedemptionModel } from "../customer/customer.model";
 import { CustomerAnalyticsEventModel } from "../customer/customer-analytics.model";
@@ -589,7 +591,14 @@ export async function getAdminReports(params: ReportParams) {
           },
           categoryName: { $last: "$itemsSnapshot.categoryName" },
           quantity: { $sum: { $ifNull: ["$itemsSnapshot.quantity", 0] } },
-          revenue: { $sum: { $ifNull: ["$itemsSnapshot.lineTotal", 0] } },
+          // Owner's REAL price (markup removed for markup orders — see helper).
+          revenue: {
+            $sum: ownerRealLineTotalAggExpr(
+              { $ifNull: ["$itemsSnapshot.lineTotal", 0] },
+              "$itemsSnapshot.restaurantLineTotal",
+              "$pricing",
+            ),
+          },
           orders: { $addToSet: "$_id" },
         },
       },

@@ -14,7 +14,8 @@ import {
 } from "./finance-rules"
 import {
   getOrderRestaurantSubtotal,
-  isMarkupOrder
+  isMarkupOrder,
+  ownerRealLineTotalAggExpr
 } from "../../common/utils/order-pricing"
 import { LedgerEntryModel, PayoutBatchModel } from "./finance.model"
 import { ReviewModel } from "./experience.model"
@@ -1296,18 +1297,23 @@ async function aggregatePayoutTopItems(restaurantId: string, payoutId: string) {
           name: { $ifNull: ["$order.itemsSnapshot.name", "$order.itemsSnapshot.itemName"] }
         },
         quantity: { $sum: { $ifNull: ["$order.itemsSnapshot.quantity", 0] } },
+        // Owner sees their REAL price (markup removed for markup orders — see helper).
         revenue: {
-          $sum: {
-            $ifNull: [
-              "$order.itemsSnapshot.lineTotal",
-              {
-                $multiply: [
-                  { $ifNull: ["$order.itemsSnapshot.quantity", 0] },
-                  { $ifNull: ["$order.itemsSnapshot.unitPrice", 0] }
-                ]
-              }
-            ]
-          }
+          $sum: ownerRealLineTotalAggExpr(
+            {
+              $ifNull: [
+                "$order.itemsSnapshot.lineTotal",
+                {
+                  $multiply: [
+                    { $ifNull: ["$order.itemsSnapshot.quantity", 0] },
+                    { $ifNull: ["$order.itemsSnapshot.unitPrice", 0] }
+                  ]
+                }
+              ]
+            },
+            "$order.itemsSnapshot.restaurantLineTotal",
+            "$order.pricing"
+          )
         }
       }
     },
@@ -1910,18 +1916,23 @@ async function buildAnalyticsOverview(params: AnalyticsOverviewParams) {
                   categoryName: "$itemsSnapshot.categoryName"
                 },
                 quantitySold: { $sum: { $ifNull: ["$itemsSnapshot.quantity", 0] } },
+                // Owner's REAL price (markup removed for markup orders — see helper).
                 revenue: {
-                  $sum: {
-                    $ifNull: [
-                      "$itemsSnapshot.lineTotal",
-                      {
-                        $multiply: [
-                          { $ifNull: ["$itemsSnapshot.quantity", 0] },
-                          { $ifNull: ["$itemsSnapshot.unitPrice", 0] }
-                        ]
-                      }
-                    ]
-                  }
+                  $sum: ownerRealLineTotalAggExpr(
+                    {
+                      $ifNull: [
+                        "$itemsSnapshot.lineTotal",
+                        {
+                          $multiply: [
+                            { $ifNull: ["$itemsSnapshot.quantity", 0] },
+                            { $ifNull: ["$itemsSnapshot.unitPrice", 0] }
+                          ]
+                        }
+                      ]
+                    },
+                    "$itemsSnapshot.restaurantLineTotal",
+                    "$pricing"
+                  )
                 }
               }
             },
@@ -2243,18 +2254,23 @@ async function buildDashboardSummary(params: {
                   name: { $ifNull: ["$itemsSnapshot.name", "$itemsSnapshot.itemName"] }
                 },
                 quantity: { $sum: { $ifNull: ["$itemsSnapshot.quantity", 0] } },
+                // Owner's REAL price (markup removed for markup orders — see helper).
                 revenue: {
-                  $sum: {
-                    $ifNull: [
-                      "$itemsSnapshot.lineTotal",
-                      {
-                        $multiply: [
-                          { $ifNull: ["$itemsSnapshot.quantity", 0] },
-                          { $ifNull: ["$itemsSnapshot.unitPrice", 0] }
-                        ]
-                      }
-                    ]
-                  }
+                  $sum: ownerRealLineTotalAggExpr(
+                    {
+                      $ifNull: [
+                        "$itemsSnapshot.lineTotal",
+                        {
+                          $multiply: [
+                            { $ifNull: ["$itemsSnapshot.quantity", 0] },
+                            { $ifNull: ["$itemsSnapshot.unitPrice", 0] }
+                          ]
+                        }
+                      ]
+                    },
+                    "$itemsSnapshot.restaurantLineTotal",
+                    "$pricing"
+                  )
                 }
               }
             },

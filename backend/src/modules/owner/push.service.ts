@@ -16,6 +16,7 @@ type OwnerPushPayload = {
 type ExpoPushMessage = {
   to: string
   sound: "default"
+  priority?: "default" | "normal" | "high"
   title: string
   body: string
   channelId?: string
@@ -179,6 +180,9 @@ export async function sendPushToOwner(params: {
   const messages: ExpoPushMessage[] = activeTokens.map((token) => ({
     to: token.expoPushToken,
     sound: "default",
+    // High priority so FCM/APNs wake the device immediately (past Doze/battery optimisation)
+    // instead of batching — owners must hear a new order the moment it lands, every time.
+    priority: "high",
     title: params.payload.title,
     body: params.payload.body,
     data: params.payload.data,

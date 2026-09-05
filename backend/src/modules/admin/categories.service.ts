@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { StatusCodes } from "http-status-codes";
 
 import { AppError } from "../../common/utils/app-error";
+import { ownerRealLineTotalAggExpr } from "../../common/utils/order-pricing";
 import { AdminAuditLogModel, AdminModel } from "./admin.model";
 import { RestaurantModel } from "../auth/auth.model";
 import { CategoryModel, MenuItemModel, NotificationModel, OrderModel } from "../owner/operational.model";
@@ -286,32 +287,37 @@ async function getCategorySalesAnalytics(params: {
       {
         $addFields: {
           matchedQuantity: { $ifNull: ["$itemsSnapshot.quantity", { $ifNull: ["$itemsSnapshot.qty", 1] }] },
-          matchedRevenue: {
-            $ifNull: [
-              "$itemsSnapshot.lineTotal",
-              {
-                $multiply: [
-                  {
-                    $ifNull: [
-                      "$itemsSnapshot.unitPrice",
-                      {
-                        $ifNull: [
-                          "$itemsSnapshot.totalPrice",
-                          {
-                            $ifNull: [
-                              "$itemsSnapshot.price",
-                              { $ifNull: ["$itemsSnapshot.basePrice", 0] },
-                            ],
-                          },
-                        ],
-                      },
-                    ],
-                  },
-                  { $ifNull: ["$itemsSnapshot.quantity", { $ifNull: ["$itemsSnapshot.qty", 1] }] },
-                ],
-              },
-            ],
-          },
+          // Owner's REAL price (markup removed for markup orders — see helper).
+          matchedRevenue: ownerRealLineTotalAggExpr(
+            {
+              $ifNull: [
+                "$itemsSnapshot.lineTotal",
+                {
+                  $multiply: [
+                    {
+                      $ifNull: [
+                        "$itemsSnapshot.unitPrice",
+                        {
+                          $ifNull: [
+                            "$itemsSnapshot.totalPrice",
+                            {
+                              $ifNull: [
+                                "$itemsSnapshot.price",
+                                { $ifNull: ["$itemsSnapshot.basePrice", 0] },
+                              ],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                    { $ifNull: ["$itemsSnapshot.quantity", { $ifNull: ["$itemsSnapshot.qty", 1] }] },
+                  ],
+                },
+              ],
+            },
+            "$itemsSnapshot.restaurantLineTotal",
+            "$pricing",
+          ),
           matchedItemId: { $ifNull: ["$itemsSnapshot.itemId", "$itemsSnapshot.name"] },
           matchedItemName: {
             $ifNull: [

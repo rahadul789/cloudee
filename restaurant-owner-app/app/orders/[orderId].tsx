@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Linking,
   Pressable,
   RefreshControl,
@@ -237,66 +238,106 @@ export default function OrderDetailsScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryRow}>
-                <InfoBlock
-                  label={t("orderDetails.placed")}
-                  value={formatTime(getOrderPlacedAt(order)) || t("orders.justNow")}
-                />
-                <InfoBlock
-                  label={t("orderDetails.foodSales")}
-                  value={formatCurrency(getOwnerOrderSubtotal(order))}
-                  alignRight
-                />
+            {/* Urgent auto-cancel countdown — kept at the very top so it's the first thing
+                the owner sees on a New order. */}
+            {autoCancelSeconds !== null ? (
+              <View style={styles.autoCancelBanner}>
+                <Ionicons name="timer-outline" size={17} color={palette.danger} />
+                <Text style={styles.autoCancelBannerText}>
+                  {t("orderDetails.autoCancelIn")}{" "}
+                  {localizeDigits(formatAutoCancelCountdown(autoCancelSeconds))}
+                </Text>
               </View>
-              <View style={styles.divider} />
-              <View style={styles.summaryRow}>
-                <InfoBlock
-                  label={t("orders.customer")}
-                  value={order.customerSnapshot?.fullName || t("orders.customer")}
-                />
-                <InfoBlock
-                  label={t("orderDetails.items")}
-                  value={`${localizeDigits(String(order.itemsSnapshot?.length ?? 0))} ${t("today.items")}`}
-                  alignRight
-                />
-              </View>
-              {order.customerSnapshot?.phone ? (
-                <Pressable
-                  style={({ pressed }) => [styles.callRow, pressed ? styles.callRowPressed : null]}
-                  onPress={() => Linking.openURL(`tel:${order.customerSnapshot?.phone}`)}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="call" size={15} color={palette.success} />
-                  <Text style={styles.callText}>{order.customerSnapshot.phone}</Text>
-                  <Ionicons name="chevron-forward" size={15} color={palette.success} />
-                </Pressable>
-              ) : null}
-              {autoCancelSeconds !== null ? (
-                <View style={styles.autoCancelNotice}>
-                  <Ionicons name="timer-outline" size={16} color={palette.danger} />
-                  <Text style={styles.autoCancelNoticeText}>
-                    {t("orderDetails.autoCancelIn")}{" "}
-                    {localizeDigits(formatAutoCancelCountdown(autoCancelSeconds))}
-                  </Text>
-                </View>
-              ) : null}
-              <PreparationTimingPanel
-                order={order}
-                now={now}
-                pendingExtension={pendingExtension}
-                onExtend={extendPreparation}
+            ) : null}
+
+            {/* ITEMS — the hero of this screen. Each item is a soft tile (photo + big qty
+                badge + name + option chips) so the owner reads "what to cook" at a glance. */}
+            <View style={styles.itemsCard}>
+              <SectionHeader
+                icon="fast-food"
+                title={t("orderDetails.items")}
+                count={order.itemsSnapshot?.length ?? 0}
+                dark
               />
-              {getCustomerOrderNote(order) ? (
-                <View style={styles.notePanel}>
-                  <View style={styles.notePanelHeader}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
-                    <Text style={styles.notePanelTitle}>{t("orderDetails.customerNote")}</Text>
-                  </View>
-                  <Text style={styles.notePanelText}>{getCustomerOrderNote(order)}</Text>
+              <View style={styles.itemsList}>
+                {order.itemsSnapshot?.map((item, index) => {
+                  const quantity = item.quantity ?? 1;
+                  const unitPrice = item.unitPrice ?? 0;
+                  const lineTotal = unitPrice * quantity;
+                  const chips = getItemChips(item);
+                  return (
+                    <View
+                      key={`${item.itemId ?? item.name}-${index}`}
+                      style={styles.itemTile}
+                    >
+                      <FoodThumb uri={item.imageUrl} quantity={quantity} />
+                      <View style={styles.itemBody}>
+                        <Text style={styles.itemName} numberOfLines={2}>
+                          {item.name ?? t("orderDetails.itemFallback")}
+                        </Text>
+                        {chips.length ? (
+                          <View style={styles.chipRow}>
+                            {chips.map((chip, chipIndex) => (
+                              <View key={chipIndex} style={styles.chip}>
+                                <Text style={styles.chipText}>{chip}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                      <View style={styles.itemPriceCol}>
+                        <Text style={styles.itemLineTotal}>{formatCurrency(lineTotal)}</Text>
+                        {quantity > 1 ? (
+                          <Text style={styles.itemUnit}>
+                            {formatCurrency(unitPrice)} {t("orderDetails.each")}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Food subtotal — highlighted so the owner's own total stands out. */}
+              <View style={styles.subtotalRow}>
+                <Text style={styles.subtotalLabel}>{t("orderDetails.foodSubtotal")}</Text>
+                <Text style={styles.subtotalValue}>
+                  {formatCurrency(getOwnerOrderSubtotal(order))}
+                </Text>
+              </View>
+              {getOwnerOrderDiscount(order) > 0 ? (
+                <SummaryLine
+                  label={t("orderDetails.ownerVoucherDiscount")}
+                  value={`-${formatCurrency(getOwnerOrderDiscount(order))}`}
+                  dark
+                />
+              ) : null}
+              {order.appliedVouchers?.length ? (
+                <View style={styles.voucherList}>
+                  {order.appliedVouchers.map((voucher, index) => (
+                    <SummaryLine
+                      key={`${voucher.id ?? voucher.code ?? voucher.name ?? "voucher"}-${index}`}
+                      label={voucher.name || voucher.code || t("orderDetails.ownerVoucher")}
+                      value={`-${formatCurrency(
+                        voucher.ownerDiscountCost ?? voucher.discountAmount,
+                      )}`}
+                      muted
+                    />
+                  ))}
                 </View>
               ) : null}
-              {hasOrderActions(order) ? (
+            </View>
+
+            {/* PREP TIME + ACTIONS — its own card directly under the items, where the owner
+                acts after reading the order. */}
+            {hasOrderActions(order) ? (
+              <View style={styles.actionCard}>
+                <PreparationTimingPanel
+                  order={order}
+                  now={now}
+                  pendingExtension={pendingExtension}
+                  onExtend={extendPreparation}
+                />
                 <OrderActions
                   order={order}
                   pendingAction={pendingAction}
@@ -322,75 +363,42 @@ export default function OrderDetailsScreen() {
                     )
                   }
                 />
-              ) : null}
-            </View>
-
-            {/* Items + the money summary live in one card, split by a hairline — reads like a
-                single receipt instead of two disconnected blocks. */}
-            <View style={styles.sectionCard}>
-              <SectionHeader
-                icon="fast-food-outline"
-                title={t("orderDetails.items")}
-                count={order.itemsSnapshot?.length ?? 0}
-              />
-              <View style={styles.itemsList}>
-                {order.itemsSnapshot?.map((item, index) => {
-                  const quantity = item.quantity ?? 1;
-                  const lineTotal = (item.unitPrice ?? 0) * quantity;
-                  const options = formatOptionText(item);
-                  return (
-                    <View
-                      key={`${item.itemId ?? item.name}-${index}`}
-                      style={[styles.itemRow, index > 0 ? styles.itemRowDivider : null]}
-                    >
-                      <View style={styles.quantityPill}>
-                        <Text style={styles.quantityText}>
-                          {localizeDigits(String(quantity))}x
-                        </Text>
-                      </View>
-                      <View style={styles.itemBody}>
-                        <Text style={styles.itemName}>
-                          {item.name ?? t("orderDetails.itemFallback")}
-                        </Text>
-                        {options ? <Text style={styles.itemOptions}>{options}</Text> : null}
-                        {quantity > 1 ? (
-                          <Text style={styles.itemUnit}>
-                            {formatCurrency(item.unitPrice)} {t("orderDetails.each")}
-                          </Text>
-                        ) : null}
-                      </View>
-                      <Text style={styles.itemLineTotal}>{formatCurrency(lineTotal)}</Text>
-                    </View>
-                  );
-                })}
               </View>
+            ) : null}
 
-              <View style={styles.cardSectionDivider} />
-
-              <Text style={styles.summaryCaption}>{t("orderDetails.restaurantSummary")}</Text>
-              <SummaryLine
-                label={t("orderDetails.foodSubtotal")}
-                value={formatCurrency(getOwnerOrderSubtotal(order))}
-                strong
-              />
-              {getOwnerOrderDiscount(order) > 0 ? (
-                <SummaryLine
-                  label={t("orderDetails.ownerVoucherDiscount")}
-                  value={`-${formatCurrency(getOwnerOrderDiscount(order))}`}
-                />
+            {/* CUSTOMER — demoted below the food + actions (least important to the kitchen). */}
+            <View style={styles.sectionCard}>
+              <SectionHeader icon="person-outline" title={t("orders.customer")} />
+              <Text style={styles.customerName}>
+                {order.customerSnapshot?.fullName || t("orders.customer")}
+              </Text>
+              <View style={styles.metaRow}>
+                <Ionicons name="time-outline" size={14} color={palette.mutedForeground} />
+                <Text style={styles.metaText}>
+                  {formatTime(getOrderPlacedAt(order)) || t("orders.justNow")}
+                </Text>
+                <View style={styles.metaDot} />
+                <Ionicons name="wallet-outline" size={14} color={palette.mutedForeground} />
+                <Text style={styles.metaText}>{order.paymentMethod}</Text>
+              </View>
+              {order.customerSnapshot?.phone ? (
+                <Pressable
+                  style={({ pressed }) => [styles.callRow, pressed ? styles.callRowPressed : null]}
+                  onPress={() => Linking.openURL(`tel:${order.customerSnapshot?.phone}`)}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="call" size={15} color={palette.success} />
+                  <Text style={styles.callText}>{order.customerSnapshot.phone}</Text>
+                  <Ionicons name="chevron-forward" size={15} color={palette.success} />
+                </Pressable>
               ) : null}
-              {order.appliedVouchers?.length ? (
-                <View style={styles.voucherList}>
-                  {order.appliedVouchers.map((voucher, index) => (
-                    <SummaryLine
-                      key={`${voucher.id ?? voucher.code ?? voucher.name ?? "voucher"}-${index}`}
-                      label={voucher.name || voucher.code || t("orderDetails.ownerVoucher")}
-                      value={`-${formatCurrency(
-                        voucher.ownerDiscountCost ?? voucher.discountAmount,
-                      )}`}
-                      muted
-                    />
-                  ))}
+              {getCustomerOrderNote(order) ? (
+                <View style={styles.notePanel}>
+                  <View style={styles.notePanelHeader}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={15} color="#FFFFFF" />
+                    <Text style={styles.notePanelTitle}>{t("orderDetails.customerNote")}</Text>
+                  </View>
+                  <Text style={styles.notePanelText}>{getCustomerOrderNote(order)}</Text>
                 </View>
               ) : null}
             </View>
@@ -569,10 +577,12 @@ function SectionHeader({
   icon,
   title,
   count,
+  dark,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   count?: number;
+  dark?: boolean;
 }) {
   return (
     <View style={styles.sectionHeaderRow}>
@@ -580,7 +590,9 @@ function SectionHeader({
         <View style={styles.sectionHeaderIcon}>
           <Ionicons name={icon} size={15} color={palette.primary} />
         </View>
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={[styles.sectionTitle, dark ? styles.sectionTitleDark : null]}>
+          {title}
+        </Text>
       </View>
       {typeof count === "number" ? (
         <View style={styles.countBadge}>
@@ -591,35 +603,19 @@ function SectionHeader({
   );
 }
 
-function InfoBlock({
-  label,
-  value,
-  alignRight,
-}: {
-  label: string;
-  value: string;
-  alignRight?: boolean;
-}) {
-  return (
-    <View style={[styles.infoBlock, alignRight ? styles.infoBlockRight : null]}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text numberOfLines={1} style={styles.infoValue}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 function SummaryLine({
   label,
   value,
   strong,
   muted,
+  dark,
 }: {
   label: string;
   value: string;
   strong?: boolean;
   muted?: boolean;
+  // Light text for lines rendered directly on the dark items card.
+  dark?: boolean;
 }) {
   return (
     <View style={styles.summaryLine}>
@@ -629,6 +625,7 @@ function SummaryLine({
           styles.summaryLabel,
           muted ? styles.summaryMuted : null,
           strong ? styles.summaryStrong : null,
+          dark ? styles.summaryLabelDark : null,
         ]}
       >
         {label}
@@ -639,6 +636,7 @@ function SummaryLine({
           styles.summaryValue,
           muted ? styles.summaryMuted : null,
           strong ? styles.summaryStrong : null,
+          dark ? styles.summaryValueDark : null,
         ]}
       >
         {value}
@@ -837,17 +835,45 @@ function getCustomerOrderNote(order: OwnerOrder) {
   return entry?.note?.trim() ?? "";
 }
 
-function formatOptionText(item: NonNullable<OwnerOrder["itemsSnapshot"]>[number]) {
+// Selected variants + add-ons as individual chip labels (e.g. "Egg: Extra Egg") so the owner
+// can scan each option at a glance instead of reading one long run-on line.
+function getItemChips(item: NonNullable<OwnerOrder["itemsSnapshot"]>[number]) {
   const variants =
-    item.selectedVariantOptions
-      ?.map((option) => `${option.groupName}: ${option.optionLabel}`)
-      .join(", ") ?? "";
+    item.selectedVariantOptions?.map(
+      (option) => `${option.groupName}: ${option.optionLabel}`,
+    ) ?? [];
   const addOns =
-    item.selectedAddOnOptions
-      ?.map((option) => `${option.groupName}: ${option.optionLabel}`)
-      .join(", ") ?? "";
+    item.selectedAddOnOptions?.map(
+      (option) => `${option.groupName}: ${option.optionLabel}`,
+    ) ?? [];
+  return [...variants, ...addOns];
+}
 
-  return [variants, addOns].filter(Boolean).join(" - ");
+// Food photo with an instant fallback: a soft placeholder (fork/knife icon) renders
+// immediately so the row never waits on the network; the real image draws on top once it
+// loads, and falls back to the placeholder if the URL is empty or fails. The quantity sits
+// as a bold badge on the corner so "how many" is unmissable.
+function FoodThumb({ uri, quantity }: { uri?: string; quantity: number }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = Boolean(uri) && !failed;
+  return (
+    <View style={styles.thumbWrap}>
+      <View style={styles.thumbPlaceholder}>
+        <Ionicons name="fast-food" size={22} color={palette.primary} />
+      </View>
+      {showImage ? (
+        <Image
+          source={{ uri }}
+          style={styles.thumbImage}
+          resizeMode="cover"
+          onError={() => setFailed(true)}
+        />
+      ) : null}
+      <View style={styles.qtyBadge}>
+        <Text style={styles.qtyBadgeText}>{localizeDigits(String(quantity))}×</Text>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -920,48 +946,6 @@ const styles = StyleSheet.create({
     color: palette.mutedForeground,
     fontWeight: "600",
   },
-  summaryCard: {
-    borderRadius: 22,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 16,
-    gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 14,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: palette.border,
-  },
-  infoBlock: {
-    flex: 1,
-    gap: 3,
-  },
-  infoBlockRight: {
-    alignItems: "flex-end",
-  },
-  infoLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    color: palette.mutedForeground,
-  },
-  infoValue: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
   callRow: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -981,21 +965,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: "800",
     color: palette.success,
-  },
-  autoCancelNotice: {
-    minHeight: 40,
-    borderRadius: 14,
-    backgroundColor: palette.dangerSoft,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-  },
-  autoCancelNoticeText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "900",
-    color: palette.danger,
   },
   prepPanel: {
     borderRadius: 16,
@@ -1122,6 +1091,100 @@ const styles = StyleSheet.create({
     padding: 15,
     gap: 12,
   },
+  autoCancelBanner: {
+    minHeight: 46,
+    borderRadius: 16,
+    backgroundColor: palette.dangerSoft,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 14,
+  },
+  autoCancelBannerText: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    color: palette.danger,
+  },
+  // The items card is the hero — a dark surface so the food list clearly stands apart from
+  // the rest of the (light) screen, with light text tuned for contrast.
+  itemsCard: {
+    borderRadius: 22,
+    backgroundColor: "#1E2330",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    padding: 16,
+    gap: 14,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 4,
+  },
+  actionCard: {
+    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 16,
+    gap: 13,
+    shadowColor: palette.shadow,
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  // Highlighted total inside the dark card: a soft primary-tinted bar with light text.
+  subtotalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255,99,146,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,99,146,0.30)",
+  },
+  subtotalLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    color: "#E9EBF1",
+  },
+  subtotalValue: {
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: "900",
+    color: "#FFFFFF",
+  },
+  customerName: {
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: palette.border,
+    marginHorizontal: 3,
+  },
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1146,6 +1209,9 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "900",
     color: palette.foreground,
+  },
+  sectionTitleDark: {
+    color: "#F5F6FA",
   },
   countBadge: {
     minWidth: 24,
@@ -1191,18 +1257,11 @@ const styles = StyleSheet.create({
   summaryMuted: {
     color: palette.mutedForeground,
   },
-  cardSectionDivider: {
-    height: 1,
-    backgroundColor: palette.border,
-    marginTop: 2,
+  summaryLabelDark: {
+    color: "#CBCFDD",
   },
-  summaryCaption: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-    color: palette.mutedForeground,
+  summaryValueDark: {
+    color: "#F5F6FA",
   },
   voucherList: {
     borderRadius: 14,
@@ -1309,56 +1368,98 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   itemsList: {
-    gap: 0,
+    gap: 10,
   },
-  itemRow: {
+  // WHITE tiles on the dark card — the food items read as bright, easy-to-scan cards that
+  // clearly lift off the dark surface.
+  itemTile: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
-    paddingVertical: 11,
+    gap: 12,
+    padding: 10,
+    paddingRight: 13,
+    borderRadius: 16,
+    backgroundColor: palette.surface,
   },
-  itemRowDivider: {
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
+  thumbWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 15,
+    overflow: "hidden",
+    backgroundColor: palette.primarySoft,
   },
-  quantityPill: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
+  thumbPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.primarySoft,
   },
-  quantityText: {
-    fontSize: 12,
-    lineHeight: 16,
+  thumbImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
+  },
+  qtyBadge: {
+    position: "absolute",
+    bottom: 3,
+    left: 3,
+    minWidth: 27,
+    height: 21,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.foreground,
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+  qtyBadgeText: {
+    fontSize: 12.5,
+    lineHeight: 15,
     fontWeight: "900",
-    color: palette.primary,
+    color: "#FFFFFF",
   },
   itemBody: {
     flex: 1,
-    gap: 2,
+    gap: 5,
   },
   itemName: {
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "900",
     color: palette.foreground,
   },
-  itemOptions: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-    color: palette.mutedForeground,
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  chip: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: palette.surfaceMuted,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  chipText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  itemPriceCol: {
+    alignItems: "flex-end",
+    gap: 2,
   },
   itemUnit: {
-    fontSize: 11.5,
+    fontSize: 11,
     lineHeight: 15,
     fontWeight: "700",
     color: palette.mutedForeground,
   },
   itemLineTotal: {
-    fontSize: 14.5,
+    fontSize: 15,
     lineHeight: 20,
     fontWeight: "900",
     color: palette.foreground,
