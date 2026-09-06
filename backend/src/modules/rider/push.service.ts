@@ -21,6 +21,7 @@ type RiderPushPayload = {
 type ExpoPushMessage = {
   to: string
   sound: "default"
+  priority?: "default" | "normal" | "high"
   title: string
   body: string
   channelId?: string
@@ -157,6 +158,9 @@ export async function sendPushToRider(params: {
   const messages: ExpoPushMessage[] = activeTokens.map((token) => ({
     to: token.expoPushToken,
     sound: "default",
+    // High priority so FCM/APNs wake the device immediately (past Doze) — riders must hear
+    // assignments and order heads-ups the moment they land.
+    priority: "high",
     title: params.payload.title,
     body: params.payload.body,
     data: params.payload.data,

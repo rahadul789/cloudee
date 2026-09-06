@@ -56,6 +56,7 @@
           "sounds": [
             "./assets/sounds/new_delivery.mp3",
             "./assets/sounds/delivery_hurry.mp3",
+            "./assets/sounds/new_order.mp3",
             "./assets/sounds/common.mp3"
           ]
         }
@@ -83,7 +84,8 @@
       ],
       "expo-secure-store",
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import NetInfo from "@react-native-community/netinfo";
 
 import { connectRiderSocket, disconnectRiderSocket, getRiderSocket } from "@/src/lib/socket-client";
+import { playHeadsUpSound } from "@/src/lib/new-order-sound";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { getFreshRiderAccessToken } from "@/src/lib/api";
 import { patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
@@ -26,6 +27,14 @@ type RiderAssignmentPayload = {
 
 type RiderRestaurantUpdatedPayload = {
   orderId?: string;
+};
+
+type RiderHeadsUpPayload = {
+  orderId?: string;
+  orderNumber?: string;
+  restaurantName?: string;
+  area?: string;
+  readyInMinutes?: number;
 };
 
 type AssignmentNotice = {
@@ -264,6 +273,41 @@ export function RiderSocketBridge() {
       });
     };
 
+    // Advisory "new order coming" heads-up (Approach A) — not an assignment. Play the sound
+    // in-app (foreground) + show a banner so the rider can start heading to the restaurant.
+    const handleHeadsUp = (payload: RiderHeadsUpPayload) => {
+      void playHeadsUpSound(payload.orderId);
+      const restaurantName = payload.restaurantName?.trim();
+      const minutes =
+        typeof payload.readyInMinutes === "number" && payload.readyInMinutes > 0
+          ? payload.readyInMinutes
+          : null;
+      const title = language === "bn" ? "🛵 নতুন অর্ডার আসছে" : "🛵 Incoming order";
+      const message = restaurantName
+        ? minutes
+          ? language === "bn"
+            ? `${restaurantName} — প্রায় ${minutes} মিনিটে রেডি। আগেভাগে রওনা দিন।`
+            : `${restaurantName} — ready in ~${minutes} min. Head over early.`
+          : language === "bn"
+            ? `${restaurantName} — শীঘ্রই পিকআপের জন্য রেডি হবে।`
+            : `${restaurantName} — will be ready for pickup soon.`
+        : language === "bn"
+          ? "কাছাকাছি একটি নতুন অর্ডার আসছে।"
+          : "A new order is coming nearby.";
+      // Info-only banner (no orderId → not tappable to an order the rider isn't assigned to).
+      showAssignmentNotice({ title, message });
+    };
+
+    const handleHeadsUpCancelled = (_payload: RiderHeadsUpPayload) => {
+      showAssignmentNotice({
+        title: language === "bn" ? "অর্ডার বাতিল" : "Order cancelled",
+        message:
+          language === "bn"
+            ? "যে অর্ডারের জন্য প্রস্তুত হচ্ছিলেন সেটি বাতিল হয়েছে।"
+            : "The order you were heading for has been cancelled.",
+      });
+    };
+
     const handleProfileUpdated = (payload?: RiderProfile) => {
       // Profile events now represent rider state changes (availability/focused trip),
       // not every location ping, so patch auth/profile cache without a refetch.
@@ -311,6 +355,8 @@ export function RiderSocketBridge() {
     socket.on("rider.profile.updated", handleProfileUpdated);
     socket.on("rider.restaurant.updated", handleRestaurantUpdated);
     socket.on("rider.notification.created", handleNotificationCreated);
+    socket.on("rider.order.headsup", handleHeadsUp);
+    socket.on("rider.order.headsup.cancelled", handleHeadsUpCancelled);
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
     return () => {
@@ -323,6 +369,8 @@ export function RiderSocketBridge() {
       socket.off("rider.profile.updated", handleProfileUpdated);
       socket.off("rider.restaurant.updated", handleRestaurantUpdated);
       socket.off("rider.notification.created", handleNotificationCreated);
+      socket.off("rider.order.headsup", handleHeadsUp);
+      socket.off("rider.order.headsup.cancelled", handleHeadsUpCancelled);
       disconnectRiderSocket();
     };
   }, [hasAuth, queryClient, riderId, riderSocketCopy, setSession, showAssignmentNotice]);

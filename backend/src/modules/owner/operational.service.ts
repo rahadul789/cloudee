@@ -9,6 +9,8 @@ import { AppError } from "../../common/utils/app-error";
 import { enqueueAdminOrderTerminalExceptionAlert } from "../admin/order-exception-alerts";
 import {
   invalidateAdminMonitoringCaches,
+  notifyRidersHeadsUpCancelled,
+  notifyRidersOrderHeadsUp,
   runAutoDispatchForReadyOrders,
 } from "../admin/orders-monitor.service";
 import { OwnerModel, RestaurantModel, RiderModel } from "../auth/auth.model";
@@ -2422,6 +2424,20 @@ export async function transitionOrder(params: {
 
   if (effectiveNextStatus === "ReadyForPickup") {
     void runAutoDispatchForReadyOrders().catch(() => undefined);
+  }
+
+  // Advisory rider heads-up: owner accepting a New order (→ Preparing) tells nearby available
+  // riders an order is coming so they can pre-position for a fast pickup. Fire-and-forget.
+  if (isAcceptAndPrepare) {
+    void notifyRidersOrderHeadsUp({ order: orderObject, restaurant }).catch(
+      () => undefined,
+    );
+  }
+  // If a heads-up order gets cancelled, stand the notified riders down.
+  if (params.nextStatus === "Cancelled") {
+    void notifyRidersHeadsUpCancelled({ order: orderObject }).catch(
+      () => undefined,
+    );
   }
 
   return ownerOrderObject;

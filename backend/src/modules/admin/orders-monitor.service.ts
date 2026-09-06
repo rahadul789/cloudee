@@ -2480,6 +2480,159 @@ export async function updateAdminDispatchSettings(params: {
   return getAdminDispatchSettings();
 }
 
+// Ready-in ETA (minutes) for a heads-up, read from the just-built preparation meta.
+function getHeadsUpReadyMinutes(order: Record<string, any>): number {
+  const meta = (order.preparationMeta ?? {}) as Record<string, any>;
+  const minutes = Number(
+    meta.totalMinutes ?? meta.baseMinutes ?? meta.plannedBaseMinutes ?? 0,
+  );
+  return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+}
+
+// Advisory "new order coming" heads-up (Approach A): when an order is accepted (owner accept
+// jumps New → Preparing), tell the nearby online+available riders in the restaurant's zone so
+// they can start heading over and pick up the moment it's ready — no assignment is made here,
+// the normal auto-dispatch at ReadyForPickup still chooses the actual rider. One heads-up per
+// order (deduped on dispatchMeta.headsUp); never throws (must not break the accept flow).
+export async function notifyRidersOrderHeadsUp(params: {
+  order: Record<string, any>;
+  restaurant?: Record<string, any> | null;
+}): Promise<void> {
+  try {
+    const order = params.order;
+    if (!order?._id) return;
+    // Off-platform (owner-initiated) deliveries use their own flow.
+    if (order.source === "external") return;
+    // Dedup — only one heads-up per order.
+    if ((order.dispatchMeta as Record<string, any>)?.headsUp?.notifiedAt) return;
+
+    const content = await getPlatformContent();
+    // Admin can turn the whole feature off via operations.dispatch.riderHeadsUpEnabled.
+    if ((content as any)?.operations?.dispatch?.riderHeadsUpEnabled === false) return;
+
+    const baseSettings = getDispatchSettingsFromContent(content);
+    const settings = await getDispatchSettingsForServiceArea(
+      baseSettings,
+      order.serviceAreaSnapshot,
+    );
+    const restaurant =
+      params.restaurant ??
+      (await RestaurantModel.findById(order.restaurantId).lean());
+    if (!restaurant) return;
+
+    // Same pool the dispatcher uses: active + available + zone-allowed riders.
+    const candidates = await listDispatchEligibleRiders({
+      restaurant,
+      settings,
+      serviceAreaSnapshot: order.serviceAreaSnapshot,
+    });
+    if (!candidates.length) return;
+
+    const riderIds = candidates.map((candidate) => candidate.id);
+    const readyInMinutes = getHeadsUpReadyMinutes(order);
+    const restaurantName = String(restaurant.name ?? "");
+    const area = String(
+      restaurant.address?.area ??
+        (order.serviceAreaSnapshot as Record<string, any>)?.name ??
+        "",
+    );
+
+    // Persist dedup + who we told, so a later cancel can stand exactly those riders down.
+    await OrderModel.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          "dispatchMeta.headsUp": { notifiedAt: new Date(), riderIds },
+        },
+      },
+    );
+
+    for (const candidate of candidates) {
+      emitSocketEvent(`rider:${candidate.id}`, "rider.order.headsup", {
+        orderId: String(order._id),
+        orderNumber: String(order.orderNumber ?? ""),
+        restaurantName,
+        area,
+        readyInMinutes,
+        restaurantLocation: {
+          latitude: restaurant.location?.latitude ?? null,
+          longitude: restaurant.location?.longitude ?? null,
+        },
+      });
+      try {
+        await sendPushToRider({
+          riderId: candidate.id,
+          payload: {
+            title: "নতুন অর্ডার আসছে",
+            body: readyInMinutes
+              ? `${restaurantName} — প্রায় ${readyInMinutes} মিনিটে রেডি হবে। আগেভাগে রওনা দিন।`
+              : `${restaurantName} — শীঘ্রই পিকআপের জন্য রেডি হবে।`,
+            // Dedicated channel → the owner-style new-order sound (bundled in the app).
+            channelId: "new-order-headsup",
+            data: {
+              type: "order.headsup",
+              orderId: String(order._id),
+              path: "/(app)/available",
+            },
+          },
+        });
+      } catch {
+        // A single rider's push failure must not stop the others.
+      }
+    }
+  } catch {
+    // Heads-up is best-effort; never let it break the order transition.
+  }
+}
+
+// Stand-down: an order that already sent a heads-up got cancelled. Tell the SAME riders (minus
+// any that ended up actually assigned — they get the normal cancellation) so no one keeps
+// heading to a dead pickup.
+export async function notifyRidersHeadsUpCancelled(params: {
+  order: Record<string, any>;
+}): Promise<void> {
+  try {
+    const order = params.order;
+    const headsUp = (order?.dispatchMeta as Record<string, any>)?.headsUp;
+    const riderIds: string[] = Array.isArray(headsUp?.riderIds)
+      ? headsUp.riderIds
+      : [];
+    if (!riderIds.length) return;
+
+    const assignedRiderId =
+      typeof order.riderId === "string" ? order.riderId : "";
+    const targets = riderIds.filter((id) => id && id !== assignedRiderId);
+    if (!targets.length) return;
+
+    const restaurantName = String(order.restaurantSnapshot?.name ?? "");
+    for (const riderId of targets) {
+      emitSocketEvent(`rider:${riderId}`, "rider.order.headsup.cancelled", {
+        orderId: String(order._id),
+      });
+      try {
+        await sendPushToRider({
+          riderId,
+          payload: {
+            title: "অর্ডার বাতিল",
+            body: restaurantName
+              ? `${restaurantName} এর যে অর্ডারটির জন্য প্রস্তুত হচ্ছিলেন সেটি বাতিল হয়েছে।`
+              : "যে অর্ডারের জন্য প্রস্তুত হচ্ছিলেন সেটি বাতিল হয়েছে।",
+            channelId: "general",
+            data: {
+              type: "order.headsup.cancelled",
+              orderId: String(order._id),
+            },
+          },
+        });
+      } catch {
+        // ignore per-rider failure
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 export async function runAutoDispatchForReadyOrders(params: {
   zoneId?: string;
   districtId?: string;

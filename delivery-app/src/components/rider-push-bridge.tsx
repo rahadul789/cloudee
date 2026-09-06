@@ -14,6 +14,7 @@ import {
   clearCurrentRiderExpoPushToken,
   setCurrentRiderExpoPushToken,
 } from "@/src/lib/rider-push-token-state";
+import { wasHeadsUpSoundedRecently } from "@/src/lib/new-order-sound";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
 const PUSH_DEBUG_ENABLED =
@@ -84,12 +85,21 @@ function getOrderIdFromPath(path: string) {
 }
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  // Runs only while the app is FOREGROUND. The new-order heads-up is already sounded in-app by
+  // the socket bridge, so silence the foreground push for it ONLY when the socket actually
+  // chimed that order (else let the push sound) — never a double, never a miss.
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    const isHeadsUp = data?.type === "order.headsup";
+    const alreadyChimed =
+      isHeadsUp && wasHeadsUpSoundedRecently(String(data?.orderId ?? ""));
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !alreadyChimed,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 async function getExpoProjectId() {
@@ -122,6 +132,16 @@ async function registerForPushNotificationsAsync() {
       name: "New deliveries",
       importance: Notifications.AndroidImportance.MAX,
       sound: "new_delivery.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0f766e",
+    });
+    // Advisory "new order coming" heads-up (before an order is ready) so the rider can head
+    // toward the restaurant early. Uses the owner-style new-order sound; kept distinct from
+    // the actual assignment channel above so the rider can tell them apart.
+    await Notifications.setNotificationChannelAsync("new-order-headsup", {
+      name: "Incoming orders (heads-up)",
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: "new_order.mp3",
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#0f766e",
     });
