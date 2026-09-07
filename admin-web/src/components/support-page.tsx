@@ -527,7 +527,45 @@ export function SupportPage() {
                             <span className="text-xs text-muted-foreground">{formatDate(message.createdAt)}</span>
                           </div>
                           <p className="mt-2 text-sm">{message.message}</p>
-                          {message.attachments.length ? <Badge className="mt-2" variant="outline">{message.attachments.length} attachments</Badge> : null}
+                          {message.attachments.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {message.attachments.map((attachment, attachmentIndex) => {
+                                const url = attachment.url ?? ""
+                                const isImage =
+                                  (attachment.fileType?.toLowerCase().includes("image") ?? false) ||
+                                  /\.(png|jpe?g|gif|webp|heic|bmp)$/i.test(url)
+                                if (url && isImage) {
+                                  return (
+                                    <a
+                                      key={attachment.publicId ?? url ?? attachmentIndex}
+                                      href={url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block"
+                                    >
+                                      <img
+                                        src={url}
+                                        alt={attachment.fileName ?? "Attachment"}
+                                        className="h-24 w-24 rounded-md border object-cover"
+                                        loading="lazy"
+                                      />
+                                    </a>
+                                  )
+                                }
+                                return (
+                                  <a
+                                    key={attachment.publicId ?? url ?? attachmentIndex}
+                                    href={url || undefined}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center rounded border bg-muted px-2 py-1 text-xs text-muted-foreground"
+                                  >
+                                    {attachment.fileName || "Attachment"}
+                                  </a>
+                                )
+                              })}
+                            </div>
+                          ) : null}
                         </div>
                       ))}
                       <div className="space-y-2">

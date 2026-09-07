@@ -1705,7 +1705,7 @@ function RestaurantDetailsSheet({
   const [payoutStatementDrawerOpen, setPayoutStatementDrawerOpen] =
     React.useState(false)
   const [detailsPreset, setDetailsPreset] =
-    React.useState<RestaurantOrderPreset>("last7Days")
+    React.useState<RestaurantOrderPreset>("today")
   const [detailsFrom, setDetailsFrom] = React.useState("")
   const [detailsTo, setDetailsTo] = React.useState("")
   const detailsQuery = useQuery({
@@ -2449,7 +2449,7 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 function RestaurantOrdersTab({ details }: { details: AdminRestaurantDetails }) {
   const queryClient = useQueryClient()
-  const [preset, setPreset] = React.useState<RestaurantOrderPreset>("last7Days")
+  const [preset, setPreset] = React.useState<RestaurantOrderPreset>("today")
   const [status, setStatus] =
     React.useState<RestaurantOrderStatusFilter>("live")
   const [sortBy, setSortBy] = React.useState<RestaurantOrderSort>("newest")
@@ -2551,12 +2551,12 @@ function RestaurantOrdersTab({ details }: { details: AdminRestaurantDetails }) {
   const riders = ridersQuery.data ?? []
   const hasOrderFilters =
     search.trim() !== "" ||
-    preset !== "last7Days" ||
+    preset !== "today" ||
     status !== "live" ||
     sortBy !== "newest"
   const resetOrderFilters = () => {
     setSearch("")
-    setPreset("last7Days")
+    setPreset("today")
     setStatus("live")
     setSortBy("newest")
     setPage(1)
@@ -4098,7 +4098,7 @@ function RestaurantDetailsContent({
           <Button
             type="button"
             variant="outline"
-            disabled={detailsPreset === "last7Days" && !detailsFrom && !detailsTo}
+            disabled={detailsPreset === "today" && !detailsFrom && !detailsTo}
             onClick={() => {
               setDetailsPreset("last7Days")
               setDetailsRange({ from: "", to: "" })

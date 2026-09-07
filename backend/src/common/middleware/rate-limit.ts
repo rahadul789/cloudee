@@ -16,6 +16,9 @@ import {
 } from "../../modules/public/content.service";
 
 const passThroughLimiter: RequestHandler = (_req, _res, next) => next();
+// Kept in sync with ADMIN_REFRESH_COOKIE_NAME / OWNER_REFRESH_COOKIE_NAME in the auth
+// controllers — the refresh limiter keys off whichever of these the request carries.
+const refreshCookieNames = ["foodbela_admin_refresh", "foodbela_owner_refresh"];
 type RateLimitSettingKey = keyof AuthRateLimitSettings;
 type RateLimitKeyStrategy = "ip" | "user";
 const writeMethods = ["POST", "PATCH", "PUT", "DELETE"];
@@ -272,8 +275,20 @@ function withUser(req: Request) {
 
 function withRefreshTokenFingerprint(req: Request) {
   const body = req.body as Record<string, unknown> | undefined;
-  const refreshToken =
+  const bodyToken =
     typeof body?.refreshToken === "string" ? body.refreshToken.trim() : "";
+
+  // The admin and owner web clients keep the refresh token in an httpOnly cookie and POST
+  // an empty body, so reading only the body drops every one of them onto the IP fallback.
+  // A shared IP then means every tab, every reload and every admin behind the same NAT
+  // burn one 60-per-15-minute bucket together and rate-limit each other out.
+  const cookies = req.cookies as Record<string, unknown> | undefined;
+  const cookieToken = refreshCookieNames
+    .map((name) => cookies?.[name])
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim();
+
+  const refreshToken = bodyToken || cookieToken || "";
 
   if (!refreshToken) {
     return ipKeyGenerator(req.ip ?? "");

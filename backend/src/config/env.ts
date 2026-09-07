@@ -151,6 +151,9 @@ const envSchema = z.object({
   TELEGRAM_SYSTEM_CHAT_ID: optionalTrimmedString,
   TELEGRAM_OTP_BOT_TOKEN: optionalTrimmedString,
   TELEGRAM_OTP_CHAT_ID: optionalTrimmedString,
+  // Dedicated "Foodbela Support" bot — new customer support tickets.
+  TELEGRAM_SUPPORT_BOT_TOKEN: optionalTrimmedString,
+  TELEGRAM_SUPPORT_CHAT_ID: optionalTrimmedString,
   // Dedicated "Foodbela External" bot — new external-delivery requests.
   TELEGRAM_EXTERNAL_BOT_TOKEN: optionalTrimmedString,
   TELEGRAM_EXTERNAL_CHAT_ID: optionalTrimmedString,

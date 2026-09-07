@@ -4696,6 +4696,18 @@ export async function getAdminOrderMonitorDetails(
           name: item.name ?? "",
           quantity: item.quantity ?? 0,
           lineTotal: item.totalPrice ?? item.lineTotal ?? 0,
+          selectedVariantOptions: Array.isArray(item.selectedVariantOptions)
+            ? item.selectedVariantOptions.map((option: Record<string, any>) => ({
+                groupName: String(option?.groupName ?? ""),
+                optionLabel: String(option?.optionLabel ?? ""),
+              }))
+            : [],
+          selectedAddOnOptions: Array.isArray(item.selectedAddOnOptions)
+            ? item.selectedAddOnOptions.map((option: Record<string, any>) => ({
+                groupName: String(option?.groupName ?? ""),
+                optionLabel: String(option?.optionLabel ?? ""),
+              }))
+            : [],
         }))
       : [],
     timestamps: {
@@ -5663,6 +5675,7 @@ export async function getAdminRiderDetails(
         deliveryCount: number;
         totalSum: number;
         totalCount: number;
+        collectedTotal: number;
       }>([
         { $match: { riderId: riderIdString, ...rangeCreatedFilter } },
         {
@@ -5813,6 +5826,29 @@ export async function getAdminRiderDetails(
                 ],
               },
             },
+            // Total cash the rider actually collected on delivered orders: external →
+            // external.collectAmount, app COD → order total, prepaid/online → 0.
+            collectedTotal: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "Delivered"] },
+                  {
+                    $cond: [
+                      { $eq: ["$source", "external"] },
+                      { $ifNull: ["$external.collectAmount", 0] },
+                      {
+                        $cond: [
+                          { $eq: ["$paymentMethod", "Cash"] },
+                          { $ifNull: ["$pricing.total", 0] },
+                          0,
+                        ],
+                      },
+                    ],
+                  },
+                  0,
+                ],
+              },
+            },
           },
         },
       ]),
@@ -5825,6 +5861,8 @@ export async function getAdminRiderDetails(
     total: deliveredTotal,
     external: deliveredExternal,
     platform: Math.max(0, deliveredTotal - deliveredExternal),
+    // Total cash collected across those delivered orders (COD + external collect).
+    collected: breakdownRow?.collectedTotal ?? 0,
     from: dateRange.from ?? null,
     to: dateRange.to ?? null,
   };

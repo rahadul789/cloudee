@@ -22,6 +22,7 @@ import {
   updateBkashPaymentAttempt,
 } from "./customer-bkash.gateway";
 import { createAdminOperationalAlert } from "../admin/admin-alert.service";
+import { sendSupportCaseToTelegram } from "./support-telegram.service";
 import {
   enqueueAdminBkashPaidWithoutOrderAlert,
   enqueueAdminOrderTerminalExceptionAlert,
@@ -7317,6 +7318,16 @@ export async function createCustomerSupportCase(params: {
       priority: "medium",
     },
   });
+
+  // Ping the dedicated support Telegram bot so the team sees new tickets instantly.
+  void sendSupportCaseToTelegram({
+    supportCaseId: supportCase.id,
+    customerName: customer.fullName ?? "",
+    customerPhone: customer.phone ?? "",
+    subject: message.slice(0, 80),
+    message,
+    attachmentCount: params.attachments?.length ?? 0,
+  }).catch(() => undefined);
 
   return mapCustomerSupportCase(supportCase);
 }

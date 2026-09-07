@@ -851,6 +851,7 @@ export type AdminRiderDetails = AdminRiderSummary & {
     total: number
     external: number
     platform: number
+    collected: number
     from: string | null
     to: string | null
   }
@@ -3815,6 +3816,8 @@ export type AdminOrderDetails = {
     name: string
     quantity: number
     lineTotal: number
+    selectedVariantOptions: Array<{ groupName: string; optionLabel: string }>
+    selectedAddOnOptions: Array<{ groupName: string; optionLabel: string }>
   }>
   timestamps: {
     createdAt: string | null

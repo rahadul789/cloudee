@@ -1198,7 +1198,7 @@ function exportTransactionsCsv(
 export function PaymentsPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = React.useState("")
-  const [preset, setPreset] = React.useState<PaymentPreset>("last7Days")
+  const [preset, setPreset] = React.useState<PaymentPreset>("today")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethodFilter>("all")
@@ -1455,7 +1455,7 @@ export function PaymentsPage() {
 
   function resetFilters() {
     setSearch("")
-    setPreset("last7Days")
+    setPreset("today")
     setFrom("")
     setTo("")
     setPaymentMethod("all")

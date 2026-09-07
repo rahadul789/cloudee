@@ -953,7 +953,7 @@ function CustomerDetailsSheet({
     status: CustomerStatus
   ) => void
 }) {
-  const [preset, setPreset] = React.useState<CustomerOrderPreset>("last7Days")
+  const [preset, setPreset] = React.useState<CustomerOrderPreset>("today")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const detailsQuery = useQuery({
@@ -1041,9 +1041,9 @@ function CustomerDetailsSheet({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={preset === "last7Days" && !from && !to}
+                    disabled={preset === "today" && !from && !to}
                     onClick={() => {
-                      setPreset("last7Days")
+                      setPreset("today")
                       setFrom("")
                       setTo("")
                     }}
@@ -1879,7 +1879,7 @@ function CustomerReviewsTab({ details }: { details: AdminCustomerDetails }) {
 }
 
 function CustomerOrdersTab({ customer }: { customer: AdminCustomerDetails }) {
-  const [preset, setPreset] = React.useState<CustomerOrderPreset>("last7Days")
+  const [preset, setPreset] = React.useState<CustomerOrderPreset>("today")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const [status, setStatus] = React.useState<CustomerOrderStatusFilter>("all")
@@ -1917,7 +1917,7 @@ function CustomerOrdersTab({ customer }: { customer: AdminCustomerDetails }) {
   const orders = ordersQuery.data?.items ?? []
   const hasFilters =
     search.trim() !== "" ||
-    preset !== "last7Days" ||
+    preset !== "today" ||
     from !== "" ||
     to !== "" ||
     status !== "all" ||
@@ -2010,7 +2010,7 @@ function CustomerOrdersTab({ customer }: { customer: AdminCustomerDetails }) {
           disabled={!hasFilters}
           onClick={() => {
             setSearch("")
-            setPreset("last7Days")
+            setPreset("today")
             setFrom("")
             setTo("")
             setStatus("all")

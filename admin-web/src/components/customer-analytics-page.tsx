@@ -227,7 +227,7 @@ function buildRangeParams(
 
 export function CustomerAnalyticsPage() {
   const [activeTab, setActiveTab] = React.useState<AnalyticsTab>("overview")
-  const [preset, setPreset] = React.useState<AdminCustomerAnalyticsPreset>("last7Days")
+  const [preset, setPreset] = React.useState<AdminCustomerAnalyticsPreset>("today")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const [traceMode, setTraceMode] = React.useState<TraceMode>("customer")

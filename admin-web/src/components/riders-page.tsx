@@ -1265,6 +1265,15 @@ function RiderDetailsSheet({
                   }
                 />
                 <StatCard
+                  label="Total collected"
+                  value={formatCurrency(rider.deliveredBreakdown?.collected ?? 0)}
+                  helper={
+                    datePreset === "all"
+                      ? "Cash collected on delivered orders"
+                      : "Collected in period"
+                  }
+                />
+                <StatCard
                   label="Salary default"
                   value={formatCurrency(rider.payroll.baseSalary)}
                   helper="Not counted until paid"

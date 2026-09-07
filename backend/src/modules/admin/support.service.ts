@@ -182,10 +182,15 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
   if (orderIds.length) scopeConditions.push({ orderId: { $in: orderIds } })
   if (riderIds.length) scopeConditions.push({ riderId: { $in: riderIds } })
   if (params.zoneId?.trim() || params.districtId?.trim()) {
-    query.$and = [
-      ...(query.$and ?? []),
-      scopeConditions.length ? { $or: scopeConditions } : { _id: { $exists: false } },
-    ]
+    // A support ticket is NOT inherently tied to a delivery zone. A customer complaint often
+    // has no linked order/restaurant/rider at all, so area-scoping would wrongly hide it (only
+    // "All areas" would show it). Keep owner/rider/order-linked cases area-scoped, but ALWAYS
+    // include customer-raised cases and any case with no area-linkable entity.
+    scopeConditions.push({ source: "customer" })
+    // ObjectId link fields are null / unset for an unattributable ticket (never ""). Using
+    // `null` matches both null and missing; an empty string would crash the ObjectId cast.
+    scopeConditions.push({ restaurantId: null, orderId: null, riderId: null })
+    query.$and = [...(query.$and ?? []), { $or: scopeConditions }]
   }
   return query
 }

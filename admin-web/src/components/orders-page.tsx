@@ -1358,15 +1358,37 @@ function OrderDetailsSheet({
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {details.items.map((item) => (
-                              <TableRow key={item.id}>
-                                <TableCell>{item.name}</TableCell>
-                                <TableCell>{item.quantity}</TableCell>
-                                <TableCell className="text-right">
-                                  {formatCurrency(item.lineTotal)}
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {details.items.map((item) => {
+                              const options = [
+                                ...(item.selectedVariantOptions ?? []),
+                                ...(item.selectedAddOnOptions ?? []),
+                              ].filter((option) => option.optionLabel)
+                              return (
+                                <TableRow key={item.id}>
+                                  <TableCell>
+                                    <div className="font-medium">{item.name}</div>
+                                    {options.length > 0 ? (
+                                      <div className="mt-1 flex flex-wrap gap-1">
+                                        {options.map((option, optionIndex) => (
+                                          <span
+                                            key={`${option.groupName}-${option.optionLabel}-${optionIndex}`}
+                                            className="inline-flex rounded border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                                          >
+                                            {option.groupName
+                                              ? `${option.groupName}: ${option.optionLabel}`
+                                              : option.optionLabel}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </TableCell>
+                                  <TableCell>{item.quantity}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(item.lineTotal)}
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
                             {details.items.length === 0 ? (
                               <TableRow>
                                 <TableCell
@@ -1527,7 +1549,7 @@ function OrderDetailsSheet({
 export function OrdersPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
-  const [preset, setPreset] = React.useState<OrderPreset>("last7Days")
+  const [preset, setPreset] = React.useState<OrderPreset>("today")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const [status, setStatus] = React.useState<OrderStatusFilter>("live")
@@ -1639,7 +1661,7 @@ export function OrdersPage() {
       .length + 1
   const hasFilters =
     search.trim() !== "" ||
-    preset !== "last7Days" ||
+    preset !== "today" ||
     from !== "" ||
     to !== "" ||
     status !== "live" ||
@@ -1689,7 +1711,7 @@ export function OrdersPage() {
 
   function resetFilters() {
     setSearch("")
-    setPreset("last7Days")
+    setPreset("today")
     setFrom("")
     setTo("")
     setStatus("live")

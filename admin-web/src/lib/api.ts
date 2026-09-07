@@ -1,6 +1,7 @@
 import {
   clearAdminSession,
   getAdminAccessToken,
+  getAdminProfile,
   notifyAdminSessionExpired,
   setAdminSession
 } from "./admin-session"
@@ -24,6 +25,11 @@ class ApiError extends Error {
 }
 
 let refreshSessionPromise: Promise<string> | null = null
+let bootstrapSessionPromise: Promise<void> | null = null
+// Set when the server rate-limits a refresh. Without it the panel keeps firing refreshes
+// into a closed window and holds itself locked out for the rest of it.
+let refreshCooldownUntil = 0
+const REFRESH_COOLDOWN_MS = 60_000
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit) {
   const response = await fetch(input, {
@@ -73,6 +79,13 @@ async function refreshAdminSession() {
     return refreshSessionPromise
   }
 
+  if (Date.now() < refreshCooldownUntil) {
+    throw new ApiError(
+      429,
+      "Too many session refresh attempts. Please wait a minute and reload."
+    )
+  }
+
   refreshSessionPromise = (async () => {
     let payload: ApiResponse<{
       accessToken: string
@@ -104,9 +117,13 @@ async function refreshAdminSession() {
         clearAdminSession()
         notifyAdminSessionExpired()
       }
+      if (error instanceof ApiError && error.status === 429) {
+        refreshCooldownUntil = Date.now() + REFRESH_COOLDOWN_MS
+      }
       throw error
     }
 
+    refreshCooldownUntil = 0
     setAdminSession(payload.data)
     return payload.data.accessToken
   })()
@@ -118,12 +135,39 @@ async function refreshAdminSession() {
   }
 }
 
+// The access token lives only in memory, so every reload and every new tab starts with
+// none — and without this the whole dashboard fires its queries unauthenticated, each 401
+// tripping its own refresh. Refreshing once up front collapses that into a single call.
+function ensureAdminSession() {
+  if (getAdminAccessToken() || !getAdminProfile()) {
+    return Promise.resolve()
+  }
+
+  if (!bootstrapSessionPromise) {
+    bootstrapSessionPromise = refreshAdminSession()
+      .then(() => undefined)
+      // Swallow here: the request that follows will surface the real failure (and a 401
+      // has already cleared the session and notified the app).
+      .catch(() => undefined)
+      .finally(() => {
+        bootstrapSessionPromise = null
+      })
+  }
+
+  return bootstrapSessionPromise
+}
+
 export async function adminRequest<T>(
   path: string,
   init?: RequestInit & { skipAuth?: boolean }
 ) {
-  const headers = new Headers(init?.headers)
   const shouldAuth = !init?.skipAuth
+
+  if (shouldAuth) {
+    await ensureAdminSession()
+  }
+
+  const headers = new Headers(init?.headers)
 
   if (shouldAuth) {
     const accessToken = getAdminAccessToken()
