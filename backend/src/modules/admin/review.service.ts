@@ -24,7 +24,7 @@ import {
 } from "../service-area/service-area.service";
 import { createOwnerNotification } from "../owner/operational.service";
 
-type AdminReviewModerationStatus = "visible" | "hidden" | "flagged";
+type AdminReviewModerationStatus = "pending" | "visible" | "hidden" | "flagged";
 type OwnerHideRequestStatus = "none" | "pending" | "approved" | "rejected" | "cancelled";
 type OwnerHideReasonCategory =
   | ""
@@ -511,6 +511,9 @@ export async function listAdminReviews(params: ListAdminReviewsParams) {
           flagged: {
             $sum: { $cond: [{ $eq: ["$moderationStatus", "flagged"] }, 1, 0] },
           },
+          pending: {
+            $sum: { $cond: [{ $eq: ["$moderationStatus", "pending"] }, 1, 0] },
+          },
           hideRequestsPending: {
             $sum: {
               $cond: [{ $eq: ["$ownerHideRequest.status", "pending"] }, 1, 0],
@@ -591,6 +594,7 @@ export async function listAdminReviews(params: ListAdminReviewsParams) {
       visible: numberValue(summary.visible),
       hidden: numberValue(summary.hidden),
       flagged: numberValue(summary.flagged),
+      pending: numberValue(summary.pending),
       hideRequestsPending: numberValue(summary.hideRequestsPending),
       withComments: numberValue(summary.withComments),
       unanswered: numberValue(summary.unanswered),
@@ -770,14 +774,18 @@ export async function updateAdminReviewModeration(params: {
         ? "Review hidden"
         : params.status === "flagged"
           ? "Review flagged"
-          : "Review restored",
+          : previousStatus === "pending"
+            ? "Review approved"
+            : "Review restored",
     description:
       params.reason ||
       (params.status === "hidden"
         ? "Review hidden from public ratings."
         : params.status === "flagged"
           ? "Review flagged for admin follow-up."
-          : "Review restored to public ratings."),
+          : previousStatus === "pending"
+            ? "Review approved and published to public ratings."
+            : "Review restored to public ratings."),
     metadata: {
       previousStatus,
       nextStatus: params.status,

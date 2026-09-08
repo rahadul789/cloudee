@@ -4133,7 +4133,7 @@ function DispatchControlsPanel({
   const dispatchLogs = dispatchLogsQuery.data?.items ?? settings.recentLogs
   const logSafePage = Math.min(logPage, logPageCount)
   const logTotal = dispatchLogsQuery.data?.total ?? dispatchLogs.length
-  const retentionDays = dispatchLogsQuery.data?.retentionDays ?? 90
+  const retentionDays = dispatchLogsQuery.data?.retentionDays ?? 7
   const logSummary = dispatchLogsQuery.data?.summary ?? {}
   const assignedLogs = logSummary.assigned ?? 0
   const reassignedLogs = logSummary.reassigned ?? 0
@@ -4341,6 +4341,56 @@ function DispatchControlsPanel({
                   setDraft((current) =>
                     current
                       ? { ...current, autoReassignTimedOutOrders: checked }
+                      : current
+                  )
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <div className="font-medium">Rider handoff (reassign)</div>
+                <div className="text-sm text-muted-foreground">
+                  Let a rider hand a not-yet-picked-up order to another rider from the app.
+                </div>
+              </div>
+              <Switch
+                checked={draft.riderReassignEnabled}
+                onCheckedChange={(checked) =>
+                  setDraft((current) =>
+                    current ? { ...current, riderReassignEnabled: checked } : current
+                  )
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <div className="font-medium">Rider heads-up on accept</div>
+                <div className="text-sm text-muted-foreground">
+                  Alert nearby riders when the owner accepts an order (so they pre-position).
+                </div>
+              </div>
+              <Switch
+                checked={draft.riderHeadsUpEnabled}
+                onCheckedChange={(checked) =>
+                  setDraft((current) =>
+                    current ? { ...current, riderHeadsUpEnabled: checked } : current
+                  )
+                }
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <div className="font-medium">Rider heads-up on order placed</div>
+                <div className="text-sm text-muted-foreground">
+                  Instantly ping nearby riders the moment a customer places an order (its own sound).
+                </div>
+              </div>
+              <Switch
+                checked={draft.riderPlacementHeadsUpEnabled}
+                onCheckedChange={(checked) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, riderPlacementHeadsUpEnabled: checked }
                       : current
                   )
                 }

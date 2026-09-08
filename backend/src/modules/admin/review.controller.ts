@@ -40,7 +40,7 @@ const listAdminReviewsQuerySchema = z.object({
   restaurantId: z.string().optional(),
   zoneId: z.string().optional(),
   districtId: z.string().optional(),
-  status: z.enum(["all", "visible", "hidden", "flagged"]).optional(),
+  status: z.enum(["all", "pending", "visible", "hidden", "flagged"]).optional(),
   hideRequest: z.enum(["all", "none", "pending", "approved", "rejected", "cancelled"]).optional(),
   rating: z.enum(["all", "1", "2", "3", "4", "5"]).optional(),
   reply: z.enum(["all", "replied", "not_replied"]).optional(),

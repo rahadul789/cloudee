@@ -22,7 +22,8 @@ const reviewSchema = new Schema(
     ownerReply: { type: reviewReplySchema, default: () => ({}) },
     moderationStatus: {
       type: String,
-      enum: ["visible", "hidden", "flagged"],
+      // "pending" = awaiting admin approval; not shown or counted publicly until approved.
+      enum: ["pending", "visible", "hidden", "flagged"],
       default: "visible"
     },
     isHidden: { type: Boolean, default: false },

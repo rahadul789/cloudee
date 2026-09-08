@@ -5,7 +5,10 @@ import { router } from "expo-router";
 import NetInfo from "@react-native-community/netinfo";
 
 import { connectRiderSocket, disconnectRiderSocket, getRiderSocket } from "@/src/lib/socket-client";
-import { playHeadsUpSound } from "@/src/lib/new-order-sound";
+import {
+  playHeadsUpSound,
+  playPlacedHeadsUpSound,
+} from "@/src/lib/new-order-sound";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { getFreshRiderAccessToken } from "@/src/lib/api";
 import { patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
@@ -298,6 +301,22 @@ export function RiderSocketBridge() {
       showAssignmentNotice({ title, message });
     };
 
+    // A customer just PLACED an order (earliest signal, opt-in). Its own sound + banner.
+    const handlePlacedHeadsUp = (payload: RiderHeadsUpPayload) => {
+      void playPlacedHeadsUpSound(payload.orderId);
+      const restaurantName = payload.restaurantName?.trim();
+      const title =
+        language === "bn" ? "🛵 নতুন অর্ডার এসেছে" : "🛵 New order placed";
+      const message = restaurantName
+        ? language === "bn"
+          ? `${restaurantName} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিন।`
+          : `${restaurantName} — a new order just came in. Head toward the restaurant.`
+        : language === "bn"
+          ? "কাছাকাছি একটি নতুন অর্ডার এসেছে।"
+          : "A new order was just placed nearby.";
+      showAssignmentNotice({ title, message });
+    };
+
     const handleHeadsUpCancelled = (_payload: RiderHeadsUpPayload) => {
       showAssignmentNotice({
         title: language === "bn" ? "অর্ডার বাতিল" : "Order cancelled",
@@ -356,6 +375,7 @@ export function RiderSocketBridge() {
     socket.on("rider.restaurant.updated", handleRestaurantUpdated);
     socket.on("rider.notification.created", handleNotificationCreated);
     socket.on("rider.order.headsup", handleHeadsUp);
+    socket.on("rider.order.placed.headsup", handlePlacedHeadsUp);
     socket.on("rider.order.headsup.cancelled", handleHeadsUpCancelled);
     const subscription = AppState.addEventListener("change", handleAppStateChange);
 
@@ -370,6 +390,7 @@ export function RiderSocketBridge() {
       socket.off("rider.restaurant.updated", handleRestaurantUpdated);
       socket.off("rider.notification.created", handleNotificationCreated);
       socket.off("rider.order.headsup", handleHeadsUp);
+      socket.off("rider.order.placed.headsup", handlePlacedHeadsUp);
       socket.off("rider.order.headsup.cancelled", handleHeadsUpCancelled);
       disconnectRiderSocket();
     };

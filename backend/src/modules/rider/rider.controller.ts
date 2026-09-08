@@ -34,6 +34,14 @@ import {
   verifyRiderPasswordResetOtp,
   verifyRiderPhoneSignin
 } from "./rider.service"
+import {
+  listRiderReassignCandidates,
+  reassignOrderByRider,
+} from "../admin/orders-monitor.service"
+
+const riderReassignSchema = z.object({
+  targetRiderId: z.string().trim().min(1),
+})
 
 const riderPhoneStartSchema = z.object({
   phone: z.string().regex(/^01\d{9}$/)
@@ -380,6 +388,31 @@ export const getRiderOrder = asyncHandler(async (req: Request, res: Response) =>
 
   return sendSuccess(res, { data })
 })
+
+export const getRiderReassignCandidates = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await listRiderReassignCandidates({
+      riderId: req.user?.id ?? "",
+      orderId: String(req.params.orderId ?? ""),
+    })
+    return sendSuccess(res, { data })
+  },
+)
+
+export const postRiderReassign = asyncHandler(
+  async (req: Request, res: Response) => {
+    const payload = riderReassignSchema.parse(req.body)
+    const data = await reassignOrderByRider({
+      riderId: req.user?.id ?? "",
+      orderId: String(req.params.orderId ?? ""),
+      targetRiderId: payload.targetRiderId,
+    })
+    return sendSuccess(res, {
+      message: "Order handed to the selected rider",
+      data,
+    })
+  },
+)
 
 export const postRiderPickup = asyncHandler(async (req: Request, res: Response) => {
   const location =

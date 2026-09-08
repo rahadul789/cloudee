@@ -865,7 +865,8 @@ const recommendedOrderAutomation = {
   deliveryLateAfterPickupMinutes: 25,
   deliveryCriticalAfterPickupMinutes: 30,
   riderEtaSpeedKmph: 24,
-  riderEtaRouteFactor: 1.1,
+  riderEtaRouteFactor: 1.4,
+  riderEtaHandoverBufferMinutes: 10,
 }
 
 const operationalThresholdFields = [
@@ -944,6 +945,13 @@ const operationalThresholdFields = [
     "x direct distance",
     1,
     2,
+  ],
+  [
+    "riderEtaHandoverBufferMinutes",
+    "Rider ETA handoff buffer",
+    "minutes added to customer ETA",
+    0,
+    30,
   ],
   ["retryCooldownMinutes", "Dispatch retry cooldown", "minutes", 1, 60],
   ["surgeReadyOrderThreshold", "Surge ready-order threshold", "orders", 1, 100],

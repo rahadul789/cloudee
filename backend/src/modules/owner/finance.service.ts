@@ -2292,7 +2292,10 @@ async function buildDashboardSummary(params: {
     ReviewModel.find({
       restaurantId,
       isHidden: { $ne: true },
-      moderationStatus: { $ne: "hidden" }
+      // "pending" reviews await admin approval — keep them out of the owner's
+      // recent-reviews strip and lifetime rating until approved (same gate as
+      // the customer-facing rating). "flagged" stays counted as before.
+      moderationStatus: { $nin: ["hidden", "pending"] }
     })
       .sort({ createdAt: -1 })
       .limit(4)
@@ -2307,7 +2310,7 @@ async function buildDashboardSummary(params: {
         $match: {
           restaurantId: toObjectId(restaurantId),
           isHidden: { $ne: true },
-          moderationStatus: { $ne: "hidden" }
+          moderationStatus: { $nin: ["hidden", "pending"] }
         }
       },
       {

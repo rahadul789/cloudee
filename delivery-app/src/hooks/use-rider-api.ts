@@ -648,6 +648,51 @@ export function useRiderOrderDetailsQuery(orderId?: string) {
   });
 }
 
+export type RiderReassignCandidate = {
+  id: string;
+  name: string;
+  activeOrders: number;
+  distanceKm: number | null;
+  hasFreshLocation: boolean;
+};
+
+export type RiderReassignCandidatesResponse = {
+  enabled: boolean;
+  candidates: RiderReassignCandidate[];
+};
+
+export function useRiderReassignCandidatesQuery(orderId?: string, enabled = true) {
+  const isAuthenticated = useRiderAuthStore((state: { accessToken: string }) => Boolean(state.accessToken));
+
+  return useQuery({
+    queryKey: ["rider", "order", orderId, "reassign-candidates"],
+    enabled: isAuthenticated && Boolean(orderId) && enabled,
+    queryFn: async () => {
+      const response = await apiGet<RiderReassignCandidatesResponse>(
+        `/rider/orders/${orderId}/reassign-candidates`,
+      );
+      return response.data;
+    },
+  });
+}
+
+export function useReassignRiderOrderMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: { orderId: string; targetRiderId: string }) => {
+      const response = await apiPost(`/rider/orders/${params.orderId}/reassign`, {
+        targetRiderId: params.targetRiderId,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["rider", "orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["rider", "live-map"] });
+    },
+  });
+}
+
 export function useStartRiderPhoneAuthMutation() {
   return useMutation({
     mutationFn: async (params: { phone: string }) => {

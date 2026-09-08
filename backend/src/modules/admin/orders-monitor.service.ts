@@ -133,6 +133,14 @@ type DispatchSettings = {
   autoCancelUnacceptedOrdersEnabled: boolean;
   autoCancelAfterMinutes: number;
   autoCancelNotifyBeforeMinutes: number;
+  // Rider-facing dispatch toggles.
+  // Advisory "new order coming" heads-up to nearby riders when the OWNER accepts an order.
+  riderHeadsUpEnabled: boolean;
+  // Instant heads-up to nearby riders the moment a CUSTOMER places an order (earliest signal;
+  // uses its own new_order_placed sound). Off by default — admin opts in.
+  riderPlacementHeadsUpEnabled: boolean;
+  // Lets a rider hand an order (before pickup) to another rider from the delivery app.
+  riderReassignEnabled: boolean;
 };
 
 const ADMIN_DISPATCH_SETTINGS_CACHE_TTL_MS = 10_000;
@@ -391,6 +399,9 @@ const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   autoCancelUnacceptedOrdersEnabled: true,
   autoCancelAfterMinutes: 8,
   autoCancelNotifyBeforeMinutes: 5,
+  riderHeadsUpEnabled: true,
+  riderPlacementHeadsUpEnabled: false,
+  riderReassignEnabled: true,
 };
 
 const adminOrderTransitions: Record<string, AdminOrderNextStatus[]> = {
@@ -1184,7 +1195,7 @@ function buildOrderSort(sortBy?: AdminOrderListParams["sortBy"]): Record<string,
 function getDispatchSettingsFromContent(
   content: Awaited<ReturnType<typeof getPlatformContent>>,
 ): DispatchSettings {
-  const dispatch = content.operations?.dispatch ?? {};
+  const dispatch = (content.operations?.dispatch ?? {}) as Record<string, any>;
   const deliveryWatchAfterPickupMinutes =
     typeof dispatch.deliveryWatchAfterPickupMinutes === "number"
       ? dispatch.deliveryWatchAfterPickupMinutes
@@ -1289,6 +1300,18 @@ function getDispatchSettingsFromContent(
       typeof dispatch.autoCancelNotifyBeforeMinutes === "number"
         ? dispatch.autoCancelNotifyBeforeMinutes
         : DEFAULT_DISPATCH_SETTINGS.autoCancelNotifyBeforeMinutes,
+    riderHeadsUpEnabled:
+      typeof dispatch.riderHeadsUpEnabled === "boolean"
+        ? dispatch.riderHeadsUpEnabled
+        : DEFAULT_DISPATCH_SETTINGS.riderHeadsUpEnabled,
+    riderPlacementHeadsUpEnabled:
+      typeof dispatch.riderPlacementHeadsUpEnabled === "boolean"
+        ? dispatch.riderPlacementHeadsUpEnabled
+        : DEFAULT_DISPATCH_SETTINGS.riderPlacementHeadsUpEnabled,
+    riderReassignEnabled:
+      typeof dispatch.riderReassignEnabled === "boolean"
+        ? dispatch.riderReassignEnabled
+        : DEFAULT_DISPATCH_SETTINGS.riderReassignEnabled,
   };
 }
 
@@ -1979,7 +2002,7 @@ export async function listAdminDispatchDecisionLogs(
     pageSize,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
     summary,
-    retentionDays: 90,
+    retentionDays: 7,
   };
 }
 
@@ -2420,8 +2443,29 @@ export async function updateAdminDispatchSettings(params: {
     await ServiceZoneModel.updateMany(zoneQuery, {
       $set: { dispatch: buildServiceZoneDispatchUpdate(params.settings) },
     });
+    // The rider-facing toggles are GLOBAL platform features (not per-zone) — the zone override
+    // above doesn't carry them, so persist them to global content even in a zone-scoped save,
+    // otherwise they silently never save.
+    const scopedContent = await getPlatformContent();
+    await updatePlatformContent({
+      adminId: params.adminId,
+      content: {
+        ...scopedContent,
+        operations: {
+          ...scopedContent.operations,
+          dispatch: {
+            ...(scopedContent.operations?.dispatch ?? {}),
+            riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
+            riderPlacementHeadsUpEnabled:
+              params.settings.riderPlacementHeadsUpEnabled,
+            riderReassignEnabled: params.settings.riderReassignEnabled,
+          },
+        },
+      },
+    });
     invalidateServiceAreaCache();
     invalidateAdminMonitoringCaches();
+    invalidateAdminDispatchSettingsCache();
     return getAdminDispatchSettings({
       zoneId: params.zoneId,
       districtId: params.districtId,
@@ -2466,6 +2510,10 @@ export async function updateAdminDispatchSettings(params: {
         autoCancelAfterMinutes: params.settings.autoCancelAfterMinutes,
         autoCancelNotifyBeforeMinutes:
           params.settings.autoCancelNotifyBeforeMinutes,
+        riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
+        riderPlacementHeadsUpEnabled:
+          params.settings.riderPlacementHeadsUpEnabled,
+        riderReassignEnabled: params.settings.riderReassignEnabled,
       },
     },
   };
@@ -2588,15 +2636,110 @@ export async function notifyRidersOrderHeadsUp(params: {
 // Stand-down: an order that already sent a heads-up got cancelled. Tell the SAME riders (minus
 // any that ended up actually assigned — they get the normal cancellation) so no one keeps
 // heading to a dead pickup.
+// Placement heads-up (opt-in): the moment a CUSTOMER places an order, ping nearby available
+// riders (with the dedicated new_order_placed sound) so they can start toward the restaurant
+// for the fastest possible pickup — even before the owner accepts. Off by default; admin turns
+// it on via operations.dispatch.riderPlacementHeadsUpEnabled. One ping per order; never throws.
+export async function notifyRidersOrderPlacedHeadsUp(params: {
+  order: Record<string, any>;
+  restaurant?: Record<string, any> | null;
+}): Promise<void> {
+  try {
+    const order = params.order;
+    if (!order?._id) return;
+    if (order.source === "external") return;
+    if ((order.dispatchMeta as Record<string, any>)?.placedHeadsUp?.notifiedAt) {
+      return;
+    }
+
+    const content = await getPlatformContent();
+    const baseSettings = getDispatchSettingsFromContent(content);
+    if (!baseSettings.riderPlacementHeadsUpEnabled) return;
+
+    const settings = await getDispatchSettingsForServiceArea(
+      baseSettings,
+      order.serviceAreaSnapshot,
+    );
+    const restaurant =
+      params.restaurant ??
+      (await RestaurantModel.findById(order.restaurantId).lean());
+    if (!restaurant) return;
+
+    const candidates = await listDispatchEligibleRiders({
+      restaurant,
+      settings,
+      serviceAreaSnapshot: order.serviceAreaSnapshot,
+    });
+    if (!candidates.length) return;
+
+    const riderIds = candidates.map((candidate) => candidate.id);
+    const restaurantName = String(restaurant.name ?? "");
+    const area = String(
+      restaurant.address?.area ??
+        (order.serviceAreaSnapshot as Record<string, any>)?.name ??
+        "",
+    );
+
+    await OrderModel.updateOne(
+      { _id: order._id },
+      {
+        $set: {
+          "dispatchMeta.placedHeadsUp": { notifiedAt: new Date(), riderIds },
+        },
+      },
+    );
+
+    for (const candidate of candidates) {
+      emitSocketEvent(`rider:${candidate.id}`, "rider.order.placed.headsup", {
+        orderId: String(order._id),
+        orderNumber: String(order.orderNumber ?? ""),
+        restaurantName,
+        area,
+        restaurantLocation: {
+          latitude: restaurant.location?.latitude ?? null,
+          longitude: restaurant.location?.longitude ?? null,
+        },
+      });
+      try {
+        await sendPushToRider({
+          riderId: candidate.id,
+          payload: {
+            title: "নতুন অর্ডার এসেছে",
+            body: `${restaurantName} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিলে দ্রুত পিকআপ করতে পারবেন।`,
+            channelId: "new-order-placed",
+            data: {
+              type: "order.placed.headsup",
+              orderId: String(order._id),
+              path: "/(app)/available",
+            },
+          },
+        });
+      } catch {
+        // per-rider failure must not stop the others
+      }
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 export async function notifyRidersHeadsUpCancelled(params: {
   order: Record<string, any>;
 }): Promise<void> {
   try {
     const order = params.order;
-    const headsUp = (order?.dispatchMeta as Record<string, any>)?.headsUp;
-    const riderIds: string[] = Array.isArray(headsUp?.riderIds)
-      ? headsUp.riderIds
-      : [];
+    const dispatchMeta = (order?.dispatchMeta as Record<string, any>) ?? {};
+    // Stand down riders from EITHER heads-up stage (placement + owner-accept).
+    const riderIds: string[] = [
+      ...new Set([
+        ...(Array.isArray(dispatchMeta.headsUp?.riderIds)
+          ? dispatchMeta.headsUp.riderIds
+          : []),
+        ...(Array.isArray(dispatchMeta.placedHeadsUp?.riderIds)
+          ? dispatchMeta.placedHeadsUp.riderIds
+          : []),
+      ]),
+    ];
     if (!riderIds.length) return;
 
     const assignedRiderId =
@@ -2631,6 +2774,131 @@ export async function notifyRidersHeadsUpCancelled(params: {
   } catch {
     // best-effort
   }
+}
+
+// Rider-initiated handoff (delivery app): the riders another rider can hand THIS order to.
+// Same eligibility pool as dispatch (active + available + zone), MINUS the requester. Per
+// product decision, capacity is NOT required — a rider can hand to any eligible rider.
+export async function listRiderReassignCandidates(params: {
+  riderId: string;
+  orderId: string;
+}) {
+  const content = await getPlatformContent();
+  const settings = getDispatchSettingsFromContent(content);
+  if (!settings.riderReassignEnabled) {
+    return { enabled: false, candidates: [] as Array<Record<string, unknown>> };
+  }
+
+  const order = await OrderModel.findById(params.orderId).lean();
+  // Only the current assignee may hand off, and only before pickup.
+  if (
+    !order ||
+    String(order.riderId ?? "") !== params.riderId ||
+    order.status !== "ReadyForPickup"
+  ) {
+    return { enabled: true, candidates: [] as Array<Record<string, unknown>> };
+  }
+
+  const restaurant = await RestaurantModel.findById(order.restaurantId).lean();
+  const scopedSettings = await getDispatchSettingsForServiceArea(
+    settings,
+    order.serviceAreaSnapshot,
+  );
+  const candidates = await listDispatchEligibleRiders({
+    restaurant,
+    settings: scopedSettings,
+    serviceAreaSnapshot: order.serviceAreaSnapshot,
+    excludeRiderIds: [params.riderId],
+  });
+
+  return {
+    enabled: true,
+    candidates: candidates.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.fullName,
+      activeOrders: candidate.activeOrders,
+      distanceKm: candidate.distanceKm,
+      hasFreshLocation: candidate.hasFreshLocation,
+    })),
+  };
+}
+
+export async function reassignOrderByRider(params: {
+  riderId: string;
+  orderId: string;
+  targetRiderId: string;
+}) {
+  const content = await getPlatformContent();
+  const settings = getDispatchSettingsFromContent(content);
+  if (!settings.riderReassignEnabled) {
+    throw new AppError(
+      StatusCodes.FORBIDDEN,
+      "RIDER_REASSIGN_DISABLED",
+      "Rider handoff is turned off by the admin",
+    );
+  }
+  if (!params.targetRiderId || params.targetRiderId === params.riderId) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "INVALID_TARGET_RIDER",
+      "Choose a different rider to hand the order to",
+    );
+  }
+
+  const order = await OrderModel.findById(params.orderId);
+  if (!order) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found");
+  }
+  if (String(order.riderId ?? "") !== params.riderId) {
+    throw new AppError(
+      StatusCodes.FORBIDDEN,
+      "NOT_YOUR_ORDER",
+      "This order is not assigned to you",
+    );
+  }
+  // Only before pickup — once picked up the food is physically with this rider.
+  if (order.status !== "ReadyForPickup") {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_NOT_REASSIGNABLE",
+      "This order can no longer be handed off",
+    );
+  }
+
+  const fromRiderId = params.riderId;
+  const result = await assignOrderToRider({
+    order,
+    riderId: params.targetRiderId,
+    assignmentSource: "manual_admin",
+  });
+
+  // Stamp the handoff for admin visibility (dispatch log records the reassignment itself).
+  order.set("dispatchMeta", {
+    ...(order.get("dispatchMeta") ?? {}),
+    riderHandoffFromRiderId: fromRiderId,
+    riderHandoffAt: new Date(),
+  });
+  await order.save();
+
+  await createAdminOperationalAlert({
+    alertType: "order_rider_handoff",
+    severity: "info",
+    title: `${order.orderNumber} handed to another rider`,
+    description: `A rider handed order ${order.orderNumber} to ${result.riderName}.`,
+    source: "Dispatch",
+    entityType: "order",
+    entityId: order.id,
+    path: `/orders?orderId=${order.id}`,
+    iconKey: "bike",
+    dedupeKey: `order:${order.id}:rider_handoff:${Date.now()}`,
+    metadata: {
+      orderId: order.id,
+      fromRiderId,
+      toRiderId: params.targetRiderId,
+    },
+  }).catch(() => undefined);
+
+  return result;
 }
 
 export async function runAutoDispatchForReadyOrders(params: {

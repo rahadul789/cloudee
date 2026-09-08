@@ -6,6 +6,7 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-aud
 // "new-order-headsup" notification channel.) Nothing here may throw.
 
 let player: AudioPlayer | null = null;
+let placedPlayer: AudioPlayer | null = null;
 let audioModeReady = false;
 
 // orderId -> timestamp we played the in-app sound. The push handler reads this so it silences
@@ -63,6 +64,35 @@ export async function playHeadsUpSound(orderId?: string) {
       await activePlayer.seekTo(0);
     } catch {
       // player not ready yet — play from wherever it is
+    }
+    activePlayer.play();
+  } catch {
+    // never surface a sound failure
+  }
+}
+
+function ensurePlacedPlayer(): AudioPlayer {
+  if (!placedPlayer) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    placedPlayer = createAudioPlayer(
+      require("../../assets/sounds/new_order_placed.mp3"),
+    );
+    placedPlayer.volume = 1;
+  }
+  return placedPlayer;
+}
+
+// Distinct sound for the "a customer just placed an order" heads-up (earlier than the accept
+// heads-up above). Shares the recentlySounded map so the push handler dedups it too.
+export async function playPlacedHeadsUpSound(orderId?: string) {
+  if (orderId) markHeadsUpSounded(orderId);
+  try {
+    await ensureAudioMode();
+    const activePlayer = ensurePlacedPlayer();
+    try {
+      await activePlayer.seekTo(0);
+    } catch {
+      // player not ready yet
     }
     activePlayer.play();
   } catch {

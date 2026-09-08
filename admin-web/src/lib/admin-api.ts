@@ -494,7 +494,7 @@ export type AdminFoodCategoryDetails = {
   }>
 }
 
-export type AdminReviewModerationStatus = "visible" | "hidden" | "flagged"
+export type AdminReviewModerationStatus = "pending" | "visible" | "hidden" | "flagged"
 export type AdminReviewSort = "newest" | "oldest" | "highest" | "lowest"
 export type AdminReviewHideRequestStatus =
   | "none"
@@ -4237,6 +4237,9 @@ export type AdminDispatchSettings = {
   autoCancelUnacceptedOrdersEnabled: boolean
   autoCancelAfterMinutes: number
   autoCancelNotifyBeforeMinutes: number
+  riderHeadsUpEnabled: boolean
+  riderPlacementHeadsUpEnabled: boolean
+  riderReassignEnabled: boolean
   metrics: {
     onlineRiders: number
     eligibleRiders: number
@@ -4769,6 +4772,7 @@ export type PlatformContent = {
       deliveryCriticalAfterPickupMinutes: number
       riderEtaSpeedKmph: number
       riderEtaRouteFactor: number
+      riderEtaHandoverBufferMinutes: number
       retryCooldownMinutes: number
       surgeReadyOrderThreshold: number
       surgeUnassignedOrderThreshold: number
@@ -8602,6 +8606,7 @@ export async function listAdminReviews(params: {
       visible: number
       hidden: number
       flagged: number
+      pending: number
       hideRequestsPending: number
       withComments: number
       unanswered: number

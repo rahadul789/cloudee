@@ -207,12 +207,33 @@ function getRiderEtaSettings(content: Record<string, any>) {
     typeof dispatch.riderEtaRouteFactor === "number" &&
     Number.isFinite(dispatch.riderEtaRouteFactor)
       ? dispatch.riderEtaRouteFactor
-      : 1.1;
+      : 1.4;
+  const handoverBufferMinutes =
+    typeof dispatch.riderEtaHandoverBufferMinutes === "number" &&
+    Number.isFinite(dispatch.riderEtaHandoverBufferMinutes)
+      ? dispatch.riderEtaHandoverBufferMinutes
+      : 10;
 
   return {
     speedKmph: Math.min(45, Math.max(6, speedKmph)),
     routeFactor: Math.min(2, Math.max(1, routeFactor)),
+    handoverBufferMinutes: Math.min(30, Math.max(0, Math.round(handoverBufferMinutes))),
   };
+}
+
+// The customer "to you" ETA is pure travel time; real deliveries carry overhead the
+// map math never sees (finding the address, the handover, stops/traffic). Add a flat
+// buffer, but taper it over the final stretch so a rider at the door doesn't show a
+// big number — full buffer beyond ~0.5km, linearly down to ~0 at arrival.
+function applyEtaHandoverBuffer(
+  baseDurationMinutes: number,
+  directDistanceKm: number,
+  handoverBufferMinutes: number,
+) {
+  if (handoverBufferMinutes <= 0) return baseDurationMinutes;
+  const taper = Math.min(1, Math.max(0, directDistanceKm / 0.5));
+  const appliedBuffer = Math.round(handoverBufferMinutes * taper);
+  return baseDurationMinutes + appliedBuffer;
 }
 
 function applyOwnerOrderPrivacy<T extends Record<string, any>>(
@@ -2895,10 +2916,17 @@ export async function updateOrderRiderLocation(params: {
     typeof routeMetrics?.distanceKm === "number"
       ? routeMetrics.distanceKm
       : trackingEstimate.routeDistanceKm;
-  const remainingDurationMinutes =
+  const baseDurationMinutes =
     typeof routeMetrics?.durationMinutes === "number"
       ? routeMetrics.durationMinutes
       : trackingEstimate.remainingDurationMinutes;
+  // Add the real-world handover/last-leg overhead on top of raw travel time, applied
+  // to whichever base (Google route or fallback estimate) produced the number.
+  const remainingDurationMinutes = applyEtaHandoverBuffer(
+    baseDurationMinutes,
+    trackingEstimate.directDistanceKm,
+    riderEtaSettings.handoverBufferMinutes,
+  );
   const isNearCustomer =
     trackingEstimate.directDistanceKm <= RIDER_NEAR_CUSTOMER_DISTANCE_KM ||
     remainingDistanceKm <= RIDER_NEAR_CUSTOMER_DISTANCE_KM;

@@ -20,9 +20,11 @@ import {
   useDeliverOrderMutation,
   useFailDeliveryMutation,
   usePickupOrderMutation,
+  useReassignRiderOrderMutation,
   useRiderDeliveryThresholdsQuery,
   useRiderOrderDetailsQuery,
   useRiderOrdersQuery,
+  useRiderReassignCandidatesQuery,
   type RiderDeliveryFailureReason,
   type RiderOrder,
 } from "@/src/hooks/use-rider-api";
@@ -967,6 +969,10 @@ function OrderDetail({
             )}
           </Pressable>
 
+          {!isOffer && order.status === "ReadyForPickup" ? (
+            <ReassignOrderButton order={order} />
+          ) : null}
+
           {isPicked ? (
             <Pressable style={styles.cantDeliverButton} onPress={onCantDeliver}>
               <Ionicons name="close-circle-outline" size={16} color={palette.danger} />
@@ -976,6 +982,128 @@ function OrderDetail({
         </>
       ) : null}
     </View>
+  );
+}
+
+// Hand this order to another rider (before pickup). Self-contained: fetches the eligible
+// riders on open, confirms, and calls the reassign endpoint. Only rendered for a
+// ReadyForPickup order that's assigned to this rider.
+function ReassignOrderButton({ order }: { order: RiderOrder }) {
+  const { language } = useDeliveryCopy();
+  const [open, setOpen] = useState(false);
+  const [pendingId, setPendingId] = useState("");
+  const candidatesQuery = useRiderReassignCandidatesQuery(order.id, open);
+  const reassignMutation = useReassignRiderOrderMutation();
+
+  const label = language === "bn" ? "অন্য রাইডারকে দিন" : "Hand to another rider";
+  const candidates = candidatesQuery.data?.candidates ?? [];
+  const disabled = candidatesQuery.data?.enabled === false;
+
+  const handleReassign = (targetRiderId: string, name: string) => {
+    Alert.alert(
+      language === "bn" ? "অর্ডার হস্তান্তর" : "Hand off order",
+      language === "bn"
+        ? `${name} কে অর্ডার ${order.orderNumber} দিয়ে দিতে চান?`
+        : `Hand order ${order.orderNumber} to ${name}?`,
+      [
+        { text: language === "bn" ? "না" : "Cancel", style: "cancel" },
+        {
+          text: language === "bn" ? "হ্যাঁ, দিন" : "Yes, hand off",
+          onPress: () => {
+            setPendingId(targetRiderId);
+            reassignMutation.mutate(
+              { orderId: order.id, targetRiderId },
+              {
+                onSuccess: () => {
+                  setPendingId("");
+                  setOpen(false);
+                },
+                onError: (error) => {
+                  setPendingId("");
+                  Alert.alert(
+                    language === "bn" ? "হস্তান্তর ব্যর্থ" : "Handoff failed",
+                    error instanceof Error ? error.message : "Please try again.",
+                  );
+                },
+              },
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <>
+      <Pressable style={styles.reassignButton} onPress={() => setOpen(true)}>
+        <Ionicons name="swap-horizontal" size={16} color={palette.secondary} />
+        <Text style={styles.reassignButtonText}>{label}</Text>
+      </Pressable>
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <View style={styles.reassignBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
+          <View style={styles.reassignSheet}>
+            <View style={styles.reassignHandle} />
+            <Text style={styles.reassignTitle}>{label}</Text>
+            {candidatesQuery.isLoading ? (
+              <View style={styles.reassignEmpty}>
+                <ActivityIndicator size="small" color={palette.secondary} />
+              </View>
+            ) : disabled ? (
+              <Text style={styles.reassignEmptyText}>
+                {language === "bn"
+                  ? "এই ফিচারটি এখন বন্ধ আছে।"
+                  : "This feature is turned off."}
+              </Text>
+            ) : candidates.length === 0 ? (
+              <Text style={styles.reassignEmptyText}>
+                {language === "bn"
+                  ? "এখন দেওয়ার মতো কোনো রাইডার নেই।"
+                  : "No riders available right now."}
+              </Text>
+            ) : (
+              <ScrollView style={styles.reassignList}>
+                {candidates.map((rider) => (
+                  <Pressable
+                    key={rider.id}
+                    style={styles.reassignRow}
+                    disabled={Boolean(pendingId)}
+                    onPress={() => handleReassign(rider.id, rider.name)}
+                  >
+                    <View style={styles.reassignRowBody}>
+                      <Text style={styles.reassignRowName}>{rider.name}</Text>
+                      <Text style={styles.reassignRowMeta}>
+                        {(language === "bn"
+                          ? `${rider.activeOrders} টি চলমান`
+                          : `${rider.activeOrders} active`) +
+                          (typeof rider.distanceKm === "number"
+                            ? ` · ${formatKm(rider.distanceKm)}`
+                            : "")}
+                      </Text>
+                    </View>
+                    {pendingId === rider.id ? (
+                      <ActivityIndicator size="small" color={palette.secondary} />
+                    ) : (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color={palette.mutedForeground}
+                      />
+                    )}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -1522,6 +1650,87 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   cantDeliverText: { fontSize: 13, fontWeight: "800", color: palette.danger },
+  reassignButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingVertical: 12,
+  },
+  reassignButtonText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: palette.secondary,
+  },
+  reassignBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(18, 18, 18, 0.32)",
+    justifyContent: "flex-end",
+  },
+  reassignSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 26,
+    gap: 12,
+    maxHeight: SCREEN_HEIGHT * 0.6,
+  },
+  reassignHandle: {
+    alignSelf: "center",
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: palette.border,
+  },
+  reassignTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: palette.foreground,
+  },
+  reassignEmpty: {
+    minHeight: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reassignEmptyText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+    textAlign: "center",
+    paddingVertical: 24,
+  },
+  reassignList: {
+    maxHeight: SCREEN_HEIGHT * 0.42,
+  },
+  reassignRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  reassignRowBody: { flex: 1, minWidth: 0, gap: 2 },
+  reassignRowName: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
+  reassignRowMeta: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
   // ── can't-deliver modal ──
   failBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(17,13,16,0.4)" },
   failSheet: {

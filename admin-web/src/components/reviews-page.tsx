@@ -83,6 +83,12 @@ function RatingStars({ rating }: { rating: number }) {
 function StatusBadge({ status, isHidden }: { status: AdminReviewModerationStatus; isHidden?: boolean }) {
   if (isHidden || status === "hidden") return <Badge variant="destructive">Hidden</Badge>
   if (status === "flagged") return <Badge variant="secondary">Flagged</Badge>
+  if (status === "pending")
+    return (
+      <Badge className="border-amber-200 bg-amber-100 text-amber-800 hover:bg-amber-100">
+        Pending
+      </Badge>
+    )
   return <Badge variant="default">Visible</Badge>
 }
 
@@ -229,7 +235,7 @@ export function ReviewsPage() {
           ? "Review hidden"
           : variables.status === "flagged"
             ? "Review flagged"
-            : "Review restored"
+            : "Review approved & published"
       )
       setModerationReason("")
       void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
@@ -282,6 +288,7 @@ export function ReviewsPage() {
     visible: 0,
     hidden: 0,
     flagged: 0,
+    pending: 0,
     hideRequestsPending: 0,
     withComments: 0,
     unanswered: 0,
@@ -394,8 +401,9 @@ export function ReviewsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
         <MetricCard label="Total reviews" value={summary.total} helper="All customer reviews" />
+        <MetricCard label="Pending approval" value={summary.pending} helper="Awaiting admin approval" />
         <MetricCard label="Visible" value={summary.visible} helper="Included in public ratings" />
         <MetricCard label="Hidden" value={summary.hidden} helper="Excluded from customer surfaces" />
         <MetricCard label="Flagged" value={summary.flagged} helper="Needs admin follow-up" />
@@ -435,6 +443,7 @@ export function ReviewsPage() {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All status</SelectItem>
+                <SelectItem value="pending">Pending approval</SelectItem>
                 <SelectItem value="visible">Visible</SelectItem>
                 <SelectItem value="flagged">Flagged</SelectItem>
                 <SelectItem value="hidden">Hidden</SelectItem>
@@ -591,6 +600,18 @@ export function ReviewsPage() {
                       <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(review.createdAt)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
+                          {review.moderationStatus === "pending" ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-emerald-600 text-white hover:bg-emerald-700"
+                              disabled={moderationMutation.isPending}
+                              onClick={() => updateReview(review, "visible")}
+                            >
+                              <CheckCircle2 className="size-4" />
+                              Approve
+                            </Button>
+                          ) : null}
                           <Button type="button" variant="outline" size="sm" onClick={() => setSelectedReviewId(review.id)}>
                             <Eye className="size-4" />
                             View
@@ -747,6 +768,17 @@ export function ReviewsPage() {
                         rows={4}
                       />
                     </div>
+                    {selectedReview.moderationStatus === "pending" ? (
+                      <Button
+                        type="button"
+                        className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+                        disabled={moderationMutation.isPending}
+                        onClick={() => updateReview(selectedReview, "visible")}
+                      >
+                        <CheckCircle2 className="size-4" />
+                        Approve &amp; publish review
+                      </Button>
+                    ) : null}
                     <div className="grid gap-2 sm:grid-cols-3">
                       <Button type="button" variant="outline" disabled={moderationMutation.isPending} onClick={() => updateReview(selectedReview, "flagged")}>
                         <Flag className="size-4" />
@@ -937,6 +969,12 @@ function ReviewActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {review.moderationStatus === "pending" ? (
+          <DropdownMenuItem onClick={() => onUpdate(review, "visible")}>
+            <CheckCircle2 className="size-4" />
+            Approve review
+          </DropdownMenuItem>
+        ) : null}
         {hasPendingHideRequest ? (
           <>
             <DropdownMenuItem

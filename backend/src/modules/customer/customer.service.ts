@@ -61,6 +61,9 @@ import { decorateOwnerFinancials } from "../owner/order-financials";
 import { createOwnerNotification } from "../owner/operational.service";
 import { buildOrderPreparationTiming } from "../owner/preparation-timing";
 import { sendLocalizedPushToOwner } from "../owner/push.service";
+// Used only inside a runtime background task, so this static import is safe despite the
+// existing orders-monitor.service → customer.service cycle (no top-level use).
+import { notifyRidersOrderPlacedHeadsUp } from "../admin/orders-monitor.service";
 import { ReviewModel, SupportCaseModel } from "../owner/experience.model";
 import {
   getCustomerRestaurantEnforcement,
@@ -5907,6 +5910,12 @@ export async function placeCustomerOrder(params: {
         },
       });
     });
+
+    // Instant rider heads-up on placement (opt-in via admin) so riders can pre-position for a
+    // fast pickup even before the owner accepts. No-op unless admin enabled it.
+    enqueueBackgroundTask("customer.order_created.rider_headsup", async () => {
+      await notifyRidersOrderPlacedHeadsUp({ order: order.toObject() });
+    });
   }
 
   return {
@@ -7060,6 +7069,10 @@ export async function createCustomerReview(params: {
       riderRating:
         typeof params.riderRating === "number" ? params.riderRating : null,
       riderComment: params.riderComment ?? "",
+      // New reviews await admin approval — hidden from public display/count
+      // until an admin sets moderationStatus to "visible". Customer is not
+      // notified about the pending state (behaviour unchanged for them).
+      moderationStatus: "pending",
     });
   } catch (error) {
     // The partial unique index on orderId is the race-free backstop for the

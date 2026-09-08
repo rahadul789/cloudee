@@ -90,7 +90,8 @@ Notifications.setNotificationHandler({
   // chimed that order (else let the push sound) — never a double, never a miss.
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
-    const isHeadsUp = data?.type === "order.headsup";
+    const isHeadsUp =
+      data?.type === "order.headsup" || data?.type === "order.placed.headsup";
     const alreadyChimed =
       isHeadsUp && wasHeadsUpSoundedRecently(String(data?.orderId ?? ""));
     return {
@@ -142,6 +143,15 @@ async function registerForPushNotificationsAsync() {
       name: "Incoming orders (heads-up)",
       importance: Notifications.AndroidImportance.HIGH,
       sound: "new_order.mp3",
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0f766e",
+    });
+    // Instant "a customer just placed an order" heads-up (opt-in), fired even before the owner
+    // accepts. Its own sound so the rider can tell it from the accept heads-up above.
+    await Notifications.setNotificationChannelAsync("new-order-placed", {
+      name: "New orders placed",
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: "new_order_placed.mp3",
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#0f766e",
     });

@@ -16,6 +16,8 @@ import {
   getRiderOrder,
   getRiderOrders,
   getRiderOrdersSummary,
+  getRiderReassignCandidates,
+  postRiderReassign,
   getRiderPlatformContentPayload,
   getRiderProfileSummary,
   getRiderReviews,
@@ -99,6 +101,18 @@ riderRouter.get("/live-map", requireAuth, requireRole("rider"), getRiderLiveMapV
 riderRouter.get("/orders", requireAuth, requireRole("rider"), getRiderOrders)
 riderRouter.get("/orders/summary", requireAuth, requireRole("rider"), getRiderOrdersSummary)
 riderRouter.get("/orders/:orderId", requireAuth, requireRole("rider"), getRiderOrder)
+riderRouter.get(
+  "/orders/:orderId/reassign-candidates",
+  requireAuth,
+  requireRole("rider"),
+  getRiderReassignCandidates,
+)
+riderRouter.post(
+  "/orders/:orderId/reassign",
+  requireAuth,
+  requireRole("rider"),
+  postRiderReassign,
+)
 riderRouter.post("/orders/:orderId/accept", requireAuth, requireRole("rider"), postRiderAccept)
 riderRouter.post("/orders/:orderId/pickup", requireAuth, requireRole("rider"), postRiderPickup)
 riderRouter.post("/orders/:orderId/deliver", requireAuth, requireRole("rider"), postRiderDelivered)

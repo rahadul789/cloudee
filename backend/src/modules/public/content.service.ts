@@ -1084,13 +1084,28 @@ const platformContentSchema = z.object({
       deliveryLateAfterPickupMinutes: z.number().int().min(1).max(240).optional().default(25),
       deliveryCriticalAfterPickupMinutes: z.number().int().min(1).max(240).optional().default(30),
       riderEtaSpeedKmph: z.number().min(6).max(45).optional().default(24),
-      riderEtaRouteFactor: z.number().min(1).max(2).optional().default(1.1),
+      riderEtaRouteFactor: z.number().min(1).max(2).optional().default(1.4),
+      // Flat real-world overhead (address-finding, handover, stops/traffic the raw
+      // travel time never captures) added to the customer-facing "to you" ETA. Tapered
+      // over the last ~0.5km so a rider at the door doesn't show a big number.
+      riderEtaHandoverBufferMinutes: z
+        .number()
+        .int()
+        .min(0)
+        .max(30)
+        .optional()
+        .default(10),
       retryCooldownMinutes: z.number().int().min(1).max(60),
       surgeReadyOrderThreshold: z.number().int().min(1).max(100),
       surgeUnassignedOrderThreshold: z.number().int().min(1).max(100),
       autoCancelUnacceptedOrdersEnabled: z.boolean().optional().default(true),
       autoCancelAfterMinutes: z.number().int().min(2).max(240).optional().default(8),
       autoCancelNotifyBeforeMinutes: z.number().int().min(1).max(60).optional().default(5),
+      // Global rider-facing toggles. MUST be declared here or z.object() strips them
+      // on every save (parse drops unknown keys) and they silently never persist.
+      riderHeadsUpEnabled: z.boolean().optional().default(true),
+      riderPlacementHeadsUpEnabled: z.boolean().optional().default(false),
+      riderReassignEnabled: z.boolean().optional().default(true),
     }),
   }),
   auth: z.object({

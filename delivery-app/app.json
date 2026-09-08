@@ -57,6 +57,7 @@
             "./assets/sounds/new_delivery.mp3",
             "./assets/sounds/delivery_hurry.mp3",
             "./assets/sounds/new_order.mp3",
+            "./assets/sounds/new_order_placed.mp3",
             "./assets/sounds/common.mp3"
           ]
         }
