@@ -1165,17 +1165,41 @@ function OrderItems({ items }: { items?: RiderOrder["items"] }) {
         </View>
       </View>
       <View style={styles.itemsList}>
-        {rows.map((item, index) => (
-          <View key={`${item.name}-${index}`} style={styles.itemRow}>
-            <Text style={styles.itemQty}>{item.quantity ?? 1}×</Text>
-            <Text style={styles.itemName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {typeof item.totalPrice === "number" ? (
-              <Text style={styles.itemPrice}>Tk {Math.round(item.totalPrice)}</Text>
-            ) : null}
-          </View>
-        ))}
+        {rows.map((item, index) => {
+          const options = [
+            ...(item.selectedVariantOptions ?? []),
+            ...(item.selectedAddOnOptions ?? []),
+          ].filter((option) => option?.optionLabel);
+          return (
+            <View key={`${item.name}-${index}`} style={styles.itemRow}>
+              <Text style={styles.itemQty}>{item.quantity ?? 1}×</Text>
+              <View style={styles.itemBody}>
+                <Text style={styles.itemName} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                {options.length > 0 ? (
+                  <View style={styles.itemOptions}>
+                    {options.map((option, optionIndex) => (
+                      <View
+                        key={`${option.groupName}-${option.optionLabel}-${optionIndex}`}
+                        style={styles.itemOptionChip}
+                      >
+                        <Text style={styles.itemOptionText}>
+                          {option.groupName
+                            ? `${option.groupName}: ${option.optionLabel}`
+                            : option.optionLabel}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+              {typeof item.totalPrice === "number" ? (
+                <Text style={styles.itemPrice}>Tk {Math.round(item.totalPrice)}</Text>
+              ) : null}
+            </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -1628,16 +1652,32 @@ const styles = StyleSheet.create({
   timelineDot: { width: 9, height: 9, borderRadius: 5 },
   timelinePillLabel: { fontSize: 12, fontWeight: "800", color: palette.foreground },
   timelinePillTime: { fontSize: 10.5, fontWeight: "700", color: palette.mutedForeground },
-  itemsList: { gap: 8 },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  itemsList: { gap: 10 },
+  itemRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   itemQty: {
     fontSize: 12,
     fontWeight: "900",
     color: palette.secondary,
     minWidth: 26,
+    paddingTop: 1,
   },
-  itemName: { flex: 1, fontSize: 13, fontWeight: "700", color: palette.foreground },
-  itemPrice: { fontSize: 13, fontWeight: "800", color: palette.foreground },
+  itemBody: { flex: 1, gap: 5 },
+  itemName: { fontSize: 13, fontWeight: "700", color: palette.foreground },
+  itemOptions: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
+  itemOptionChip: {
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  itemOptionText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: palette.mutedForeground,
+  },
+  itemPrice: { fontSize: 13, fontWeight: "800", color: palette.foreground, paddingTop: 1 },
   cantDeliverButton: {
     flexDirection: "row",
     alignItems: "center",

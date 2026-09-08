@@ -105,6 +105,8 @@ export type RiderOrder = {
     name?: string;
     quantity?: number;
     totalPrice?: number;
+    selectedVariantOptions?: { groupName?: string; optionLabel?: string }[];
+    selectedAddOnOptions?: { groupName?: string; optionLabel?: string }[];
   }[];
   history?: {
     status: string;

@@ -7,6 +7,18 @@ import {
 
 const copy = {
   en: {
+    trackingHealth: {
+      alwaysTitle: "Keep sharing location always",
+      alwaysBody:
+        "So the customer keeps getting your live location even when your phone is locked after pickup, set location permission to \"Allow all the time\".",
+      alwaysAction: "Allow always",
+      batteryTitle: "Turn off battery optimization",
+      batteryBody:
+        "So tracking doesn't stop when the phone is locked, set this app to Unrestricted battery and enable Autostart.",
+      batteryAction: "Open settings",
+      dismiss: "Got it",
+      settings: "Settings",
+    },
     tabs: {
       available: "Available",
       active: "Active",
@@ -365,6 +377,18 @@ const copy = {
     },
   },
   bn: {
+    trackingHealth: {
+      alwaysTitle: "সবসময় লোকেশন শেয়ার করুন",
+      alwaysBody:
+        "পিকআপের পর ফোন লক থাকলেও কাস্টমার যেন আপনার লাইভ লোকেশন পায়, তাই লোকেশন পারমিশন \"সবসময় / Allow all the time\" দিন।",
+      alwaysAction: "সবসময় অনুমতি দিন",
+      batteryTitle: "ব্যাটারি অপটিমাইজেশন বন্ধ রাখুন",
+      batteryBody:
+        "ফোন লক করলে ট্র্যাকিং যেন বন্ধ না হয়, এই অ্যাপের জন্য ব্যাটারি Unrestricted রাখুন ও Autostart চালু করুন।",
+      batteryAction: "সেটিংস খুলুন",
+      dismiss: "বুঝেছি",
+      settings: "সেটিংস",
+    },
     tabs: {
       available: "পিকআপ",
       active: "চলমান",

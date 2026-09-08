@@ -367,7 +367,21 @@ function mapRiderOrder(
       ? order.itemsSnapshot.map((item: Record<string, any>) => ({
           name: item.name ?? "",
           quantity: item.quantity ?? 0,
-          totalPrice: item.totalPrice ?? item.lineTotal ?? 0
+          totalPrice: item.totalPrice ?? item.lineTotal ?? 0,
+          // Variant + add-on selections so the rider sheet shows exactly what to hand over
+          // (e.g. "Size: Large", "Extra: Cheese"). Shape mirrors the admin order view.
+          selectedVariantOptions: Array.isArray(item.selectedVariantOptions)
+            ? item.selectedVariantOptions.map((option: Record<string, any>) => ({
+                groupName: option.groupName ?? "",
+                optionLabel: option.optionLabel ?? ""
+              }))
+            : [],
+          selectedAddOnOptions: Array.isArray(item.selectedAddOnOptions)
+            ? item.selectedAddOnOptions.map((option: Record<string, any>) => ({
+                groupName: option.groupName ?? "",
+                optionLabel: option.optionLabel ?? ""
+              }))
+            : []
         }))
       : [],
     history: Array.isArray(order.history)

@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { RiderDelayBanner } from "@/src/components/rider-delay-banner";
 import { RiderLocationAccessCard } from "@/src/components/rider-location-access-card";
+import { RiderTrackingHealthCard } from "@/src/components/rider-tracking-health-card";
 import { useRiderDeliveryThresholdsQuery, useRiderOrdersQuery } from "@/src/hooks/use-rider-api";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { formatDateTime, formatRelativeTime } from "@/src/lib/date-time";
@@ -180,6 +181,7 @@ export default function ActiveOrdersScreen() {
               statusLabel={statusLabel}
             />
             <RiderLocationAccessCard />
+            <RiderTrackingHealthCard />
 
             <View style={styles.searchShell}>
               <Ionicons name="search-outline" size={18} color={palette.mutedForeground} />
