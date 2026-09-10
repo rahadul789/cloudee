@@ -2490,6 +2490,12 @@ export type AdminRestaurantVisibilityUpdate = {
   updatedAt: string | null
 }
 
+export type AdminRestaurantAvailabilityUpdate = {
+  id: string
+  name: string
+  isOnline: boolean
+}
+
 export type AdminRestaurantMerchandisingUpdate = {
   id: string
   name: string
@@ -7503,6 +7509,25 @@ export async function updateAdminRestaurantVisibility(params: {
       },
       body: JSON.stringify({
         isVisible: params.isVisible,
+      }),
+    }
+  )
+  return response.data
+}
+
+export async function updateAdminRestaurantAvailability(params: {
+  restaurantId: string
+  isOnline: boolean
+}) {
+  const response = await adminRequest<AdminRestaurantAvailabilityUpdate>(
+    `/admin/restaurants/${params.restaurantId}/availability`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        isOnline: params.isOnline,
       }),
     }
   )

@@ -554,6 +554,48 @@ export async function updateRestaurantStatus(params: {
   source?: RestaurantAvailabilitySessionSource
 }) {
   const { restaurant, restaurantId } = await getOwnerBusinessContext(params.ownerId)
+  return applyRestaurantAvailabilityChange({
+    restaurant,
+    restaurantId,
+    ownerId: params.ownerId,
+    isOnline: params.isOnline,
+    source: params.source,
+  })
+}
+
+// Admin can flip a restaurant online/offline straight from the Restaurants table. Reuses
+// the exact same availability path as the owner toggle (session sync, sockets, customer
+// cache flush, offline-with-active-orders alert) so behaviour never drifts — only the
+// source is stamped "admin".
+export async function setRestaurantAvailabilityByAdmin(params: {
+  restaurantId: string
+  isOnline: boolean
+}) {
+  const restaurant = await RestaurantModel.findById(params.restaurantId)
+  if (!restaurant) {
+    throw new AppError(
+      StatusCodes.NOT_FOUND,
+      "RESTAURANT_NOT_FOUND",
+      "Restaurant not found"
+    )
+  }
+  return applyRestaurantAvailabilityChange({
+    restaurant,
+    restaurantId: restaurant.id,
+    ownerId: restaurant.ownerId?.toString() ?? "",
+    isOnline: params.isOnline,
+    source: "admin",
+  })
+}
+
+async function applyRestaurantAvailabilityChange(params: {
+  restaurant: Awaited<ReturnType<typeof getOwnerBusinessContext>>["restaurant"]
+  restaurantId: string
+  ownerId: string
+  isOnline: boolean
+  source?: RestaurantAvailabilitySessionSource
+}) {
+  const { restaurant, restaurantId, ownerId } = params
   const previousOnline = restaurant.runtime?.isOnline === true
   const previousUpdatedAt = restaurant.updatedAt ?? new Date()
   if (params.isOnline && isRestaurantOrderingRestricted(restaurant)) {

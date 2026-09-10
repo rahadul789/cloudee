@@ -2607,20 +2607,25 @@ export async function notifyRidersOrderHeadsUp(params: {
           longitude: restaurant.location?.longitude ?? null,
         },
       });
+      const placeLabel = area ? `${restaurantName} · ${area}` : restaurantName;
       try {
         await sendPushToRider({
           riderId: candidate.id,
           payload: {
             title: "নতুন অর্ডার আসছে",
             body: readyInMinutes
-              ? `${restaurantName} — প্রায় ${readyInMinutes} মিনিটে রেডি হবে। আগেভাগে রওনা দিন।`
-              : `${restaurantName} — শীঘ্রই পিকআপের জন্য রেডি হবে।`,
+              ? `${placeLabel} — প্রায় ${readyInMinutes} মিনিটে রেডি হবে। আগেভাগে রওনা দিন।`
+              : `${placeLabel} — শীঘ্রই পিকআপের জন্য রেডি হবে।`,
             // Dedicated channel → the owner-style new-order sound (bundled in the app).
             channelId: "new-order-headsup",
             data: {
               type: "order.headsup",
               orderId: String(order._id),
               path: "/(app)/available",
+              restaurantName,
+              area,
+              latitude: restaurant.location?.latitude ?? null,
+              longitude: restaurant.location?.longitude ?? null,
             },
           },
         });
@@ -2700,17 +2705,22 @@ export async function notifyRidersOrderPlacedHeadsUp(params: {
           longitude: restaurant.location?.longitude ?? null,
         },
       });
+      const placeLabel = area ? `${restaurantName} · ${area}` : restaurantName;
       try {
         await sendPushToRider({
           riderId: candidate.id,
           payload: {
             title: "নতুন অর্ডার এসেছে",
-            body: `${restaurantName} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিলে দ্রুত পিকআপ করতে পারবেন।`,
+            body: `${placeLabel} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিলে দ্রুত পিকআপ করতে পারবেন।`,
             channelId: "new-order-placed",
             data: {
               type: "order.placed.headsup",
               orderId: String(order._id),
               path: "/(app)/available",
+              restaurantName,
+              area,
+              latitude: restaurant.location?.latitude ?? null,
+              longitude: restaurant.location?.longitude ?? null,
             },
           },
         });

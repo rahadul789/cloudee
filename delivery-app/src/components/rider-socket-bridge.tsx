@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View, type AppStateStatus } from "react-native";
+import { AppState, Linking, Pressable, StyleSheet, Text, View, type AppStateStatus } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import NetInfo from "@react-native-community/netinfo";
@@ -38,13 +38,46 @@ type RiderHeadsUpPayload = {
   restaurantName?: string;
   area?: string;
   readyInMinutes?: number;
+  restaurantLocation?: {
+    latitude?: number | null;
+    longitude?: number | null;
+  } | null;
 };
 
 type AssignmentNotice = {
   title: string;
   message: string;
   orderId?: string;
+  navigate?: { latitude: number; longitude: number };
 };
+
+// Google Maps turn-by-turn to the restaurant. Universal https link so it opens the Maps
+// app when installed and the browser otherwise — no extra native dependency.
+function openRestaurantNavigation(destination: {
+  latitude: number;
+  longitude: number;
+}) {
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}`;
+  void Linking.openURL(url).catch(() => undefined);
+}
+
+function headsUpNavigateTarget(payload: RiderHeadsUpPayload) {
+  const latitude = payload.restaurantLocation?.latitude;
+  const longitude = payload.restaurantLocation?.longitude;
+  if (typeof latitude === "number" && typeof longitude === "number") {
+    return { latitude, longitude };
+  }
+  return undefined;
+}
+
+// Restaurant name with the area appended when we have it ("Meet Point Cafe · Sadar"),
+// so the rider knows not just which name but roughly where.
+function headsUpPlaceLabel(payload: RiderHeadsUpPayload) {
+  const name = payload.restaurantName?.trim();
+  const area = payload.area?.trim();
+  if (name && area) return `${name} · ${area}`;
+  return name || area || "";
+}
 
 async function markSocketConnectionProblem() {
   const state = await NetInfo.fetch();
@@ -127,6 +160,12 @@ export function RiderSocketBridge() {
           : language === "bn"
             ? "ঠিক আছে"
             : "Okay",
+      navigate:
+        typeof riderSocketText?.navigate === "string"
+          ? riderSocketText.navigate
+          : language === "bn"
+            ? "নেভিগেট"
+            : "Navigate",
     };
   }, [copy, language]);
 
@@ -280,41 +319,50 @@ export function RiderSocketBridge() {
     // in-app (foreground) + show a banner so the rider can start heading to the restaurant.
     const handleHeadsUp = (payload: RiderHeadsUpPayload) => {
       void playHeadsUpSound(payload.orderId);
-      const restaurantName = payload.restaurantName?.trim();
+      const place = headsUpPlaceLabel(payload);
       const minutes =
         typeof payload.readyInMinutes === "number" && payload.readyInMinutes > 0
           ? payload.readyInMinutes
           : null;
       const title = language === "bn" ? "🛵 নতুন অর্ডার আসছে" : "🛵 Incoming order";
-      const message = restaurantName
+      const message = place
         ? minutes
           ? language === "bn"
-            ? `${restaurantName} — প্রায় ${minutes} মিনিটে রেডি। আগেভাগে রওনা দিন।`
-            : `${restaurantName} — ready in ~${minutes} min. Head over early.`
+            ? `${place} — প্রায় ${minutes} মিনিটে রেডি। আগেভাগে রওনা দিন।`
+            : `${place} — ready in ~${minutes} min. Head over early.`
           : language === "bn"
-            ? `${restaurantName} — শীঘ্রই পিকআপের জন্য রেডি হবে।`
-            : `${restaurantName} — will be ready for pickup soon.`
+            ? `${place} — শীঘ্রই পিকআপের জন্য রেডি হবে।`
+            : `${place} — will be ready for pickup soon.`
         : language === "bn"
           ? "কাছাকাছি একটি নতুন অর্ডার আসছে।"
           : "A new order is coming nearby.";
-      // Info-only banner (no orderId → not tappable to an order the rider isn't assigned to).
-      showAssignmentNotice({ title, message });
+      // Info-only banner (no orderId → not tappable to an order the rider isn't assigned to),
+      // but a Navigate button when we know where the restaurant is.
+      showAssignmentNotice({
+        title,
+        message,
+        navigate: headsUpNavigateTarget(payload),
+      });
     };
 
     // A customer just PLACED an order (earliest signal, opt-in). Its own sound + banner.
     const handlePlacedHeadsUp = (payload: RiderHeadsUpPayload) => {
       void playPlacedHeadsUpSound(payload.orderId);
-      const restaurantName = payload.restaurantName?.trim();
+      const place = headsUpPlaceLabel(payload);
       const title =
         language === "bn" ? "🛵 নতুন অর্ডার এসেছে" : "🛵 New order placed";
-      const message = restaurantName
+      const message = place
         ? language === "bn"
-          ? `${restaurantName} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিন।`
-          : `${restaurantName} — a new order just came in. Head toward the restaurant.`
+          ? `${place} — একটি নতুন অর্ডার এসেছে। রেস্টুরেন্টের দিকে রওনা দিন।`
+          : `${place} — a new order just came in. Head toward the restaurant.`
         : language === "bn"
           ? "কাছাকাছি একটি নতুন অর্ডার এসেছে।"
           : "A new order was just placed nearby.";
-      showAssignmentNotice({ title, message });
+      showAssignmentNotice({
+        title,
+        message,
+        navigate: headsUpNavigateTarget(payload),
+      });
     };
 
     const handleHeadsUpCancelled = (_payload: RiderHeadsUpPayload) => {
@@ -427,7 +475,19 @@ export function RiderSocketBridge() {
             {assignmentNotice.message}
           </Text>
         </View>
-        {assignmentNotice.orderId ? (
+        {assignmentNotice.navigate ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => openRestaurantNavigation(assignmentNotice.navigate!)}
+            style={({ pressed }) => [
+              styles.navigateButton,
+              pressed ? styles.navigatePressed : null,
+            ]}
+          >
+            <Text style={styles.navigateIcon}>➤</Text>
+            <Text style={styles.navigateText}>{riderSocketCopy.navigate}</Text>
+          </Pressable>
+        ) : assignmentNotice.orderId ? (
           <Text style={styles.noticeAction}>{riderSocketCopy.viewOrder}</Text>
         ) : null}
       </Pressable>
@@ -499,5 +559,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     color: palette.secondary,
+  },
+  navigateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: palette.secondary,
+  },
+  navigatePressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  navigateIcon: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: palette.surface,
+  },
+  navigateText: {
+    fontSize: 12,
+    fontWeight: "900",
+    color: palette.surface,
   },
 });

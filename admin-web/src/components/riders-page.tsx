@@ -868,10 +868,18 @@ function RiderActionsMenu({
   )
 }
 
-type RiderDatePreset = "today" | "7d" | "30d" | "month" | "all" | "custom"
+type RiderDatePreset =
+  | "today"
+  | "yesterday"
+  | "7d"
+  | "30d"
+  | "month"
+  | "all"
+  | "custom"
 
 const RIDER_DATE_PRESETS: Array<{ value: RiderDatePreset; label: string }> = [
   { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
   { value: "7d", label: "7 days" },
   { value: "30d", label: "30 days" },
   { value: "month", label: "This month" },
@@ -896,6 +904,12 @@ function resolveRiderDateRange(
   switch (preset) {
     case "today":
       return { from: today, to: today }
+    case "yesterday": {
+      const start = new Date(now)
+      start.setDate(start.getDate() - 1)
+      const yesterday = riderDayString(start)
+      return { from: yesterday, to: yesterday }
+    }
     case "7d": {
       const start = new Date(now)
       start.setDate(start.getDate() - 6)

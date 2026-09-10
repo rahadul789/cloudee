@@ -29,6 +29,8 @@ import {
   PackageCheck,
   Percent,
   Plus,
+  Power,
+  PowerOff,
   RotateCcw,
   Search,
   Star,
@@ -75,6 +77,7 @@ import {
   updateAdminRestaurantEnforcement,
   updateAdminRestaurantMerchandising,
   updateAdminRestaurantPayoutStatus,
+  updateAdminRestaurantAvailability,
   updateAdminRestaurantVisibility,
   uploadAdminMedia,
   type AdminRestaurantDocumentAttachment,
@@ -5287,6 +5290,7 @@ function RestaurantActionsMenu({
   isPending,
   onView,
   onToggleVisibility,
+  onToggleAvailability,
   onEditFeature,
   onRemoveFeature,
   onDelete,
@@ -5295,6 +5299,7 @@ function RestaurantActionsMenu({
   isPending: boolean
   onView: () => void
   onToggleVisibility: () => void
+  onToggleAvailability: () => void
   onEditFeature: () => void
   onRemoveFeature: () => void
   onDelete: () => void
@@ -5316,6 +5321,14 @@ function RestaurantActionsMenu({
         <DropdownMenuItem onClick={onView}>
           <Eye className="size-4" />
           View details
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={isPending} onClick={onToggleAvailability}>
+          {restaurant.isOnline ? (
+            <PowerOff className="size-4" />
+          ) : (
+            <Power className="size-4" />
+          )}
+          {restaurant.isOnline ? "Set offline" : "Set online"}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={isPending} onClick={onToggleVisibility}>
           {restaurant.isVisible ? (
@@ -5398,6 +5411,23 @@ export function RestaurantsPage() {
     onError: (error) => {
       toast.error(
         error instanceof Error ? error.message : "Visibility update failed."
+      )
+    },
+  })
+
+  const availabilityMutation = useMutation({
+    mutationFn: updateAdminRestaurantAvailability,
+    onSuccess: (result) => {
+      toast.success(
+        result.isOnline
+          ? "Restaurant is now online."
+          : "Restaurant is now offline."
+      )
+      void queryClient.invalidateQueries({ queryKey: ["admin-restaurants"] })
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Availability update failed."
       )
     },
   })
@@ -5762,6 +5792,7 @@ export function RestaurantsPage() {
                         restaurant={restaurant}
                         isPending={
                           visibilityMutation.isPending ||
+                          availabilityMutation.isPending ||
                           merchandisingMutation.isPending ||
                           deleteMutation.isPending
                         }
@@ -5770,6 +5801,12 @@ export function RestaurantsPage() {
                           visibilityMutation.mutate({
                             restaurantId: restaurant.id,
                             isVisible: !restaurant.isVisible,
+                          })
+                        }
+                        onToggleAvailability={() =>
+                          availabilityMutation.mutate({
+                            restaurantId: restaurant.id,
+                            isOnline: !restaurant.isOnline,
                           })
                         }
                         onEditFeature={() => openFeatureDialog(restaurant)}

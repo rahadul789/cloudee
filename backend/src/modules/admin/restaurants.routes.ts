@@ -14,6 +14,7 @@ import {
   patchAdminRestaurantMinimumOrder,
   patchAdminRestaurantDeliveryPricing,
   patchAdminRestaurantEnforcement,
+  patchAdminRestaurantAvailability,
   patchAdminRestaurantMerchandising,
   patchAdminRestaurantPayoutStatus,
   patchAdminRestaurantVisibility,
@@ -65,6 +66,10 @@ adminRestaurantsRouter.patch(
 adminRestaurantsRouter.patch(
   "/restaurants/:restaurantId/visibility",
   patchAdminRestaurantVisibility,
+);
+adminRestaurantsRouter.patch(
+  "/restaurants/:restaurantId/availability",
+  patchAdminRestaurantAvailability,
 );
 adminRestaurantsRouter.post(
   "/restaurants/:restaurantId/impersonate-owner",

@@ -26,6 +26,7 @@ import {
   updateAdminRestaurantVisibility,
 } from "./restaurants.service";
 import { createOwnerImpersonationHandoff } from "../auth/impersonation.service";
+import { setRestaurantAvailabilityByAdmin } from "../owner/business.service";
 
 const impersonateOwnerSchema = z.object({
   reason: z.string().trim().min(3).max(300),
@@ -124,6 +125,10 @@ const restaurantIntelligenceQuerySchema = detailsQuerySchema.extend({
 
 const visibilitySchema = z.object({
   isVisible: z.boolean(),
+});
+
+const availabilitySchema = z.object({
+  isOnline: z.boolean(),
 });
 
 const enforcementSchema = z.object({
@@ -330,6 +335,28 @@ export const patchAdminRestaurantVisibility = asyncHandler(
         ? "Restaurant is visible to customers"
         : "Restaurant is hidden from customers",
       data,
+    });
+  },
+);
+
+export const patchAdminRestaurantAvailability = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = availabilitySchema.parse(req.body);
+    await assertRestaurantInAdminArea(req);
+    const restaurant = await setRestaurantAvailabilityByAdmin({
+      restaurantId: getStringParam(req.params.restaurantId),
+      isOnline: payload.isOnline,
+    });
+
+    return sendSuccess(res, {
+      message: payload.isOnline
+        ? "Restaurant is now online"
+        : "Restaurant is now offline",
+      data: {
+        id: restaurant.id,
+        name: restaurant.name,
+        isOnline: restaurant.runtime?.isOnline === true,
+      },
     });
   },
 );
