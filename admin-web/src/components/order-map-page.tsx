@@ -10,7 +10,9 @@ import {
   useMapEvents,
 } from "react-leaflet"
 import "leaflet/dist/leaflet.css"
-import "leaflet.heat"
+// NOTE: leaflet.heat is a classic plugin that references a bare global `L` at load time,
+// which does not exist under ESM bundling ("L is not defined" → white screen). It is loaded
+// lazily inside LeafletHeatLayer AFTER exposing `window.L`, never as a static top-level import.
 import {
   CircleF,
   GoogleMap,
@@ -260,6 +262,22 @@ type SharedMapProps = {
 
 /* ────────────────────────── Leaflet map (fallback + default) ────────────────────────── */
 
+// Exposes Leaflet as a global and loads the leaflet.heat plugin once, on demand. Returns a
+// promise that resolves when L.heatLayer is available. Kept module-level so repeated mounts
+// share a single load.
+let leafletHeatPromise: Promise<void> | null = null
+function ensureLeafletHeat(): Promise<void> {
+  if (typeof (L as unknown as { heatLayer?: unknown }).heatLayer === "function") {
+    return Promise.resolve()
+  }
+  if (!leafletHeatPromise) {
+    // The plugin reads a bare global `L` at evaluation — set it BEFORE importing it.
+    ;(window as unknown as { L: typeof L }).L = L
+    leafletHeatPromise = import("leaflet.heat").then(() => undefined)
+  }
+  return leafletHeatPromise
+}
+
 function LeafletHeatLayer({
   points,
   metric,
@@ -268,8 +286,20 @@ function LeafletHeatLayer({
   metric: Metric
 }) {
   const map = useMap()
+  const [ready, setReady] = React.useState(
+    typeof (L as unknown as { heatLayer?: unknown }).heatLayer === "function",
+  )
   React.useEffect(() => {
-    if (!points.length) return undefined
+    let active = true
+    void ensureLeafletHeat().then(() => {
+      if (active) setReady(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+  React.useEffect(() => {
+    if (!ready || !points.length) return undefined
     const maxAmount = Math.max(1, ...points.map((point) => point.amount))
     const heatData: [number, number, number][] = points
       .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
@@ -299,7 +329,7 @@ function LeafletHeatLayer({
     return () => {
       map.removeLayer(layer)
     }
-  }, [map, points, metric])
+  }, [map, points, metric, ready])
   return null
 }
 

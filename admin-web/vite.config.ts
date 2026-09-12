@@ -27,6 +27,16 @@ export default defineConfig({
           if (normalizedId.includes("/node_modules/recharts/")) {
             return "charts-vendor"
           }
+          // Heavy, map-only libs must stay with the LAZY Order Map page, never in the eager
+          // vendor chunk. leaflet.heat especially: bundled into eager vendor it evaluates
+          // before Leaflet's global `L` exists → "L is not defined" white-screen. Returning
+          // undefined keeps them in their async importer's chunk (loaded on demand).
+          if (
+            normalizedId.includes("/node_modules/leaflet.heat/") ||
+            normalizedId.includes("/node_modules/@react-google-maps/")
+          ) {
+            return undefined
+          }
           if (
             normalizedId.includes("/node_modules/leaflet/") ||
             normalizedId.includes("/node_modules/react-leaflet/") ||
