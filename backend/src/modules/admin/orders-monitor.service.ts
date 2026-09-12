@@ -4925,6 +4925,15 @@ export async function getAdminOrderMonitorDetails(
     cancelledBy: order.cancelledBy ?? "",
     rejectionReason: order.rejectionReason ?? "",
     deliveryAddress: order.customerSnapshot?.deliveryAddress?.addressLine ?? "",
+    // Customer delivery coordinates so admin can open directions to the drop point.
+    deliveryLatitude:
+      typeof order.customerSnapshot?.deliveryAddress?.latitude === "number"
+        ? order.customerSnapshot.deliveryAddress.latitude
+        : null,
+    deliveryLongitude:
+      typeof order.customerSnapshot?.deliveryAddress?.longitude === "number"
+        ? order.customerSnapshot.deliveryAddress.longitude
+        : null,
     paymentMethod: order.paymentMethod ?? "",
     paymentStatus: displayOrderPaymentStatus(order),
     paymentSnapshot:
@@ -5444,6 +5453,103 @@ export async function createAdminRider(params: {
 
   invalidateAdminMonitoringCaches();
   return mapAdminRiderSummary(rider.toObject(), emptyRiderStats());
+}
+
+export type AdminOrderMapParams = {
+  preset?: string;
+  from?: string;
+  to?: string;
+  zoneId?: string;
+  districtId?: string;
+  status?: string;
+};
+
+// Cap on individual order points returned to the map. The frontend aggregates these into
+// area cells for the default view; a huge unfiltered range would otherwise ship tens of
+// thousands of coordinates. Newest-first so a truncated result still shows recent demand.
+const ADMIN_ORDER_MAP_POINT_CAP = 5000;
+
+// Powers the admin "Order Map": where customers are ordering from (delivery drop points)
+// and how much (order amount). Reuses the standard order date + service-area scoping so it
+// respects the admin's zone filter and date range exactly like the orders list.
+export async function getAdminOrderMap(params: AdminOrderMapParams) {
+  const query: Record<string, any> = {
+    ...buildOrderServiceAreaScopeFilter(params),
+    "customerSnapshot.deliveryAddress.latitude": { $type: "number" },
+    "customerSnapshot.deliveryAddress.longitude": { $type: "number" },
+  };
+  const dateMatch = buildDateMatch(params);
+  if (dateMatch) query.createdAt = dateMatch;
+  if (params.status && params.status !== "all") {
+    query.status = params.status;
+  }
+
+  const [totalMatching, orders] = await Promise.all([
+    OrderModel.countDocuments(query),
+    OrderModel.find(query)
+      .sort({ createdAt: -1 })
+      .limit(ADMIN_ORDER_MAP_POINT_CAP)
+      .select({
+        orderNumber: 1,
+        status: 1,
+        createdAt: 1,
+        restaurantId: 1,
+        "pricing.total": 1,
+        "customerSnapshot.deliveryAddress.latitude": 1,
+        "customerSnapshot.deliveryAddress.longitude": 1,
+        "customerSnapshot.deliveryAddress.addressLine": 1,
+        "customerSnapshot.deliveryAddress.label": 1,
+        "customerSnapshot.deliveryAddress.area": 1,
+      })
+      .lean(),
+  ]);
+
+  // One batch lookup for restaurant names (popup labels) instead of a per-order query.
+  const restaurantIds = [
+    ...new Set(orders.map((order) => stringValue(order.restaurantId)).filter(Boolean)),
+  ];
+  const restaurants = restaurantIds.length
+    ? await RestaurantModel.find({ _id: { $in: restaurantIds } })
+        .select({ name: 1 })
+        .lean()
+    : [];
+  const restaurantNameById = new Map(
+    restaurants.map((restaurant) => [String(restaurant._id), stringValue(restaurant.name)]),
+  );
+
+  let totalAmount = 0;
+  const points = orders.map((order) => {
+    const deliveryAddress = (order.customerSnapshot?.deliveryAddress ?? {}) as Record<
+      string,
+      any
+    >;
+    const amount = Number(order.pricing?.total ?? 0) || 0;
+    totalAmount += amount;
+    return {
+      lat: Number(deliveryAddress.latitude),
+      lng: Number(deliveryAddress.longitude),
+      amount,
+      orderNumber: stringValue(order.orderNumber),
+      status: stringValue(order.status),
+      createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
+      restaurantName: restaurantNameById.get(stringValue(order.restaurantId)) ?? "",
+      area:
+        stringValue(deliveryAddress.area) ||
+        stringValue(deliveryAddress.label) ||
+        stringValue(deliveryAddress.addressLine),
+    };
+  });
+
+  return {
+    points,
+    summary: {
+      totalOrders: points.length,
+      totalAmount,
+      averageOrderValue: points.length ? Math.round(totalAmount / points.length) : 0,
+      totalMatching,
+      truncated: totalMatching > points.length,
+    },
+  };
 }
 
 export async function getAdminLiveMap(params?: {

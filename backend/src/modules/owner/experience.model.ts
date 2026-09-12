@@ -88,6 +88,9 @@ reviewSchema.index(
 const supportCaseSchema = new Schema(
   {
     source: { type: String, enum: ["owner", "customer", "rider", "admin"], default: "owner" },
+    // A customer-source case that an ADMIN opened (e.g. messaging from order details), so the
+    // opening/root bubble is attributed to support, not falsely to the customer ("You").
+    openedByAdmin: { type: Boolean, default: false },
     ownerId: { type: Schema.Types.ObjectId, ref: "Owner", default: null },
     restaurantId: { type: Schema.Types.ObjectId, ref: "Restaurant", default: null },
     customerId: { type: Schema.Types.ObjectId, ref: "Customer", default: null },

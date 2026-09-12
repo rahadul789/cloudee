@@ -5,6 +5,7 @@ import {
   getAdminSupportCase,
   getAdminSupportCases,
   patchAdminSupportCase,
+  postAdminOrderCustomerMessage,
   postAdminSupportInternalNote,
   postAdminSupportReply,
 } from "./support.controller"
@@ -17,3 +18,4 @@ adminSupportRouter.get("/support-cases/:supportCaseId", getAdminSupportCase)
 adminSupportRouter.patch("/support-cases/:supportCaseId", patchAdminSupportCase)
 adminSupportRouter.post("/support-cases/:supportCaseId/reply", postAdminSupportReply)
 adminSupportRouter.post("/support-cases/:supportCaseId/internal-notes", postAdminSupportInternalNote)
+adminSupportRouter.post("/orders/:orderId/message-customer", postAdminOrderCustomerMessage)

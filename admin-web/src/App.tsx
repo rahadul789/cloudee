@@ -232,6 +232,11 @@ const LiveMapPage = React.lazy(() =>
     default: module.LiveMapPage,
   }))
 )
+const OrderMapPage = React.lazy(() =>
+  import("@/components/order-map-page").then((module) => ({
+    default: module.OrderMapPage,
+  }))
+)
 const ServiceAreasPage = React.lazy(() =>
   import("@/components/service-areas-page").then((module) => ({
     default: module.ServiceAreasPage,
@@ -1291,7 +1296,8 @@ function AdminLayout() {
   useAdminSocketBridge(Boolean(adminProfile))
 
   const pageTitle = resolveAdminPageTitle(location.pathname, location.search)
-  const isFullBleedRoute = location.pathname === "/live-map"
+  const isFullBleedRoute =
+    location.pathname === "/live-map" || location.pathname === "/order-map"
   const navNotificationItems = navNotificationsQuery.data?.items ?? []
   const navNotificationTotal = navNotificationsQuery.data?.total ?? 0
   const canLoadMoreNavNotifications =
@@ -3409,6 +3415,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <LiveMapPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "order-map",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <OrderMapPage />
           </React.Suspense>
         ),
       },

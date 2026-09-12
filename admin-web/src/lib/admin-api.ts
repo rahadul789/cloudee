@@ -3817,6 +3817,8 @@ export type AdminOrderDetails = {
     discountAmount: number
   }>
   deliveryAddress: string
+  deliveryLatitude: number | null
+  deliveryLongitude: number | null
   items: Array<{
     id: string
     name: string
@@ -5644,6 +5646,47 @@ export async function getAdminLiveMap() {
   return response.data
 }
 
+export type AdminOrderMapPoint = {
+  lat: number
+  lng: number
+  amount: number
+  orderNumber: string
+  status: string
+  createdAt: string | null
+  restaurantName: string
+  area: string
+}
+
+export type AdminOrderMapSnapshot = {
+  points: AdminOrderMapPoint[]
+  summary: {
+    totalOrders: number
+    totalAmount: number
+    averageOrderValue: number
+    totalMatching: number
+    truncated: boolean
+  }
+}
+
+export async function getAdminOrderMap(params?: {
+  preset?: string
+  from?: string
+  to?: string
+  status?: string
+}) {
+  // Zone/district scope is auto-injected by adminRequest (withAdminZoneScope).
+  const searchParams = new URLSearchParams()
+  if (params?.preset) searchParams.set("preset", params.preset)
+  if (params?.from) searchParams.set("from", params.from)
+  if (params?.to) searchParams.set("to", params.to)
+  if (params?.status) searchParams.set("status", params.status)
+  const queryString = searchParams.toString()
+  const response = await adminRequest<AdminOrderMapSnapshot>(
+    `/admin/order-map${queryString ? `?${queryString}` : ""}`
+  )
+  return response.data
+}
+
 export async function getAdminRider(
   riderId: string,
   params?: { from?: string; to?: string }
@@ -6993,6 +7036,23 @@ function buildAdminPaymentsQuery(params?: {
 export async function getAdminOrder(orderId: string) {
   const response = await adminRequest<AdminOrderDetails>(
     `/admin/orders/${orderId}`
+  )
+  return response.data
+}
+
+// Messages the order's customer straight into their support chat thread (reused or created).
+// Counts in support; the customer receives it in-app + push.
+export async function sendAdminOrderCustomerMessage(params: {
+  orderId: string
+  message: string
+}) {
+  const response = await adminRequest<{ id: string }>(
+    `/admin/orders/${params.orderId}/message-customer`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: params.message }),
+    }
   )
   return response.data
 }

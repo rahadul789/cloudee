@@ -19,9 +19,13 @@ import {
   Download,
   Eye,
   Loader2,
+  MapPin,
+  MessageSquare,
   MoreHorizontal,
+  Navigation,
   PackageCheck,
   Phone,
+  Send,
   RotateCcw,
   Search,
   Star,
@@ -40,6 +44,7 @@ import {
   listAdminActivityLogs,
   listAdminOrders,
   listAdminRidersAssignmentOptions,
+  sendAdminOrderCustomerMessage,
   sendAdminOrderReviewRequest,
   updateAdminOrderRefundStatus,
   updateAdminOrderStatus,
@@ -196,6 +201,81 @@ function formatDate(value?: string | null) {
 
 function formatCurrency(value: number) {
   return `Tk ${Math.round(Number.isFinite(value) ? value : 0).toLocaleString()}`
+}
+
+// Opens Google Maps directions from the ADMIN's current location (origin omitted → Google
+// auto-uses the device location) to the given point. Works on web + mobile.
+function openDirectionsTo(latitude: number, longitude: number) {
+  window.open(
+    `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=driving`,
+    "_blank",
+    "noopener,noreferrer",
+  )
+}
+
+function hasCoordinate(latitude?: number | null, longitude?: number | null) {
+  return typeof latitude === "number" && typeof longitude === "number"
+}
+
+// Sends a message straight into the customer's support chat thread from the order details.
+function MessageCustomerBox({
+  orderId,
+  hasCustomer,
+}: {
+  orderId: string
+  hasCustomer: boolean
+}) {
+  const queryClient = useQueryClient()
+  const [message, setMessage] = React.useState("")
+  const mutation = useMutation({
+    mutationFn: () =>
+      sendAdminOrderCustomerMessage({ orderId, message: message.trim() }),
+    onSuccess: () => {
+      toast.success("Message sent to the customer's support chat.")
+      setMessage("")
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-cases"] })
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send message.",
+      ),
+  })
+
+  if (!hasCustomer) {
+    return (
+      <p className="border-t pt-3 text-xs text-muted-foreground">
+        No registered customer account to message.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <MessageSquare className="size-3.5" />
+        Message customer
+      </p>
+      <Textarea
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Send a message to the customer's support chat…"
+        rows={2}
+      />
+      <Button
+        size="sm"
+        className="w-full"
+        disabled={!message.trim() || mutation.isPending}
+        onClick={() => mutation.mutate()}
+      >
+        {mutation.isPending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Send className="size-4" />
+        )}
+        Send to support chat
+      </Button>
+    </div>
+  )
 }
 
 function formatDurationFromSeconds(value?: number | null) {
@@ -1239,6 +1319,33 @@ function OrderDetailsSheet({
                           label="Address"
                           value={details.deliveryAddress || "N/A"}
                         />
+                        {hasCoordinate(
+                          details.deliveryLatitude,
+                          details.deliveryLongitude,
+                        ) ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              openDirectionsTo(
+                                details.deliveryLatitude as number,
+                                details.deliveryLongitude as number,
+                              )
+                            }
+                          >
+                            <Navigation className="size-4" />
+                            Directions to customer
+                          </Button>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Customer location not available on this order.
+                          </p>
+                        )}
+                        <MessageCustomerBox
+                          orderId={details.id}
+                          hasCustomer={Boolean(details.customerId)}
+                        />
                       </CardContent>
                     </Card>
                     <Card>
@@ -1284,6 +1391,27 @@ function OrderDetailsSheet({
                           label="Tracking"
                           value={details.riderTracking?.freshness?.state ?? "N/A"}
                         />
+                        {hasCoordinate(
+                          details.riderTracking?.currentLocation?.latitude,
+                          details.riderTracking?.currentLocation?.longitude,
+                        ) ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              openDirectionsTo(
+                                details.riderTracking!.currentLocation!
+                                  .latitude as number,
+                                details.riderTracking!.currentLocation!
+                                  .longitude as number,
+                              )
+                            }
+                          >
+                            <MapPin className="size-4" />
+                            Rider live location
+                          </Button>
+                        ) : null}
                       </CardContent>
                     </Card>
                   </div>

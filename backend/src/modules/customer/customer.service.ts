@@ -7190,10 +7190,15 @@ function mapCustomerSupportCase(supportCaseDocument: {
     messages: [
       {
         id: `${supportCaseId}-root`,
-        senderType: "customer" as const,
-        senderName:
-          (supportCase as { customerSnapshot?: { fullName?: string } })
-            .customerSnapshot?.fullName || "You",
+        // An admin-opened chat's opening line is from support, not the customer — otherwise
+        // it would falsely show under the customer's own name ("You").
+        senderType: (supportCase as { openedByAdmin?: boolean }).openedByAdmin
+          ? ("admin" as const)
+          : ("customer" as const),
+        senderName: (supportCase as { openedByAdmin?: boolean }).openedByAdmin
+          ? "Support Team"
+          : (supportCase as { customerSnapshot?: { fullName?: string } })
+              .customerSnapshot?.fullName || "You",
         message: String((supportCase as { message?: string }).message ?? ""),
         createdAt,
         attachments,

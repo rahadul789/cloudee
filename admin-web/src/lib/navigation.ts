@@ -18,6 +18,7 @@ import {
   MailCheck,
   Map,
   MapPin,
+  MapPinned,
   PackageCheck,
   ReceiptText,
   Settings,
@@ -138,6 +139,11 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         title: "Live Map",
         to: "/live-map",
         icon: MapPin,
+      },
+      {
+        title: "Order Map",
+        to: "/order-map",
+        icon: MapPinned,
       },
       {
         title: "Service Areas",

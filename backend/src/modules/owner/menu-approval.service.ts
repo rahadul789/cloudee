@@ -984,6 +984,17 @@ async function assertApprovalCategoryIsActive(snapshot: MenuItemSnapshot, restau
   }
 }
 
+// Older pending requests were snapshotted with the pre-fix slugify, so a Bangla (or any
+// non-Latin) name may carry an empty slug. Regenerate from the name at approval time so the
+// live item never hits create with an empty slug (required + unique constraint → 500).
+function ensureMenuItemSlug(slug: unknown, name: unknown) {
+  const current = stringValue(slug).trim();
+  if (current) return current;
+  const fromName = slugify(stringValue(name));
+  if (fromName) return fromName;
+  return `item-${Date.now().toString(36)}`;
+}
+
 export async function approveAdminMenuApprovalRequest(params: {
   requestId: string;
   adminId: string;
@@ -1006,7 +1017,8 @@ export async function approveAdminMenuApprovalRequest(params: {
 
   let liveItem: any = null;
   if (request.type === "new_item") {
-    await assertNoLiveMenuItemSlug({ restaurantId, slug: proposed.slug });
+    const safeSlug = ensureMenuItemSlug(proposed.slug, proposed.name);
+    await assertNoLiveMenuItemSlug({ restaurantId, slug: safeSlug });
     const recommendedItemIds = await resolveApprovedRecommendedMenuIds({
       restaurantId,
       itemIds: proposed.recommendedItemIds,
@@ -1015,7 +1027,7 @@ export async function approveAdminMenuApprovalRequest(params: {
       restaurantId,
       categoryId: proposed.categoryId,
       name: proposed.name,
-      slug: proposed.slug,
+      slug: safeSlug,
       description: proposed.description,
       images: proposed.images,
       status: proposed.status,

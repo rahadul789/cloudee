@@ -6,6 +6,7 @@ import {
   getAdminDispatchLogs,
   getAdminActivityLogs,
   getAdminLiveMapSnapshot,
+  getAdminOrderMapSnapshot,
   getAdminOrderMonitor,
   getAdminOrders,
   getAdminOrdersMonitor,
@@ -51,6 +52,7 @@ adminOrdersMonitorRouter.get("/dispatch-logs", getAdminDispatchLogs);
 adminOrdersMonitorRouter.get("/activity-logs", getAdminActivityLogs);
 adminOrdersMonitorRouter.post("/dispatch/run", postAdminRunAutoDispatch);
 adminOrdersMonitorRouter.get("/live-map", getAdminLiveMapSnapshot);
+adminOrdersMonitorRouter.get("/order-map", getAdminOrderMapSnapshot);
 adminOrdersMonitorRouter.get("/riders", getAdminRiders);
 adminOrdersMonitorRouter.post("/riders", postAdminRider);
 adminOrdersMonitorRouter.get("/rider-payroll", getAdminRiderPayroll);

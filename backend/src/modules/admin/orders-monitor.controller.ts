@@ -15,6 +15,7 @@ import {
   listAdminBkashPaymentAttempts,
   reconcileAdminBkashPaymentAttempt,
   getAdminLiveMap,
+  getAdminOrderMap,
   getAdminOrderMonitorDetails,
   getAdminRiderDetails as getAdminRiderDetailsService,
   listAdminRiderPayroll,
@@ -572,6 +573,24 @@ export const getAdminLiveMapSnapshot = asyncHandler(
       })
       .parse(req.query);
     const data = await getAdminLiveMap(query);
+
+    return sendSuccess(res, { data });
+  },
+);
+
+export const getAdminOrderMapSnapshot = asyncHandler(
+  async (req: Request, res: Response) => {
+    const query = z
+      .object({
+        preset: z.string().optional(),
+        from: z.string().optional(),
+        to: z.string().optional(),
+        zoneId: z.string().optional(),
+        districtId: z.string().optional(),
+        status: z.string().optional(),
+      })
+      .parse(req.query);
+    const data = await getAdminOrderMap(query);
 
     return sendSuccess(res, { data });
   },

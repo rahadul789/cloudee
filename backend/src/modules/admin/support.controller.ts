@@ -8,6 +8,7 @@ import {
   addSupportInternalNote,
   getSupportCaseDetails,
   listSupportCases,
+  messageOrderCustomer,
   replySupportCase,
   updateSupportCase,
 } from "./support.service"
@@ -102,6 +103,18 @@ export const postAdminSupportReply = asyncHandler(async (req: AuthenticatedReque
   })
   return sendSuccess(res, { message: "Support reply sent successfully", data })
 })
+
+export const postAdminOrderCustomerMessage = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = supportReplySchema.pick({ message: true }).parse(req.body)
+    const data = await messageOrderCustomer({
+      orderId: getStringParam(req.params.orderId),
+      adminId: getAdminId(req),
+      message: payload.message,
+    })
+    return sendSuccess(res, { message: "Message sent to customer", data })
+  },
+)
 
 export const patchAdminSupportCase = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const payload = supportUpdateSchema.parse(req.body)

@@ -11,6 +11,7 @@ import { SupportCaseModel } from "../owner/experience.model"
 import { createOwnerNotification } from "../owner/operational.service"
 import { OrderModel } from "../owner/operational.model"
 import {
+  buildCustomerServiceAreaScopeFilter,
   buildOrderServiceAreaScopeFilter,
   buildRestaurantServiceAreaScopeFilter,
   buildRiderServiceAreaScopeFilter,
@@ -166,7 +167,7 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
       },
     ]
   }
-  const [restaurantIds, orderIds, riderIds] = await Promise.all([
+  const [restaurantIds, orderIds, riderIds, customerIds] = await Promise.all([
     Object.keys(buildRestaurantServiceAreaScopeFilter(params)).length
       ? RestaurantModel.distinct("_id", buildRestaurantServiceAreaScopeFilter(params))
       : Promise.resolve([]),
@@ -176,20 +177,31 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
     Object.keys(buildRiderServiceAreaScopeFilter(params)).length
       ? RiderModel.distinct("_id", buildRiderServiceAreaScopeFilter(params))
       : Promise.resolve([]),
+    // A customer support ticket carries no zone of its own, so resolve it through the
+    // customer's OWN service area (active zone or any saved-location zone). This makes a
+    // customer complaint show under the customer's actual zone — proper area-scoping that
+    // keeps working as more zones are added — instead of the old blanket "show every
+    // customer case in every zone" workaround.
+    Object.keys(buildCustomerServiceAreaScopeFilter(params)).length
+      ? CustomerModel.distinct("_id", buildCustomerServiceAreaScopeFilter(params))
+      : Promise.resolve([]),
   ])
   const scopeConditions: Record<string, any>[] = []
   if (restaurantIds.length) scopeConditions.push({ restaurantId: { $in: restaurantIds } })
   if (orderIds.length) scopeConditions.push({ orderId: { $in: orderIds } })
   if (riderIds.length) scopeConditions.push({ riderId: { $in: riderIds } })
+  if (customerIds.length) scopeConditions.push({ customerId: { $in: customerIds } })
   if (params.zoneId?.trim() || params.districtId?.trim()) {
-    // A support ticket is NOT inherently tied to a delivery zone. A customer complaint often
-    // has no linked order/restaurant/rider at all, so area-scoping would wrongly hide it (only
-    // "All areas" would show it). Keep owner/rider/order-linked cases area-scoped, but ALWAYS
-    // include customer-raised cases and any case with no area-linkable entity.
-    scopeConditions.push({ source: "customer" })
-    // ObjectId link fields are null / unset for an unattributable ticket (never ""). Using
-    // `null` matches both null and missing; an empty string would crash the ObjectId cast.
-    scopeConditions.push({ restaurantId: null, orderId: null, riderId: null })
+    // Truly unattributable tickets — no customer/restaurant/order/rider to place them in a
+    // zone (e.g. an admin-created generic ticket) — stay visible under every zone so they're
+    // never lost. Everything with an attributable entity is scoped above by that entity's
+    // zone. `null` matches both null and missing; an empty string would crash the ObjectId cast.
+    scopeConditions.push({
+      customerId: null,
+      restaurantId: null,
+      orderId: null,
+      riderId: null,
+    })
     query.$and = [...(query.$and ?? []), { $or: scopeConditions }]
   }
   return query
@@ -399,8 +411,10 @@ export async function getSupportCaseDetails(
     messages: [
       {
         id: `${supportCaseId}-root`,
-        senderType: stringValue(supportCase.source, "customer"),
-        senderName: mapped.requesterName,
+        senderType: supportCase.openedByAdmin
+          ? "admin"
+          : stringValue(supportCase.source, "customer"),
+        senderName: supportCase.openedByAdmin ? "Support Team" : mapped.requesterName,
         message: stringValue(supportCase.message),
         createdAt: serializeDate(supportCase.createdAt),
         attachments: supportCase.attachments ?? [],
@@ -530,6 +544,90 @@ export async function replySupportCase(params: {
   })
   await notifyRequester(supportCase, replyMessage)
   return getSupportCaseDetails(params.supportCaseId, params)
+}
+
+// Admin messages a customer straight from the order details. The message lands in the
+// customer's existing support chat thread (the single thread the customer app reads via
+// getLatestCustomerSupportCase) — reused if present, else created — so it counts in support
+// and the customer gets it in-app + push, with NO customer-app change.
+export async function messageOrderCustomer(params: {
+  orderId: string
+  adminId: string
+  message: string
+}) {
+  const message = params.message.trim()
+  if (!message) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "MESSAGE_REQUIRED", "Message is required")
+  }
+  if (!mongoose.Types.ObjectId.isValid(params.orderId)) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
+  }
+  const order = await OrderModel.findById(params.orderId).lean()
+  if (!order) {
+    throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
+  }
+  const customerId = order.customerId ? String(order.customerId) : ""
+  if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "ORDER_HAS_NO_CUSTOMER",
+      "This order has no registered customer account to message.",
+    )
+  }
+
+  const orderNumber = stringValue((order as Record<string, any>).orderNumber)
+  let supportCase = await SupportCaseModel.findOne({
+    source: "customer",
+    customerId,
+  }).sort({ updatedAt: -1, createdAt: -1 })
+
+  if (!supportCase) {
+    const customerSnapshot = (order as Record<string, any>).customerSnapshot ?? {}
+    const snapshot = {
+      fullName: stringValue(customerSnapshot.fullName ?? customerSnapshot.name),
+      phone: stringValue(customerSnapshot.phone),
+      email: stringValue(customerSnapshot.email),
+    }
+    supportCase = await SupportCaseModel.create({
+      source: "customer",
+      openedByAdmin: true,
+      customerId,
+      orderId: order._id,
+      customerSnapshot: snapshot,
+      requesterSnapshot: { ...snapshot, role: "customer" },
+      kind: "question",
+      subject: orderNumber ? `Order ${orderNumber}` : "Customer chat",
+      categoryId: "live_chat",
+      // Opening/root bubble — shown as a support message (openedByAdmin). The admin's actual
+      // text is added as the reply below, which also fires the customer notification.
+      message: orderNumber
+        ? `Foodbela Support started a chat about order ${orderNumber}.`
+        : "Foodbela Support started a chat.",
+      status: "open",
+      priority: "medium",
+      slaDueAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+      history: [
+        {
+          action: "created",
+          actorId: params.adminId,
+          actorName: "Support Team",
+          note: `Admin opened a chat from order ${orderNumber}`.slice(0, 180),
+          createdAt: new Date(),
+        },
+      ],
+    })
+  } else if (!supportCase.orderId) {
+    // Stamp order context onto the reused thread the first time.
+    supportCase.set("orderId", order._id)
+    await supportCase.save()
+  }
+
+  return replySupportCase({
+    supportCaseId: supportCase.id,
+    adminId: params.adminId,
+    message,
+    status: "in_progress",
+  })
 }
 
 export async function updateSupportCase(params: {
