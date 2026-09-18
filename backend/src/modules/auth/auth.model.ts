@@ -536,14 +536,23 @@ const restaurantSchema = new Schema(
           //    commission is forced to 0 for these restaurants.
           // Additive + backward-compatible: existing restaurants default to "commission",
           // so live orders/ledgers/apps behave exactly as before.
+          //  - "hybrid": the restaurant gives a partial commissionRate% AND the platform tops
+          //    up with a customer-facing markup so the TOTAL platform take equals
+          //    targetTakeRatePercent%. Derived markup% = max(0, target − commissionRate). So
+          //    commission (owner-borne) + markup (customer-borne) = target% of the real price.
           pricingModel: {
             type: String,
-            enum: ["commission", "markup"],
+            enum: ["commission", "markup", "hybrid"],
             default: "commission",
           },
           // Percentage added on top of each item's real price for "markup" restaurants.
           // Ignored when pricingModel === "commission". Applied per-item then rounded.
+          // For "hybrid" this is IGNORED — the markup is derived from targetTakeRatePercent.
           platformMarkupPercent: { type: Number, min: 0, max: 100, default: 0 },
+          // Total platform take target for "hybrid" restaurants (e.g. 16). The customer-facing
+          // markup is derived as max(0, targetTakeRatePercent − commissionRate). Ignored for
+          // "commission"/"markup" models. null = inherit nothing (treated as 0 → no markup).
+          targetTakeRatePercent: { type: Number, min: 0, max: 100, default: null },
           // Per-restaurant minimum order override. null = inherit the platform default
           // (operations.minimumOrderAmount); a number overrides it (0 = no minimum here).
           minimumOrderAmount: { type: Number, min: 0, default: null },

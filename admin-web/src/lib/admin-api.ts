@@ -1310,9 +1310,13 @@ export type AdminRestaurantSummary = {
   featuredPosition: number | null
   isSponsored: boolean
   commissionRate: number
-  /** "markup" = zero-commission; platformMarkupPercent% is added to customer menu prices. */
-  pricingModel: "commission" | "markup"
+  /**
+   * "markup" = zero-commission, platformMarkupPercent% added to customer prices.
+   * "hybrid" = partial commissionRate% + derived markup so commission + markup = targetTakeRatePercent%.
+   */
+  pricingModel: "commission" | "markup" | "hybrid"
   platformMarkupPercent: number
+  targetTakeRatePercent: number
   /** Per-restaurant minimum order override; null = inherit the platform default. */
   minimumOrderAmount: number | null
   profileCompletionPercentage: number
@@ -7705,14 +7709,16 @@ export async function updateAdminRestaurantCommission(params: {
 
 export async function updateAdminRestaurantPricingModel(params: {
   restaurantId: string
-  pricingModel: "commission" | "markup"
+  pricingModel: "commission" | "markup" | "hybrid"
   platformMarkupPercent?: number
+  targetTakeRatePercent?: number
 }) {
   const response = await adminRequest<{
     id: string
     name: string
-    pricingModel: "commission" | "markup"
+    pricingModel: "commission" | "markup" | "hybrid"
     platformMarkupPercent: number
+    targetTakeRatePercent: number | null
     updatedAt: string | null
   }>(`/admin/restaurants/${params.restaurantId}/pricing-model`, {
     method: "PATCH",
@@ -7722,6 +7728,7 @@ export async function updateAdminRestaurantPricingModel(params: {
     body: JSON.stringify({
       pricingModel: params.pricingModel,
       platformMarkupPercent: params.platformMarkupPercent,
+      targetTakeRatePercent: params.targetTakeRatePercent,
     }),
   })
   return response.data

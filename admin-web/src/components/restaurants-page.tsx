@@ -1663,9 +1663,10 @@ function RestaurantDetailsSheet({
   const queryClient = useQueryClient()
   const [commissionDraft, setCommissionDraft] = React.useState("")
   const [pricingModelDraft, setPricingModelDraft] = React.useState<
-    "commission" | "markup"
+    "commission" | "markup" | "hybrid"
   >("commission")
   const [markupPercentDraft, setMarkupPercentDraft] = React.useState("0")
+  const [targetTakeRateDraft, setTargetTakeRateDraft] = React.useState("16")
   const [featuredPositionDraft, setFeaturedPositionDraft] = React.useState("1")
   const [deliveryBaseFeeDraft, setDeliveryBaseFeeDraft] = React.useState("20")
   const [deliveryStartsAfterDraft, setDeliveryStartsAfterDraft] =
@@ -1732,8 +1733,13 @@ function RestaurantDetailsSheet({
   React.useEffect(() => {
     if (!details) return
     setCommissionDraft(`${details.commissionRate}`)
-    setPricingModelDraft(details.pricingModel === "markup" ? "markup" : "commission")
+    setPricingModelDraft(
+      details.pricingModel === "markup" || details.pricingModel === "hybrid"
+        ? details.pricingModel
+        : "commission",
+    )
     setMarkupPercentDraft(`${details.platformMarkupPercent ?? 0}`)
+    setTargetTakeRateDraft(`${details.targetTakeRatePercent || 16}`)
     setFeaturedPositionDraft(`${details.featuredPosition ?? 1}`)
     setDeliveryBaseFeeDraft(`${details.deliveryPricing.override.baseFeeTaka ?? 20}`)
     setDeliveryStartsAfterDraft(
@@ -1947,6 +1953,16 @@ function RestaurantDetailsSheet({
         restaurantId,
         pricingModel: "markup",
         platformMarkupPercent,
+      })
+      return
+    }
+    if (pricingModelDraft === "hybrid") {
+      const targetTakeRatePercent = Number(targetTakeRateDraft)
+      if (Number.isNaN(targetTakeRatePercent)) return
+      pricingModelMutation.mutate({
+        restaurantId,
+        pricingModel: "hybrid",
+        targetTakeRatePercent,
       })
       return
     }
@@ -2203,6 +2219,8 @@ function RestaurantDetailsSheet({
               setPricingModelDraft={setPricingModelDraft}
               markupPercentDraft={markupPercentDraft}
               setMarkupPercentDraft={setMarkupPercentDraft}
+              targetTakeRateDraft={targetTakeRateDraft}
+              setTargetTakeRateDraft={setTargetTakeRateDraft}
               pricingModelPending={pricingModelMutation.isPending}
               onPricingModelSave={savePricingModel}
               onDeliveryPricingSave={() =>
@@ -3990,6 +4008,8 @@ function RestaurantDetailsContent({
   setPricingModelDraft,
   markupPercentDraft,
   setMarkupPercentDraft,
+  targetTakeRateDraft,
+  setTargetTakeRateDraft,
   pricingModelPending,
   onPricingModelSave,
   onDeliveryPricingSave,
@@ -4009,10 +4029,12 @@ function RestaurantDetailsContent({
   details: AdminRestaurantDetails
   commissionDraft: string
   setCommissionDraft: (value: string) => void
-  pricingModelDraft: "commission" | "markup"
-  setPricingModelDraft: (value: "commission" | "markup") => void
+  pricingModelDraft: "commission" | "markup" | "hybrid"
+  setPricingModelDraft: (value: "commission" | "markup" | "hybrid") => void
   markupPercentDraft: string
   setMarkupPercentDraft: (value: string) => void
+  targetTakeRateDraft: string
+  setTargetTakeRateDraft: (value: string) => void
   pricingModelPending: boolean
   onPricingModelSave: () => void
   featuredPositionDraft: string
@@ -4266,23 +4288,26 @@ function RestaurantDetailsContent({
                 </div>
               </div>
               <div className="rounded-lg border bg-background p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">Zero-commission markup</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      When on, no commission is taken. Instead this % is added on
-                      top of every customer-facing menu price for profit. The owner
-                      always keeps seeing their real price.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={pricingModelDraft === "markup"}
-                    disabled={pricingModelPending}
-                    onCheckedChange={(checked) =>
-                      setPricingModelDraft(checked ? "markup" : "commission")
-                    }
-                  />
-                </div>
+                <p className="font-medium">Pricing model</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  How the platform earns on this restaurant. The owner always sees
+                  their real price; markup is added only to customer-facing prices.
+                </p>
+                <select
+                  className="mt-2 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                  disabled={pricingModelPending}
+                  value={pricingModelDraft}
+                  onChange={(event) =>
+                    setPricingModelDraft(
+                      event.target.value as "commission" | "markup" | "hybrid",
+                    )
+                  }
+                >
+                  <option value="commission">Commission only</option>
+                  <option value="markup">Markup only (zero commission)</option>
+                  <option value="hybrid">Hybrid (partial commission + markup)</option>
+                </select>
+
                 {pricingModelDraft === "markup" ? (
                   <div className="mt-3">
                     <Label htmlFor="detail-markup-percent">Markup %</Label>
@@ -4299,6 +4324,55 @@ function RestaurantDetailsContent({
                     />
                   </div>
                 ) : null}
+
+                {pricingModelDraft === "hybrid"
+                  ? (() => {
+                      const commission = Math.max(
+                        0,
+                        Math.min(100, Number(commissionDraft) || 0),
+                      )
+                      const target = Math.max(
+                        0,
+                        Math.min(100, Number(targetTakeRateDraft) || 0),
+                      )
+                      const markup = Math.max(0, target - commission)
+                      const customer = Math.round(100 * (1 + markup / 100))
+                      return (
+                        <div className="mt-3 space-y-2">
+                          <div>
+                            <Label htmlFor="detail-target-rate">
+                              Target total take %
+                            </Label>
+                            <Input
+                              id="detail-target-rate"
+                              className="mt-1"
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={targetTakeRateDraft}
+                              onChange={(event) =>
+                                setTargetTakeRateDraft(event.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="rounded-md bg-muted/40 p-2 text-xs text-muted-foreground">
+                            Uses the commission rate above ({commission}%). Derived
+                            markup = <b>{markup}%</b>. On a ৳100 item: customer pays{" "}
+                            <b>৳{customer}</b>, owner gets ৳{100 - commission},
+                            platform earns {commission}% + {markup}% ={" "}
+                            <b>{commission + markup}%</b>.
+                            {target < commission ? (
+                              <span className="mt-1 block text-amber-600">
+                                Target is below the commission rate — markup will be
+                                0 (platform take = commission only).
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })()
+                  : null}
+
                 <Button
                   variant="outline"
                   className="mt-3 w-full"

@@ -13,7 +13,9 @@ import {
   isRestaurantPayoutEligibleOrder
 } from "./finance-rules"
 import {
+  getOrderCommissionRatePercent,
   getOrderRestaurantSubtotal,
+  isHybridOrder,
   isMarkupOrder,
   ownerRealLineTotalAggExpr
 } from "../../common/utils/order-pricing"
@@ -196,6 +198,25 @@ function resolveCommissionRateForDate(restaurant: Record<string, any>, date: Dat
   return rate
 }
 
+// The commission rate (%) settlement applies to an order's real subtotal. Keeps the existing
+// two models byte-for-byte: pure "markup" orders → 0; "commission"/legacy → the dated rate.
+// "hybrid" orders use the rate snapshotted at placement (immutable), falling back to the dated
+// rate only if an older hybrid order somehow lacks the snapshot.
+function resolveOrderSettlementCommissionRate(
+  order: Record<string, any>,
+  restaurant: Record<string, any>,
+  deliveredAt: Date,
+) {
+  if (isMarkupOrder(order)) return 0
+  if (isHybridOrder(order)) {
+    const snapshot = getOrderCommissionRatePercent(order)
+    return snapshot != null
+      ? snapshot
+      : resolveCommissionRateForDate(restaurant, deliveredAt)
+  }
+  return resolveCommissionRateForDate(restaurant, deliveredAt)
+}
+
 function getOrderDiscountAmount(order: Record<string, any>) {
   return numberValue(
     order.pricing?.discountAmount,
@@ -273,11 +294,13 @@ function getOrderRestaurantNetSalesForOwner(order: Record<string, any>) {
 function getOrderNetEarnings(order: Record<string, any>, restaurant: Record<string, any>) {
   const deliveredAt = getOrderDeliveredAt(order)
   const grossAmount = getOrderSubtotalForOwner(order)
-  // Markup orders are zero-commission (snapshot on the order), so the owner keeps 100% of
-  // the real subtotal; the platform's cut is the markup, not a commission.
-  const commissionRate = isMarkupOrder(order)
-    ? 0
-    : resolveCommissionRateForDate(restaurant, deliveredAt)
+  // Pure markup → 0 commission (platform's cut is the markup). Hybrid → the snapshotted rate
+  // (owner-borne part), on TOP of which the customer-borne markup makes up the target take.
+  const commissionRate = resolveOrderSettlementCommissionRate(
+    order,
+    restaurant,
+    deliveredAt,
+  )
   const commission = Math.round(grossAmount * (commissionRate / 100))
   const discountCost = getOrderOwnerDiscountCost(order)
 
@@ -423,11 +446,14 @@ async function ensureRestaurantEarningLedgerEntries(
         ? "available"
         : "pending"
       : "pending"
-    // Real restaurant subtotal drives the ledger; markup orders are zero-commission.
+    // Real restaurant subtotal drives the ledger; markup orders are zero-commission, hybrid
+    // orders use their snapshotted rate.
     const grossAmount = getOrderRestaurantSubtotal(order) ?? 0
-    const commissionRate = isMarkupOrder(order)
-      ? 0
-      : resolveCommissionRateForDate(restaurant, deliveredAt)
+    const commissionRate = resolveOrderSettlementCommissionRate(
+      order,
+      restaurant,
+      deliveredAt,
+    )
     const discountCost = getOrderOwnerDiscountCost(order)
     const platformDiscountCost = getOrderPlatformDiscountCost(order)
     const commissionBase = grossAmount

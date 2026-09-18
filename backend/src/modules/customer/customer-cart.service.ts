@@ -42,8 +42,10 @@ import {
   summarizeAppliedVouchers,
 } from "./customer-voucher.service";
 import {
+  isHybridRestaurant,
   isMarkupRestaurant,
   markupComponentPrice,
+  resolveRestaurantCommissionRatePercent,
   resolveRestaurantMarkupPercent,
 } from "../../common/utils/order-pricing";
 import type {
@@ -599,10 +601,19 @@ export async function quoteCustomerCart(params: {
         categories.map((category) => [category._id.toString(), category]),
       );
 
-      // Zero-commission "markup" restaurants: every customer-facing price gets this % added
-      // on top (per component, rounded). 0 for commission restaurants, where every markup
-      // helper below is a pure identity — so their pricing stays byte-for-byte unchanged.
+      // Customer-facing markup %: 0 for commission restaurants (every markup helper below is a
+      // pure identity, so their pricing stays byte-for-byte unchanged), platformMarkupPercent
+      // for "markup", and max(0, target − commission) for "hybrid".
       const markupPercent = resolveRestaurantMarkupPercent(restaurant);
+      // The pricing model + commission rate snapshotted onto the order so settlement stays
+      // immutable and 100% reconcilable regardless of later restaurant changes.
+      const restaurantPricingModel = isHybridRestaurant(restaurant)
+        ? "hybrid"
+        : isMarkupRestaurant(restaurant)
+          ? "markup"
+          : "commission";
+      const orderCommissionRatePercent =
+        resolveRestaurantCommissionRatePercent(restaurant);
 
       const resolvedItems = params.items.map((cartItem) => {
         const menuItem = menuItemMap.get(cartItem.itemId);
@@ -891,8 +902,13 @@ export async function quoteCustomerCart(params: {
           // commission stays 0 forever regardless of later restaurant model changes.
           restaurantSubtotal,
           platformMarkup,
-          pricingModel: isMarkupRestaurant(restaurant) ? "markup" : "commission",
+          pricingModel: restaurantPricingModel,
           platformMarkupPercent: markupPercent,
+          // The commission rate that settlement must apply to restaurantSubtotal for THIS
+          // order (0 for pure markup). Snapshotting it keeps historical payout/finance exact
+          // even if the restaurant's rate or model changes later. For "hybrid": commission
+          // (owner-borne) + platformMarkup (customer-borne) = target% of restaurantSubtotal.
+          commissionRatePercent: orderCommissionRatePercent,
           menuMarkdownAmount,
           deliveryFee,
           rainSurcharge,

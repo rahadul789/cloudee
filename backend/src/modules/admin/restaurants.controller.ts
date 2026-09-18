@@ -170,8 +170,9 @@ const commissionSchema = z.object({
 });
 
 const pricingModelSchema = z.object({
-  pricingModel: z.enum(["commission", "markup"]),
+  pricingModel: z.enum(["commission", "markup", "hybrid"]),
   platformMarkupPercent: z.number().min(0).max(100).optional(),
+  targetTakeRatePercent: z.number().min(0).max(100).optional(),
 });
 
 const minimumOrderSchema = z.object({
@@ -442,6 +443,7 @@ export const patchAdminRestaurantPricingModel = asyncHandler(
       restaurantId: getStringParam(req.params.restaurantId),
       pricingModel: payload.pricingModel,
       platformMarkupPercent: payload.platformMarkupPercent,
+      targetTakeRatePercent: payload.targetTakeRatePercent,
       adminId: getAdminId(req),
     });
 

@@ -829,10 +829,18 @@ function mapRestaurantSummary(params: {
     commissionRate: numberValue(restaurant.commercial?.commissionRate, 15),
     // Zero-commission markup model: "markup" adds platformMarkupPercent% on top of every
     // customer-facing menu price (owner keeps seeing their real price). Default "commission".
-    pricingModel:
-      restaurant.commercial?.pricingModel === "markup" ? "markup" : "commission",
+    pricingModel: ["markup", "hybrid"].includes(
+      restaurant.commercial?.pricingModel,
+    )
+      ? restaurant.commercial.pricingModel
+      : "commission",
     platformMarkupPercent: numberValue(
       restaurant.commercial?.platformMarkupPercent,
+      0,
+    ),
+    // Hybrid model: platform's total take target (%). commission + derived markup = this.
+    targetTakeRatePercent: numberValue(
+      restaurant.commercial?.targetTakeRatePercent,
       0,
     ),
     // Raw per-restaurant override: null = inherit the platform minimumOrderAmount.
@@ -5150,10 +5158,14 @@ export async function updateAdminRestaurantCommission(params: {
 // Switch a restaurant between the commission model and the zero-commission markup model, and
 // set the markup percentage. Markup is applied server-side to customer-facing menu prices; the
 // owner always sees their real price. Flushes customer read caches so the new prices show up.
+const clampPercentWhole = (value: unknown) =>
+  Math.min(100, Math.max(0, Math.round(numberValue(value, 0))));
+
 export async function updateAdminRestaurantPricingModel(params: {
   restaurantId: string;
-  pricingModel: "commission" | "markup";
+  pricingModel: "commission" | "markup" | "hybrid";
   platformMarkupPercent?: number;
+  targetTakeRatePercent?: number;
   adminId?: string;
 }) {
   const restaurant = await getRestaurantOrThrow(params.restaurantId);
@@ -5161,29 +5173,42 @@ export async function updateAdminRestaurantPricingModel(params: {
     (restaurant.commercial as any)?.toObject?.() ??
     restaurant.commercial ??
     {};
-  const previousModel =
-    commercial.pricingModel === "markup" ? "markup" : "commission";
+  const previousModel = ["markup", "hybrid"].includes(commercial.pricingModel)
+    ? commercial.pricingModel
+    : "commission";
   const previousPercent = numberValue(commercial.platformMarkupPercent, 0);
-  const pricingModel =
-    params.pricingModel === "markup" ? "markup" : "commission";
-  // Only meaningful for markup; clamped to 0–100 and rounded to a whole percent.
+  const pricingModel = ["markup", "hybrid"].includes(params.pricingModel)
+    ? params.pricingModel
+    : "commission";
+  // Only meaningful for pure markup; clamped to 0–100 whole percent. Forced 0 otherwise
+  // (for hybrid the markup is DERIVED from targetTakeRatePercent − commissionRate).
   const platformMarkupPercent =
     pricingModel === "markup"
-      ? Math.min(
-          100,
-          Math.max(0, Math.round(numberValue(params.platformMarkupPercent, 0))),
-        )
+      ? clampPercentWhole(params.platformMarkupPercent)
       : 0;
+  // The platform's total take target — only meaningful for hybrid.
+  const targetTakeRatePercent =
+    pricingModel === "hybrid"
+      ? clampPercentWhole(params.targetTakeRatePercent)
+      : null;
 
   restaurant.set("commercial", {
     ...commercial,
     pricingModel,
     platformMarkupPercent,
+    targetTakeRatePercent,
   });
   await restaurant.save();
   invalidateOwnerFinanceCaches(restaurant.id);
   // Customer-visible: menu prices change → flush discovery/home/details/cart caches.
   invalidateCustomerRestaurantAvailabilityCaches();
+
+  const description =
+    pricingModel === "markup"
+      ? `Switched to zero-commission markup at ${platformMarkupPercent}%.`
+      : pricingModel === "hybrid"
+        ? `Switched to hybrid: partial commission + top-up markup to a ${targetTakeRatePercent}% total take.`
+        : "Switched to the commission model.";
 
   await createAdminAuditLog({
     adminId: params.adminId,
@@ -5191,15 +5216,13 @@ export async function updateAdminRestaurantPricingModel(params: {
     entityId: restaurant.id,
     action: "pricing_model.updated",
     title: "Pricing model updated",
-    description:
-      pricingModel === "markup"
-        ? `Switched to zero-commission markup at ${platformMarkupPercent}%.`
-        : "Switched to the commission model.",
+    description,
     metadata: {
       previousModel,
       previousPercent,
       pricingModel,
       platformMarkupPercent,
+      targetTakeRatePercent,
     },
   });
 
@@ -5208,6 +5231,7 @@ export async function updateAdminRestaurantPricingModel(params: {
     name: restaurant.name,
     pricingModel,
     platformMarkupPercent,
+    targetTakeRatePercent,
     updatedAt: serializeDate(restaurant.updatedAt),
   };
 }

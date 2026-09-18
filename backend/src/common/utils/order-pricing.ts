@@ -22,17 +22,48 @@ export function isMarkupRestaurant(
   return (restaurant as any)?.commercial?.pricingModel === "markup";
 }
 
-// The markup percentage to add on top of customer-facing prices for this restaurant.
-// 0 for commission restaurants (and for markup restaurants with no percentage set), which
-// makes every markup helper a no-op — the exact guarantee that keeps commission flows
-// byte-for-byte unchanged.
+export function isHybridRestaurant(
+  restaurant: Record<string, any> | null | undefined,
+): boolean {
+  return (restaurant as any)?.commercial?.pricingModel === "hybrid";
+}
+
+function clampPercent(value: unknown): number {
+  const pct = Number(value);
+  if (!Number.isFinite(pct) || pct <= 0) return 0;
+  return Math.min(pct, 100);
+}
+
+// The commission rate (%) the restaurant gives on the REAL subtotal. 0 for pure "markup"
+// restaurants; the configured rate for "commission" and "hybrid". This is the value stamped
+// onto each order so settlement stays immutable regardless of later restaurant changes.
+export function resolveRestaurantCommissionRatePercent(
+  restaurant: Record<string, any> | null | undefined,
+): number {
+  if (isMarkupRestaurant(restaurant)) return 0;
+  return clampPercent((restaurant as any)?.commercial?.commissionRate);
+}
+
+// The customer-facing markup percentage to add on top of prices for this restaurant.
+//   - "commission": 0 (no markup; every markup helper is a byte-for-byte no-op).
+//   - "markup": the configured platformMarkupPercent.
+//   - "hybrid": max(0, targetTakeRatePercent − commissionRate) — the platform tops the
+//     customer price up only for the part the restaurant's commission doesn't already cover,
+//     so commission + markup == target% of the real price.
 export function resolveRestaurantMarkupPercent(
   restaurant: Record<string, any> | null | undefined,
 ): number {
+  if (isHybridRestaurant(restaurant)) {
+    const target = clampPercent(
+      (restaurant as any)?.commercial?.targetTakeRatePercent,
+    );
+    const commission = clampPercent(
+      (restaurant as any)?.commercial?.commissionRate,
+    );
+    return Math.max(0, target - commission);
+  }
   if (!isMarkupRestaurant(restaurant)) return 0;
-  const pct = Number((restaurant as any)?.commercial?.platformMarkupPercent);
-  if (!Number.isFinite(pct) || pct <= 0) return 0;
-  return Math.min(pct, 100);
+  return clampPercent((restaurant as any)?.commercial?.platformMarkupPercent);
 }
 
 // Marks up a single customer-facing price component and rounds to whole taka. Applied
@@ -78,6 +109,21 @@ export function isMarkupOrder(order: Record<string, any>): boolean {
   return order?.pricing?.pricingModel === "markup";
 }
 
+// True when the order was placed under the "hybrid" model (partial commission + top-up
+// markup). Snapshot-based so historical finance is immutable.
+export function isHybridOrder(order: Record<string, any>): boolean {
+  return order?.pricing?.pricingModel === "hybrid";
+}
+
+// The commission rate (%) snapshotted on the order at placement, or null for orders that
+// never carried one (legacy) — callers then fall back to the restaurant's dated rate.
+export function getOrderCommissionRatePercent(
+  order: Record<string, any>,
+): number | null {
+  const value = Number(order?.pricing?.commissionRatePercent);
+  return Number.isFinite(value) ? Math.max(0, Math.min(value, 100)) : null;
+}
+
 // Platform markup income captured on the order (customer subtotal − restaurant subtotal).
 export function getOrderPlatformMarkup(order: Record<string, any>): number {
   const value = Number(order?.pricing?.platformMarkup ?? 0);
@@ -109,7 +155,12 @@ export function ownerRealLineTotalAggExpr(
           vars: {
             markupPct: {
               $cond: [
-                { $eq: [`${pricingPrefix}.pricingModel`, "markup"] },
+                {
+                  $in: [
+                    `${pricingPrefix}.pricingModel`,
+                    ["markup", "hybrid"],
+                  ],
+                },
                 { $ifNull: [`${pricingPrefix}.platformMarkupPercent`, 0] },
                 0,
               ],
