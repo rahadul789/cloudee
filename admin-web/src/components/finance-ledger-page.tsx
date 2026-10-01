@@ -18,6 +18,7 @@ import {
   type AdminFinanceLedgerEntry,
 } from "@/lib/admin-api"
 import { downloadCsv, escapeHtml, printReport } from "@/lib/export-utils"
+import { formatDateTime } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -54,10 +55,7 @@ function formatCurrency(value: number) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function settlementBadgeClass(value: string) {

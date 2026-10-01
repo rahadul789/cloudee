@@ -6,6 +6,7 @@ import {
   getAdminRateLimitSnapshot,
   patchAdminOperationalAlertResolve,
   patchAdminOperationalAlertSnooze,
+  postAdminOperationalAlertsResolveAll,
   postAdminRateLimitBucketReset,
   postAdminOperationsRequestMonitorClear,
 } from "./operations-health.controller";
@@ -22,6 +23,10 @@ adminOperationsHealthRouter.post(
 adminOperationsHealthRouter.post(
   "/operations/requests/clear",
   postAdminOperationsRequestMonitorClear,
+);
+adminOperationsHealthRouter.post(
+  "/operations/alerts/resolve-all",
+  postAdminOperationalAlertsResolveAll,
 );
 adminOperationsHealthRouter.patch(
   "/operations/alerts/:alertId/resolve",

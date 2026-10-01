@@ -18,6 +18,7 @@ import {
 } from "@/lib/admin-cms-api"
 import { getAdminZoneScope, subscribeAdminZoneScope } from "@/lib/admin-zone-scope"
 import { getAdminRestaurantsWithOffers, listAdminRestaurants } from "@/lib/admin-api"
+import { formatDateTime } from "@/lib/utils"
 
 import { CustomerHomeCmsSection } from "./customer-home-cms-section"
 
@@ -106,7 +107,7 @@ export function CmsPage() {
       return scheduleCustomerHomePushCampaign(scheduledAt)
     },
     onSuccess: (result) => {
-      toast.success(`Push scheduled for ${new Date(result.scheduledAt).toLocaleString()}`)
+      toast.success(`Push scheduled for ${formatDateTime(result.scheduledAt)}`)
       void queryClient.invalidateQueries({ queryKey: ["admin-platform-content"] })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to schedule push"),

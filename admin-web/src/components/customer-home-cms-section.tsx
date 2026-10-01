@@ -71,16 +71,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatDateTime } from "@/lib/utils"
 
 function formatCurrency(value?: number | null) {
   return `Tk ${Math.round(Number.isFinite(value ?? 0) ? (value ?? 0) : 0).toLocaleString()}`
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function formatDateTimeLocalInput(value?: string | null) {

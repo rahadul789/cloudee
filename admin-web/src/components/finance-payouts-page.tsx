@@ -38,6 +38,7 @@ import {
   type AdminFinancePayoutStatement,
 } from "@/lib/admin-api"
 import { downloadCsv, escapeHtml, printReport, printReportInFrame } from "@/lib/export-utils"
+import { formatDateTime } from "@/lib/utils"
 import {
   buildAdminPayoutStatementHtml,
   getAdminPayoutStatementTitle,
@@ -114,10 +115,7 @@ function formatCurrency(value: number) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function eligibilityLabel(value: string) {
@@ -418,7 +416,7 @@ function CreateAdminPayoutDialog({
 }) {
   const queryClient = useQueryClient()
   const [amount, setAmount] = React.useState("")
-  const [status, setStatus] = React.useState<"processing" | "completed">("processing")
+  const [status, setStatus] = React.useState<"processing" | "completed">("completed")
   const [ledgerSource, setLedgerSource] = React.useState<"available" | "include_pending">("available")
   const [reference, setReference] = React.useState("")
   const [note, setNote] = React.useState("")
@@ -431,7 +429,7 @@ function CreateAdminPayoutDialog({
   React.useEffect(() => {
     if (!target) return
     setAmount(`${Math.max(0, Math.floor(target.finance.availableBalance))}`)
-    setStatus("processing")
+    setStatus("completed")
     setLedgerSource("available")
     setReference("")
     setNote("")
@@ -478,10 +476,7 @@ function CreateAdminPayoutDialog({
   })
 
   function submitCreatePayout() {
-    if (!statement || !statementReviewed) {
-      setStatementError("Download and check the payout statement before creating payout.")
-      return
-    }
+    // Statement download/review is optional now — admins can create a payout directly.
     mutation.mutate()
   }
 
@@ -585,9 +580,9 @@ function CreateAdminPayoutDialog({
           <div className="rounded-lg border bg-muted/30 p-3 text-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="font-medium">Transaction statement</div>
+                <div className="font-medium">Transaction statement (optional)</div>
                 <div className="text-muted-foreground">
-                  Download the exact ledger breakdown before creating payout.
+                  Download the exact ledger breakdown if you want a record. Not required to create the payout.
                 </div>
               </div>
               <Button

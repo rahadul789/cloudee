@@ -174,6 +174,7 @@ export type RiderLiveMapOrder = {
   customer?: {
     id?: string;
     name?: string;
+    phone?: string;
     addressLabel?: string;
     addressLine?: string;
     addressDetails?: string;

@@ -31,6 +31,7 @@ import {
   MapPinned,
   ShoppingBag,
   Flame,
+  Radar,
 } from "lucide-react"
 
 import {
@@ -142,8 +143,9 @@ function formatDateTime(value: string | null) {
   return date.toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   })
 }
 
@@ -196,6 +198,21 @@ function computeBounds(points: AdminOrderMapPoint[]): Bounds | null {
   if (!Number.isFinite(minLat)) return null
   return { minLat, maxLat, minLng, maxLng }
 }
+
+// Great-circle distance in km — used for the adjustable coverage radius ("how many orders
+// fall within X km of the area centre").
+function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(bLat - aLat)
+  const dLng = toRad(bLng - aLng)
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+type RadiusCircle = { center: [number, number]; radiusKm: number }
 
 function cellPopupHtml(cell: GridCell) {
   return {
@@ -258,6 +275,7 @@ type SharedMapProps = {
   onZoom: (zoom: number) => void
   userLocation: UserLocation
   flyToUserSignal: number
+  radiusCircle: RadiusCircle | null
 }
 
 /* ────────────────────────── Leaflet map (fallback + default) ────────────────────────── */
@@ -398,6 +416,7 @@ function LeafletOrderMap({
   onZoom,
   userLocation,
   flyToUserSignal,
+  radiusCircle,
 }: SharedMapProps) {
   return (
     <MapContainer
@@ -413,6 +432,20 @@ function LeafletOrderMap({
       <LeafletFitBounds bounds={bounds} fitKey={fitKey} />
       <LeafletZoomTracker onZoom={onZoom} />
       <LeafletFlyToUser userLocation={userLocation} signal={flyToUserSignal} />
+
+      {radiusCircle ? (
+        <Circle
+          center={radiusCircle.center}
+          radius={radiusCircle.radiusKm * 1000}
+          pathOptions={{
+            color: "#fb3f8a",
+            fillColor: "#f9a8d4",
+            fillOpacity: 0.1,
+            opacity: 0.85,
+            weight: 2,
+          }}
+        />
+      ) : null}
 
       {userLocation ? (
         <>
@@ -545,6 +578,7 @@ function GoogleOrderMap({
     onZoom,
     userLocation,
     flyToUserSignal,
+    radiusCircle,
   } = props
   const { isLoaded, loadError } = useJsApiLoader({
     id: "foodbela-google-map",
@@ -652,6 +686,21 @@ function GoogleOrderMap({
         clickableIcons: false,
       }}
     >
+      {radiusCircle ? (
+        <CircleF
+          center={{ lat: radiusCircle.center[0], lng: radiusCircle.center[1] }}
+          radius={radiusCircle.radiusKm * 1000}
+          options={{
+            strokeColor: "#fb3f8a",
+            strokeOpacity: 0.85,
+            strokeWeight: 2,
+            fillColor: "#f9a8d4",
+            fillOpacity: 0.1,
+            clickable: false,
+          }}
+        />
+      ) : null}
+
       {view === "heat" ? (
         <HeatmapLayerF
           data={heatmapData}
@@ -779,6 +828,8 @@ export function OrderMapPage() {
   const [scopeKey, setScopeKey] = React.useState(() => getAdminZoneScopeKey())
   const [googleFailed, setGoogleFailed] = React.useState(false)
   const [flyToUserSignal, setFlyToUserSignal] = React.useState(0)
+  const [radiusEnabled, setRadiusEnabled] = React.useState(true)
+  const [radiusKm, setRadiusKm] = React.useState(3)
   const userLocation = useUserLocation()
 
   React.useEffect(
@@ -822,6 +873,34 @@ export function OrderMapPage() {
   const revealPoints = view === "grid" && zoom >= POINTS_REVEAL_ZOOM
   const areas = React.useMemo(() => topAreas(points, metric), [points, metric])
 
+  // Adjustable coverage ring (like the live map): a circle centred on the order cluster that
+  // the admin resizes to see how many orders / how much value falls within X km.
+  const radiusCenter = React.useMemo<[number, number]>(
+    () =>
+      bounds
+        ? [(bounds.minLat + bounds.maxLat) / 2, (bounds.minLng + bounds.maxLng) / 2]
+        : NETROKONA_CENTER,
+    [bounds],
+  )
+  const radiusCircle: RadiusCircle | null = radiusEnabled
+    ? { center: radiusCenter, radiusKm }
+    : null
+  const radiusStats = React.useMemo(() => {
+    if (!radiusEnabled) return { count: 0, amount: 0 }
+    let count = 0
+    let amount = 0
+    for (const point of points) {
+      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) continue
+      if (
+        haversineKm(radiusCenter[0], radiusCenter[1], point.lat, point.lng) <= radiusKm
+      ) {
+        count += 1
+        amount += point.amount || 0
+      }
+    }
+    return { count, amount }
+  }, [radiusEnabled, points, radiusCenter, radiusKm])
+
   const useGoogle = Boolean(GOOGLE_MAPS_KEY) && !googleFailed
   const sharedProps: SharedMapProps = {
     points,
@@ -835,6 +914,7 @@ export function OrderMapPage() {
     onZoom: setZoom,
     userLocation,
     flyToUserSignal,
+    radiusCircle,
   }
 
   return (
@@ -996,6 +1076,47 @@ export function OrderMapPage() {
             <LocateFixed className="size-4" />
             My location
           </button>
+
+          <div className="mt-1 border-t border-slate-100 pt-2">
+            <button
+              type="button"
+              onClick={() => setRadiusEnabled((value) => !value)}
+              className={
+                radiusEnabled
+                  ? "flex w-full items-center justify-center gap-1.5 rounded-lg bg-rose-500 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-rose-600"
+                  : "flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-200"
+              }
+            >
+              <Radar className="size-4" />
+              Radius {radiusEnabled ? "on" : "off"}
+            </button>
+            {radiusEnabled ? (
+              <div className="mt-2">
+                <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-semibold text-slate-700">
+                    {radiusKm.toFixed(1)} km
+                  </span>
+                  <span className="text-slate-500">
+                    {radiusStats.count} • {formatTk(radiusStats.amount)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={15}
+                  step={0.5}
+                  value={radiusKm}
+                  onChange={(event) => setRadiusKm(Number(event.target.value))}
+                  className="mt-1 h-2 w-full accent-rose-500"
+                  aria-label="Coverage radius in kilometres"
+                />
+                <div className="mt-0.5 flex justify-between text-[9px] text-slate-400">
+                  <span>1 km</span>
+                  <span>15 km</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 

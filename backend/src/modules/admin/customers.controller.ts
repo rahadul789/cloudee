@@ -15,6 +15,7 @@ import {
   listAdminCustomerOrders,
   listAdminCustomers,
   removeAdminCustomerGroupMember,
+  sendAdminCustomerMessage,
   updateAdminCustomerGroup,
   updateAdminCustomerReferralAccess,
   updateAdminCustomerStatus,
@@ -84,6 +85,14 @@ const listCustomerOrdersQuerySchema = detailsQuerySchema.extend({
 const statusSchema = z.object({
   status: z.enum(["active", "suspended", "locked"]),
   note: z.string().trim().optional(),
+});
+
+const messageSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  body: z.string().trim().min(1).max(1000),
+  imageUrl: z.string().trim().url().max(2048).optional().or(z.literal("")),
+  ctaLabel: z.string().trim().max(40).optional(),
+  ctaPath: z.string().trim().max(256).optional(),
 });
 
 function getStringParam(value: unknown) {
@@ -244,6 +253,29 @@ export const patchAdminCustomerStatus = asyncHandler(
 
     return sendSuccess(res, {
       message: "Customer status updated",
+      data,
+    });
+  },
+);
+
+export const postAdminCustomerMessage = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = messageSchema.parse(req.body);
+    await assertCustomerInAdminArea(req);
+    const data = await sendAdminCustomerMessage({
+      customerId: getStringParam(req.params.customerId),
+      adminId: getAdminId(req),
+      title: payload.title,
+      body: payload.body,
+      imageUrl: payload.imageUrl || undefined,
+      ctaLabel: payload.ctaLabel,
+      ctaPath: payload.ctaPath,
+    });
+
+    return sendSuccess(res, {
+      message: data.deliveredPush
+        ? "Message delivered"
+        : "Message saved to the customer's inbox",
       data,
     });
   },

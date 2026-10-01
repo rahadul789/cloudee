@@ -106,6 +106,21 @@ function call(phone?: string) {
   if (phone) void Linking.openURL(`tel:${phone}`);
 }
 
+function openMapsTo(
+  lat?: number | null,
+  lng?: number | null,
+  fallbackAddress?: string,
+) {
+  const query =
+    typeof lat === "number" && typeof lng === "number"
+      ? `${lat},${lng}`
+      : fallbackAddress;
+  if (!query) return;
+  void Linking.openURL(
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
+  );
+}
+
 function minsSince(iso?: string | null) {
   if (!iso) return null;
   const time = new Date(iso).getTime();
@@ -168,11 +183,17 @@ export type SheetContextOrder = {
   amount: number;
   prepRemainingSeconds: number | null;
   prepLabel: string;
+  restaurantId: string;
   restaurantName: string;
   restaurantAddress: string;
+  restaurantPhone: string;
   restaurantLat: number | null;
   restaurantLng: number | null;
   customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerLat: number | null;
+  customerLng: number | null;
 };
 
 function prepText(remainingSeconds: number | null, label: string, t: SheetCopy) {
@@ -193,6 +214,29 @@ function openContextNavigation(context: SheetContextOrder) {
   );
 }
 
+// Google Maps directions to THIS order's customer (exact drop point) — one customer per
+// order, so same-restaurant orders never mix destinations.
+function openCustomerNavigation(context: SheetContextOrder) {
+  const query =
+    typeof context.customerLat === "number" && typeof context.customerLng === "number"
+      ? `${context.customerLat},${context.customerLng}`
+      : context.customerAddress;
+  if (!query) return;
+  void Linking.openURL(
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
+  );
+}
+
+function contextCustomerCoord(context: SheetContextOrder) {
+  if (
+    typeof context.customerLat === "number" &&
+    typeof context.customerLng === "number"
+  ) {
+    return { latitude: context.customerLat, longitude: context.customerLng };
+  }
+  return null;
+}
+
 // The rider's whole work surface, docked over the map. Two modes in one sheet:
 //   • list   — Offers (accept) + My Tasks (with amount, "assigned X ago", LIVE badge,
 //              Set-live), tap a card to open its detail.
@@ -204,6 +248,7 @@ export function HomeOrdersSheet({
   isOnline = true,
   onSelectOrder,
   onFocusOrderOnMap,
+  onShowCustomerOnMap,
   contextOrders = [],
 }: {
   selectedOrderId: string;
@@ -211,6 +256,7 @@ export function HomeOrdersSheet({
   isOnline?: boolean;
   onSelectOrder: (id: string) => void;
   onFocusOrderOnMap?: (coord: { latitude: number; longitude: number }) => void;
+  onShowCustomerOnMap?: (coord: { latitude: number; longitude: number }) => void;
   contextOrders?: SheetContextOrder[];
 }) {
   const activeQuery = useRiderOrdersQuery("active");
@@ -257,6 +303,15 @@ export function HomeOrdersSheet({
     !selectedFromList && selectedOrderId
       ? contextOrders.find((order) => order.id === selectedOrderId) ?? null
       : null;
+  // Other orders from the SAME restaurant as the selected one — so when several orders share a
+  // restaurant the rider can jump between them from a chip row instead of being stuck on one.
+  const selectedContextOrder =
+    contextOrders.find((order) => order.id === selectedOrderId) ?? null;
+  const siblingOrders = selectedContextOrder?.restaurantId
+    ? contextOrders
+        .filter((order) => order.restaurantId === selectedContextOrder.restaurantId)
+        .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
+    : [];
   // Fetch full details (route/ETA/timeline/items) for any selected order that isn't a context
   // order — covers active/available tasks AND deep-linked orders (e.g. from a notification or
   // history), so the sheet can show any order without a separate screen.
@@ -461,6 +516,13 @@ export function HomeOrdersSheet({
       peekDragHeight={92}
       peek={peek}
     >
+      {siblingOrders.length > 1 && selectedOrderId ? (
+        <OrderSwitcher
+          orders={siblingOrders}
+          selectedOrderId={selectedOrderId}
+          onSelect={onSelectOrder}
+        />
+      ) : null}
       {selected ? (
         <OrderDetail
           order={selected}
@@ -474,7 +536,13 @@ export function HomeOrdersSheet({
           onShowOnMap={() => showOrderOnMap(selected)}
         />
       ) : context ? (
-        <ContextDetail context={context} />
+        <ContextDetail
+          context={context}
+          onShowCustomer={(coord) => {
+            (onShowCustomerOnMap ?? onFocusOrderOnMap)?.(coord);
+            sheetRef.current?.collapse();
+          }}
+        />
       ) : (
         <>
           {offers.length > 0 ? (
@@ -917,7 +985,15 @@ function OrderDetail({
         icon="storefront"
         title={order.restaurant?.name || "Restaurant"}
         subtitle={order.restaurant?.address || "—"}
+        phone={order.restaurant?.phone || undefined}
         onCall={order.restaurant?.phone ? () => call(order.restaurant?.phone) : undefined}
+        onNavigate={() =>
+          openMapsTo(
+            order.restaurant?.latitude,
+            order.restaurant?.longitude,
+            order.restaurant?.address,
+          )
+        }
       />
       <DetailRow
         icon="location"
@@ -927,7 +1003,15 @@ function OrderDetail({
           order.customer?.deliveryAddress?.label ||
           "—"
         }
+        phone={order.customer?.phone || undefined}
         onCall={order.customer?.phone ? () => call(order.customer?.phone) : undefined}
+        onNavigate={() =>
+          openMapsTo(
+            order.customer?.deliveryAddress?.latitude,
+            order.customer?.deliveryAddress?.longitude,
+            order.customer?.deliveryAddress?.addressLine,
+          )
+        }
       />
 
       <OrderTimeline history={order.history} />
@@ -1205,11 +1289,18 @@ function OrderItems({ items }: { items?: RiderOrder["items"] }) {
   );
 }
 
-function ContextDetail({ context }: { context: SheetContextOrder }) {
+function ContextDetail({
+  context,
+  onShowCustomer,
+}: {
+  context: SheetContextOrder;
+  onShowCustomer?: (coord: { latitude: number; longitude: number }) => void;
+}) {
   const { copy } = useDeliveryCopy();
   const t = copy.sheet;
   const status = getOrderStatusBadge(context.status);
   const isCooking = context.status === "Preparing" || context.status === "Accepted";
+  const customerCoord = contextCustomerCoord(context);
   return (
     <View style={styles.detail}>
       <View style={styles.detailHeader}>
@@ -1243,15 +1334,34 @@ function ContextDetail({ context }: { context: SheetContextOrder }) {
         icon="storefront"
         title={context.restaurantName || copy.common.restaurant}
         subtitle={context.restaurantAddress || "—"}
+        phone={context.restaurantPhone || undefined}
+        onCall={context.restaurantPhone ? () => call(context.restaurantPhone) : undefined}
+        onNavigate={
+          context.restaurantLat != null && context.restaurantLng != null
+            ? () => openContextNavigation(context)
+            : undefined
+        }
       />
       {context.customerName ? (
-        <DetailRow icon="location" title={context.customerName} subtitle={copy.common.customer} />
+        <DetailRow
+          icon="location"
+          title={context.customerName}
+          subtitle={context.customerAddress || copy.common.customer}
+          phone={context.customerPhone || undefined}
+          onCall={context.customerPhone ? () => call(context.customerPhone) : undefined}
+          onNavigate={customerCoord ? () => openCustomerNavigation(context) : undefined}
+        />
       ) : null}
 
-      <Pressable style={styles.detailSecondary} onPress={() => openContextNavigation(context)}>
-        <Ionicons name="navigate" size={17} color={palette.foreground} />
-        <Text style={styles.detailSecondaryText}>{t.navigateToRestaurant}</Text>
-      </Pressable>
+      {customerCoord && onShowCustomer ? (
+        <Pressable
+          style={styles.showMapButtonWide}
+          onPress={() => onShowCustomer(customerCoord)}
+        >
+          <Ionicons name="location" size={15} color={palette.secondary} />
+          <Text style={styles.showMapText}>{t.showCustomerOnMap}</Text>
+        </Pressable>
+      ) : null}
 
       <View style={styles.noteCard}>
         <Ionicons name="information-circle" size={16} color={palette.info} />
@@ -1263,16 +1373,68 @@ function ContextDetail({ context }: { context: SheetContextOrder }) {
   );
 }
 
+// Chip row shown when several orders share the selected order's restaurant, so the rider can
+// switch between them (was stuck on one before). Highlights the current order.
+function OrderSwitcher({
+  orders,
+  selectedOrderId,
+  onSelect,
+}: {
+  orders: SheetContextOrder[];
+  selectedOrderId: string;
+  onSelect: (id: string) => void;
+}) {
+  const { copy } = useDeliveryCopy();
+  return (
+    <View style={styles.switcherWrap}>
+      <Text style={styles.switcherLabel}>
+        {copy.sheet.ordersHere(orders.length)}
+      </Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.switcherRow}
+      >
+        {orders.map((order) => {
+          const active = order.id === selectedOrderId;
+          const badge = getOrderStatusBadge(order.status);
+          return (
+            <Pressable
+              key={order.id}
+              onPress={() => onSelect(order.id)}
+              style={[styles.switcherChip, active ? styles.switcherChipActive : null]}
+            >
+              <View style={[styles.switcherDot, { backgroundColor: badge.color }]} />
+              <Text
+                style={[
+                  styles.switcherChipText,
+                  active ? styles.switcherChipTextActive : null,
+                ]}
+              >
+                #{order.orderNumber.slice(-4)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 function DetailRow({
   icon,
   title,
   subtitle,
+  phone,
   onCall,
+  onNavigate,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
+  phone?: string;
   onCall?: () => void;
+  onNavigate?: () => void;
 }) {
   return (
     <View style={styles.detailRow}>
@@ -1286,12 +1448,25 @@ function DetailRow({
         <Text style={styles.detailRowSubtitle} numberOfLines={2}>
           {subtitle}
         </Text>
+        {phone ? (
+          <View style={styles.detailPhoneRow}>
+            <Ionicons name="call" size={12} color={palette.success} />
+            <Text style={styles.detailPhoneText}>{phone}</Text>
+          </View>
+        ) : null}
       </View>
-      {onCall ? (
-        <Pressable style={styles.callButton} onPress={onCall} hitSlop={8}>
-          <Ionicons name="call" size={16} color={palette.success} />
-        </Pressable>
-      ) : null}
+      <View style={styles.detailRowActions}>
+        {onCall ? (
+          <Pressable style={styles.callButton} onPress={onCall} hitSlop={6}>
+            <Ionicons name="call" size={17} color={palette.success} />
+          </Pressable>
+        ) : null}
+        {onNavigate ? (
+          <Pressable style={styles.navIconButton} onPress={onNavigate} hitSlop={6}>
+            <Ionicons name="navigate" size={17} color={palette.secondary} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -1609,6 +1784,17 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   showMapText: { fontSize: 12.5, fontWeight: "900", color: palette.secondary },
+  showMapButtonWide: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#FFCEE0",
+    backgroundColor: "#FFF1F6",
+    paddingVertical: 11,
+  },
   blockCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1883,6 +2069,33 @@ const styles = StyleSheet.create({
   detailRowText: { flex: 1, minWidth: 0 },
   detailRowTitle: { fontSize: 14, fontWeight: "800", color: palette.foreground },
   detailRowSubtitle: { marginTop: 2, fontSize: 12, fontWeight: "600", color: palette.mutedForeground },
+  detailPhoneRow: { marginTop: 3, flexDirection: "row", alignItems: "center", gap: 4 },
+  detailPhoneText: { fontSize: 12.5, fontWeight: "900", color: palette.success },
+  switcherWrap: { paddingBottom: 12, gap: 7 },
+  switcherLabel: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: palette.mutedForeground,
+  },
+  switcherRow: { flexDirection: "row", gap: 8, paddingRight: 8 },
+  switcherChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  switcherChipActive: {
+    borderColor: palette.secondary,
+    backgroundColor: "#FFF1F6",
+  },
+  switcherDot: { width: 7, height: 7, borderRadius: 4 },
+  switcherChipText: { fontSize: 13, fontWeight: "900", color: palette.mutedForeground },
+  switcherChipTextActive: { color: palette.secondary },
   callButton: {
     width: 38,
     height: 38,
@@ -1891,7 +2104,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: palette.successSoft,
   },
+  detailRowActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  navIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF1F6",
+  },
   detailActionsRow: { flexDirection: "row", gap: 10 },
+  contextNavStack: { gap: 9 },
+  navButtonFull: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  navButtonText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.foreground,
+  },
   detailSecondary: {
     flex: 1,
     flexDirection: "row",

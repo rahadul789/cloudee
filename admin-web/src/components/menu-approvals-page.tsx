@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { formatDateTime } from "@/lib/utils"
 
 type StatusFilter = AdminMenuApprovalStatus | "all"
 type TypeFilter = AdminMenuApprovalType | "all"
@@ -78,10 +79,7 @@ function formatCurrency(value: number | null | undefined) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function statusLabel(status: StatusFilter) {

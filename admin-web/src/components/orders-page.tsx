@@ -54,6 +54,7 @@ import {
   type AdminRiderAssignmentOption,
 } from "@/lib/admin-api"
 import { printTableReport } from "@/lib/export-utils"
+import { formatDateTime } from "@/lib/utils"
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -193,10 +194,7 @@ const defaultColumnVisibility: Record<OrderColumnKey, boolean> = {
 const pageSizeOptions = [10, 20, 50]
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function formatCurrency(value: number) {

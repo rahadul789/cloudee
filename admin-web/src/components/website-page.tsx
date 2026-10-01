@@ -127,6 +127,7 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
+    hour12: true,
   }).format(date)
 }
 

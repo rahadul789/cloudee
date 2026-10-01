@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { formatDateTime } from "@/lib/utils"
 
 function fromDatetimeLocalValue(value: string): string | null {
   if (!value) return null
@@ -116,7 +117,7 @@ function PollResultsView({ pollId }: { pollId: string }) {
                 <p className="text-xs">{item.feedback}</p>
                 <p className="mt-1 text-[10px] text-muted-foreground">
                   {item.optionLabel ? `${item.optionLabel} · ` : ""}
-                  {new Date(item.createdAt).toLocaleString()}
+                  {formatDateTime(item.createdAt)}
                 </p>
               </div>
             ))}
@@ -256,7 +257,7 @@ export function PollManagerSection() {
                 <Badge>Active</Badge>
                 {activePoll.endsAt ? (
                   <span className="text-xs text-muted-foreground">
-                    Ends {new Date(activePoll.endsAt).toLocaleString()}
+                    Ends {formatDateTime(activePoll.endsAt)}
                   </span>
                 ) : null}
               </div>

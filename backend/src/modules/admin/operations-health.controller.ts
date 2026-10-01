@@ -16,6 +16,7 @@ import { asyncHandler } from "../../common/utils/async-handler";
 import { logger } from "../../config/logger";
 import {
   resolveAdminOperationalAlert,
+  resolveAdminOperationalAlerts,
   snoozeAdminOperationalAlert,
 } from "./admin-alert.service";
 import { getAdminOperationalHealthSnapshot } from "./business-event.service";
@@ -42,6 +43,11 @@ const rateLimitSnapshotQuerySchema = z.object({
 
 const snoozeAlertBodySchema = z.object({
   minutes: z.coerce.number().int().positive().max(24 * 60).default(30),
+});
+
+const resolveAlertsBatchBodySchema = z.object({
+  // Ids of the alerts to resolve. Empty/omitted → resolve every active alert.
+  alertIds: z.array(z.string().trim().min(1)).max(500).optional(),
 });
 
 export const getAdminOperationalHealth = asyncHandler(
@@ -104,6 +110,18 @@ export const patchAdminOperationalAlertResolve = asyncHandler(
 
     return sendSuccess(res, {
       message: data.updated ? "Operational alert resolved" : "Operational alert not found",
+      data,
+    });
+  },
+);
+
+export const postAdminOperationalAlertsResolveAll = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const body = resolveAlertsBatchBodySchema.parse(req.body ?? {});
+    const data = await resolveAdminOperationalAlerts(body.alertIds ?? []);
+
+    return sendSuccess(res, {
+      message: `${data.resolved} alert${data.resolved === 1 ? "" : "s"} resolved`,
       data,
     });
   },

@@ -98,6 +98,7 @@ const RIDER_LIVE_MAP_ORDER_SELECT = [
   "serviceAreaSnapshot",
   "customerSnapshot.name",
   "customerSnapshot.fullName",
+  "customerSnapshot.phone",
   "customerSnapshot.deliveryAddress",
   "riderTracking",
   "preparationMeta",
@@ -508,6 +509,8 @@ function mapLiveMapOrder(
     customer: {
       id: String(order.customerId ?? ""),
       name: order.customerSnapshot?.name ?? order.customerSnapshot?.fullName ?? "",
+      // The rider can call the customer for THEIR OWN delivery (same as the full order detail).
+      phone: order.customerSnapshot?.phone ?? "",
       addressLabel: customerAddress.label ?? "",
       addressLine: customerAddress.addressLine ?? "",
       addressDetails: customerAddress.addressDetails ?? "",

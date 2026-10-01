@@ -454,6 +454,10 @@ export default function RiderMapScreen() {
   const [selectedRestaurantId, setSelectedRestaurantId] = useState("");
   const [isSheetVisible, setIsSheetVisible] = useState(false);
   const [readyOnly, setReadyOnly] = useState(false);
+  // When on, a customer (drop) pin is shown for EVERY order — not just picked-up ones — plus a
+  // straight restaurant→customer line, so the rider sees each individual order's drop point even
+  // when several orders share one restaurant. ON by default; the rider can toggle it off.
+  const [showCustomers, setShowCustomers] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   // Bumped on every marker tap so the sheet re-expands even when the same pin is tapped
@@ -594,26 +598,37 @@ export default function RiderMapScreen() {
       }
       restaurant.orders.forEach((order) => {
         const dropLoc = order.customer?.location;
-        if (order.status === "PickedUp" && isCoordinate(dropLoc)) {
+        if (!isCoordinate(dropLoc)) return;
+        const isPickedUp = order.status === "PickedUp";
+        // Picked-up orders always show their drop pin (in-transit). Not-yet-picked-up orders
+        // only when "show customers" is on — this is what lets the rider reach EACH individual
+        // order (one drop pin per order) instead of a single grouped restaurant pin.
+        if (!isPickedUp && !showCustomers) return;
+        let deliveryOver = 0;
+        if (isPickedUp) {
           const activeDrop = activeById.get(order.id);
-          const deliveryOver =
+          deliveryOver =
             activeDrop?.status === "PickedUp"
               ? (minutesSince(activeDrop.timestamps?.PickedUp) ?? 0) - deliveryLateMinutes
               : 0;
-          const deliveryLate = deliveryOver > 0;
-          result.push({
-            id: `drop:${order.id}:${restaurant.id}`,
-            kind: "drop",
-            latitude: dropLoc.latitude,
-            longitude: dropLoc.longitude,
-            label: order.customer?.name || order.orderNumber,
-            statusColor: STATUS_COLORS.PickedUp,
-            live: Boolean(activeTrackingOrderId) && order.id === activeTrackingOrderId,
-            alert: deliveryLate ? "late" : undefined,
-            alertMinutes: deliveryLate ? Math.max(1, Math.round(deliveryOver)) : undefined,
-            focused,
-          });
         }
+        const deliveryLate = deliveryOver > 0;
+        result.push({
+          id: `drop:${order.id}:${restaurant.id}`,
+          kind: "drop",
+          latitude: dropLoc.latitude,
+          longitude: dropLoc.longitude,
+          label: order.customer?.name || order.orderNumber,
+          // Order id last-4 on the pin so the rider can tell customer pins apart at a glance.
+          tag: `#${order.orderNumber.slice(-4)}`,
+          statusColor: isPickedUp
+            ? STATUS_COLORS.PickedUp
+            : STATUS_COLORS[order.status] ?? STATUS_COLORS.Accepted,
+          live: isPickedUp && Boolean(activeTrackingOrderId) && order.id === activeTrackingOrderId,
+          alert: deliveryLate ? "late" : undefined,
+          alertMinutes: deliveryLate ? Math.max(1, Math.round(deliveryOver)) : undefined,
+          focused,
+        });
       });
     });
     return result;
@@ -625,7 +640,33 @@ export default function RiderMapScreen() {
     activeById,
     pickupLateGraceMinutes,
     deliveryLateMinutes,
+    showCustomers,
   ]);
+
+  // Straight restaurant→customer lines (dashed direction hints) for every order, shown only
+  // when "show customers" is on. Not real roads — the per-order Navigate button opens Google
+  // Maps for turn-by-turn. Toggle-gated so the default map stays uncluttered.
+  const customerLines = useMemo<MapRoute[]>(() => {
+    if (!showCustomers) return [];
+    const lines: MapRoute[] = [];
+    sortedRestaurants.forEach((restaurant) => {
+      const rLoc = restaurant.location;
+      if (!isCoordinate(rLoc)) return;
+      restaurant.orders.forEach((order) => {
+        const cLoc = order.customer?.location;
+        if (!isCoordinate(cLoc)) return;
+        lines.push({
+          key: `line:${order.id}`,
+          coords: [
+            { latitude: rLoc.latitude, longitude: rLoc.longitude },
+            { latitude: cLoc.latitude, longitude: cLoc.longitude },
+          ],
+          dashed: true,
+        });
+      });
+    });
+    return lines;
+  }, [showCustomers, sortedRestaurants]);
 
   // Every active leg drawn at once so the rider sees all their orders on the home map (no
   // need to open the details screen): the order sharing live location is a SOLID full-colour
@@ -680,11 +721,18 @@ export default function RiderMapScreen() {
           amount: order.pricing?.total ?? 0,
           prepRemainingSeconds: order.preparation?.remainingSeconds ?? null,
           prepLabel: order.preparation?.label ?? "",
+          restaurantId: restaurant.id,
           restaurantName: restaurant.name,
           restaurantAddress: restaurant.address ?? "",
+          restaurantPhone: restaurant.phone ?? "",
           restaurantLat: restaurant.location?.latitude ?? null,
           restaurantLng: restaurant.location?.longitude ?? null,
           customerName: order.customer?.name ?? "",
+          customerPhone: order.customer?.phone ?? "",
+          customerAddress:
+            order.customer?.addressLine || order.customer?.addressLabel || "",
+          customerLat: order.customer?.location?.latitude ?? null,
+          customerLng: order.customer?.location?.longitude ?? null,
         });
       });
     });
@@ -762,6 +810,15 @@ export default function RiderMapScreen() {
   // "Show on map" from the sheet detail: zoom in tight on the selected order's marker.
   const focusOrderOnMap = useCallback(
     (coord: { latitude: number; longitude: number }) => {
+      deliveryMapRef.current?.animateTo(coord, 0.006);
+    },
+    [],
+  );
+  // "Show customer on map": force the customer pins ON (else the pin isn't drawn and the map
+  // would zoom to an empty spot) and then zoom to the customer.
+  const showCustomerOnMap = useCallback(
+    (coord: { latitude: number; longitude: number }) => {
+      setShowCustomers(true);
       deliveryMapRef.current?.animateTo(coord, 0.006);
     },
     [],
@@ -850,7 +907,7 @@ export default function RiderMapScreen() {
           style={StyleSheet.absoluteFill}
           stops={mapStops}
           rider={riderForMap}
-          routes={mapRoutes}
+          routes={[...mapRoutes, ...customerLines]}
           showUserLocation
           fitPadding={{
             top: insets.top + 130,
@@ -917,8 +974,24 @@ export default function RiderMapScreen() {
         </View>
       </SafeAreaView>
 
-      {/* Bottom-right controls: recenter on me + navigate to next stop. */}
+      {/* Bottom-right controls: show-customers toggle + recenter on me + navigate to next stop. */}
       <View style={[styles.mapControls, { bottom: Math.max(insets.bottom, 12) + 168 }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={mapCopy.showCustomers}
+          onPress={() => setShowCustomers((value) => !value)}
+          style={({ pressed }) => [
+            styles.recenterButton,
+            showCustomers ? styles.mapButtonActive : null,
+            pressed ? styles.mapButtonPressed : null,
+          ]}
+        >
+          <Ionicons
+            name={showCustomers ? "people" : "people-outline"}
+            size={20}
+            color={showCustomers ? palette.secondary : palette.foreground}
+          />
+        </Pressable>
         <Pressable
           accessibilityRole="button"
           onPress={recenter}
@@ -955,6 +1028,7 @@ export default function RiderMapScreen() {
         isOnline={isOnline}
         onSelectOrder={setSelectedOrderId}
         onFocusOrderOnMap={focusOrderOnMap}
+        onShowCustomerOnMap={showCustomerOnMap}
         contextOrders={contextOrders}
       />
 

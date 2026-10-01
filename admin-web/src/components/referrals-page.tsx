@@ -89,6 +89,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { formatDateTime } from "@/lib/utils"
 
 type ReferralStatusFilter = "all" | AdminReferralStatus
 type ReferralPreset =
@@ -121,10 +122,7 @@ type WelcomeOfferDeviceSort =
   | "referrals"
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function formatCurrency(value: number) {

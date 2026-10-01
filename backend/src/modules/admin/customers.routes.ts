@@ -15,6 +15,7 @@ import {
   patchAdminCustomerGroup,
   postAdminCustomerGroup,
   postAdminCustomerGroupMembers,
+  postAdminCustomerMessage,
 } from "./customers.controller";
 
 export const adminCustomersRouter = Router();
@@ -45,6 +46,7 @@ adminCustomersRouter.delete(
   deleteAdminCustomerOffer,
 );
 adminCustomersRouter.patch("/customers/:customerId/status", patchAdminCustomerStatus);
+adminCustomersRouter.post("/customers/:customerId/message", postAdminCustomerMessage);
 adminCustomersRouter.patch(
   "/customers/:customerId/referral-access",
   patchAdminCustomerReferralAccess,

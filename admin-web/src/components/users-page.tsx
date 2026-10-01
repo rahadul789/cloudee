@@ -6,6 +6,7 @@ import {
   ChevronDown,
   CheckCircle2,
   Eye,
+  ImagePlus,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -14,6 +15,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  Send,
   ShieldCheck,
   Smartphone,
   TableConfig,
@@ -23,6 +25,7 @@ import {
   UserPlus,
   Users,
   UsersRound,
+  X,
 } from "lucide-react"
 import {
   Area,
@@ -47,10 +50,12 @@ import {
   deleteAdminRestaurantReview,
   restoreAdminRestaurantReview,
   removeAdminCustomerGroupMember,
+  sendAdminCustomerMessage,
   updateAdminCustomerGroup,
   getAdminCustomerDeviceIntel,
   updateAdminCustomerReferralAccess,
   updateAdminCustomerStatus,
+  uploadAdminMedia,
   type AdminCustomerDetails,
   type AdminCustomerBehaviorSummary,
   type AdminCustomerGroup,
@@ -59,6 +64,7 @@ import {
   type AdminCustomerTier,
   type AdminRestaurantOrderDateFilterPreset,
 } from "@/lib/admin-api"
+import { validateImageFile } from "@/lib/image-upload"
 import {
   getAdminZoneScope,
   subscribeAdminZoneScope,
@@ -76,7 +82,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
+import { cn, formatDateTime } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -212,10 +218,7 @@ const smartCustomerGroups = [
 ]
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function formatShortDate(value?: string | null) {
@@ -304,6 +307,234 @@ function formatOfferTimeLeft(expiresAt?: string | null) {
   if (hours >= 1) return `${hours} hour${hours > 1 ? "s" : ""} left`
   const minutes = Math.max(1, Math.floor(diff / 60_000))
   return `${minutes}min left`
+}
+
+const MESSAGE_CTA_PRESETS: Array<{ label: string; path: string }> = [
+  { label: "Home", path: "/" },
+  { label: "Offers", path: "/offers" },
+  { label: "Notifications", path: "/notifications" },
+]
+
+function CustomerMessageTab({ details }: { details: AdminCustomerDetails }) {
+  const [title, setTitle] = React.useState("")
+  const [body, setBody] = React.useState("")
+  const [imageUrl, setImageUrl] = React.useState("")
+  const [ctaLabel, setCtaLabel] = React.useState("")
+  const [ctaPath, setCtaPath] = React.useState("")
+  const [uploading, setUploading] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      sendAdminCustomerMessage({
+        customerId: details.id,
+        title: title.trim(),
+        body: body.trim(),
+        imageUrl: imageUrl || undefined,
+        ctaLabel: ctaLabel.trim() || undefined,
+        ctaPath: ctaPath.trim() || undefined,
+      }),
+    onSuccess: (result) => {
+      toast.success(
+        result.deliveredPush
+          ? "Push delivered to the customer."
+          : "Saved to the customer's in-app inbox (no active device for push).",
+      )
+      setTitle("")
+      setBody("")
+      setImageUrl("")
+      setCtaLabel("")
+      setCtaPath("")
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "Message could not be sent.",
+      )
+    },
+  })
+
+  async function handleImage(file?: File | null) {
+    if (!file) return
+    const validation = validateImageFile(file)
+    if (!validation.ok) {
+      toast.error(validation.title, { description: validation.description })
+      return
+    }
+    setUploading(true)
+    try {
+      const asset = await uploadAdminMedia(file, "foodbela/admin/direct-message")
+      setImageUrl(asset.url)
+    } catch {
+      toast.error("Image upload failed")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const canSend = Boolean(title.trim() && body.trim()) && !mutation.isPending
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Send {details.fullName || "this customer"} a direct promotional or informational
+          message. It arrives as a push notification and is also saved to their in-app inbox,
+          so it is never lost even if push is off.
+        </p>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="direct-message-title">Title</Label>
+          <Input
+            id="direct-message-title"
+            value={title}
+            maxLength={120}
+            placeholder="e.g. A special treat for you 🎁"
+            onChange={(event) => setTitle(event.target.value)}
+          />
+          <p className="text-right text-[10px] text-muted-foreground">{title.length}/120</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="direct-message-body">Message</Label>
+          <Textarea
+            id="direct-message-body"
+            value={body}
+            maxLength={1000}
+            rows={4}
+            placeholder="Write the message the customer will read…"
+            onChange={(event) => setBody(event.target.value)}
+          />
+          <p className="text-right text-[10px] text-muted-foreground">{body.length}/1000</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Image (optional)</Label>
+          {imageUrl ? (
+            <div className="relative w-fit">
+              <img
+                src={imageUrl}
+                alt="Message attachment"
+                className="max-h-40 rounded-lg border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                className="absolute -right-2 -top-2 flex size-6 items-center justify-center rounded-full bg-slate-900 text-white shadow"
+                aria-label="Remove image"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <ImagePlus className="size-4" />
+              )}
+              Add image
+            </Button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => handleImage(event.target.files?.[0])}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="direct-message-cta-path">Tap action (optional)</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {MESSAGE_CTA_PRESETS.map((preset) => (
+              <button
+                key={preset.path}
+                type="button"
+                onClick={() => {
+                  setCtaPath(preset.path)
+                  if (!ctaLabel.trim()) setCtaLabel(preset.label)
+                }}
+                className={
+                  ctaPath === preset.path
+                    ? "rounded-full bg-rose-500 px-2.5 py-1 text-xs font-medium text-white"
+                    : "rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                }
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              id="direct-message-cta-label"
+              value={ctaLabel}
+              maxLength={40}
+              placeholder="Button label (e.g. See offers)"
+              onChange={(event) => setCtaLabel(event.target.value)}
+            />
+            <Input
+              id="direct-message-cta-path"
+              value={ctaPath}
+              maxLength={256}
+              placeholder="In-app path (e.g. /offers)"
+              onChange={(event) => setCtaPath(event.target.value)}
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Where the customer lands when they tap the notification. Leave blank to open their
+            inbox.
+          </p>
+        </div>
+
+        <Button type="button" disabled={!canSend} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Send className="size-4" />
+          )}
+          Send message
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground">Preview</Label>
+        <div className="rounded-xl border bg-muted/30 p-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <div className="flex size-7 items-center justify-center rounded-md bg-rose-500 text-xs font-bold text-white">
+              F
+            </div>
+            <span className="text-xs font-semibold text-slate-700">Foodbela</span>
+          </div>
+          <p className="mt-2 text-sm font-semibold text-slate-900">
+            {title.trim() || "Message title"}
+          </p>
+          <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-600">
+            {body.trim() || "Your message preview appears here."}
+          </p>
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt="Preview attachment"
+              className="mt-2 max-h-32 w-full rounded-lg object-cover"
+            />
+          ) : null}
+          {ctaLabel.trim() ? (
+            <span className="mt-2 inline-block rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-medium text-white">
+              {ctaLabel.trim()}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function CustomerOffersTab({ details }: { details: AdminCustomerDetails }) {
@@ -1094,6 +1325,7 @@ function CustomerDetailsSheet({
                   <TabsTrigger value="reviews">Reviews</TabsTrigger>
                   <TabsTrigger value="account">Account</TabsTrigger>
                   <TabsTrigger value="offers">Offers</TabsTrigger>
+                  <TabsTrigger value="message">Message</TabsTrigger>
                   <TabsTrigger value="referrals">Referrals</TabsTrigger>
                   <TabsTrigger value="devices">Devices</TabsTrigger>
                   <TabsTrigger value="suspicious">Suspicious</TabsTrigger>
@@ -1339,6 +1571,10 @@ function CustomerDetailsSheet({
 
                 <TabsContent value="offers">
                   <CustomerOffersTab details={details} />
+                </TabsContent>
+
+                <TabsContent value="message">
+                  <CustomerMessageTab details={details} />
                 </TabsContent>
 
                 <TabsContent value="referrals">

@@ -4210,11 +4210,18 @@ export async function createAdminFinancePayout(params: CreateAdminPayoutParams) 
         amount,
         includePending: params.includePending,
       });
-      assertStatementReview({
-        reviewed: params.statementReviewed,
-        providedChecksum: params.statementChecksum,
-        expectedChecksum: selected.checksum,
-      });
+      // Statement review is optional for admin-created payouts — we no longer force a
+      // download/review before paying. If the admin DID generate a statement, we still
+      // guard against a stale breakdown (ledger changed since they reviewed it).
+      if (params.statementChecksum?.trim()) {
+        if (params.statementChecksum.trim() !== selected.checksum) {
+          throw new AppError(
+            StatusCodes.CONFLICT,
+            "PAYOUT_STATEMENT_CHANGED",
+            "Payout transaction breakdown changed. Download the statement again",
+          );
+        }
+      }
       const selectedEntryIds = selected.entries.map((entry) => entry._id);
 
       const [payoutBatch] = await PayoutBatchModel.create(

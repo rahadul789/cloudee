@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { emitSocketEvent } from "../../config/socket";
 import { logger } from "../../config/logger";
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
@@ -238,32 +239,6 @@ function alertMatchesScope(
   return Boolean(orderId && scopedOrderIds.has(orderId));
 }
 
-function buildAlertReadScopeQuery(
-  scopeContext: Awaited<ReturnType<typeof buildAlertScopeContext>>,
-) {
-  if (!scopeContext) return {};
-
-  const clauses: Record<string, unknown>[] = [];
-  const zoneIds = Array.from(scopeContext.zoneIds);
-  const districtIds = Array.from(scopeContext.districtIds);
-
-  if (zoneIds.length) {
-    clauses.push(
-      { "metadata.zoneId": { $in: zoneIds } },
-      { "metadata.serviceArea.zoneId": { $in: zoneIds } },
-      { "metadata.serviceAreaSnapshot.zoneId": { $in: zoneIds } },
-    );
-  }
-  if (districtIds.length) {
-    clauses.push(
-      { "metadata.districtId": { $in: districtIds } },
-      { "metadata.serviceArea.districtId": { $in: districtIds } },
-      { "metadata.serviceAreaSnapshot.districtId": { $in: districtIds } },
-    );
-  }
-
-  return clauses.length ? { $or: clauses } : { _id: { $in: [] } };
-}
 
 function joinNameAndContact(name: unknown, contact: unknown) {
   return [stringDetail(name), stringDetail(contact)].filter(Boolean).join(" · ");
@@ -504,6 +479,33 @@ export async function resolveAdminOperationalAlert(alertId: string) {
   return { updated: result.modifiedCount > 0 };
 }
 
+// Batch "resolve all" from the Action Center. Resolves the given still-active alert ids in one
+// write. When `alertIds` is empty it resolves EVERY currently-unresolved alert. Only unresolved
+// alerts are touched, so re-clicking is a no-op and resolved ones are never rewritten.
+export async function resolveAdminOperationalAlerts(alertIds: string[] = []) {
+  const validIds = alertIds
+    .map((id) => String(id ?? "").trim())
+    .filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const filter: Record<string, any> = { resolvedAt: null };
+  if (validIds.length) {
+    filter._id = { $in: validIds };
+  }
+  const resolvedAt = new Date();
+  const result = await AdminOperationalAlertModel.updateMany(filter, {
+    $set: {
+      isRead: true,
+      readAt: resolvedAt,
+      resolvedAt,
+      snoozedUntil: null,
+    },
+  });
+  if (result.modifiedCount > 0) {
+    invalidateAdminOperationalAlertsCache();
+    invalidateAdminOperationalHealthCache();
+  }
+  return { resolved: result.modifiedCount };
+}
+
 export async function resolveAdminOperationalAlertByDedupeKey(dedupeKey: string) {
   const resolvedAt = new Date();
   const result = await AdminOperationalAlertModel.updateOne(
@@ -548,43 +550,23 @@ export async function snoozeAdminOperationalAlert(alertId: string, minutes: numb
 export async function markAllAdminOperationalAlertsRead(
   scope: AdminOperationalAlertScope = {},
 ) {
-  const scopeContext = await buildAlertScopeContext(scope);
-  if (scopeContext) {
-    const rows = await AdminOperationalAlertModel.find({ isRead: { $ne: true } }).lean();
-    const alerts = rows.map((row) => serializeAlert(row));
-    const orderIds = Array.from(
-      new Set(alerts.map((alert) => alertOrderId(alert)).filter(Boolean)),
-    );
-    const scopedOrders = orderIds.length
-      ? await OrderModel.find(
-          {
-            _id: { $in: orderIds },
-            ...buildOrderServiceAreaScopeFilter(scope),
-          },
-          { _id: 1 },
-        ).lean()
-      : [];
-    const scopedOrderIds = new Set(scopedOrders.map((order) => String(order._id ?? "")));
-    const scopedAlertIds = alerts
-      .filter((alert) => alertMatchesScope(alert, scopeContext, scopedOrderIds))
-      .map((alert) => alert.id)
-      .filter(Boolean);
+  // Mark read EXACTLY the alerts the admin currently sees for this scope — sourced from the
+  // SAME listAdminOperationalAlerts() the unread badge is derived from — so "Read all" always
+  // clears the count with zero divergence between the count path and the read path (the old
+  // code re-derived the scope set separately, which could drift). No filter here means every
+  // active alert in the current scope, so re-clicking is a safe no-op.
+  const alerts = await listAdminOperationalAlerts(scope);
+  const unreadIds = alerts
+    .filter(
+      (alert: { id?: string; isRead?: boolean }) =>
+        alert && alert.isRead !== true && Boolean(alert.id),
+    )
+    .map((alert: { id?: string }) => String(alert.id));
 
-    if (!scopedAlertIds.length) return { updated: 0 };
-
-    const scopedResult = await AdminOperationalAlertModel.updateMany(
-      { _id: { $in: scopedAlertIds } },
-      { $set: { isRead: true, readAt: new Date() } },
-    );
-    if (scopedResult.modifiedCount > 0) {
-      invalidateAdminOperationalAlertsCache();
-      invalidateAdminOperationalHealthCache();
-    }
-    return { updated: scopedResult.modifiedCount };
-  }
+  if (!unreadIds.length) return { updated: 0 };
 
   const result = await AdminOperationalAlertModel.updateMany(
-    { isRead: { $ne: true }, ...buildAlertReadScopeQuery(scopeContext) },
+    { _id: { $in: unreadIds }, isRead: { $ne: true } },
     { $set: { isRead: true, readAt: new Date() } },
   );
   if (result.modifiedCount > 0) {

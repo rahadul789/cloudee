@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { formatDateTime } from "@/lib/utils"
 
 const STATUS_FILTERS: Array<{ value: "all" | AdminAccountDeletionStatus; label: string }> = [
   { value: "all", label: "All" },
@@ -55,10 +56,7 @@ function statusBadgeClass(status: AdminAccountDeletionStatus) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "—"
-  return date.toLocaleString()
+  return formatDateTime(value, "—")
 }
 
 export function AccountDeletionRequestsCard() {

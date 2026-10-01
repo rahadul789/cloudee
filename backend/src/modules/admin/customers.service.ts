@@ -1881,6 +1881,77 @@ export async function updateAdminCustomerStatus(params: {
   };
 }
 
+// Admin → single customer direct message (promotional or informational) delivered as a push
+// notification AND an in-app notification (bell), with an optional image and tap-through CTA.
+// Targeted 1:1 messages set personalOffer:true so they still reach the customer even if they
+// opted out of broadcast promotions (same rule the codebase already uses for personal offers).
+// The in-app copy lands even when push is off / no device token, so the message is never lost.
+export async function sendAdminCustomerMessage(params: {
+  adminId: string;
+  customerId: string;
+  title: string;
+  body: string;
+  imageUrl?: string;
+  ctaLabel?: string;
+  ctaPath?: string;
+}) {
+  const customer = await getCustomerOrThrow(params.customerId);
+
+  const title = params.title.trim();
+  const body = params.body.trim();
+  if (!title || !body) {
+    throw new AppError(
+      StatusCodes.BAD_REQUEST,
+      "MESSAGE_REQUIRED",
+      "A title and message are required",
+    );
+  }
+
+  const imageUrl = params.imageUrl?.trim() || "";
+  const ctaLabel = params.ctaLabel?.trim() || "";
+  const ctaPath = params.ctaPath?.trim() || "";
+
+  const result = await sendPushToCustomer({
+    customerId: customer.id,
+    payload: {
+      title,
+      body,
+      contentType: imageUrl ? "image_text" : "text",
+      imageUrl: imageUrl || undefined,
+      data: {
+        type: "promotion",
+        personalOffer: true,
+        source: "admin_direct_message",
+        path: ctaPath || "/notifications",
+        ...(ctaLabel ? { ctaLabel } : {}),
+        ...(ctaPath ? { ctaPath } : {}),
+      },
+    },
+  });
+
+  await createAdminAuditLog({
+    adminId: params.adminId,
+    customerId: customer.id,
+    action: "message.sent",
+    title: "Direct message sent",
+    description: `Sent "${title}" to ${customer.fullName || customer.phone || "customer"}.`,
+    metadata: {
+      hasImage: Boolean(imageUrl),
+      ctaPath,
+      pushSent: result.sent ?? 0,
+      inAppCreated: result.inAppCreated ?? 0,
+      skipped: result.skipped ?? false,
+    },
+  });
+
+  return {
+    pushSent: result.sent ?? 0,
+    inAppCreated: result.inAppCreated ?? 0,
+    deliveredPush: (result.sent ?? 0) > 0,
+    inAppOnly: (result.sent ?? 0) === 0 && (result.inAppCreated ?? 0) > 0,
+  };
+}
+
 // Admin kill-switch for a single customer's referral participation (apply + earn), without
 // suspending the whole account or pausing the program. Used to shut down a flagged farmer.
 export async function updateAdminCustomerReferralAccess(params: {

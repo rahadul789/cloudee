@@ -47,7 +47,7 @@ import { escapeHtml, printReport } from "@/lib/export-utils"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { generatePinPassword, isPinPassword } from "@/lib/pin-password"
 import { useAdminRefreshPolicy } from "@/lib/refresh-policy"
-import { cn } from "@/lib/utils"
+import { cn, formatDateTime } from "@/lib/utils"
 import {
   getAdminZoneScope,
   subscribeAdminZoneScope,
@@ -232,10 +232,7 @@ const customerMarkerIcon = L.divIcon({
 })
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function formatCurrency(value: number) {

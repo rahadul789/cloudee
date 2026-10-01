@@ -92,6 +92,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { formatDateTime } from "@/lib/utils"
 
 type VoucherTypeFilter = "all" | "flat" | "percentage" | "free-delivery"
 type VoucherSort =
@@ -166,10 +167,7 @@ function formatCurrency(value?: number | null) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function getLocalDateTimeValue(value = new Date()) {

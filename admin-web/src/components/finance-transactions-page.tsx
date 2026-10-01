@@ -21,6 +21,7 @@ import {
   type AdminReportsPreset,
 } from "@/lib/admin-api"
 import { downloadCsv, escapeHtml, printReport } from "@/lib/export-utils"
+import { formatDateTime } from "@/lib/utils"
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -86,10 +87,7 @@ function formatCurrency(value: number) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "N/A"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "N/A"
-  return date.toLocaleString()
+  return formatDateTime(value, "N/A")
 }
 
 function categoryLabel(value: string) {

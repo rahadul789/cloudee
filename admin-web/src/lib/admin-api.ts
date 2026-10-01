@@ -7313,6 +7313,40 @@ export async function updateAdminCustomerStatus(params: {
   return response.data
 }
 
+export type AdminCustomerMessageResult = {
+  pushSent: number
+  inAppCreated: number
+  deliveredPush: boolean
+  inAppOnly: boolean
+}
+
+export async function sendAdminCustomerMessage(params: {
+  customerId: string
+  title: string
+  body: string
+  imageUrl?: string
+  ctaLabel?: string
+  ctaPath?: string
+}) {
+  const response = await adminRequest<AdminCustomerMessageResult>(
+    `/admin/customers/${params.customerId}/message`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        title: params.title,
+        body: params.body,
+        imageUrl: params.imageUrl || undefined,
+        ctaLabel: params.ctaLabel || undefined,
+        ctaPath: params.ctaPath || undefined,
+      }),
+    }
+  )
+  return response.data
+}
+
 export type AdminCustomerDeviceIntel = {
   hasDevice: boolean
   deviceCount: number
@@ -8435,6 +8469,20 @@ export async function resolveAdminOperationalAlert(alertId: string) {
   const response = await adminRequest<{ updated: boolean }>(
     `/admin/operations/alerts/${alertId}/resolve`,
     { method: "PATCH" }
+  )
+  return response.data
+}
+
+// Batch-resolves operational alerts in one call. Pass the visible alert ids; omit/empty to
+// resolve every active alert.
+export async function resolveAdminOperationalAlerts(alertIds?: string[]) {
+  const response = await adminRequest<{ resolved: number }>(
+    "/admin/operations/alerts/resolve-all",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ alertIds: alertIds ?? [] }),
+    }
   )
   return response.data
 }

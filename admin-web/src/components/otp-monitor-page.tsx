@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { formatDateTime } from "@/lib/utils"
 import {
   Sheet,
   SheetContent,
@@ -179,7 +180,7 @@ export function OtpMonitorPage() {
                 <div
                   key={index}
                   className="flex min-w-2.5 flex-1 flex-col items-center justify-end gap-0.5"
-                  title={`${bucket.hour ? new Date(bucket.hour).toLocaleString() : ""}\nRequested: ${bucket.requested}\nVerified: ${bucket.verified}`}
+                  title={`${bucket.hour ? formatDateTime(bucket.hour) : ""}\nRequested: ${bucket.requested}\nVerified: ${bucket.verified}`}
                 >
                   <div className="flex w-full items-end justify-center gap-0.5">
                     <div

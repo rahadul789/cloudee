@@ -38,6 +38,9 @@ export type MapStop = {
   alert?: "prep" | "late";
   // Minutes past the late threshold, shown beside the red alert icon (e.g. "3m").
   alertMinutes?: number;
+  // Short code shown beside the pin (e.g. "#7583" — order id last 4) so the rider can tell
+  // apart multiple customer pins at a glance. Rendered under the pin for drop stops.
+  tag?: string;
   focused?: boolean;
 };
 
@@ -139,7 +142,7 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
   const stopSignature = `${validStops
     .map(
       (stop) =>
-        `${stop.id}:${stop.focused ? 1 : 0}:${stop.count ?? ""}:${stop.live ? 1 : 0}:${stop.alert ?? ""}:${stop.alertMinutes ?? ""}:${stop.statusColor ?? ""}`,
+        `${stop.id}:${stop.focused ? 1 : 0}:${stop.count ?? ""}:${stop.live ? 1 : 0}:${stop.alert ?? ""}:${stop.alertMinutes ?? ""}:${stop.statusColor ?? ""}:${stop.tag ?? ""}`,
     )
     .join("|")}|hd:${showHeading ? 1 : 0}`;
   // Only the SET of stops (new/removed order) — used to decide when to auto-fit. Status,
@@ -267,7 +270,7 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
           coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
           onPress={() => onStopPress?.(stop.id)}
           tracksViewChanges={tracksChanges}
-          anchor={{ x: 0.5, y: 0.82 }}
+          anchor={{ x: 0.5, y: 0.57 }}
           zIndex={stop.focused ? 5 : stop.kind === "pickup" ? 3 : 4}
         >
           <StopPin stop={stop} />
@@ -360,6 +363,13 @@ function StopPin({ stop }: { stop: MapStop }) {
           <Ionicons name="time" size={11} color="#FFFFFF" />
         </View>
       ) : null}
+      {stop.tag ? (
+        <View collapsable={false} pointerEvents="none" style={styles.tagRow}>
+          <View collapsable={false} style={styles.tagPill}>
+            <Text style={styles.tagText}>{stop.tag}</Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -371,15 +381,17 @@ const styles = StyleSheet.create({
   // Small, fixed, crop-proof: no Android `elevation` (its shadow renders outside the marker
   // bounds and gets clipped — a common crop cause); grounding is the flat liftShadow only.
   markerRoot: {
-    width: 38,
-    height: 44,
+    width: 46,
+    // Taller so the order-id tag pill fits UNDER the pin, inside the marker bounds (a pill
+    // placed below the frame gets clipped by react-native-maps and never shows).
+    height: 60,
     alignItems: "center",
     justifyContent: "flex-start",
     paddingTop: 8,
   },
   markerLiftShadow: {
     position: "absolute",
-    bottom: 4,
+    bottom: 21,
     width: 15,
     height: 5,
     borderRadius: 999,
@@ -408,7 +420,7 @@ const styles = StyleSheet.create({
   countBadge: {
     position: "absolute",
     top: 0,
-    right: 0,
+    right: 7,
     minWidth: 17,
     height: 17,
     borderRadius: 9,
@@ -421,6 +433,24 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   countText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
+  tagRow: {
+    position: "absolute",
+    bottom: 2,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  tagPill: {
+    paddingHorizontal: 5,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "#111827",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tagText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   liveDotOuter: {
     position: "absolute",
     top: 1,
