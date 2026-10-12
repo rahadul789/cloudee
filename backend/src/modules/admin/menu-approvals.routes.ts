@@ -6,6 +6,7 @@ import {
   getAdminMenuApprovalHistory,
   getAdminMenuApprovals,
   postAdminMenuApprovalApprove,
+  postAdminMenuApprovalApproveAll,
   postAdminMenuApprovalReject,
 } from "./menu-approvals.controller";
 
@@ -15,6 +16,10 @@ adminMenuApprovalsRouter.use(requireAuth, requireRole("admin"));
 
 adminMenuApprovalsRouter.get("/menu-approvals", getAdminMenuApprovals);
 adminMenuApprovalsRouter.get("/menu-approvals/history", getAdminMenuApprovalHistory);
+adminMenuApprovalsRouter.post(
+  "/menu-approvals/approve-all",
+  postAdminMenuApprovalApproveAll,
+);
 adminMenuApprovalsRouter.get("/menu-approvals/:requestId", getAdminMenuApproval);
 adminMenuApprovalsRouter.post(
   "/menu-approvals/:requestId/approve",

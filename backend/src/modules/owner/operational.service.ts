@@ -6,6 +6,7 @@ import { emitSocketEvent } from "../../config/socket";
 import { enqueueBackgroundTask } from "../../common/utils/background-task";
 import { slugify } from "../../common/utils/slugify";
 import { AppError } from "../../common/utils/app-error";
+import { applyEtaHandoverBuffer, customerDeliveryRoute, getRiderEtaSettings } from "../../common/utils/delivery-eta";
 import { enqueueAdminOrderTerminalExceptionAlert } from "../admin/order-exception-alerts";
 import {
   invalidateAdminMonitoringCaches,
@@ -194,46 +195,6 @@ function getOwnerAppSettings(content: Record<string, any>) {
         ? ownerApp.showCustomerPhoneNumbers
         : true,
   };
-}
-
-function getRiderEtaSettings(content: Record<string, any>) {
-  const dispatch = content?.operations?.dispatch ?? {};
-  const speedKmph =
-    typeof dispatch.riderEtaSpeedKmph === "number" &&
-    Number.isFinite(dispatch.riderEtaSpeedKmph)
-      ? dispatch.riderEtaSpeedKmph
-      : 24;
-  const routeFactor =
-    typeof dispatch.riderEtaRouteFactor === "number" &&
-    Number.isFinite(dispatch.riderEtaRouteFactor)
-      ? dispatch.riderEtaRouteFactor
-      : 1.4;
-  const handoverBufferMinutes =
-    typeof dispatch.riderEtaHandoverBufferMinutes === "number" &&
-    Number.isFinite(dispatch.riderEtaHandoverBufferMinutes)
-      ? dispatch.riderEtaHandoverBufferMinutes
-      : 10;
-
-  return {
-    speedKmph: Math.min(45, Math.max(6, speedKmph)),
-    routeFactor: Math.min(2, Math.max(1, routeFactor)),
-    handoverBufferMinutes: Math.min(30, Math.max(0, Math.round(handoverBufferMinutes))),
-  };
-}
-
-// The customer "to you" ETA is pure travel time; real deliveries carry overhead the
-// map math never sees (finding the address, the handover, stops/traffic). Add a flat
-// buffer, but taper it over the final stretch so a rider at the door doesn't show a
-// big number — full buffer beyond ~0.5km, linearly down to ~0 at arrival.
-function applyEtaHandoverBuffer(
-  baseDurationMinutes: number,
-  directDistanceKm: number,
-  handoverBufferMinutes: number,
-) {
-  if (handoverBufferMinutes <= 0) return baseDurationMinutes;
-  const taper = Math.min(1, Math.max(0, directDistanceKm / 0.5));
-  const appliedBuffer = Math.round(handoverBufferMinutes * taper);
-  return baseDurationMinutes + appliedBuffer;
 }
 
 function applyOwnerOrderPrivacy<T extends Record<string, any>>(
@@ -3004,16 +2965,9 @@ export async function updateOrderRiderLocation(params: {
   // routeMetrics is the same cached "delivery_leg" route the customer detail builds, so
   // this is free — we just forward its polyline. `mergeOrderPayload` on the client
   // prefers this incoming route over the stale cached one.
-  const liveRouteToCustomer =
-    routeMetrics && routeMetrics.polyline
-      ? {
-          distanceKm: routeMetrics.distanceKm,
-          durationMinutes: routeMetrics.durationMinutes,
-          polyline: routeMetrics.polyline,
-          provider: routeMetrics.provider,
-          trafficAware: routeMetrics.trafficAware,
-        }
-      : null;
+  // Include an explicit empty polyline on routing fallback, so old clients do
+  // not keep merging a previous Google road route over a new rider position.
+  const liveRouteToCustomer = customerDeliveryRoute(routeMetrics, remainingDurationMinutes);
 
   emitSocketEvent(
     `customer:${order.customerId}`,

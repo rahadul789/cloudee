@@ -7,7 +7,7 @@ import { decorateTrackingSnapshot } from "../../common/utils/tracking-freshness"
 import { logger } from "../../config/logger"
 import { emitSocketEvent } from "../../config/socket"
 import { applyFailedDeliveryFinance } from "../admin/failed-delivery-finance.service"
-import { runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
+import { invalidateAdminMonitoringCaches, runAutoDispatchForReadyOrders } from "../admin/orders-monitor.service"
 import { getOrderRouteMetrics, type LatLng } from "../routing/routing.service"
 import {
   assertOtpVerificationAllowed,
@@ -115,6 +115,7 @@ const recentRiderOrderLocationUpdates = new Map<
 >()
 
 type QueuedRiderOrderLocationUpdate = {
+  receivedAt: Date
   orderId: string
   riderId: string
   riderName: string
@@ -1438,6 +1439,11 @@ export async function updateRiderLastKnownLocation(params: {
   if (hasFocusChanged) {
     emitSocketEvent(`rider:${rider.id}`, "rider.profile.updated", profile)
   }
+  // Advance admin markers independently of the queued delivery route calculation.
+  invalidateAdminMonitoringCaches()
+  emitSocketEvent("admin:live-map", "admin.live-map.updated", {
+    type: "rider.location", riderId: rider.id,
+  })
 
   if (pickedUpOrderIds.length > 0 && hasFocusChanged) {
     await OrderModel.updateMany(
@@ -1464,6 +1470,7 @@ export async function updateRiderLastKnownLocation(params: {
   const focusedOrderId = rider.activeTrackingOrderId ?? ""
   if (focusedOrderId) {
     enqueueRiderOrderLocationUpdate({
+      receivedAt: rider.lastKnownLocation.updatedAt ?? new Date(),
       orderId: focusedOrderId,
       riderId: rider.id,
       latitude: params.latitude,
@@ -2152,7 +2159,13 @@ async function flushRiderOrderLocation(orderId: string) {
         riderPhone: update.riderPhone
       }),
       RiderModel.updateOne(
-        { _id: update.riderId },
+        {
+          _id: update.riderId,
+          $or: [
+            { "lastKnownLocation.updatedAt": { $lte: update.receivedAt } },
+            { "lastKnownLocation.updatedAt": null },
+          ],
+        },
         {
           $set: {
             lastKnownLocation: {
@@ -2161,7 +2174,7 @@ async function flushRiderOrderLocation(orderId: string) {
               heading: update.heading ?? null,
               accuracyMeters: update.accuracyMeters ?? null,
               speedKmph: update.speedKmph ?? null,
-              updatedAt: new Date()
+              updatedAt: update.receivedAt
             }
           }
         }
@@ -2316,6 +2329,7 @@ export async function postRiderLocation(params: {
 
   if (activeTrackingOrderId === orderId) {
     enqueueRiderOrderLocationUpdate({
+      receivedAt: new Date(),
       orderId,
       riderId,
       riderName: rider.fullName ?? "",

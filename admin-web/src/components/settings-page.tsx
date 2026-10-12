@@ -949,8 +949,8 @@ const operationalThresholdFields = [
   ],
   [
     "riderEtaHandoverBufferMinutes",
-    "Rider ETA handoff buffer",
-    "minutes added to customer ETA",
+    "Customer delivery ETA buffer",
+    "minutes added to travel time; gradually reduced within 500m of arrival",
     0,
     30,
   ],

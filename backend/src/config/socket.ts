@@ -133,6 +133,12 @@ export function createSocketServer(server: HttpServer) {
   io.on("connection", (socket) => {
     const socketData = socket.data as SocketAuthData
     socketData.connectedAt = socketData.connectedAt ?? new Date().toISOString()
+    // Authenticated legacy clients recover their own room on every connection,
+    // even if their explicit join event was lost during a reconnect.
+    const user = socketData.user
+    if (user && (user.role === "customer" || user.role === "rider")) {
+      socket.join(`${user.role}:${user.id}`)
+    }
 
     socket.on("admin:join", (scope: string) => {
       if (!isAdminSocket(socket)) return

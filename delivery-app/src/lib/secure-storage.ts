@@ -16,7 +16,10 @@ export const secureStateStorage: StateStorage = {
       return;
     }
 
-    await SecureStore.setItemAsync(name, value);
+    // iOS background tasks must read auth after the user locks the phone.
+    await SecureStore.setItemAsync(name, value, {
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+    });
   },
   removeItem: async (name: string) => {
     if (Platform.OS === "web") {

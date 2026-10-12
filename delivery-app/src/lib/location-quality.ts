@@ -53,6 +53,8 @@ export function shouldAcceptFix(params: {
   last: AcceptedFix | null;
   consecutiveRejects: number;
 }): boolean {
+  if (!Number.isFinite(params.latitude) || !Number.isFinite(params.longitude) ||
+    Math.abs(params.latitude) > 90 || Math.abs(params.longitude) > 180) return false;
   const escapeHatch = params.consecutiveRejects >= MAX_CONSECUTIVE_REJECTS;
 
   if (

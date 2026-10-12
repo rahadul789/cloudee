@@ -191,7 +191,7 @@ function PayoutStatusDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
-  const [reference, setReference] = React.useState("")
+  const [reference, setReference] = React.useState("1234")
   const [note, setNote] = React.useState("")
   const [notifyOwnerSms, setNotifyOwnerSms] = React.useState(false)
   const [statement, setStatement] =
@@ -201,7 +201,7 @@ function PayoutStatusDialog({
 
   React.useEffect(() => {
     if (target) {
-      setReference("")
+      setReference("1234")
       setNote("")
       setNotifyOwnerSms(false)
       setStatement(null)
@@ -418,7 +418,7 @@ function CreateAdminPayoutDialog({
   const [amount, setAmount] = React.useState("")
   const [status, setStatus] = React.useState<"processing" | "completed">("completed")
   const [ledgerSource, setLedgerSource] = React.useState<"available" | "include_pending">("available")
-  const [reference, setReference] = React.useState("")
+  const [reference, setReference] = React.useState("1234")
   const [note, setNote] = React.useState("")
   const [notifyOwnerSms, setNotifyOwnerSms] = React.useState(false)
   const [statement, setStatement] =
@@ -431,7 +431,7 @@ function CreateAdminPayoutDialog({
     setAmount(`${Math.max(0, Math.floor(target.finance.availableBalance))}`)
     setStatus("completed")
     setLedgerSource("available")
-    setReference("")
+    setReference("1234")
     setNote("")
     setNotifyOwnerSms(false)
     setStatement(null)

@@ -1,136 +1,124 @@
 import * as Location from "expo-location";
 import { PropsWithChildren, useEffect, useRef, useState } from "react";
-import { AppState, type AppStateStatus } from "react-native";
+import { AppState } from "react-native";
 
-import {
-  useRiderLiveTrackingPolicyQuery,
-  useRiderOrdersQuery,
-} from "@/src/hooks/use-rider-api";
-import {
-  buildActiveTrackingConfig,
-  normalizeRiderLiveTrackingPolicy,
-} from "@/src/lib/live-tracking-policy";
+import { useRiderLiveTrackingPolicyQuery, useRiderOrdersQuery } from "@/src/hooks/use-rider-api";
+import { buildActiveTrackingConfig, normalizeRiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
 import {
   getRiderBackgroundTrackingOrderId,
+  isRiderNativeLocationStalled,
+  publishRiderLocationAsync,
   setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
   stopRiderBackgroundLocationAsync,
+  suspendRiderNativeLocationAsync,
 } from "@/src/lib/rider-background-location";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LIVE TRACKING — single owner of the location lifecycle (foreground + background).
-//
-// During an active (picked-up) delivery we run ONE expo foreground-service (started
-// while foreground) so tracking survives the app being backgrounded / locked / closed.
-// Its task (rider-background-location.ts) is the single producer: it publishes the
-// rider's position at the admin cadence, queues+flushes across offline/slow gaps, and
-// does NO React/query/store work (so it can't cause re-render heaviness).
-//
-// CRITICAL: the maps must NOT use react-native-maps `showsUserLocation` while this runs.
-// The native "my location" dot fights the background location service for the GPS — that
-// is what blinked the dot and froze/crashed the app. The rider's own position is conveyed
-// by the route + the external "Navigate" button instead.
-// ─────────────────────────────────────────────────────────────────────────────
 const NOTIFICATION_BODY = "Foodbela is sharing your live delivery location.";
 
+// Never stop the native stream merely because hydration or a request is pending.
+// Serialize starts/stops so app resumes cannot race delivery completion.
 export function RiderLocationController({ children }: PropsWithChildren) {
   const riderId = useRiderAuthStore((state) => state.rider?.id ?? "");
-  const activeOrdersQuery = useRiderOrdersQuery("active");
-  const pickedUpOrderId =
-    activeOrdersQuery.data?.find((order) => order.status === "PickedUp")?.id ?? null;
-
-  // On reopen (especially after the app was killed mid-delivery) the orders query briefly
-  // has no data. Dropping the foreground service for that window is what showed up as
-  // "reopened but tracking/notification gone". So while the query has not yet given a
-  // definitive first answer, we keep tracking alive using the last order id we were
-  // tracking, then reconcile the moment real data arrives.
-  const [persistedTrackingOrderId, setPersistedTrackingOrderId] = useState<
-    string | null
-  >(null);
+  const isHydrated = useRiderAuthStore((state) => state.isHydrated);
+  const orders = useRiderOrdersQuery("active");
+  const policy = useRiderLiveTrackingPolicyQuery();
+  const config = buildActiveTrackingConfig(normalizeRiderLiveTrackingPolicy(policy.data));
+  const signature = `${config.accuracy}:${config.distanceIntervalMeters}:${config.heartbeatMs}:${config.timeIntervalMs}`;
+  const [persistedOrder, setPersistedOrder] = useState<string | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
-    let active = true;
-    getRiderBackgroundTrackingOrderId()
-      .then((id) => {
-        if (active) setPersistedTrackingOrderId(id);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // isPending is true ONLY on the very first load with no data (not on later refetches),
-  // so this sticky window closes as soon as the query resolves once.
-  const ordersResolved = !activeOrdersQuery.isPending;
-  const activeTrackingOrderId =
-    pickedUpOrderId ?? (!ordersResolved ? persistedTrackingOrderId : null);
-  const hasActiveDelivery = Boolean(activeTrackingOrderId);
-  // Track whenever a delivery is actually in progress (an order is picked up) — even if the
-  // rider has toggled themselves "offline" for NEW assignments. A rider going unavailable to
-  // stop new orders must NOT stop sharing location for food they're already carrying, or the
-  // waiting customer's live map freezes mid-delivery. `hasActiveDelivery` is the only gate we
-  // need: no picked-up order ⇒ no tracking regardless of availability.
-  const shouldTrack = Boolean(riderId) && hasActiveDelivery;
-
-  // Admin settings — read once (long staleTime). NO manual refetch.
-  const policyQuery = useRiderLiveTrackingPolicyQuery();
-  const config = buildActiveTrackingConfig(
-    normalizeRiderLiveTrackingPolicy(policyQuery.data),
-  );
-  const configSignature = `${config.accuracy}:${config.distanceIntervalMeters}:${config.heartbeatMs}:${config.timeIntervalMs}`;
-
-  const shouldTrackRef = useRef(shouldTrack);
-  shouldTrackRef.current = shouldTrack;
-  const configRef = useRef(config);
-  configRef.current = config;
-  const orderIdRef = useRef(activeTrackingOrderId);
-  orderIdRef.current = activeTrackingOrderId;
-
-  const [permissionReady, setPermissionReady] = useState(false);
-  useEffect(() => {
-    if (!shouldTrack) {
-      setPermissionReady(false);
-      return;
-    }
-    let active = true;
-    void (async () => {
-      const foreground = await Location.requestForegroundPermissionsAsync();
-      if (foreground.status === "granted") {
-        await Location.requestBackgroundPermissionsAsync().catch(() => undefined);
+    let mounted = true;
+    void getRiderBackgroundTrackingOrderId().then((id) => {
+      if (mounted) {
+        setPersistedOrder(id);
+        setStorageReady(true);
       }
-      if (active) setPermissionReady(foreground.status === "granted");
-    })();
-    return () => {
-      active = false;
-    };
-  }, [shouldTrack]);
-
-  useEffect(() => {
-    if (!shouldTrack || !permissionReady) {
-      setRiderBackgroundTrackingOrderId(null).catch(() => undefined);
-      stopRiderBackgroundLocationAsync().catch(() => undefined);
-      return;
-    }
-    setRiderBackgroundTrackingOrderId(orderIdRef.current).catch(() => undefined);
-    startRiderBackgroundLocationAsync({
-      ...configRef.current,
-      notificationBody: NOTIFICATION_BODY,
-    }).catch(() => undefined);
-  }, [shouldTrack, permissionReady, configSignature]);
-
-  useEffect(() => {
-    const handleAppState = (state: AppStateStatus) => {
-      if (state !== "active" || !shouldTrackRef.current) return;
-      setRiderBackgroundTrackingOrderId(orderIdRef.current).catch(() => undefined);
-      startRiderBackgroundLocationAsync({
-        ...configRef.current,
-        notificationBody: NOTIFICATION_BODY,
-      }).catch(() => undefined);
-    };
-    const subscription = AppState.addEventListener("change", handleAppState);
-    return () => subscription.remove();
+    });
+    return () => { mounted = false; };
   }, []);
 
+  const pickedUpOrder = orders.data?.find((order) => order.status === "PickedUp")?.id;
+  const ordersConfirmed = orders.isSuccess && orders.isFetchedAfterMount;
+  // A failed request is not proof that a delivery ended.
+  const orderId = pickedUpOrder ?? (ordersConfirmed ? null : persistedOrder);
+  const canStop = isHydrated && storageReady && (!riderId || (ordersConfirmed && !pickedUpOrder));
+  const latest = useRef({ riderId, orderId, canStop, config });
+  latest.current = { riderId, orderId, canStop, config };
+  const reconcileRef = useRef<() => void>(() => undefined);
+
+  useEffect(() => {
+    let mounted = true;
+    let chain = Promise.resolve();
+    let fallback: Location.LocationSubscription | null = null;
+    let fallbackRetryAtMs = 0;
+    const removeFallback = () => { fallback?.remove(); fallback = null; };
+    const reconcile = () => {
+      chain = chain.then(async () => {
+        if (!mounted) return;
+        const current = latest.current;
+        if (current.canStop) {
+          fallbackRetryAtMs = 0;
+          removeFallback();
+          await stopRiderBackgroundLocationAsync();
+          if (mounted) setPersistedOrder(null);
+          return;
+        }
+        if (!current.riderId || !current.orderId) return;
+        if (AppState.currentState !== "active") {
+          removeFallback();
+          return;
+        }
+        // Check only; existing access cards own permission prompts.
+        const permission = await Location.getForegroundPermissionsAsync();
+        if (permission.status !== "granted" || !mounted) return;
+        await setRiderBackgroundTrackingOrderId(current.orderId);
+        if (mounted) setPersistedOrder(current.orderId);
+        // A registered service can silently stop delivering fixes. Recover while
+        // foreground instead of treating hasStarted=true as proof of GPS health.
+        if (isRiderNativeLocationStalled()) {
+          if (!(await suspendRiderNativeLocationAsync())) return;
+          fallbackRetryAtMs = Date.now() + 90_000;
+        }
+        if (fallback && Date.now() < fallbackRetryAtMs) return;
+        // Stop fallback before starting the native stream: one GPS producer.
+        if (Date.now() >= fallbackRetryAtMs) {
+          removeFallback();
+          const started = await startRiderBackgroundLocationAsync({
+            ...current.config, notificationBody: NOTIFICATION_BODY,
+          });
+          if (!mounted || started || AppState.currentState !== "active") return;
+        }
+        if (!mounted || AppState.currentState !== "active") return;
+        fallback = await Location.watchPositionAsync({
+          accuracy: current.config.accuracy,
+          timeInterval: current.config.timeIntervalMs,
+          distanceInterval: 0,
+        }, (location) => {
+          void publishRiderLocationAsync(location).catch(() => {
+            console.warn("[rider-tracking] Foreground location processing failed");
+          });
+        });
+        if (!mounted || AppState.currentState !== "active") removeFallback();
+      }).catch(() => {
+        console.warn("[rider-tracking] Location lifecycle failed; retrying while active");
+      });
+    };
+    reconcileRef.current = reconcile;
+    reconcile();
+    const subscription = AppState.addEventListener("change", reconcile);
+    const timer = setInterval(() => {
+      if (AppState.currentState === "active") reconcile();
+    }, 30_000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+      subscription.remove();
+      removeFallback();
+    };
+  }, []);
+
+  useEffect(() => { reconcileRef.current(); }, [riderId, orderId, canStop, signature]);
   return <>{children}</>;
 }

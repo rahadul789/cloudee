@@ -1,6 +1,7 @@
 import type { Request, Response } from "express"
 import { StatusCodes } from "http-status-codes"
 import { z } from "zod"
+import { riderLocationSchema } from "./rider-location.schema"
 
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
@@ -93,13 +94,7 @@ const riderNotificationsQuerySchema = z.object({
   filter: z.enum(["all", "unread"]).optional()
 })
 
-const riderLocationSchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-  heading: z.number().min(0).max(360).optional(),
-  accuracyMeters: z.number().positive().optional(),
-  speedKmph: z.number().nonnegative().optional()
-})
+// Shared by pickup and continuous location endpoints.
 
 const riderAvailabilitySchema = z.object({
   isAvailableForAssignments: z.boolean()

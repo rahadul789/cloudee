@@ -6256,6 +6256,31 @@ export async function approveAdminMenuApproval(params: {
   return response.data
 }
 
+export type AdminMenuApprovalBulkResult = {
+  total: number
+  approved: number
+  failed: number
+  failures: Array<{ requestId: string; reason: string }>
+}
+
+export async function approveAllAdminMenuApprovals(params?: {
+  type?: AdminMenuApprovalType
+  requestIds?: string[]
+}) {
+  const response = await adminRequest<AdminMenuApprovalBulkResult>(
+    `/admin/menu-approvals/approve-all`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: params?.type,
+        requestIds: params?.requestIds,
+      }),
+    }
+  )
+  return response.data
+}
+
 export async function rejectAdminMenuApproval(params: {
   requestId: string
   ownerReason: string

@@ -49,9 +49,14 @@ export function createInMemoryAsyncCache<V>(options: {
   function startLoad(key: string, entry: CacheEntry<V>, loader: () => Promise<V>) {
     const promise = loader()
       .then((value) => {
-        const cachedEntry = createEntry(value)
-        entries.set(key, cachedEntry)
-        evictIfNeeded()
+        // An update may clear/delete this entry while its loader is running.
+        // Return its result to the original caller, but never put that stale
+        // snapshot back over a newer live-map entry after invalidation.
+        if (entries.get(key) === entry) {
+          const cachedEntry = createEntry(value)
+          entries.set(key, cachedEntry)
+          evictIfNeeded()
+        }
         return value
       })
       .catch((error) => {

@@ -8,6 +8,7 @@ import { enqueueBackgroundTask } from "../../common/utils/background-task";
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout";
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
 import { decorateTrackingSnapshot } from "../../common/utils/tracking-freshness";
+import { applyEtaHandoverBuffer, customerDeliveryRoute, getRiderEtaSettings } from "../../common/utils/delivery-eta";
 import { logger } from "../../config/logger";
 import { env } from "../../config/env";
 import { emitSocketEvent } from "../../config/socket";
@@ -6773,7 +6774,7 @@ export async function getCustomerOrderDetails(params: {
   const restaurantCoord = toLatLng(restaurant?.location);
   const routeOrigin =
     order.status === "PickedUp" && riderCoord ? riderCoord : restaurantCoord;
-  const routeToCustomer = customerCoord
+  const travelRouteToCustomer = customerCoord
     ? await getOrderRouteMetrics({
         orderId: String(order._id),
         origin: routeOrigin,
@@ -6785,6 +6786,14 @@ export async function getCustomerOrderDetails(params: {
             : "preview_customer",
       })
     : null;
+  const deliveryEta = order.status === "PickedUp" && travelRouteToCustomer && routeOrigin && customerCoord
+    ? applyEtaHandoverBuffer(
+        travelRouteToCustomer.durationMinutes,
+        calculateDistanceKm(routeOrigin.latitude, routeOrigin.longitude, customerCoord.latitude, customerCoord.longitude),
+        getRiderEtaSettings(orderPlatformContent).handoverBufferMinutes,
+      )
+    : null;
+  const routeToCustomer = customerDeliveryRoute(travelRouteToCustomer, deliveryEta);
   const paymentSnapshot =
     orderObject.paymentSnapshot &&
     typeof orderObject.paymentSnapshot === "object"

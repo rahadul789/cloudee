@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  CheckCheck,
   CheckCircle2,
   Eye,
   Loader2,
@@ -14,6 +15,7 @@ import { toast } from "sonner"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import {
   approveAdminMenuApproval,
+  approveAllAdminMenuApprovals,
   getAdminMenuApproval,
   listAdminMenuApprovalHistory,
   listAdminMenuApprovals,
@@ -26,6 +28,16 @@ import {
 } from "@/lib/admin-api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -489,6 +501,30 @@ export function MenuApprovalsPage() {
     },
   })
 
+  const [approveAllOpen, setApproveAllOpen] = React.useState(false)
+  const approveAllMutation = useMutation({
+    mutationFn: () =>
+      approveAllAdminMenuApprovals({ type: type === "all" ? undefined : type }),
+    onSuccess: (result) => {
+      setApproveAllOpen(false)
+      if (result.failed > 0) {
+        toast.warning(`Approved ${result.approved} of ${result.total}.`, {
+          description: `${result.failed} couldn't be approved (price or category conflict) — review them one by one.`,
+        })
+      } else {
+        toast.success(
+          `Approved all ${result.approved} pending request${result.approved === 1 ? "" : "s"}.`,
+        )
+      }
+      queryClient.invalidateQueries({ queryKey: ["admin", "menu-approvals"] })
+    },
+    onError: (error) => {
+      toast.error("Unable to approve all", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      })
+    },
+  })
+
   const data = approvalsQuery.data
   const rows = data?.items ?? []
   const selectedDetails = detailsQuery.data ?? selected
@@ -640,6 +676,27 @@ export function MenuApprovalsPage() {
             </div>
 
             <TabsContent value="pending" className="mt-0">
+              {rows.length > 0 ? (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                  <span className="text-sm text-muted-foreground">
+                    {pendingCount} pending{" "}
+                    {type === "all" ? "request" : type === "price_update" ? "price update" : "new item"}
+                    {pendingCount === 1 ? "" : "s"} awaiting review.
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => setApproveAllOpen(true)}
+                    disabled={approveAllMutation.isPending}
+                  >
+                    {approveAllMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CheckCheck className="size-4" />
+                    )}
+                    Approve all
+                  </Button>
+                </div>
+              ) : null}
               <ApprovalRequestsTable
                 rows={rows}
                 loading={approvalsQuery.isLoading}
@@ -770,6 +827,43 @@ export function MenuApprovalsPage() {
           })
         }}
       />
+
+      <AlertDialog open={approveAllOpen} onOpenChange={setApproveAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Approve all pending requests?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This approves every pending{" "}
+              {type === "all"
+                ? "menu change"
+                : type === "price_update"
+                  ? "price update"
+                  : "new item"}{" "}
+              request at once ({pendingCount} total), applying each change live. Anything with a
+              price or category conflict is skipped and left for you to review individually.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={approveAllMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                approveAllMutation.mutate()
+              }}
+              disabled={approveAllMutation.isPending}
+            >
+              {approveAllMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <CheckCheck className="size-4" />
+              )}
+              Approve all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

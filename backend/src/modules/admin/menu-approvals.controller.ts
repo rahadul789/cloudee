@@ -6,6 +6,7 @@ import { asyncHandler } from "../../common/utils/async-handler";
 import { sendSuccess } from "../../common/utils/api-response";
 import {
   approveAdminMenuApprovalRequest,
+  approveAllPendingMenuApprovals,
   getAdminMenuApprovalRequest,
   listAdminMenuApprovalHistory,
   listAdminMenuApprovalRequests,
@@ -29,6 +30,11 @@ const listMenuApprovalsQuerySchema = z.object({
 
 const approveMenuApprovalSchema = z.object({
   note: z.string().trim().max(1000).optional(),
+});
+
+const approveAllMenuApprovalsSchema = z.object({
+  type: z.enum(["new_item", "price_update"]).optional(),
+  requestIds: z.array(z.string()).max(500).optional(),
 });
 
 const rejectMenuApprovalSchema = z.object({
@@ -106,6 +112,23 @@ export const postAdminMenuApprovalApprove = asyncHandler(
     });
     return sendSuccess(res, {
       message: "Menu approval request approved successfully",
+      data,
+    });
+  },
+);
+
+export const postAdminMenuApprovalApproveAll = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const payload = approveAllMenuApprovalsSchema.parse(req.body ?? {});
+    const data = await approveAllPendingMenuApprovals({
+      adminId: getAdminId(req),
+      type: payload.type,
+      requestIds: payload.requestIds,
+    });
+    return sendSuccess(res, {
+      message: data.failed
+        ? `Approved ${data.approved} of ${data.total}; ${data.failed} need attention`
+        : `Approved ${data.approved} pending request${data.approved === 1 ? "" : "s"}`,
       data,
     });
   },

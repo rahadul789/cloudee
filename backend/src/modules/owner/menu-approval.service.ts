@@ -1097,6 +1097,54 @@ export async function approveAdminMenuApprovalRequest(params: {
   return getAdminMenuApprovalRequest(params.requestId);
 }
 
+// Bulk "approve all": approve every pending request (optionally narrowed by type, or to an
+// explicit id set) one by one. Each approval runs through the same single-item path (slug,
+// category-active and pricing-conflict guards all still apply), so one bad request can't
+// block the rest — failures are collected and returned instead of aborting the batch.
+export async function approveAllPendingMenuApprovals(params: {
+  adminId: string;
+  requestIds?: string[];
+  type?: "new_item" | "price_update";
+}) {
+  const query: Record<string, any> = { status: "pending" };
+  if (params.requestIds && params.requestIds.length > 0) {
+    query._id = { $in: params.requestIds };
+  }
+  if (params.type) {
+    query.type = params.type;
+  }
+
+  const pending = await MenuApprovalRequestModel.find(query)
+    .select("_id")
+    .sort({ createdAt: 1 })
+    .lean();
+
+  let approved = 0;
+  const failures: Array<{ requestId: string; reason: string }> = [];
+  for (const row of pending) {
+    const requestId = idValue(row._id);
+    try {
+      await approveAdminMenuApprovalRequest({ requestId, adminId: params.adminId });
+      approved += 1;
+    } catch (error) {
+      failures.push({
+        requestId,
+        reason:
+          error instanceof AppError
+            ? error.message
+            : "Approval failed for this request",
+      });
+    }
+  }
+
+  return {
+    total: pending.length,
+    approved,
+    failed: failures.length,
+    failures,
+  };
+}
+
 export async function rejectAdminMenuApprovalRequest(params: {
   requestId: string;
   adminId: string;

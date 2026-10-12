@@ -12,6 +12,8 @@ function resolveSocketUrl() {
 }
 
 let adminSocket: Socket | null = null
+// Socket.IO rooms are lost on every reconnect, including token refreshes.
+const desiredScopes = new Set<string>(["ops"])
 
 function syncSocketAuth(socket: Socket) {
   socket.auth = {
@@ -25,6 +27,9 @@ export function getAdminSocket() {
       autoConnect: false,
       transports: ["websocket"],
       withCredentials: true,
+    })
+    adminSocket.on("connect", () => {
+      for (const scope of desiredScopes) adminSocket?.emit("admin:join", scope)
     })
   }
 
@@ -41,6 +46,7 @@ export function connectAdminSocket() {
 }
 
 export function joinAdminSocketScope(scope: string) {
+  if (scope) desiredScopes.add(scope)
   const socket = getAdminSocket()
   syncSocketAuth(socket)
   if (!getAdminAccessToken()) return socket
@@ -50,6 +56,7 @@ export function joinAdminSocketScope(scope: string) {
 }
 
 export function leaveAdminSocketScope(scope: string) {
+  desiredScopes.delete(scope)
   const socket = getAdminSocket()
   if (scope) socket.emit("admin:leave", scope)
 }

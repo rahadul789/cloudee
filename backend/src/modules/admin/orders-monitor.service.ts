@@ -5730,6 +5730,7 @@ export async function getAdminLiveMap(params?: {
   const liveOrderByRiderId = new Map(
     Array.from(activeOrdersByRiderId.entries()).map(([riderId, summary]) => {
       const activeOrder =
+        summary.orders.find((order) => order.id === riderMap.get(riderId)?.activeTrackingOrderId) ??
         summary.orders.find((order) => order.status === "PickedUp") ??
         summary.orders[0];
       return [

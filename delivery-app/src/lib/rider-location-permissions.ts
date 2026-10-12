@@ -1,34 +1,8 @@
 import * as Location from "expo-location";
 import { Linking, Platform } from "react-native";
 
-export type RiderLocationPayload = {
-  latitude: number;
-  longitude: number;
-  heading?: number;
-  accuracyMeters?: number;
-  speedKmph?: number;
-};
-
-export function getRiderLocationPayload(
-  position: Location.LocationObject,
-): RiderLocationPayload {
-  return {
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-    heading:
-      typeof position.coords.heading === "number"
-        ? position.coords.heading
-        : undefined,
-    accuracyMeters:
-      typeof position.coords.accuracy === "number"
-        ? position.coords.accuracy
-        : undefined,
-    speedKmph:
-      typeof position.coords.speed === "number" && position.coords.speed > 0
-        ? position.coords.speed * 3.6
-        : undefined,
-  };
-}
+import { getRiderLocationPayload } from "@/src/lib/rider-location-payload";
+export { getRiderLocationPayload, type RiderLocationPayload } from "@/src/lib/rider-location-payload";
 
 export async function getRiderForegroundPermission() {
   return Location.getForegroundPermissionsAsync();

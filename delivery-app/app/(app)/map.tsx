@@ -908,7 +908,11 @@ export default function RiderMapScreen() {
           stops={mapStops}
           rider={riderForMap}
           routes={[...mapRoutes, ...customerLines]}
-          showUserLocation
+          showUserLocation={
+            activeOrdersQuery.isSuccess &&
+            !activeOrdersQuery.data?.some((order) => order.status === "PickedUp") &&
+            !activeTrackingOrderId
+          }
           fitPadding={{
             top: insets.top + 130,
             right: 60,
