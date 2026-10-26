@@ -6,6 +6,17 @@ if (process.env.NODE_ENV === "production" && (!secret || secret.length < 32)) {
 const key = crypto.createHash("sha256").update(secret || crypto.randomBytes(32)).digest();
 const cookieName = "foodbela_customer";
 const cookieOptions = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" };
+const day = 86400_000;
+const browserCookieWindow = 400 * day;
+
+function refreshExpiresAt(refreshToken) {
+  try {
+    // Expiry is used only for cookie scheduling; the backend verifies the signed JWT/session.
+    const { exp } = JSON.parse(Buffer.from(refreshToken.split(".")[1], "base64url").toString());
+    if (typeof exp === "number" && Number.isFinite(exp) && exp > 0) return exp * 1000;
+  } catch { /* Compatibility for opaque refresh tokens. */ }
+  return Date.now() + 30 * day;
+}
 
 function seal(session) {
   const iv = crypto.randomBytes(12);
@@ -26,9 +37,10 @@ function readSession(req) {
 }
 function writeSession(res, data) {
   // Store only credentials, never profile data, in the authenticated encrypted cookie.
-  const session = { accessToken: data.accessToken, refreshToken: data.refreshToken, expiresAt: Date.now() + 30 * 86400_000 };
-  res.cookie(cookieName, seal(session), { ...cookieOptions, maxAge: 30 * 86400_000 });
+  const session = { accessToken: data.accessToken, refreshToken: data.refreshToken, expiresAt: refreshExpiresAt(data.refreshToken), cookieRenewedAt: Date.now() };
+  res.cookie(cookieName, seal(session), { ...cookieOptions, maxAge: Math.max(0, Math.min(browserCookieWindow, session.expiresAt - Date.now())) });
   return session;
 }
 function clearSession(res) { res.clearCookie(cookieName, cookieOptions); }
-module.exports = { seal, readSession, writeSession, clearSession };
+function shouldRenewCookie(session) { return !session.cookieRenewedAt || Date.now() - session.cookieRenewedAt >= day; }
+module.exports = { seal, readSession, writeSession, clearSession, shouldRenewCookie };

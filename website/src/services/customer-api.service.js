@@ -1,6 +1,6 @@
 const crypto = require("node:crypto");
 const { getBackendApiBaseUrl } = require("./website-api.service");
-const { readSession, writeSession, clearSession } = require("./customer-session.service");
+const { readSession, writeSession, clearSession, shouldRenewCookie } = require("./customer-session.service");
 const refreshes = new Map();
 
 async function backendRequest(path, { method = "GET", body, accessToken, userAgent, clientIp } = {}) {
@@ -51,7 +51,12 @@ async function customerRequest(req, res, path, options = {}) {
   req.customerSession = session;
   if (options.protected && !session) throw Object.assign(new Error("অর্ডার করতে লগইন করুন।"), { statusCode: 401 });
   const requestOptions = { ...options, accessToken: session?.accessToken, userAgent: req.headers["user-agent"], clientIp: req.ip };
-  try { return await backendRequest(path, requestOptions); }
+  try {
+    const data = await backendRequest(path, requestOptions);
+    // Renew persistent storage on successful visits, without extending backend token validity.
+    if (session && shouldRenewCookie(session)) req.customerSession = writeSession(res, session);
+    return data;
+  }
   catch (error) {
     if (error.statusCode !== 401 || !session) throw error;
     let next;

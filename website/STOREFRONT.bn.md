@@ -28,6 +28,8 @@ CMS-এর impression/click events-এর বিদ্যমান API ব্য
 
 `/shop-api` একটি allowlisted same-origin layer। Access ও refresh token encrypted HttpOnly, SameSite=Lax cookie-তে থাকে; browser JS/localStorage-এ token ফেরত দেওয়া হয় না। Production-এ Secure cookie হয়। Writes-এ custom header ও exact Origin যাচাই হয়; rate limiting আছে। Credentials refresh করা হয়, এবং API responses private/no-store।
 
+ওয়েবের আলাদা ৩০ দিনের login cutoff সরানো হয়েছে। Session-এর মেয়াদ backend refresh JWT-এর `exp` অনুসরণ করে এবং refresh endpoint backend-এর revocation/account rules যাচাই করে। Persistent cookie একবারে সর্বোচ্চ ৪০০ দিনের browser window পায়; সফল ব্যবহারের সময় দৈনিক renewal হয়, কিন্তু backend token-এর প্রকৃত মেয়াদ বাড়ে না। পুরোনো বৈধ cookie-ও পরের সফল request-এ নতুন নিয়মে migrate হয়। Network/server error-এ cookie মুছে যায় না; backend refresh প্রত্যাখ্যান বা logout হলে clear হয়। Browser data মুছে ফেলা, private mode বা website session secret বদলালে পুনরায় login লাগতে পারে। Cookie lifetime reference: https://developer.chrome.com/blog/cookie-max-age-expires
+
 Backend-এ verified client IP forward করা হয়; production topology-তে website একটি trusted reverse proxy-এর পেছনে এবং backend-এর `TRUST_PROXY_HOPS=1` ধরে compose configuration চলে। Arbitrary public access দিয়ে proxy trust বাড়াবেন না। বহু website replica হলে front-proxy/shared rate limiting যুক্ত করুন; বর্তমান website limiter process-local।
 
 `clientOrderId` browser cart-এ রাখা হয়, যাতে একই order request retry করলে existing backend idempotency কাজে লাগে। Backend total নতুন quote-এ বদলালে আবার confirmation লাগে। Payment-এর query-string status বিশ্বাস করা হয় না; authenticated order response দিয়ে paid status যাচাই হয়।

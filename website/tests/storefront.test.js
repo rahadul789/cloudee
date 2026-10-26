@@ -85,3 +85,25 @@ test("OTP start, verification and account completion reuse backend contracts", a
   assert.equal(completed.status, 200); assert.match(completed.headers.get("set-cookie"), /HttpOnly/);
   assert.equal((await completed.json()).data.accessToken, undefined);
 });
+test("backend revocation clears cookies but a refresh outage preserves login", async () => {
+  const { seal } = require("../src/services/customer-session.service");
+  const expired = `test.${Buffer.from(JSON.stringify({ exp: 1 })).toString("base64url")}.test`;
+  const requestWith = token => request("/shop-api/profile", null, `foodbela_customer=${seal({ accessToken: expired, refreshToken: token, expiresAt: Date.now()+60000 })}`);
+  const revoked = await requestWith("revoked-test");
+  assert.equal(revoked.status, 401);
+  assert.match(revoked.headers.get("set-cookie"), /Expires=Thu, 01 Jan 1970/);
+  const outage = await requestWith("temporary-outage-test");
+  assert.equal(outage.status, 503);
+  assert.equal(outage.headers.get("set-cookie"), null);
+});
+test("successful visits renew older persistent cookies and logout explicitly clears them", async () => {
+  const { seal } = require("../src/services/customer-session.service");
+  const token = `test.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now()/1000)+86400 })).toString("base64url")}.test`;
+  const cookie = `foodbela_customer=${seal({ accessToken: token, refreshToken: token, expiresAt: Date.now()+86400000, cookieRenewedAt: Date.now()-2*86400000 })}`;
+  const response = await request("/shop-api/profile", null, cookie);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("set-cookie"), /HttpOnly/);
+  const logout = await request("/shop-api/auth/logout", {}, cookie);
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie"), /Expires=Thu, 01 Jan 1970/);
+});

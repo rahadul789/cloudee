@@ -18,7 +18,12 @@ function createFixture() {
   app.post("/api/v1/customer/auth/phone/otp/verify", (req,res) => req.body.otpCode === "1234" ? ok(res, { verificationSessionId: "verified-test" }) : res.status(400).json({ message: "Invalid OTP" }));
   app.post("/api/v1/customer/auth/phone/password", (req,res) => req.body.password === "test-password" ? ok(res, auth()) : res.status(401).json({ message: "Wrong password" }));
   app.post("/api/v1/customer/auth/phone/verify", (_req,res) => ok(res, auth()));
-  app.post("/api/v1/customer/auth/refresh", (_req,res) => { refreshCount++; ok(res, auth()); });
+  app.post("/api/v1/customer/auth/refresh", (req,res) => {
+    refreshCount++;
+    if (req.body.refreshToken === "revoked-test") return res.status(401).json({ message: "Session revoked" });
+    if (req.body.refreshToken === "temporary-outage-test") return res.status(503).json({ message: "Temporarily unavailable" });
+    ok(res, auth());
+  });
   app.post("/api/v1/customer/auth/logout", (_req,res) => ok(res, {}));
   app.get("/api/v1/customer/profile", (req,res) => req.get("authorization") ? ok(res, customer) : res.status(401).json({ message: "Login required" }));
   app.get("/api/v1/customer/locations", (_req,res) => ok(res, []));
