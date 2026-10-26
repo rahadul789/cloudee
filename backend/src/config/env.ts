@@ -73,6 +73,7 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1, "CLOUDINARY_API_KEY is required"),
   CLOUDINARY_API_SECRET: z.string().min(1, "CLOUDINARY_API_SECRET is required"),
   BACKEND_PUBLIC_URL: z.string().url().default("http://localhost:5000"),
+  WEBSITE_PUBLIC_URL: z.string().url().default("https://foodbela.com"),
   BKASH_BASE_URL: z.string().optional(),
   BKASH_USERNAME: z.string().optional(),
   BKASH_PASSWORD: z.string().optional(),

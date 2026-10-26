@@ -574,6 +574,37 @@ export function OpeningHoursPage() {
         }
       />
 
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader><CardTitle>Automatic opening and closing</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+          <div className="text-sm text-muted-foreground">
+            Follow your saved weekly hours and special dates in Bangladesh time.
+            Foodbela service hours and admin restrictions always apply.
+            Going offline pauses until the next scheduled opening; coming online resumes the schedule.
+            Enable this option and save your changes to activate it.
+          </div>
+          <Switch aria-label="Automatic opening and closing" checked={draft.automationMode === "auto"}
+            disabled={isSaving} onCheckedChange={(checked) => setDraft((current) => ({ ...current, automationMode: checked ? "auto" : "manual" }))} />
+          </div>
+          {draft.automationMode === "auto" ? <div className="space-y-2 border-t pt-3">
+            <p className="text-sm font-medium">Temporary pause</p>
+            <p className="text-sm text-muted-foreground">Choose a pause and save your changes below. Resuming follows your schedule and Foodbela service hours.</p>
+            <div className="flex flex-wrap gap-2">
+              {[30, 60].map((minutes) => <Button key={minutes} variant="outline" disabled={isSaving}
+                onClick={() => setDraft((current) => ({ ...current, temporaryClosure: { isPaused: true, mode: "hours", resumeAt: new Date(Date.now() + minutes * 60000).toISOString(), reason: "Owner pause" } }))}>Pause {minutes} min</Button>)}
+              <Button variant="outline" disabled={isSaving} onClick={() => setDraft((current) => ({ ...current,
+                temporaryClosure: { isPaused: true, mode: "indefinite", resumeAt: null, reason: "Owner pause" } }))}>Pause until resumed</Button>
+              <Button variant="outline" disabled={isSaving} onClick={() => setDraft((current) => ({ ...current,
+                temporaryClosure: { isPaused: false, mode: null, resumeAt: null, reason: "" } }))}>Resume schedule</Button>
+            </div>
+            <p className="text-sm">{draft.temporaryClosure.isPaused && (!draft.temporaryClosure.resumeAt || Date.parse(draft.temporaryClosure.resumeAt) > Date.now())
+              ? draft.temporaryClosure.resumeAt ? `Paused until ${new Date(draft.temporaryClosure.resumeAt).toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })} (Bangladesh time)` : "Paused until you resume"
+              : "Schedule active"}</p>
+          </div> : null}
+        </CardContent>
+      </Card>
+
       {successMessage ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {successMessage}
@@ -932,6 +963,7 @@ export function OpeningHoursPage() {
               onClick={async () => {
                 try {
                   const updated = await updateOpeningHoursMutation.mutateAsync({
+                    automationMode: draft.automationMode ?? "manual",
                     timezone: draft.timezone,
                     weeklySchedule: draft.weeklySchedule,
                     exceptions: draft.exceptions,

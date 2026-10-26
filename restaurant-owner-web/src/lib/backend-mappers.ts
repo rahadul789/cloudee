@@ -690,6 +690,7 @@ export type OwnerSupportCaseResponse = {
 }
 
 export type OwnerOpeningHoursResponse = {
+  automationMode?: "manual" | "auto"
   timezone?: string
   weeklySchedule?: Array<Partial<DaySchedule>>
   exceptions?: Array<Partial<ScheduleException>>
@@ -1431,6 +1432,7 @@ export function mapOwnerOpeningHours(
 
   return {
     ...current,
+    automationMode: response.automationMode ?? "manual",
     timezone: response.timezone ?? current.timezone,
     weeklySchedule: schedule,
     exceptions: mapScheduleExceptions(response.exceptions),

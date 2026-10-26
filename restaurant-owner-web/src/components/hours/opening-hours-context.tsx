@@ -35,6 +35,7 @@ export function OpeningHoursProvider({
   const isSameOpeningHours = React.useCallback(
     (left: typeof openingHours, right: typeof openingHours) => {
       return (
+        left.automationMode === right.automationMode &&
         left.timezone === right.timezone &&
         left.updatedAt === right.updatedAt &&
         JSON.stringify(left.weeklySchedule) ===

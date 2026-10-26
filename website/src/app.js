@@ -8,6 +8,8 @@ const path = require("path");
 const pageRoutes = require("./routes/page.routes");
 const leadRoutes = require("./routes/lead.routes");
 const analyticsRoutes = require("./routes/analytics.routes");
+const customerApiRoutes = require("./routes/customer-api.routes");
+const storefrontRoutes = require("./routes/storefront.routes");
 const { site } = require("./data/site");
 const { buildPageSeo } = require("./services/seo.service");
 const { getWebsiteSettings } = require("./services/website-api.service");
@@ -37,11 +39,14 @@ app.use(
           "https://cdn-icons-png.flaticon.com",
           "https://images.unsplash.com",
           "https://api.qrserver.com",
+          "https://cdnjs.cloudflare.com",
+          "https://tile.openstreetmap.org",
         ],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
         frameSrc: ["'self'", "https://www.youtube.com", "https://www.youtube-nocookie.com"],
+        upgradeInsecureRequests: isProduction ? [] : null,
       },
     },
   }),
@@ -49,12 +54,15 @@ app.use(
 app.use(compression());
 app.use(express.urlencoded({ extended: false, limit: "30kb" }));
 app.use(express.json({ limit: "30kb" }));
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
+app.use("/shop-api", customerApiRoutes);
 
 app.use(
   express.static(path.join(__dirname, "..", "public"), {
     etag: true,
-    immutable: isProduction,
-    maxAge: isProduction ? "30d" : 0,
+    // Filenames are not content-hashed: revalidate so checkout fixes reach returning users.
+    immutable: false,
+    maxAge: isProduction ? "1h" : 0,
   }),
 );
 
@@ -66,6 +74,7 @@ app.use(async (req, res, next) => {
   next();
 });
 
+app.use("/", storefrontRoutes);
 app.use("/", pageRoutes);
 app.use("/leads", leadRoutes);
 app.use("/analytics", analyticsRoutes);

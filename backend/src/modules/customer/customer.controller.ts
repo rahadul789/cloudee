@@ -272,6 +272,7 @@ const placeOrderSchema = z.object({
 })
 
 const bkashInitiateSchema = z.object({
+  clientPlatform: z.enum(["app", "web"]).optional(),
   restaurantId: z.string().min(1),
   clientOrderId: z.string().trim().min(8).max(120).optional(),
   items: z.array(cartItemSchema).min(1).max(50),

@@ -1,3 +1,4 @@
+import { startRestaurantAutomationScheduler, stopRestaurantAutomationScheduler } from "./modules/owner/restaurant-automation.service"
 import http from "node:http"
 import mongoose from "mongoose"
 
@@ -44,6 +45,7 @@ async function bootstrap() {
     startAdminNotificationScheduler()
     startAppAlertScheduler()
     startMenuTrashPurgeScheduler()
+    startRestaurantAutomationScheduler()
   })
 
   let isShuttingDown = false
@@ -57,6 +59,7 @@ async function bootstrap() {
     stopAdminNotificationScheduler()
     stopAppAlertScheduler()
     stopMenuTrashPurgeScheduler()
+    stopRestaurantAutomationScheduler()
 
     const forceExitTimer = setTimeout(() => {
       logger.error("Backend shutdown timed out")

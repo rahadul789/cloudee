@@ -42,7 +42,19 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
-      "package": "com.foodbela.app"
+      "package": "com.foodbela.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": ["BROWSABLE", "DEFAULT"],
+          "data": [
+            { "scheme": "https", "host": "foodbela.com", "path": "/" },
+            { "scheme": "https", "host": "foodbela.com", "pathPrefix": "/restaurants/" },
+            { "scheme": "https", "host": "foodbela.com", "pathPrefix": "/orders/" }
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",

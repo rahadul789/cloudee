@@ -1,3 +1,4 @@
+import { RestaurantHoursDialog } from "./restaurant-hours-dialog"
 import * as React from "react"
 import L from "leaflet"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -5365,6 +5366,7 @@ function RestaurantActionsMenu({
   onView,
   onToggleVisibility,
   onToggleAvailability,
+  onHours,
   onEditFeature,
   onRemoveFeature,
   onDelete,
@@ -5374,6 +5376,7 @@ function RestaurantActionsMenu({
   onView: () => void
   onToggleVisibility: () => void
   onToggleAvailability: () => void
+  onHours: () => void
   onEditFeature: () => void
   onRemoveFeature: () => void
   onDelete: () => void
@@ -5396,6 +5399,7 @@ function RestaurantActionsMenu({
           <Eye className="size-4" />
           View details
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={onHours}><Clock3 className="size-4" />Opening hours / Auto mode</DropdownMenuItem>
         <DropdownMenuItem disabled={isPending} onClick={onToggleAvailability}>
           {restaurant.isOnline ? (
             <PowerOff className="size-4" />
@@ -5446,6 +5450,7 @@ export function RestaurantsPage() {
   const [page, setPage] = React.useState(1)
   const [addOpen, setAddOpen] = React.useState(false)
   const [selectedRestaurantId, setSelectedRestaurantId] = React.useState("")
+  const [hoursRestaurantId, setHoursRestaurantId] = React.useState("")
   const [deleteTarget, setDeleteTarget] =
     React.useState<AdminRestaurantSummary | null>(null)
   const [featureTarget, setFeatureTarget] =
@@ -5870,6 +5875,7 @@ export function RestaurantsPage() {
                           merchandisingMutation.isPending ||
                           deleteMutation.isPending
                         }
+                        onHours={() => setHoursRestaurantId(restaurant.id)}
                         onView={() => setSelectedRestaurantId(restaurant.id)}
                         onToggleVisibility={() =>
                           visibilityMutation.mutate({
@@ -6049,6 +6055,7 @@ export function RestaurantsPage() {
         </DialogContent>
       </Dialog>
 
+      <RestaurantHoursDialog restaurantId={hoursRestaurantId} onClose={() => setHoursRestaurantId("")} />
       <AddRestaurantDialog open={addOpen} onOpenChange={setAddOpen} />
       <RestaurantDetailsSheet
         restaurantId={selectedRestaurantId}

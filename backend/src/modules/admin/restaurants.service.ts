@@ -1,3 +1,4 @@
+import { getLiveRestaurantAvailability } from "../owner/restaurant-automation.service";
 import mongoose, { type SortOrder } from "mongoose";
 import { StatusCodes } from "http-status-codes";
 
@@ -99,6 +100,7 @@ type RestaurantIntelligenceParams = {
   availabilityReason?:
     | "all"
     | "manual_offline"
+    | "scheduled_close"
     | "admin_offline"
     | "enforcement"
     | "restaurant_hidden"
@@ -1919,6 +1921,7 @@ export async function getAdminRestaurantDetails(
       : null,
     openingHours: openingHours
       ? {
+          automationMode: openingHours.automationMode,
           timezone: stringValue(openingHours.timezone, "Asia/Dhaka"),
           weeklySchedule: Array.isArray(openingHours.weeklySchedule)
             ? openingHours.weeklySchedule
@@ -2750,7 +2753,7 @@ function buildAvailabilityEventFilter(
   }
   if (
     params.availabilityRisk === "offline_with_live_orders" &&
-    (eventType !== "offline" || numberValue(session.activeOrderCountAtEnd) <= 0)
+    (eventType !== "offline" || numberValue(session.activeOrderCountAtEnd) <= 0 || session.endReason === "scheduled_close")
   ) {
     return false;
   }
@@ -2780,6 +2783,8 @@ async function buildRestaurantAvailabilitySummary(
     }).lean(),
   ]);
 
+  const liveRestaurant = openingHours?.automationMode === "auto" ? await RestaurantModel.findById(restaurantId).lean() : null;
+  const scheduledClosure = liveRestaurant ? ["schedule", "service_window"].includes((await getLiveRestaurantAvailability(liveRestaurant)).closedReason ?? "") : false;
   const openSession = sessions.find((session) => !session.endedAt) ?? null;
   const scheduleCompliance = buildScheduleCompliance({
     openingHours,
@@ -2853,6 +2858,7 @@ async function buildRestaurantAvailabilitySummary(
     },
     summary: {
       isOnline: Boolean(openSession),
+      scheduledClosure,
       currentSessionStartedAt: serializeDate(openSession?.startedAt),
       todayOnlineSeconds,
       windowOnlineSeconds,
@@ -2874,7 +2880,7 @@ async function buildRestaurantAvailabilitySummary(
           )
         : 0,
       offlineWithLiveOrdersCount: closedSessions.filter(
-        (session) => numberValue(session.activeOrderCountAtEnd) > 0,
+        (session) => numberValue(session.activeOrderCountAtEnd) > 0 && session.endReason !== "scheduled_close",
       ).length,
       shortSessionCount: closedSessions.filter(
         (session) => numberValue(session.durationSeconds) > 0 && numberValue(session.durationSeconds) < 300,
@@ -2944,7 +2950,8 @@ async function syncRestaurantAvailabilityAlerts(params: {
   if (
     params.availability.summary.scheduledOpenNow &&
     !params.isOnline &&
-    !params.availability.summary.temporaryClosureActive
+    !params.availability.summary.temporaryClosureActive &&
+    !params.availability.summary.scheduledClosure
   ) {
     const title = `${params.restaurantName} is offline during scheduled hours`;
     const description =
@@ -2979,7 +2986,7 @@ async function syncRestaurantAvailabilityAlerts(params: {
   }
 
   const offlineLiveOrdersKey = `restaurant:${params.restaurantId}:offline_active_orders`;
-  if (!params.isOnline && params.activeOrderCount > 0) {
+  if (!params.isOnline && params.activeOrderCount > 0 && !params.availability.summary.scheduledClosure) {
     const title = `${params.restaurantName} is offline with live orders`;
     const description = `${params.activeOrderCount} live order${
       params.activeOrderCount === 1 ? "" : "s"
@@ -3014,7 +3021,7 @@ async function syncRestaurantAvailabilityAlerts(params: {
 
   const frequentToggleKey = `restaurant:${params.restaurantId}:frequent_availability_toggles`;
   const recentEventCount = params.availability.events.filter((event) => {
-    if (!event.occurredAt) return false;
+    if (!event.occurredAt || event.reason === "scheduled_close" || (event.type === "online" && event.source === "system")) return false;
     const occurredAt = new Date(event.occurredAt);
     return Date.now() - occurredAt.getTime() <= 60 * 60 * 1000;
   }).length;
@@ -3180,7 +3187,7 @@ function buildRestaurantNextActions(params: {
     });
   }
 
-  if (!isOnline && liveOrders > 0) {
+  if (!isOnline && liveOrders > 0 && !params.availability.summary.scheduledClosure) {
     addAction({
       id: "offline-live-orders",
       priority: "critical",
@@ -4026,7 +4033,7 @@ async function buildRestaurantBenchmark(params: {
     availabilityByRestaurant.set(restaurantId, {
       ...compliance,
       offlineWithLiveOrdersCount: closedSessions.filter(
-        (session) => numberValue(session.activeOrderCountAtEnd) > 0,
+        (session) => numberValue(session.activeOrderCountAtEnd) > 0 && session.endReason !== "scheduled_close",
       ).length,
       shortSessionCount: closedSessions.filter(
         (session) =>

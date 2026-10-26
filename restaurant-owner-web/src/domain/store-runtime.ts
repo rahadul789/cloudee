@@ -70,7 +70,9 @@ export function getStoreOperationalStatus(
     }
   }
 
-  if (openingHours.temporaryClosure.isPaused) {
+  const pauseResumeAt = openingHours.temporaryClosure.resumeAt
+    ? Date.parse(openingHours.temporaryClosure.resumeAt) : NaN
+  if (openingHours.temporaryClosure.isPaused && (!Number.isFinite(pauseResumeAt) || pauseResumeAt > now.getTime())) {
     return {
       isOpen: false,
       title: "Closed",
@@ -78,6 +80,10 @@ export function getStoreOperationalStatus(
         ? openingHours.temporaryClosure.reason.trim()
         : "Store is temporarily paused",
     }
+  }
+
+  if (openingHours.automationMode === "auto") {
+    return { isOpen: true, title: "Open", subtitle: "Following automatic opening hours" }
   }
 
   const scheduleForToday = todayException ?? today

@@ -1,6 +1,8 @@
 # Foodbela Website
 
-Lightweight Express + EJS public website for Foodbela.
+Express + EJS customer ordering storefront and public information website for Foodbela.
+
+See [the Bengali storefront guide](STOREFRONT.bn.md) for customer APIs, CMS integration, production session configuration, web bKash returns, Android App Links, and verification limits.
 
 ## Run locally
 

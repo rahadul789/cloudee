@@ -1624,6 +1624,7 @@ export type AdminRestaurantIntelligence = {
       reason:
         | "all"
         | "manual_offline"
+        | "scheduled_close"
         | "admin_offline"
         | "enforcement"
         | "restaurant_hidden"
@@ -7535,6 +7536,7 @@ export async function getAdminRestaurantIntelligence(
     availabilityReason?:
       | "all"
       | "manual_offline"
+      | "scheduled_close"
       | "admin_offline"
       | "enforcement"
       | "restaurant_hidden"

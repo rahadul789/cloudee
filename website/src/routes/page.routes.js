@@ -17,6 +17,7 @@ const {
 } = require("../services/seo.service");
 const { renderQrPng, renderQrSvg } = require("../services/qr-code.service");
 const { getAreaRestaurants } = require("../services/website-api.service");
+const { getFoodbelaFacts } = require("../services/foodbela-facts.service");
 
 const router = express.Router();
 
@@ -71,8 +72,13 @@ router.get("/sitemap.xml", (req, res) => {
   res.type("application/xml").send(buildSitemapXml(getSettings(res)));
 });
 
-router.get("/", (req, res) => {
-  renderSeoPage(req, res, "pages/home", "home");
+router.get("/foodbela", (req, res) => {
+  const foodbelaFacts = getFoodbelaFacts(getSettings(res));
+  renderSeoPage(req, res, "pages/home", "home", {
+    canonicalPath: "/foodbela",
+    faqs: foodbelaFacts,
+    viewData: { foodbelaFacts },
+  });
 });
 
 router.get("/download/qr.png", (req, res, next) => {
@@ -83,7 +89,7 @@ router.get("/download/qr.svg", (req, res, next) => {
   downloadInstallQr(req, res, next, "svg");
 });
 
-router.get("/restaurants", (req, res) => {
+router.get("/restaurant-partner", (req, res) => {
   renderSeoPage(req, res, "pages/restaurants", "restaurants", {
     faqs: faqs.restaurants,
     breadcrumbs: [{ name: "Restaurants", path: "/restaurants" }],
@@ -112,7 +118,10 @@ router.get("/riders", (req, res) => {
 });
 
 router.get("/about", (req, res) => {
+  const foodbelaFacts = getFoodbelaFacts(getSettings(res));
   renderSeoPage(req, res, "pages/about", "about", {
+    faqs: foodbelaFacts,
+    viewData: { foodbelaFacts },
     breadcrumbs: [{ name: "About", path: "/about" }],
   });
 });

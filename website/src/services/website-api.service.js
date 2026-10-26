@@ -1,18 +1,18 @@
 const fallbackSettings = {
   siteUrl: "https://foodbela.com",
-  seoDefaultTitle: "Foodbela | আপনার শহরের ফুড ডেলিভারি নেটওয়ার্ক",
+  seoDefaultTitle: "Foodbela | নেত্রকোনায় খাবার ডেলিভারি — Netrakona Food Delivery",
   seoDefaultDescription:
-    "Foodbela দিয়ে খাবার অর্ডার, রেস্টুরেন্ট পার্টনারশিপ এবং রাইডার অনবোর্ডিং এক প্ল্যাটফর্মে করুন।",
+    "নেত্রকোনায় Foodbela দিয়ে স্থানীয় রেস্টুরেন্টের খাবার অর্ডার করুন। সার্ভিস এলাকা, অ্যাপ ডাউনলোড, রেস্টুরেন্ট পার্টনারশিপ ও রাইডার আবেদন সম্পর্কে জানুন।",
   seoOgImageUrl: "",
   googleSiteVerification: "",
   businessAddress: "",
-  businessCity: "Dhaka",
-  businessRegion: "Dhaka",
+  businessCity: "",
+  businessRegion: "",
   businessPostalCode: "",
   businessCountry: "BD",
   playStoreUrl: "https://play.google.com/store/apps/details?id=com.foodbela.app",
   appDownloadUrl: "https://play.google.com/store/apps/details?id=com.foodbela.app",
-  restaurantApplyUrl: "/restaurants#apply",
+  restaurantApplyUrl: "/restaurant-partner#apply",
   riderApplyUrl: "/riders#apply",
   supportPhone: "+880 1700-000000",
   supportEmail: "hello@foodbela.com",
@@ -60,32 +60,22 @@ const fallbackSettings = {
   coverageRewardAmount: 2000,
   serviceAreas: [
     {
-      name: "Dhaka",
+      name: "Netrakona",
       status: "active",
-      note: "Selected zones now live",
-      noteBn: "ঢাকার নির্বাচিত এলাকায় Foodbela কভারেজ লাইভ আছে।",
-      noteEn: "Foodbela coverage is live in selected Dhaka zones.",
-      popularSearches: ["Dhaka food delivery", "Dhaka restaurant delivery", "food delivery app Dhaka"],
+      note: "Check your delivery address in the Foodbela app",
+      noteBn: "নেত্রকোনায় আপনার ঠিকানায় ডেলিভারি পাওয়া যায় কি না Foodbela অ্যাপে দেখুন।",
+      noteEn: "Check delivery availability for your Netrakona address in the Foodbela app.",
+      popularSearches: ["Netrakona food delivery", "Netrokona food delivery", "নেত্রকোনা খাবার ডেলিভারি"],
       cuisineKeywords: ["Burger", "Biryani", "Fast food", "Dessert"],
       postalCodes: [],
     },
     {
-      name: "Mirpur",
-      status: "active",
-      note: "Fast local delivery coverage",
-      noteBn: "মিরপুরে দ্রুত লোকাল ডেলিভারি কভারেজ চালু আছে।",
-      noteEn: "Fast local delivery coverage is active in Mirpur.",
-      popularSearches: ["Mirpur food delivery", "Mirpur restaurant", "burger delivery Mirpur"],
-      cuisineKeywords: ["Burger", "Biryani", "Chinese", "Cafe"],
-      postalCodes: [],
-    },
-    {
-      name: "Dhanmondi",
+      name: "Mohongonj",
       status: "coming_soon",
       note: "Launching soon",
-      noteBn: "ধানমন্ডিতে Foodbela শিগগির চালুর পরিকল্পনায় আছে।",
-      noteEn: "Foodbela is planned to launch in Dhanmondi soon.",
-      popularSearches: ["Dhanmondi food delivery", "Dhanmondi restaurant partner"],
+      noteBn: "মোহনগঞ্জে কভারেজ চালুর আপডেটের জন্য যোগাযোগ করুন।",
+      noteEn: "Contact Foodbela for updates on Mohongonj coverage.",
+      popularSearches: ["Mohongonj food delivery"],
       cuisineKeywords: ["Cafe", "Dessert", "Fast food"],
       postalCodes: [],
     },
@@ -147,6 +137,7 @@ async function getWebsiteSettings() {
 
   try {
     const response = await fetch(`${getBackendApiBaseUrl()}/website/settings`, {
+      signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
     });
 
@@ -156,6 +147,7 @@ async function getWebsiteSettings() {
 
     const payload = await response.json();
     const settings = { ...fallbackSettings, ...(payload.data ?? {}) };
+    if (settings.restaurantApplyUrl === "/restaurants#apply") settings.restaurantApplyUrl = "/restaurant-partner#apply";
     if (
       oldDefaultHeroSubtitleMarkers.every((marker) =>
         String(settings.heroSubtitle || "").includes(marker),
@@ -194,7 +186,7 @@ async function getAreaRestaurants(areaName, limit = 36) {
     });
     const response = await fetch(
       `${getBackendApiBaseUrl()}/website/area-restaurants?${query.toString()}`,
-      { headers: { accept: "application/json" } },
+      { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10000) },
     );
     if (!response.ok) return [];
     const payload = await response.json();

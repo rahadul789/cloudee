@@ -47,7 +47,8 @@ export function useRestaurantStatus() {
         })
         setIsOnline(Boolean(updated.runtime?.isOnline))
         queryClient.invalidateQueries({ queryKey: ["owner", "store-settings"] })
-        toast.success(nextValue ? "Restaurant is online" : "Restaurant is offline")
+        queryClient.invalidateQueries({ queryKey: ["owner", "opening-hours"] })
+        toast.success(updated.runtime?.isOnline ? "Restaurant is online" : nextValue ? "Schedule resumed; restaurant will open during scheduled hours" : "Restaurant is offline")
       } catch (error) {
         setIsOnline(previous)
         const message =

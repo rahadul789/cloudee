@@ -85,6 +85,7 @@ type AvailabilitySourceFilter =
 type AvailabilityReasonFilter =
   | "all"
   | "manual_offline"
+  | "scheduled_close"
   | "admin_offline"
   | "enforcement"
   | "restaurant_hidden"
@@ -1418,6 +1419,7 @@ export function RestaurantIntelligencePage() {
                     <SelectContent>
                       <SelectItem value="all">All reasons</SelectItem>
                       <SelectItem value="manual_offline">Manual offline</SelectItem>
+                      <SelectItem value="scheduled_close">Scheduled closing</SelectItem>
                       <SelectItem value="admin_offline">Admin offline</SelectItem>
                       <SelectItem value="enforcement">Enforcement</SelectItem>
                       <SelectItem value="restaurant_hidden">

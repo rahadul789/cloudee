@@ -1,3 +1,4 @@
+import { assertRestaurantAcceptingOrders } from "../owner/restaurant-automation.service";
 import { StatusCodes } from "http-status-codes";
 
 import { AppError } from "../../common/utils/app-error";
@@ -107,7 +108,6 @@ function buildCustomerCartQuoteCacheKey(params: {
 function getVisibleRestaurantQuery() {
   return {
     "runtime.isVisible": true,
-    "runtime.isOnline": true,
     $or: [
       { "enforcement.status": { $exists: false } },
       { "enforcement.status": { $in: ["active", "under_review"] } },
@@ -495,6 +495,7 @@ export async function quoteCustomerCart(params: {
   // Urgent delivery add-on: only charged when the customer opts in at checkout.
   urgentDeliveryOptedIn?: boolean;
 }): Promise<CustomerCartQuoteResult> {
+  await assertRestaurantAcceptingOrders(params.restaurantId);
   const baseQuote = await customerCartQuoteCache.getOrSet(
     buildCustomerCartQuoteCacheKey(params),
     async () => {

@@ -9,12 +9,26 @@ const staticPageDefinitions = {
     changefreq: "weekly",
   },
   restaurants: {
-    path: "/restaurants",
+    path: "/restaurant-partner",
     title: "Foodbela Restaurant Partner | রেস্টুরেন্ট পার্টনারশিপ",
     description:
       "Foodbela রেস্টুরেন্ট প্যানেল ও মোবাইল অ্যাপ দিয়ে অর্ডার, মেন্যু, পেমেন্ট ও ডেলিভারি অপারেশন সহজে পরিচালনা করুন।",
     priority: "0.9",
     changefreq: "weekly",
+  },
+  catalog: {
+    path: "/restaurants",
+    title: "রেস্টুরেন্ট ও খাবার অর্ডার | Foodbela",
+    description: "আপনার ঠিকানায় পাওয়া রেস্টুরেন্টের মেনু দেখে Foodbela-তে খাবার অর্ডার করুন।",
+    priority: "0.9",
+    changefreq: "daily",
+  },
+  foodbela: {
+    path: "/foodbela",
+    title: "Foodbela সেবা, পার্টনার ও রাইডার তথ্য",
+    description: "Foodbela সেবা, অ্যাপ, রেস্টুরেন্ট পার্টনারশিপ ও রাইডার আবেদন সম্পর্কে জানুন।",
+    priority: "0.6",
+    changefreq: "monthly",
   },
   download: {
     path: "/download",
@@ -102,7 +116,8 @@ function getOgImageUrl(settings = {}) {
 }
 
 function normalizePhoneForSchema(phone) {
-  return String(phone || "").trim() || "+880 1700-000000";
+  const value = String(phone || "").trim();
+  return value.replace(/\D/g, "") === "8801700000000" ? undefined : value || undefined;
 }
 
 function normalizeText(value, fallback = "") {
@@ -218,7 +233,7 @@ function safeJsonLd(value) {
 
 function buildAddress(settings = {}) {
   const streetAddress = normalizeText(settings.businessAddress);
-  const addressLocality = normalizeText(settings.businessCity, "Dhaka");
+  const addressLocality = normalizeText(settings.businessCity);
   const addressRegion = normalizeText(settings.businessRegion);
   const postalCode = normalizeText(settings.businessPostalCode);
   const addressCountry = normalizeText(settings.businessCountry, "BD");
@@ -240,23 +255,9 @@ function buildOrganizationSchema(settings = {}) {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": absoluteUrl(settings, "/#organization"),
     name: "Foodbela",
-    alternateName: [
-      "Foodbela Bangladesh",
-      "Food Bela",
-      "Food Bella",
-      "Foodblea",
-      "Fodbela",
-      "Foodbila",
-      "Fudbela",
-      "Foodbelaa",
-      "Foodvela",
-      "Foodbela BD",
-      "Foodbela Netrokona",
-      "Foodbela Netrakona",
-    ],
-    keywords:
-      "Foodbela, Food Bela, Food Bella, Foodblea, Fodbela, Foodbila, Fudbela, Foodbelaa, Foodvela, food delivery Bangladesh, Netrakona food delivery, Netrokona food delivery",
+    alternateName: ["ফুডবেলা", "Foodbela Bangladesh"],
     url: getPublicSiteUrl(settings),
     logo: absoluteUrl(settings, "/images/Foodbela.svg"),
     image: getOgImageUrl(settings),
@@ -281,18 +282,21 @@ function buildOrganizationSchema(settings = {}) {
 }
 
 function buildLocalBusinessSchema(settings = {}) {
+  // Do not invent a physical business location to qualify for a rich result.
+  if (!normalizeText(settings.businessAddress) || !normalizeText(settings.businessCity)) return null;
   const activeAreas = (settings.serviceAreas || [])
     .filter((area) => area && area.name && area.status === "active")
     .map((area) => area.name);
   return {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
+    "@id": absoluteUrl(settings, "/#local-business"),
+    parentOrganization: { "@id": absoluteUrl(settings, "/#organization") },
     name: "Foodbela",
     url: getPublicSiteUrl(settings),
     image: getOgImageUrl(settings),
     logo: absoluteUrl(settings, "/images/Foodbela.svg"),
     telephone: normalizePhoneForSchema(settings.supportPhone),
-    priceRange: "$$",
     ...(buildAddress(settings) ? { address: buildAddress(settings) } : {}),
     ...(activeAreas.length ? { areaServed: activeAreas } : {}),
   };
@@ -302,19 +306,13 @@ function buildWebsiteSchema(settings = {}) {
   return {
     "@context": "https://schema.org",
     "@type": "WebSite",
+    "@id": absoluteUrl(settings, "/#website"),
     name: "Foodbela",
-    alternateName: ["Food Bela", "Food Bella", "Foodblea", "Fodbela", "Foodbila", "Fudbela", "Foodbelaa", "Foodvela"],
+    alternateName: ["ফুডবেলা"],
     url: getPublicSiteUrl(settings),
     inLanguage: ["bn-BD", "en"],
     publisher: {
-      "@type": "Organization",
-      name: "Foodbela",
-      logo: absoluteUrl(settings, "/images/Foodbela.svg"),
-    },
-    potentialAction: {
-      "@type": "SearchAction",
-      target: `${getPublicSiteUrl(settings)}/areas?search={search_term_string}`,
-      "query-input": "required name=search_term_string",
+      "@id": absoluteUrl(settings, "/#organization"),
     },
   };
 }
@@ -394,7 +392,7 @@ function buildPageSeo(req, settings = {}, pageKey = "home", options = {}) {
     title,
     description,
     canonicalUrl,
-    robots: options.noindex ? "noindex,follow" : "index,follow",
+    robots: options.noindex ? "noindex,follow" : "index,follow,max-image-preview:large",
     ogType: options.ogType || "website",
     ogImageUrl: getOgImageUrl(settings),
     keywords:
@@ -470,7 +468,7 @@ function buildAreaIntentSeo(req, settings = {}, area, intent = "restaurants", re
   const intentConfigs = {
     restaurants: {
       path: getAreaRestaurantsPath(areaName),
-      title: `Best restaurants in ${areaName} | ${areaName} Foodbela restaurants`,
+      title: `Restaurants in ${areaName} | Foodbela রেস্টুরেন্ট`,
       description: `${areaName} এলাকার Foodbela restaurant discovery, খাবারের ধরন, local delivery coverage এবং app download guide দেখুন।`,
       crumb: `${areaName} restaurants`,
       serviceType: "Restaurant delivery",
@@ -534,7 +532,7 @@ function xmlEscape(value) {
 }
 
 function buildSitemapXml(settings = {}) {
-  const lastmod = new Date(settings.updatedAt || Date.now()).toISOString();
+  // A settings fetch or a new crawl is not evidence that every page changed.
   const staticUrls = Object.values(staticPageDefinitions).map((page) => ({
     loc: absoluteUrl(settings, page.path),
     changefreq: page.changefreq,
@@ -569,7 +567,6 @@ function buildSitemapXml(settings = {}) {
     .map(
       (url) => `  <url>
     <loc>${xmlEscape(url.loc)}</loc>
-    <lastmod>${lastmod}</lastmod>
     <changefreq>${url.changefreq}</changefreq>
     <priority>${url.priority}</priority>
   </url>`,
@@ -587,6 +584,10 @@ Allow: /
 Disallow: /leads
 Disallow: /analytics
 Disallow: /admin
+Disallow: /shop-api
+Disallow: /checkout
+Disallow: /orders
+Disallow: /payment-return
 
 Sitemap: ${absoluteUrl(settings, "/sitemap.xml")}
 `;

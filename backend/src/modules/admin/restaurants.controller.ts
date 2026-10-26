@@ -26,7 +26,27 @@ import {
   updateAdminRestaurantVisibility,
 } from "./restaurants.service";
 import { createOwnerImpersonationHandoff } from "../auth/impersonation.service";
-import { setRestaurantAvailabilityByAdmin } from "../owner/business.service";
+import { setRestaurantAvailabilityByAdmin, updateOpeningHours } from "../owner/business.service";
+import { openingHoursUpdateSchema } from "../owner/opening-hours.validation";
+import { OpeningHoursModel } from "../auth/auth.model";
+import { listRestaurantAutomationHistory } from "../owner/restaurant-automation.service";
+
+export const getAdminRestaurantOpeningHours = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  await assertRestaurantInAdminArea(req);
+  const restaurantId = getStringParam(req.params.restaurantId);
+  const [hours, history] = await Promise.all([
+    OpeningHoursModel.findOne({ restaurantId }).lean(),
+    listRestaurantAutomationHistory(restaurantId),
+  ]);
+  return sendSuccess(res, { data: { hours, history } });
+});
+
+export const putAdminRestaurantOpeningHours = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  await assertRestaurantInAdminArea(req);
+  const payload = openingHoursUpdateSchema.parse(req.body);
+  const data = await updateOpeningHours({ ownerId: getAdminId(req), restaurantId: getStringParam(req.params.restaurantId), ...payload });
+  return sendSuccess(res, { message: "Restaurant opening hours updated", data });
+});
 
 const impersonateOwnerSchema = z.object({
   reason: z.string().trim().min(3).max(300),
@@ -113,6 +133,7 @@ const restaurantIntelligenceQuerySchema = detailsQuerySchema.extend({
     .enum([
       "all",
       "manual_offline",
+      "scheduled_close",
       "admin_offline",
       "enforcement",
       "restaurant_hidden",
@@ -350,9 +371,9 @@ export const patchAdminRestaurantAvailability = asyncHandler(
     });
 
     return sendSuccess(res, {
-      message: payload.isOnline
+      message: restaurant.runtime?.isOnline
         ? "Restaurant is now online"
-        : "Restaurant is now offline",
+        : payload.isOnline ? "Admin hold released; owner pause and opening hours still apply" : "Restaurant is now offline",
       data: {
         id: restaurant.id,
         name: restaurant.name,

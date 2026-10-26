@@ -9,6 +9,7 @@ export type RestaurantAvailabilitySessionSource =
 
 export type RestaurantAvailabilityEndReason =
   | "manual_offline"
+  | "scheduled_close"
   | "admin_offline"
   | "enforcement"
   | "restaurant_hidden"

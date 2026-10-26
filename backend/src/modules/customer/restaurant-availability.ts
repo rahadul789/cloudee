@@ -1,19 +1,4 @@
-/**
- * Customer-facing "is this restaurant open, and if not, when does it open?" engine.
- *
- * Two DETERMINISTIC gates decide when a restaurant CAN be open — the platform/zone
- * service window and the restaurant's own weekly schedule — plus one NON-deterministic
- * signal, the owner's online toggle, and the admin enforcement state.
- *
- *   isOpen = serviceWindowOpen && ownerOnline && !restricted
- *
- * The schedule is a *predictor*, never a gate: when the owner is offline we use it to
- * show a friendly "Opens at 2:00 PM" instead of a bare "Temporarily unavailable". The
- * owner can always come online earlier (that just flips it open). Reopen time is always
- * computed here in Asia/Dhaka and handed to the client as `opensInSeconds`, so the app's
- * countdown is correct regardless of the device timezone.
- */
-
+/** Shared availability policy: manual owner control or opt-in schedule automation. */
 import {
   formatMinuteOfDayLabel,
   getDhakaMinuteOfDay,
@@ -68,6 +53,9 @@ type LooseDay = {
 }
 export type OpeningHoursInput = {
   timezone?: string
+  adminPaused?: boolean
+  automationMode?: "manual" | "auto"
+  temporaryClosure?: { isPaused?: boolean; resumeAt?: Date | string | null; mode?: string | null; reason?: string } | null
   weeklySchedule?: unknown
   exceptions?: unknown
 } | null | undefined
@@ -78,7 +66,7 @@ function timeToMinutes(value: unknown): number | null {
   if (!match) return null
   const hours = Number(match[1])
   const mins = Number(match[2])
-  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return null
+  if (!Number.isFinite(hours) || !Number.isFinite(mins) || hours > 23 || mins > 59) return null
   return hours * 60 + mins
 }
 
@@ -170,49 +158,87 @@ export function evaluateSchedule(
     return { hasSchedule: false, openNow: false, nextOpen: null }
   }
 
+  const windows = getScheduleWindows(openingHours, now)
+  const openNow = windows.some(([start, end]) => now.getTime() >= start && now.getTime() < end)
+  const next = windows.find(([start]) => start > now.getTime())
   const clock = getDhakaClock(now)
-  const nowSec = clock.secondOfDay
-
-  // Open-now check (today's source, honouring slots that wrap past midnight).
-  const today = resolveDaySource(openingHours, clock.weekday, clock.dateKey)
-  let openNow = false
-  if (today && today.isOpen) {
-    if (today.is24Hours) {
-      openNow = true
-    } else {
-      const nowMin = nowSec / 60
-      openNow = normalizeSlots(today.timeSlots).some(
-        (slot) => nowMin >= slot.start && nowMin < slot.end,
-      )
-    }
-  }
-
-  // Next-open scan: today's remaining slots, then following days' first slot.
-  let nextOpen: ScheduleState["nextOpen"] = null
-  const baseDate = new Date(now)
-  for (let offset = 0; offset <= 7 && !nextOpen; offset += 1) {
-    const probe = new Date(baseDate.getTime() + offset * SECONDS_PER_DAY * 1000)
-    const probeClock = getDhakaClock(probe)
-    const source = resolveDaySource(openingHours, probeClock.weekday, probeClock.dateKey)
-    if (!source || !source.isOpen) continue
-    if (source.is24Hours) {
-      // Opens at 00:00 of that day — only meaningful for a future day.
-      if (offset > 0) {
-        nextOpen = { secondsUntil: offset * SECONDS_PER_DAY - nowSec, openMinute: 0, dayOffset: offset }
-      }
-      continue
-    }
-    for (const slot of normalizeSlots(source.timeSlots)) {
-      const startSec = slot.start * 60
-      const untilStart = offset * SECONDS_PER_DAY + startSec - nowSec
-      if (untilStart > 0) {
-        nextOpen = { secondsUntil: untilStart, openMinute: slot.start % (24 * 60), dayOffset: offset }
-        break
-      }
-    }
-  }
+  const nextClock = next ? getDhakaClock(new Date(next[0])) : null
+  const nextOpen = next && nextClock ? {
+    secondsUntil: (next[0] - now.getTime()) / 1000,
+    openMinute: Math.floor(nextClock.secondOfDay / 60),
+    dayOffset: Math.round((Date.parse(nextClock.dateKey) - Date.parse(clock.dateKey)) / 86400000),
+  } : null
 
   return { hasSchedule: true, openNow, nextOpen }
+}
+
+type Window = [number, number]
+const DAY_MS = 86400000
+
+function mergeWindows(windows: Window[]): Window[] {
+  const result: Window[] = []
+  for (const [start, end] of windows.sort((a, b) => a[0] - b[0])) {
+    const last = result[result.length - 1]
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end)
+    else result.push([start, end])
+  }
+  return result
+}
+
+/** Yesterday is included for overnight shifts. A date exception replaces the whole
+ * calendar date, including carry from yesterday; a weekly day off allows that carry. */
+export function getScheduleWindows(hours: OpeningHoursInput, now = new Date()): Window[] {
+  if (!hours) return []
+  const midnight = Date.parse(`${getDhakaClock(now).dateKey}T00:00:00+06:00`)
+  const windows: Window[] = []
+  for (let offset = -1; offset <= 8; offset++) {
+    const base = midnight + offset * DAY_MS
+    const clock = getDhakaClock(new Date(base))
+    const source = resolveDaySource(hours, clock.weekday, clock.dateKey)
+    if (!source?.isOpen) continue
+    const slots = source.is24Hours ? [{ start: 0, end: 1440 }] : normalizeSlots(source.timeSlots)
+    const nextDate = getDhakaClock(new Date(base + DAY_MS)).dateKey
+    const nextHasException = Array.isArray(hours.exceptions) &&
+      (hours.exceptions as LooseDay[]).some((entry) => entry?.date === nextDate)
+    for (const slot of slots) {
+      const end = nextHasException ? Math.min(slot.end, 1440) : slot.end
+      windows.push([base + slot.start * 60000, base + end * 60000])
+    }
+  }
+  return mergeWindows(windows)
+}
+
+function computeAutoAvailability(hours: NonNullable<OpeningHoursInput>, service: ServiceHoursConfig, now: Date): RestaurantAvailability {
+  const closed: RestaurantAvailability = { isOpen: false, closedReason: "schedule", opensAtLabel: null, opensAtEpochMs: null, closesAtEpochMs: null }
+  const pause = hours.temporaryClosure
+  const resume = pause?.resumeAt ? new Date(pause.resumeAt).getTime() : NaN
+  const paused = pause?.isPaused && (!Number.isFinite(resume) || resume > now.getTime())
+  if (paused && !Number.isFinite(resume)) return { ...closed, closedReason: "owner_busy" }
+  const earliest = paused ? resume : now.getTime()
+  const schedule = getScheduleWindows(hours, now)
+  const platform: Window[] = []
+  const midnight = Date.parse(`${getDhakaClock(now).dateKey}T00:00:00+06:00`)
+  if (!service.enabled || service.openMinute === service.closeMinute) platform.push([-Infinity, Infinity])
+  else for (let day = -1; day <= 9; day++) {
+    const base = midnight + day * DAY_MS
+    const end = service.closeMinute > service.openMinute ? service.closeMinute : service.closeMinute + 1440
+    platform.push([base + service.openMinute * 60000, base + end * 60000])
+  }
+  const effective: Window[] = []
+  for (const [start, end] of schedule) for (const [ps, pe] of platform) {
+    const left = Math.max(start, ps, earliest), right = Math.min(end, pe)
+    if (left < right) effective.push([left, right])
+  }
+  const windows = mergeWindows(effective)
+  const current = windows.find(([start, end]) => start <= now.getTime() && now.getTime() < end)
+  if (current) return { ...closed, isOpen: true, closedReason: null, closesAtEpochMs: current[1] >= midnight + 8 * DAY_MS ? null : current[1] }
+  const next = windows.find(([start]) => start > now.getTime())
+  if (paused) closed.closedReason = "owner_busy"
+  else if (service.enabled && !isMinuteWithinWindow(getDhakaMinuteOfDay(now), service.openMinute, service.closeMinute)) closed.closedReason = "service_window"
+  if (!next) return closed
+  const nextClock = getDhakaClock(new Date(next[0]))
+  const offset = Math.round((Date.parse(nextClock.dateKey) - Date.parse(getDhakaClock(now).dateKey)) / DAY_MS)
+  return { ...closed, opensAtEpochMs: next[0], opensAtLabel: labelForDayOffset(Math.floor(nextClock.secondOfDay / 60), offset) }
 }
 
 function labelForDayOffset(openMinute: number, dayOffset: number): string {
@@ -242,8 +268,12 @@ export function computeRestaurantAvailability(params: {
 }): RestaurantAvailability {
   const now = params.now ?? new Date()
 
-  if (params.restricted) {
+  if (params.restricted || params.openingHours?.adminPaused) {
     return { isOpen: false, closedReason: "restricted", opensAtLabel: null, opensAtEpochMs: null, closesAtEpochMs: null }
+  }
+
+  if (params.openingHours?.automationMode === "auto") {
+    return computeAutoAvailability(params.openingHours, params.serviceHours, now)
   }
 
   const windowOpen =

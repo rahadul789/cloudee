@@ -1,3 +1,6 @@
+import { reconcileRestaurantAutomation } from "./restaurant-automation.service"
+import { evaluateSchedule, getDhakaClock } from "../customer/restaurant-availability"
+import { openingHoursUpdateSchema } from "./opening-hours.validation"
 import crypto from "node:crypto"
 
 import { StatusCodes } from "http-status-codes"
@@ -595,7 +598,38 @@ async function applyRestaurantAvailabilityChange(params: {
   isOnline: boolean
   source?: RestaurantAvailabilitySessionSource
 }) {
-  const { restaurant, restaurantId, ownerId } = params
+  const { restaurant, restaurantId } = params
+  const hours = await OpeningHoursModel.findOne({ restaurantId })
+  if (hours?.automationMode === "auto") {
+    if (params.isOnline && isRestaurantOrderingRestricted(restaurant)) {
+      throw new AppError(StatusCodes.FORBIDDEN, "RESTAURANT_RESTRICTED", "Restaurant is restricted")
+    }
+    const now = new Date()
+    const next = evaluateSchedule(hours, now).nextOpen
+    if (params.source === "admin") {
+      hours.adminPaused = !params.isOnline
+    }
+    if (params.source !== "admin" && params.isOnline && hours.adminPaused) {
+      throw new AppError(StatusCodes.FORBIDDEN, "RESTAURANT_ADMIN_PAUSED", "An admin must resume this restaurant")
+    }
+    hours.temporaryClosure = params.source === "admin" ? hours.temporaryClosure : params.isOnline
+      ? { isPaused: false, mode: null, resumeAt: null, reason: "" }
+      : { isPaused: true, mode: "shift",
+          resumeAt: next ? new Date(now.getTime() + next.secondsUntil * 1000) : new Date(`${getDhakaClock(new Date(now.getTime() + 86400000)).dateKey}T00:00:00+06:00`),
+          reason: "Owner pause" }
+    hours.markModified("temporaryClosure")
+    await hours.save()
+    invalidateCustomerRestaurantAvailabilityCaches()
+    await reconcileRestaurantAutomation(restaurantId, params.source)
+    return (await RestaurantModel.findById(restaurantId))!
+  }
+  if (hours?.adminPaused && params.source !== "admin" && params.isOnline) {
+    throw new AppError(StatusCodes.FORBIDDEN, "RESTAURANT_ADMIN_PAUSED", "An admin must resume this restaurant")
+  }
+  if (hours && params.source === "admin") {
+    hours.adminPaused = !params.isOnline
+    await hours.save()
+  }
   const previousOnline = restaurant.runtime?.isOnline === true
   const previousUpdatedAt = restaurant.updatedAt ?? new Date()
   if (params.isOnline && isRestaurantOrderingRestricted(restaurant)) {
@@ -765,6 +799,8 @@ export async function getOpeningHours(ownerId: string) {
 
 export async function updateOpeningHours(params: {
   ownerId: string
+  restaurantId?: string
+  automationMode?: "manual" | "auto"
   timezone?: string
   weeklySchedule?: unknown[]
   exceptions?: unknown[]
@@ -775,10 +811,20 @@ export async function updateOpeningHours(params: {
     reason?: string
   }
 }) {
-  const { restaurant, restaurantId } = await getOwnerBusinessContext(params.ownerId)
-  const openingHours = await getOpeningHours(params.ownerId)
+  openingHoursUpdateSchema.parse(params)
+  const { restaurant, restaurantId } = params.restaurantId
+    ? { restaurant: await RestaurantModel.findById(params.restaurantId), restaurantId: params.restaurantId }
+    : await getOwnerBusinessContext(params.ownerId)
+  if (!restaurant) throw new AppError(StatusCodes.NOT_FOUND, "RESTAURANT_NOT_FOUND", "Restaurant not found")
+  const openingHours = params.restaurantId
+    ? await OpeningHoursModel.findOneAndUpdate({ restaurantId }, { $setOnInsert: { restaurantId } }, { upsert: true, new: true })
+    : await getOpeningHours(params.ownerId)
   let openingHoursChanged = false
 
+  if (params.automationMode !== undefined) {
+    openingHours.automationMode = params.automationMode
+    openingHoursChanged = true
+  }
   if (params.timezone !== undefined) {
     openingHours.timezone = params.timezone
     openingHoursChanged = true
@@ -802,9 +848,24 @@ export async function updateOpeningHours(params: {
         : {})
     }
     openingHours.markModified("temporaryClosure")
+    const closure = openingHours.temporaryClosure as { isPaused?: boolean; mode?: string | null; resumeAt?: Date | string | null }
+    if (closure.isPaused && params.temporaryClosure.resumeAt === undefined) {
+      if (params.temporaryClosure.mode === "indefinite") closure.resumeAt = null
+      else if (params.temporaryClosure.mode === "fullDay") {
+        closure.resumeAt = new Date(`${getDhakaClock(new Date(Date.now() + 86400000)).dateKey}T00:00:00+06:00`)
+      } else if (params.temporaryClosure.mode === "shift") {
+        const now = new Date()
+        const next = evaluateSchedule(openingHours, now).nextOpen
+        closure.resumeAt = next ? new Date(now.getTime() + next.secondsUntil * 1000) : new Date(`${getDhakaClock(new Date(now.getTime() + 86400000)).dateKey}T00:00:00+06:00`)
+      }
+    }
     openingHoursChanged = true
   }
 
+  if (openingHours.automationMode === "auto") {
+    if (!openingHours.weeklySchedule.length) throw new AppError(StatusCodes.BAD_REQUEST, "SCHEDULE_REQUIRED", "Configure weekly hours before enabling automation")
+    openingHoursUpdateSchema.parse({ timezone: openingHours.timezone, weeklySchedule: openingHours.weeklySchedule, exceptions: openingHours.exceptions })
+  }
   if (openingHoursChanged) {
     await openingHours.save()
   }
@@ -823,6 +884,8 @@ export async function updateOpeningHours(params: {
     type: "opening_hours_updated"
   })
 
+  invalidateCustomerRestaurantAvailabilityCaches()
+  await reconcileRestaurantAutomation(restaurantId)
   return openingHours
 }
 

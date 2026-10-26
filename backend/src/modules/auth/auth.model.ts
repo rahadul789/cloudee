@@ -740,6 +740,8 @@ const openingHoursSchema = new Schema(
       unique: true,
     },
     timezone: { type: String, default: "Asia/Dhaka" },
+    automationMode: { type: String, enum: ["manual", "auto"], default: "manual", index: true },
+    adminPaused: { type: Boolean, default: false },
     weeklySchedule: { type: [Schema.Types.Mixed], default: [] },
     exceptions: { type: [Schema.Types.Mixed], default: [] },
     temporaryClosure: {

@@ -35,6 +35,8 @@ services:
       NODE_ENV: production
       PORT: 4200
       WEBSITE_BASE_URL: ${WEBSITE_BASE_URL:-https://foodbela.com}
+      WEBSITE_SESSION_SECRET: ${WEBSITE_SESSION_SECRET:?Set a random WEBSITE_SESSION_SECRET of at least 32 characters}
+      ANDROID_APP_LINK_SHA256: ${ANDROID_APP_LINK_SHA256:-}
       BACKEND_API_BASE_URL: ${BACKEND_API_BASE_URL:-http://backend:5000/api/v1}
     networks:
       - foodbela
@@ -42,7 +44,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:4200/').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+          "node -e \"fetch('http://127.0.0.1:4200/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
         ]
       interval: 30s
       timeout: 5s
@@ -59,6 +61,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5000
+      WEBSITE_PUBLIC_URL: ${WEBSITE_BASE_URL:-https://foodbela.com}
       MONGODB_URI: ${MONGODB_URI:?Set your MongoDB Atlas MONGODB_URI in .env}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}

@@ -32,12 +32,13 @@ export type ScheduleException = {
 
 export type TemporaryClosure = {
   isPaused: boolean
-  mode: "hours" | "fullDay" | null
+  mode: "hours" | "fullDay" | "shift" | "indefinite" | null
   resumeAt?: string | null
   reason?: string
 }
 
 export type OpeningHoursSettings = {
+  automationMode?: "manual" | "auto"
   timezone: string
   weeklySchedule: DaySchedule[]
   exceptions: ScheduleException[]

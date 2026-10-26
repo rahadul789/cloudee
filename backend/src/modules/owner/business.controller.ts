@@ -1,3 +1,4 @@
+import { openingHoursUpdateSchema } from "./opening-hours.validation"
 import type { Response } from "express"
 import { z } from "zod"
 
@@ -65,20 +66,6 @@ const storeSettingsUpdateSchema = z.object({
       cancellation: z.boolean().optional(),
       payouts: z.boolean().optional(),
       support: z.boolean().optional()
-    })
-    .optional()
-})
-
-const openingHoursUpdateSchema = z.object({
-  timezone: z.string().optional(),
-  weeklySchedule: z.array(z.unknown()).optional(),
-  exceptions: z.array(z.unknown()).optional(),
-  temporaryClosure: z
-    .object({
-      isPaused: z.boolean().optional(),
-      mode: z.string().nullable().optional(),
-      resumeAt: z.string().nullable().optional(),
-      reason: z.string().optional()
     })
     .optional()
 })
@@ -207,7 +194,7 @@ export const patchOwnerRestaurantStatus = asyncHandler(
     })
 
     return sendSuccess(res, {
-      message: payload.isOnline ? "Restaurant is now online" : "Restaurant is now offline",
+      message: data.runtime?.isOnline ? "Restaurant is now online" : payload.isOnline ? "Schedule resumed; restaurant opens during scheduled hours" : "Restaurant is now offline",
       data
     })
   }

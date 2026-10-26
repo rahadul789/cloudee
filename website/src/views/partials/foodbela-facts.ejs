@@ -1,0 +1,15 @@
+<section class="ecosystem-section" aria-labelledby="foodbela-facts-title">
+  <div class="sec-title">
+    <h2 id="foodbela-facts-title">Foodbela সম্পর্কে প্রয়োজনীয় তথ্য</h2>
+    <p>খাবার অর্ডার, ডেলিভারি কভারেজ ও বর্তমান সেবা সম্পর্কে জানুন।</p>
+  </div>
+  <div class="cards-grid">
+    <% foodbelaFacts.forEach((fact) => { %>
+      <article class="bento-card">
+        <h3><%= fact.question %></h3>
+        <p><%= fact.answer %></p>
+      </article>
+    <% }) %>
+  </div>
+  <p><a href="/areas">সার্ভিস এলাকা দেখুন</a> · <a href="/download">Foodbela অ্যাপ ডাউনলোড</a> · <a href="/contact">যোগাযোগ করুন</a></p>
+</section>

@@ -23,6 +23,7 @@ const restaurantAvailabilitySessionSchema = new Schema(
       type: String,
       enum: [
         "manual_offline",
+        "scheduled_close",
         "admin_offline",
         "enforcement",
         "restaurant_hidden",

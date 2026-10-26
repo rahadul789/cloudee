@@ -1,4 +1,7 @@
+import { getLiveRestaurantAvailability, assertRestaurantAcceptingOrders } from "../owner/restaurant-automation.service";
 import crypto from "node:crypto";
+import { getCustomerPaymentReturnBase } from "./customer-payment-return";
+import { getAreaWebDeals } from "./customer-home-web";
 import mongoose from "mongoose";
 
 import { StatusCodes } from "http-status-codes";
@@ -2133,6 +2136,9 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
           timezone: 1,
           weeklySchedule: 1,
           exceptions: 1,
+          adminPaused: 1,
+          automationMode: 1,
+          temporaryClosure: 1,
         })
         .lean<Array<Record<string, any>>>(),
     ]);
@@ -2170,6 +2176,7 @@ async function enrichRestaurantDiscoveryRows<T extends Record<string, any>>(
 }
 
 type LiveAvailabilityContext = {
+  openingHoursById?: Map<string, Record<string, any>>;
   platformServiceHours: Awaited<ReturnType<typeof getPlatformServiceHours>>;
   zoneServiceHoursMap: Awaited<ReturnType<typeof buildZoneServiceHoursMap>>;
   now: Date;
@@ -2181,11 +2188,8 @@ type LiveAvailabilityContext = {
  * so once a service window opens/closes the cached rows keep serving a stale value until TTL —
  * this reapplies the decision on every request so it flips at the exact boundary.
  *
- * Opening-hours are a LABEL-only predictor (never a gate — see restaurant-availability.ts), so
- * we pass `openingHours: null` and only override when the wall-clock gate actually disagrees
- * with the cached snapshot. That keeps a restaurant closed by its own schedule (owner offline
- * inside the window) on its nicer cached "Opens at …" label — we only correct the closed↔open
- * flip that time caused.
+ * Automatic schedules are reloaded in batches outside response caches. Manual-mode
+ * rows retain their cached schedule labels unless their effective state changes.
  */
 function applyLiveRestaurantAvailability(
   row: Record<string, any>,
@@ -2198,10 +2202,10 @@ function applyLiveRestaurantAvailability(
     ),
     isOnline: row.runtime?.isOnline ?? false,
     restricted: isRestaurantOrderingRestricted(row),
-    openingHours: null,
+    openingHours: ctx.openingHoursById?.get(String(row._id)) ?? null,
     now: ctx.now,
   });
-  if (live.isOpen !== Boolean(row.isOpen)) {
+  if (ctx.openingHoursById?.get(String(row._id))?.automationMode === "auto" || live.isOpen !== Boolean(row.isOpen)) {
     row.isOpen = live.isOpen;
     row.availability = live.isOpen
       ? {
@@ -2218,7 +2222,7 @@ function applyLiveRestaurantAvailability(
 /**
  * Applies the live open/closed re-evaluation to a whole home-discovery response AFTER it comes
  * out of the cache: every restaurant list plus the area service window. Config (platform +
- * per-zone hours) is cache-backed, so this is a cheap in-memory pass with no extra DB hit, and
+ * per-zone hours) is cache-backed; restaurant schedules are loaded in one batch, and
  * it's what makes closed→open flip instantly instead of waiting for the cache to expire.
  */
 async function applyLiveHomeAvailability(
@@ -2237,6 +2241,10 @@ async function applyLiveHomeAvailability(
     now,
   };
 
+  const restaurantKeys = ["nearbyRestaurants", "featuredRestaurants", "popularNearYouRestaurants", "discoverNewRestaurants", "restaurantsWithOffers"];
+  const ids = [...new Set(restaurantKeys.flatMap((key) => Array.isArray(record[key]) ? record[key].map((row: any) => String(row._id)) : []))];
+  const freshHours = await OpeningHoursModel.find({ restaurantId: { $in: ids } }).lean();
+  ctx.openingHoursById = new Map(freshHours.map((h) => [String(h.restaurantId), h]));
   for (const key of [
     "nearbyRestaurants",
     "featuredRestaurants",
@@ -2703,6 +2711,8 @@ export async function listDiscoverableRestaurantsPage(params?: {
       zoneServiceHoursMap,
       now: new Date(),
     };
+    const freshHours = await OpeningHoursModel.find({ restaurantId: { $in: restaurants.map((r: any) => r._id) } }).lean();
+    liveCtx.openingHoursById = new Map(freshHours.map((h) => [String(h.restaurantId), h]));
     for (const restaurant of restaurants) {
       applyLiveRestaurantAvailability(
         restaurant as Record<string, any>,
@@ -3790,6 +3800,7 @@ export async function getCustomerDiscoveryHome(params?: {
         popularNearYouRestaurants,
         nearbyRestaurants,
         campaignPlacements: [],
+        webDeals: getAreaWebDeals(platformContent, selectedHomeServiceArea?.snapshot),
         activeOffers: visibleActiveOffers.map((offer) => {
           // Scope-aware restaurant ids, mirroring getOfferRestaurantIds. A platform
           // (all_restaurants) offer belongs ONLY in the shared voucher strip — it must
@@ -3904,7 +3915,7 @@ export async function getCustomerRestaurantDetails(
         getServiceHoursOverrideForZone(restaurant.serviceArea?.zoneId),
         getPlatformServiceHours(),
         OpeningHoursModel.findOne({ restaurantId: restaurant._id })
-          .select({ timezone: 1, weeklySchedule: 1, exceptions: 1 })
+          .select({ timezone: 1, weeklySchedule: 1, exceptions: 1, automationMode: 1, adminPaused: 1, temporaryClosure: 1 })
           .lean<Record<string, any> | null>(),
       ]);
       const availability = computeRestaurantAvailability({
@@ -4221,7 +4232,13 @@ export async function getCustomerRestaurantDetails(
     },
   );
 
-  return attachFirstOrderDiscountHint(baseDetails, params?.customerId);
+  const liveRestaurant = await RestaurantModel.findById(restaurantId).select("runtime enforcement serviceArea").lean();
+  if (!liveRestaurant || liveRestaurant.runtime?.isVisible !== true) {
+    throw new AppError(StatusCodes.NOT_FOUND, "RESTAURANT_NOT_FOUND", "Restaurant not found");
+  }
+  const availability = await getLiveRestaurantAvailability(liveRestaurant);
+  const liveDetails = { ...baseDetails, restaurant: { ...baseDetails.restaurant, availability, isOpen: availability.isOpen } };
+  return attachFirstOrderDiscountHint(liveDetails, params?.customerId);
 }
 
 // The restaurant-details payload is cached per (restaurant, location) — NOT per customer.
@@ -5295,6 +5312,7 @@ export async function placeCustomerOrder(params: {
           : []),
       ];
 
+      await assertRestaurantAcceptingOrders(params.restaurantId);
       const [created] = await OrderModel.create(
         [
           {
@@ -5926,6 +5944,7 @@ export async function placeCustomerOrder(params: {
 }
 
 export async function initiateBkashPayment(params: {
+  clientPlatform?: "app" | "web";
   customerId: string;
   restaurantId: string;
   clientOrderId?: string;
@@ -5976,6 +5995,7 @@ export async function initiateBkashPayment(params: {
   const payerReference = params.walletNumber;
   const orderNote = trimLimitedString(params.note, "", 240);
   const checkoutSnapshot = {
+    clientPlatform: params.clientPlatform === "web" ? "web" : "app",
     clientOrderId: normalizeClientOrderId(params.clientOrderId),
     items: params.items,
     voucherCode: params.voucherCode ?? "",
@@ -6228,10 +6248,16 @@ export async function handleBkashCallback(params: {
   status?: string;
   paymentID?: string;
 }) {
-  const redirectUrlBase = `${env.BACKEND_PUBLIC_URL}${env.API_PREFIX}/customer/payments/bkash/return`;
   const session = await BkashSandboxPaymentSessionModel.findById(
     params.sessionId,
   );
+  // Only a configured first-party origin is allowed; never accept a caller's return URL.
+  const redirectUrlBase = getCustomerPaymentReturnBase({
+    clientPlatform: session?.checkoutSnapshot?.clientPlatform,
+    websiteOrigin: env.WEBSITE_PUBLIC_URL,
+    backendOrigin: env.BACKEND_PUBLIC_URL,
+    apiPrefix: env.API_PREFIX,
+  });
 
   if (!session) {
     return `${redirectUrlBase}?status=failed`;

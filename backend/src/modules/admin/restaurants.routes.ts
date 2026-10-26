@@ -2,6 +2,8 @@ import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../common/middleware/auth";
 import {
+  getAdminRestaurantOpeningHours,
+  putAdminRestaurantOpeningHours,
   deleteAdminRestaurantController,
   deleteAdminRestaurantReviewController,
   getAdminRestaurant,
@@ -29,6 +31,8 @@ export const adminRestaurantsRouter = Router();
 adminRestaurantsRouter.use(requireAuth, requireRole("admin"));
 
 adminRestaurantsRouter.get("/restaurants", getAdminRestaurants);
+adminRestaurantsRouter.get("/restaurants/:restaurantId/opening-hours", getAdminRestaurantOpeningHours);
+adminRestaurantsRouter.put("/restaurants/:restaurantId/opening-hours", putAdminRestaurantOpeningHours);
 adminRestaurantsRouter.post("/restaurants", postAdminRestaurant);
 adminRestaurantsRouter.get(
   "/restaurants/:restaurantId/intelligence",
