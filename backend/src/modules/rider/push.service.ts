@@ -20,7 +20,7 @@ type RiderPushPayload = {
 
 type ExpoPushMessage = {
   to: string
-  sound: "default"
+  sound: string
   priority?: "default" | "normal" | "high"
   title: string
   body: string
@@ -118,6 +118,9 @@ export async function createRiderNotification(params: {
   emitSocketEvent(`rider:${params.riderId}`, "rider.notification.created", {
     id: notificationId.toString(),
     type,
+    orderId: params.payload.data?.orderId,
+    channelId: params.payload.channelId ?? "general",
+    notificationId: notificationId.toString(),
     title: params.payload.title,
     description: params.payload.body,
     path,
@@ -130,6 +133,7 @@ export async function createRiderNotification(params: {
     readAt: null,
     createdAt: new Date().toISOString(),
   })
+  return notificationId.toString()
 }
 
 export async function sendPushToRider(params: {
@@ -138,7 +142,7 @@ export async function sendPushToRider(params: {
   zoneId?: string
   districtId?: string
 }) {
-  await createRiderNotification(params)
+  const notificationId = await createRiderNotification(params)
   const rider = await RiderModel.findById(params.riderId).select("pushTokens")
 
   if (!rider?.pushTokens?.length) {
@@ -157,14 +161,22 @@ export async function sendPushToRider(params: {
 
   const messages: ExpoPushMessage[] = activeTokens.map((token) => ({
     to: token.expoPushToken,
-    sound: "default",
+    sound: params.payload.channelId === "new-order-headsup"
+      ? "new_order.mp3"
+      : params.payload.channelId === "new-order-placed"
+        ? "new_order_placed.mp3"
+        : params.payload.channelId === "new-delivery"
+          ? "new_delivery.mp3"
+          : params.payload.channelId === "delivery-late"
+            ? "delivery_hurry.mp3"
+            : "common.mp3",
     // High priority so FCM/APNs wake the device immediately (past Doze) — riders must hear
     // assignments and order heads-ups the moment they land.
     priority: "high",
     title: params.payload.title,
     body: params.payload.body,
-    data: params.payload.data,
-    // On Android the channel (with its bundled sound) wins; iOS keeps the default sound.
+    data: { ...params.payload.data, notificationId, channelId: params.payload.channelId ?? "general" },
+    // Android uses the channel sound; iOS uses the bundled sound selected above.
     // Special pushes override (e.g. "new-delivery", "delivery-late"); the rest fall back
     // to the "general" channel (common chime).
     channelId: params.payload.channelId ?? "general",

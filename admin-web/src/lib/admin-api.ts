@@ -4250,6 +4250,7 @@ export type AdminDispatchSettings = {
   autoCancelUnacceptedOrdersEnabled: boolean
   autoCancelAfterMinutes: number
   autoCancelNotifyBeforeMinutes: number
+  riderMarkReadyEnabled: boolean;
   riderHeadsUpEnabled: boolean
   riderPlacementHeadsUpEnabled: boolean
   riderReassignEnabled: boolean

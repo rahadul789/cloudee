@@ -6,6 +6,8 @@ import NetInfo from "@react-native-community/netinfo";
 
 import { connectRiderSocket, disconnectRiderSocket, getRiderSocket } from "@/src/lib/socket-client";
 import {
+  playRiderNotificationSound,
+  type RiderSoundEvent,
   playHeadsUpSound,
   playPlacedHeadsUpSound,
 } from "@/src/lib/new-order-sound";
@@ -399,7 +401,8 @@ export function RiderSocketBridge() {
         queryClient.invalidateQueries({ queryKey: ["rider", "order", payload.orderId] });
       }
     };
-    const handleNotificationCreated = () => {
+    const handleNotificationCreated = (payload: RiderSoundEvent) => {
+      if (appStateRef.current === "active") void playRiderNotificationSound(payload);
       queryClient.invalidateQueries({ queryKey: ["rider", "notifications"] });
     };
     const handleAppStateChange = (nextState: AppStateStatus) => {
@@ -442,7 +445,7 @@ export function RiderSocketBridge() {
       socket.off("rider.order.headsup.cancelled", handleHeadsUpCancelled);
       disconnectRiderSocket();
     };
-  }, [hasAuth, queryClient, riderId, riderSocketCopy, setSession, showAssignmentNotice]);
+  }, [hasAuth, language, queryClient, riderId, riderSocketCopy, setSession, showAssignmentNotice]);
 
   // Keep the socket's auth token current so an internal reconnect (a network blip) uses a
   // fresh token — without tearing the whole effect down + refetching on every refresh.

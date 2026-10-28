@@ -1,101 +1,111 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 
-// In-app "new order heads-up" alert sound for riders. FOREGROUND path: when the app is open,
-// the socket delivers the heads-up instantly and we play this ourselves — deterministic, and
-// independent of whether the OS sounds the push. (Background/killed is covered by the
-// "new-order-headsup" notification channel.) Nothing here may throw.
+export type RiderSoundEvent = {
+  type?: unknown;
+  orderId?: unknown;
+  notificationId?: unknown;
+  id?: unknown;
+  channelId?: unknown;
+};
 
-let player: AudioPlayer | null = null;
-let placedPlayer: AudioPlayer | null = null;
-let audioModeReady = false;
+type Sound = "incoming" | "placed" | "assignment" | "late" | "common";
+const players = new Map<Sound, AudioPlayer>();
+const sounded = new Map<string, number>();
+const pending = new Map<string, Promise<boolean>>();
+const DEDUP_MS = 20_000;
+let audioModeReady: Promise<void> | undefined;
 
-// orderId -> timestamp we played the in-app sound. The push handler reads this so it silences
-// the foreground push ONLY when the socket already chimed that order — if the socket was down
-// (no in-app sound), the push is allowed to sound instead. Never miss, never double.
-const recentlySounded = new Map<string, number>();
-const SOUNDED_WINDOW_MS = 20000;
-
-export function markHeadsUpSounded(orderId: string) {
-  const now = Date.now();
-  recentlySounded.set(orderId, now);
-  for (const [id, ts] of recentlySounded) {
-    if (now - ts > SOUNDED_WINDOW_MS) recentlySounded.delete(id);
-  }
+export function resolveRiderNotificationSound(event: RiderSoundEvent): Sound | null {
+  if (event.type === "order.headsup" || event.channelId === "new-order-headsup") return "incoming";
+  if (event.type === "order.placed.headsup" || event.channelId === "new-order-placed") return "placed";
+  if (event.type === "rider_assignment" || event.channelId === "new-delivery") return "assignment";
+  if (event.channelId === "delivery-late" || [
+    "rider_response_late", "rider_pickup_late", "delivery_late_after_pickup",
+    "delivery_critical_after_pickup", "delivery_eta_exceeded",
+  ].includes(String(event.type ?? ""))) return "late";
+  return event.type || event.channelId ? "common" : null;
 }
 
-export function wasHeadsUpSoundedRecently(orderId?: string) {
-  if (!orderId) return false;
-  const ts = recentlySounded.get(orderId);
-  return typeof ts === "number" && Date.now() - ts < SOUNDED_WINDOW_MS;
+function eventKey(event: RiderSoundEvent) {
+  // The advisory socket event and persisted notification share type + order.
+  if (event.orderId && event.type) return String(event.type) + ":" + String(event.orderId);
+  return String(event.notificationId ?? event.id ?? event.type ?? event.channelId ?? "notification");
 }
 
-async function ensureAudioMode() {
-  if (audioModeReady) return;
-  try {
-    await setAudioModeAsync({
-      // Play even when the phone is on silent — a missed order heads-up defeats the point.
+function ensureAudioMode() {
+  if (!audioModeReady) {
+    audioModeReady = setAudioModeAsync({
       playsInSilentMode: true,
       interruptionMode: "mixWithOthers",
       shouldPlayInBackground: false,
-    });
-    audioModeReady = true;
-  } catch {
-    // retry configuring next time
+    }).catch((error) => { audioModeReady = undefined; throw error; });
   }
+  return audioModeReady;
 }
 
-function ensurePlayer(): AudioPlayer {
-  if (!player) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    player = createAudioPlayer(require("../../assets/sounds/new_order.mp3"));
-    player.volume = 1;
-  }
+function getPlayer(sound: Sound) {
+  const existing = players.get(sound);
+  if (existing) return existing;
+  const source = sound === "incoming" ? require("../../assets/sounds/new_order.mp3")
+    : sound === "placed" ? require("../../assets/sounds/new_order_placed.mp3")
+    : sound === "assignment" ? require("../../assets/sounds/new_delivery.mp3")
+    : sound === "late" ? require("../../assets/sounds/delivery_hurry.mp3")
+    : require("../../assets/sounds/common.mp3");
+  const player = createAudioPlayer(source, { updateInterval: 100 });
+  player.volume = 1;
+  players.set(sound, player);
   return player;
 }
 
-// Plays the heads-up sound from the start. Safe to call repeatedly. Pass the orderId so the
-// push handler can tell this order was already sounded in-app.
-export async function playHeadsUpSound(orderId?: string) {
-  if (orderId) markHeadsUpSounded(orderId);
+async function bounded<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await ensureAudioMode();
-    const activePlayer = ensurePlayer();
-    try {
-      await activePlayer.seekTo(0);
-    } catch {
-      // player not ready yet — play from wherever it is
-    }
-    activePlayer.play();
-  } catch {
-    // never surface a sound failure
-  }
+    return await Promise.race([work, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Notification audio timed out")), timeoutMs);
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
 }
 
-function ensurePlacedPlayer(): AudioPlayer {
-  if (!placedPlayer) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    placedPlayer = createAudioPlayer(
-      require("../../assets/sounds/new_order_placed.mp3"),
-    );
-    placedPlayer.volume = 1;
+async function waitFor(check: () => boolean, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  return placedPlayer;
+  return true;
 }
 
-// Distinct sound for the "a customer just placed an order" heads-up (earlier than the accept
-// heads-up above). Shares the recentlySounded map so the push handler dedups it too.
-export async function playPlacedHeadsUpSound(orderId?: string) {
-  if (orderId) markHeadsUpSounded(orderId);
-  try {
-    await ensureAudioMode();
-    const activePlayer = ensurePlacedPlayer();
+// Both foreground push and socket use this function. Only suppress the OS sound after
+// playback is confirmed; failed loading/playback leaves the push sound available.
+export async function playRiderNotificationSound(event: RiderSoundEvent): Promise<boolean> {
+  const sound = resolveRiderNotificationSound(event);
+  if (!sound) return false;
+  const key = eventKey(event);
+  if (Date.now() - (sounded.get(key) ?? 0) < DEDUP_MS) return true;
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const work = (async () => {
     try {
-      await activePlayer.seekTo(0);
+      await bounded(ensureAudioMode(), 350);
+      const player = getPlayer(sound);
+      if (!await waitFor(() => player.isLoaded, 1_200)) return false;
+      await bounded(player.seekTo(0), 350);
+      player.play();
+      if (!await waitFor(() => player.playing, 500)) return false;
+      sounded.set(key, Date.now());
+      for (const [id, at] of sounded) if (Date.now() - at >= DEDUP_MS) sounded.delete(id);
+      return true;
     } catch {
-      // player not ready yet
+      return false;
     }
-    activePlayer.play();
-  } catch {
-    // never surface a sound failure
-  }
+  })();
+  pending.set(key, work);
+  try { return await work; } finally { pending.delete(key); }
+}
+
+export function playHeadsUpSound(orderId?: string) {
+  return playRiderNotificationSound({ type: "order.headsup", orderId });
+}
+export function playPlacedHeadsUpSound(orderId?: string) {
+  return playRiderNotificationSound({ type: "order.placed.headsup", orderId });
 }

@@ -308,6 +308,7 @@ const dispatchSettingsSchema = z.object({
   autoCancelUnacceptedOrdersEnabled: z.boolean(),
   autoCancelAfterMinutes: z.number().int().min(2).max(240),
   autoCancelNotifyBeforeMinutes: z.number().int().min(1).max(60),
+  riderMarkReadyEnabled: z.boolean().optional().default(false),
   riderHeadsUpEnabled: z.boolean(),
   riderPlacementHeadsUpEnabled: z.boolean(),
   riderReassignEnabled: z.boolean(),

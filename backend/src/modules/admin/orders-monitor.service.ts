@@ -134,7 +134,8 @@ type DispatchSettings = {
   autoCancelAfterMinutes: number;
   autoCancelNotifyBeforeMinutes: number;
   // Rider-facing dispatch toggles.
-  // Advisory "new order coming" heads-up to nearby riders when the OWNER accepts an order.
+  riderMarkReadyEnabled: boolean;
+  // Advisory heads-up when an owner or admin accepts/starts preparing an order.
   riderHeadsUpEnabled: boolean;
   // Instant heads-up to nearby riders the moment a CUSTOMER places an order (earliest signal;
   // uses its own new_order_placed sound). Off by default — admin opts in.
@@ -399,6 +400,7 @@ const DEFAULT_DISPATCH_SETTINGS: DispatchSettings = {
   autoCancelUnacceptedOrdersEnabled: true,
   autoCancelAfterMinutes: 8,
   autoCancelNotifyBeforeMinutes: 5,
+  riderMarkReadyEnabled: false,
   riderHeadsUpEnabled: true,
   riderPlacementHeadsUpEnabled: false,
   riderReassignEnabled: true,
@@ -1300,6 +1302,7 @@ function getDispatchSettingsFromContent(
       typeof dispatch.autoCancelNotifyBeforeMinutes === "number"
         ? dispatch.autoCancelNotifyBeforeMinutes
         : DEFAULT_DISPATCH_SETTINGS.autoCancelNotifyBeforeMinutes,
+    riderMarkReadyEnabled: dispatch.riderMarkReadyEnabled === true,
     riderHeadsUpEnabled:
       typeof dispatch.riderHeadsUpEnabled === "boolean"
         ? dispatch.riderHeadsUpEnabled
@@ -1719,6 +1722,25 @@ function getAssignmentAcknowledgementState(
   }
 
   return "awaiting" as const;
+}
+
+// Rider reminders have their own atomic deduplication. Muting the admin inbox must
+// not mute the assigned rider's operational notifications.
+async function claimRiderDelayNotification(order: Record<string, any>, type: string) {
+  const riderId = String(order.riderId ?? "");
+  if (!riderId) return false;
+  const marker = "dispatchMeta.riderDelayNotifications." + type + "_" + riderId;
+  const claimed = await OrderModel.updateOne(
+    {
+      _id: order._id,
+      riderId,
+      status: order.status,
+      [marker]: { $exists: false },
+      ...(type === "rider_response_late" ? { "dispatchMeta.acknowledgedAt": null } : {}),
+    },
+    { $set: { [marker]: new Date() } },
+  );
+  return claimed.modifiedCount > 0;
 }
 
 async function sendRiderLateAcknowledgementPush(params: {
@@ -2455,7 +2477,8 @@ export async function updateAdminDispatchSettings(params: {
           ...scopedContent.operations,
           dispatch: {
             ...(scopedContent.operations?.dispatch ?? {}),
-            riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
+            riderMarkReadyEnabled: params.settings.riderMarkReadyEnabled,
+        riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
             riderPlacementHeadsUpEnabled:
               params.settings.riderPlacementHeadsUpEnabled,
             riderReassignEnabled: params.settings.riderReassignEnabled,
@@ -2510,7 +2533,8 @@ export async function updateAdminDispatchSettings(params: {
         autoCancelAfterMinutes: params.settings.autoCancelAfterMinutes,
         autoCancelNotifyBeforeMinutes:
           params.settings.autoCancelNotifyBeforeMinutes,
-        riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
+        riderMarkReadyEnabled: params.settings.riderMarkReadyEnabled,
+            riderHeadsUpEnabled: params.settings.riderHeadsUpEnabled,
         riderPlacementHeadsUpEnabled:
           params.settings.riderPlacementHeadsUpEnabled,
         riderReassignEnabled: params.settings.riderReassignEnabled,
@@ -2548,7 +2572,7 @@ export async function notifyRidersOrderHeadsUp(params: {
 }): Promise<void> {
   try {
     const order = params.order;
-    if (!order?._id) return;
+    if (!order?._id || !["Accepted", "Preparing"].includes(order.status)) return;
     // Off-platform (owner-initiated) deliveries use their own flow.
     if (order.source === "external") return;
     // Dedup — only one heads-up per order.
@@ -2586,14 +2610,20 @@ export async function notifyRidersOrderHeadsUp(params: {
     );
 
     // Persist dedup + who we told, so a later cancel can stand exactly those riders down.
-    await OrderModel.updateOne(
-      { _id: order._id },
+    const claimed = await OrderModel.updateOne(
+      {
+        _id: order._id,
+        status: { $in: ["Accepted", "Preparing"] },
+        "dispatchMeta.headsUp.notifiedAt": { $exists: false },
+      },
       {
         $set: {
           "dispatchMeta.headsUp": { notifiedAt: new Date(), riderIds },
         },
       },
     );
+    // Acceptance and preparation can race across admin/owner requests.
+    if (!claimed.modifiedCount) return;
 
     for (const candidate of candidates) {
       emitSocketEvent(`rider:${candidate.id}`, "rider.order.headsup", {
@@ -7268,6 +7298,12 @@ export async function updateAdminOrderStatus(params: {
   }
 
   const updatedOrderObject = updatedOrder.toObject();
+  if (["Accepted", "Preparing"].includes(params.nextStatus)) {
+    void notifyRidersOrderHeadsUp({ order: updatedOrderObject, restaurant }).catch(() => undefined);
+  }
+  if (["Rejected", "Cancelled"].includes(params.nextStatus)) {
+    void notifyRidersHeadsUpCancelled({ order: updatedOrderObject }).catch(() => undefined);
+  }
   await emitOrderRealtimeUpdates(updatedOrderObject);
   if (
     ["Rejected", "Cancelled"].includes(params.nextStatus) &&
@@ -8631,7 +8667,7 @@ export async function processAdminOperationalAlerts() {
       const assignedAt = dispatchMeta.assignedAt ?? getReadyForPickupAt(order);
       const assignedMinutes = minutesSince(assignedAt);
       const lateByMinutes = Math.max(0, assignedMinutes - settings.assignmentTimeoutMinutes);
-      const alertResult = await createAdminOperationalAlert({
+      await createAdminOperationalAlert({
         alertType: "rider_response_late",
         severity: "warning",
         title: `${orderNumber} rider response late`,
@@ -8650,7 +8686,7 @@ export async function processAdminOperationalAlerts() {
           lateByMinutes,
         },
       });
-      if (alertResult.created) {
+      if (await claimRiderDelayNotification(order, "rider_response_late")) {
         await sendRiderLateAcknowledgementPush({
           order,
           assignedMinutes,
@@ -8677,7 +8713,7 @@ export async function processAdminOperationalAlerts() {
       const readyMinutes = minutesSince(readyAt);
       const lateByMinutes = Math.max(0, readyMinutes - settings.pickupLateGraceMinutes);
       if (lateByMinutes > 0) {
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "rider_pickup_late",
           severity: lateByMinutes >= 10 ? "critical" : "warning",
           title: `${orderNumber} pickup late`,
@@ -8696,7 +8732,7 @@ export async function processAdminOperationalAlerts() {
             lateByMinutes,
           },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "rider_pickup_late")) {
           await sendRiderOrderDelayPush({
             order,
             type: "rider_pickup_late",
@@ -8724,7 +8760,7 @@ export async function processAdminOperationalAlerts() {
     if (order.status === "PickedUp") {
       const tracking = decorateTrackingSnapshot(order.riderTracking ?? {}, order.status ?? "");
       if (tracking.freshness?.state === "stale") {
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "rider_tracking_stale",
           severity: "warning",
           title: `${orderNumber} rider tracking stale`,
@@ -8737,7 +8773,7 @@ export async function processAdminOperationalAlerts() {
           dedupeKey: `order:${orderId}:rider_tracking_stale`,
           metadata: { orderId, orderNumber },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "rider_tracking_stale")) {
           await sendRiderOrderDelayPush({
             order,
             type: "rider_tracking_stale",
@@ -8771,7 +8807,7 @@ export async function processAdminOperationalAlerts() {
           0,
           pickupMinutes - settings.deliveryLateAfterPickupMinutes,
         );
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "delivery_critical_after_pickup",
           severity: "critical",
           title: `${orderNumber} delivery critically late`,
@@ -8795,7 +8831,7 @@ export async function processAdminOperationalAlerts() {
             lateByMinutes,
           },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "delivery_critical_after_pickup")) {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_critical_after_pickup",
@@ -8822,7 +8858,7 @@ export async function processAdminOperationalAlerts() {
           0,
           pickupMinutes - settings.deliveryLateAfterPickupMinutes,
         );
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "delivery_late_after_pickup",
           severity: "warning",
           title: `${orderNumber} delivery late`,
@@ -8846,7 +8882,7 @@ export async function processAdminOperationalAlerts() {
             lateByMinutes,
           },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "delivery_late_after_pickup")) {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_late_after_pickup",
@@ -8869,7 +8905,7 @@ export async function processAdminOperationalAlerts() {
           }).catch(() => undefined);
         }
       } else if (pickedUpAt && pickupMinutes >= settings.deliveryWatchAfterPickupMinutes) {
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "delivery_watch_after_pickup",
           severity: "warning",
           title: `${orderNumber} delivery needs attention`,
@@ -8892,7 +8928,7 @@ export async function processAdminOperationalAlerts() {
               settings.deliveryCriticalAfterPickupMinutes,
           },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "delivery_watch_after_pickup")) {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_watch_after_pickup",
@@ -8920,7 +8956,7 @@ export async function processAdminOperationalAlerts() {
       }
       if (remainingMinutes > 0 && pickupMinutes > remainingMinutes + settings.deliveryLateGraceMinutes) {
         const lateByMinutes = Math.max(0, pickupMinutes - remainingMinutes);
-        const alertResult = await createAdminOperationalAlert({
+        await createAdminOperationalAlert({
           alertType: "delivery_eta_exceeded",
           severity: "critical",
           title: `${orderNumber} delivery ETA exceeded`,
@@ -8940,7 +8976,7 @@ export async function processAdminOperationalAlerts() {
             lateByMinutes,
           },
         });
-        if (alertResult.created) {
+        if (await claimRiderDelayNotification(order, "delivery_eta_exceeded")) {
           await sendRiderOrderDelayPush({
             order,
             type: "delivery_eta_exceeded",

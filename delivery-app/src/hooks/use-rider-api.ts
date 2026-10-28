@@ -101,9 +101,11 @@ export type RiderOrder = {
     longitude?: number | null;
     preparationTimeMinutes?: number | null;
   } | null;
+  canMarkReady?: boolean;
   items?: {
     name?: string;
     quantity?: number;
+    unitPrice?: number;
     totalPrice?: number;
     selectedVariantOptions?: { groupName?: string; optionLabel?: string }[];
     selectedAddOnOptions?: { groupName?: string; optionLabel?: string }[];
@@ -779,6 +781,14 @@ export function useVerifyRiderPhoneAuthMutation() {
         refreshToken: data.refreshToken,
       });
     },
+  });
+}
+
+export function useMarkReadyMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (orderId: string) => (await apiPost<RiderOrder>(`/rider/orders/${orderId}/ready`)).data,
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["rider"] }); },
   });
 }
 

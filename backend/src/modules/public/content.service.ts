@@ -1103,6 +1103,7 @@ const platformContentSchema = z.object({
       autoCancelNotifyBeforeMinutes: z.number().int().min(1).max(60).optional().default(5),
       // Global rider-facing toggles. MUST be declared here or z.object() strips them
       // on every save (parse drops unknown keys) and they silently never persist.
+      riderMarkReadyEnabled: z.boolean().optional().default(false),
       riderHeadsUpEnabled: z.boolean().optional().default(true),
       riderPlacementHeadsUpEnabled: z.boolean().optional().default(false),
       riderReassignEnabled: z.boolean().optional().default(true),

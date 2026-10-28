@@ -1,4 +1,5 @@
 import crypto from "node:crypto"
+import { decorateOwnerFinancials } from "../owner/order-financials"
 
 import { StatusCodes } from "http-status-codes"
 
@@ -366,10 +367,11 @@ function mapRiderOrder(
         }
       : null,
     items: Array.isArray(order.itemsSnapshot)
-      ? order.itemsSnapshot.map((item: Record<string, any>) => ({
+      ? decorateOwnerFinancials(order).itemsSnapshot.map((item: Record<string, any>) => ({
           name: item.name ?? "",
           quantity: item.quantity ?? 0,
-          totalPrice: item.totalPrice ?? item.lineTotal ?? 0,
+          unitPrice: item.unitPrice ?? 0,
+          totalPrice: item.lineTotal ?? item.totalPrice ?? (item.unitPrice ?? 0) * (item.quantity ?? 1),
           // Variant + add-on selections so the rider sheet shows exactly what to hand over
           // (e.g. "Size: Large", "Extra: Cheese"). Shape mirrors the admin order view.
           selectedVariantOptions: Array.isArray(item.selectedVariantOptions)
@@ -1690,7 +1692,7 @@ export async function getRiderOrderDetails(params: { riderId: string; orderId: s
   }
 
   const orderRiderId = typeof order.riderId === "string" ? order.riderId : ""
-  const isAvailableOrder = order.status === "ReadyForPickup" && !orderRiderId
+  const isAvailableOrder = ["Accepted", "Preparing", "ReadyForPickup"].includes(order.status) && !orderRiderId
   if (isAvailableOrder) {
     assertRiderAllowedForServiceArea({
       rider,
@@ -1729,7 +1731,8 @@ export async function getRiderOrderDetails(params: { riderId: string; orderId: s
       })
     : null
 
-  return { ...mapped, routeToNext }
+  const content = await getPlatformContent()
+  return { ...mapped, routeToNext, canMarkReady: order.status === "Preparing" && content.operations.dispatch.riderMarkReadyEnabled === true && (!orderRiderId || orderRiderId === rider.id) }
 }
 
 function toRiderLatLng(value: unknown): LatLng | null {
@@ -1744,6 +1747,16 @@ function toRiderLatLng(value: unknown): LatLng | null {
     return { latitude: point.latitude, longitude: point.longitude }
   }
   return null
+}
+
+export async function markRiderOrderReady(params: { riderId: string; orderId: string }) {
+  const details = await getRiderOrderDetails(params)
+  const rider = await RiderModel.findById(params.riderId)
+  if (!details.canMarkReady || rider?.isAvailableForAssignments === false) throw new AppError(StatusCodes.FORBIDDEN, "MARK_READY_DISABLED", "You cannot mark this order ready")
+  await transitionOrderBySystem({ orderId: params.orderId, nextStatus: "ReadyForPickup", actor: "rider", readyConfirmedByRiderId: params.riderId, note: "Food ready confirmed by rider " + params.riderId })
+  const updated = await getRiderOrderDetails(params)
+  void runAutoDispatchForReadyOrders().catch(() => undefined)
+  return updated
 }
 
 export async function acceptRiderOrder(params: { riderId: string; orderId: string }) {

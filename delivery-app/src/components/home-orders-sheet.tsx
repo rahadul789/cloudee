@@ -19,6 +19,7 @@ import {
   useActivateTrackingMutation,
   useDeliverOrderMutation,
   useFailDeliveryMutation,
+  useMarkReadyMutation,
   usePickupOrderMutation,
   useReassignRiderOrderMutation,
   useRiderDeliveryThresholdsQuery,
@@ -312,11 +313,9 @@ export function HomeOrdersSheet({
         .filter((order) => order.restaurantId === selectedContextOrder.restaurantId)
         .sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
     : [];
-  // Fetch full details (route/ETA/timeline/items) for any selected order that isn't a context
-  // order — covers active/available tasks AND deep-linked orders (e.g. from a notification or
-  // history), so the sheet can show any order without a separate screen.
+  // Cooking orders also need full item details and the server-controlled ready action.
   const detailsQuery = useRiderOrderDetailsQuery(
-    selectedOrderId && !contextMatch ? selectedOrderId : undefined,
+    selectedOrderId || undefined,
   );
   // The details query keeps previous data (keepPreviousData), so after the selection is
   // cleared its `.data` still holds the old order — only use it when it matches the CURRENT
@@ -538,6 +537,7 @@ export function HomeOrdersSheet({
       ) : context ? (
         <ContextDetail
           context={context}
+          order={detailData ?? undefined}
           onShowCustomer={(coord) => {
             (onShowCustomerOnMap ?? onFocusOrderOnMap)?.(coord);
             sheetRef.current?.collapse();
@@ -1261,6 +1261,7 @@ function OrderItems({ items }: { items?: RiderOrder["items"] }) {
                 <Text style={styles.itemName} numberOfLines={2}>
                   {item.name}
                 </Text>
+                {typeof item.unitPrice === "number" ? <Text style={styles.itemOptionText}>Tk {item.unitPrice} each</Text> : null}
                 {options.length > 0 ? (
                   <View style={styles.itemOptions}>
                     {options.map((option, optionIndex) => (
@@ -1291,15 +1292,18 @@ function OrderItems({ items }: { items?: RiderOrder["items"] }) {
 
 function ContextDetail({
   context,
+  order,
   onShowCustomer,
 }: {
   context: SheetContextOrder;
+  order?: RiderOrder;
   onShowCustomer?: (coord: { latitude: number; longitude: number }) => void;
 }) {
   const { copy } = useDeliveryCopy();
   const t = copy.sheet;
-  const status = getOrderStatusBadge(context.status);
-  const isCooking = context.status === "Preparing" || context.status === "Accepted";
+  const readyMutation = useMarkReadyMutation();
+  const status = getOrderStatusBadge(order?.status ?? context.status);
+  const isCooking = ["Preparing", "Accepted"].includes(order?.status ?? context.status);
   const customerCoord = contextCustomerCoord(context);
   return (
     <View style={styles.detail}>
@@ -1363,6 +1367,21 @@ function ContextDetail({
         </Pressable>
       ) : null}
 
+      <OrderItems items={order?.items} />
+      {order?.canMarkReady ? (
+        <Pressable
+          style={styles.primaryAction}
+          disabled={readyMutation.isPending}
+          onPress={() => Alert.alert("Food ready?", "Confirm the restaurant has finished preparing this order.", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Food ready", onPress: () => readyMutation.mutate(context.id, {
+              onError: (error) => Alert.alert("Unable to mark ready", error.message),
+            }) },
+          ])}
+        >
+          <Text style={styles.primaryActionText}>{readyMutation.isPending ? "Please wait..." : "Food ready"}</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.noteCard}>
         <Ionicons name="information-circle" size={16} color={palette.info} />
         <Text style={styles.noteText}>

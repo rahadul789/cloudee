@@ -31,6 +31,7 @@ import {
   postRiderDelivered,
   postRiderFailedDelivery,
   postRiderOrderLocation,
+  postRiderReady,
   postRiderPickup,
   postRiderPushToken,
   postRiderTrackingActivate,
@@ -114,6 +115,7 @@ riderRouter.post(
   postRiderReassign,
 )
 riderRouter.post("/orders/:orderId/accept", requireAuth, requireRole("rider"), postRiderAccept)
+riderRouter.post("/orders/:orderId/ready", requireAuth, requireRole("rider"), postRiderReady)
 riderRouter.post("/orders/:orderId/pickup", requireAuth, requireRole("rider"), postRiderPickup)
 riderRouter.post("/orders/:orderId/deliver", requireAuth, requireRole("rider"), postRiderDelivered)
 riderRouter.post("/orders/:orderId/fail", requireAuth, requireRole("rider"), postRiderFailedDelivery)

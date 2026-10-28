@@ -14,7 +14,7 @@ import {
   clearCurrentRiderExpoPushToken,
   setCurrentRiderExpoPushToken,
 } from "@/src/lib/rider-push-token-state";
-import { wasHeadsUpSoundedRecently } from "@/src/lib/new-order-sound";
+import { playRiderNotificationSound } from "@/src/lib/new-order-sound";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
 const PUSH_DEBUG_ENABLED =
@@ -85,19 +85,13 @@ function getOrderIdFromPath(path: string) {
 }
 
 Notifications.setNotificationHandler({
-  // Runs only while the app is FOREGROUND. The new-order heads-up is already sounded in-app by
-  // the socket bridge, so silence the foreground push for it ONLY when the socket actually
-  // chimed that order (else let the push sound) — never a double, never a miss.
+  // Foreground push is also an audio source when the socket is unavailable.
   handleNotification: async (notification) => {
-    const data = notification.request.content.data;
-    const isHeadsUp =
-      data?.type === "order.headsup" || data?.type === "order.placed.headsup";
-    const alreadyChimed =
-      isHeadsUp && wasHeadsUpSoundedRecently(String(data?.orderId ?? ""));
+    const played = await playRiderNotificationSound(notification.request.content.data);
     return {
       shouldShowBanner: true,
       shouldShowList: true,
-      shouldPlaySound: !alreadyChimed,
+      shouldPlaySound: !played,
       shouldSetBadge: false,
     };
   },

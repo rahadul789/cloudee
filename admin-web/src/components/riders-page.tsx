@@ -4374,6 +4374,10 @@ function DispatchControlsPanel({
               />
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
+              <div><div className="font-medium">Rider can mark food ready</div><div className="text-sm text-muted-foreground">Allow online riders to mark Preparing orders ready for pickup in their service area.</div></div>
+              <Switch checked={draft.riderMarkReadyEnabled} onCheckedChange={(checked) => setDraft((current) => current ? { ...current, riderMarkReadyEnabled: checked } : current)} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
               <div>
                 <div className="font-medium">Rider heads-up on accept</div>
                 <div className="text-sm text-muted-foreground">
@@ -4393,7 +4397,7 @@ function DispatchControlsPanel({
               <div>
                 <div className="font-medium">Rider heads-up on order placed</div>
                 <div className="text-sm text-muted-foreground">
-                  Instantly ping nearby riders the moment a customer places an order (its own sound).
+                  When enabled, notify riders before restaurant acceptance. Turn off to notify only after acceptance.
                 </div>
               </div>
               <Switch

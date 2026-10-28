@@ -6,6 +6,7 @@ import { riderLocationSchema } from "./rider-location.schema"
 import { asyncHandler } from "../../common/utils/async-handler"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
+  markRiderOrderReady,
   acceptRiderOrder,
   activateRiderTrackingOrder,
   getRiderLiveMap,
@@ -408,6 +409,11 @@ export const postRiderReassign = asyncHandler(
     })
   },
 )
+
+export const postRiderReady = asyncHandler(async (req: Request, res: Response) => {
+  const data = await markRiderOrderReady({ riderId: req.user?.id ?? "", orderId: String(req.params.orderId ?? "") })
+  return sendSuccess(res, { message: "Food marked ready", data })
+})
 
 export const postRiderPickup = asyncHandler(async (req: Request, res: Response) => {
   const location =

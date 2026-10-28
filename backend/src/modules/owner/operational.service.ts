@@ -79,7 +79,7 @@ const systemOrderTransitions: Record<string, string[]> = {
   // so refund + restaurant ledger + voucher release stay 100% consistent.
   PickedUp: ["Delivered", "Cancelled"],
   Accepted: ["Cancelled"],
-  Preparing: ["Cancelled"],
+  Preparing: ["ReadyForPickup", "Cancelled"],
 };
 
 const orderTimestampFieldByStatus: Partial<Record<string, string>> = {
@@ -2410,7 +2410,7 @@ export async function transitionOrder(params: {
 
   // Advisory rider heads-up: owner accepting a New order (→ Preparing) tells nearby available
   // riders an order is coming so they can pre-position for a fast pickup. Fire-and-forget.
-  if (isAcceptAndPrepare) {
+  if (["Accepted", "Preparing"].includes(effectiveNextStatus)) {
     void notifyRidersOrderHeadsUp({ order: orderObject, restaurant }).catch(
       () => undefined,
     );
@@ -2550,7 +2550,8 @@ export async function extendOrderPreparation(params: {
 
 export async function transitionOrderBySystem(params: {
   orderId: string;
-  nextStatus: "PickedUp" | "Delivered" | "Cancelled";
+  nextStatus: "ReadyForPickup" | "PickedUp" | "Delivered" | "Cancelled";
+  readyConfirmedByRiderId?: string;
   actor: "rider" | "system" | "admin";
   note?: string;
 }) {
@@ -2641,7 +2642,7 @@ export async function transitionOrderBySystem(params: {
   }
 
   const updatedOrder = await OrderModel.findOneAndUpdate(
-    { _id: order._id, status: order.status },
+    { _id: order._id, status: order.status, ...(params.readyConfirmedByRiderId ? { $or: [{ riderId: "" }, { riderId: { $exists: false } }, { riderId: params.readyConfirmedByRiderId }] } : {}) },
     {
       $set: setPayload,
       $push: {
