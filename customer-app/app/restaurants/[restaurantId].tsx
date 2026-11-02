@@ -378,7 +378,8 @@ export default function RestaurantDetailsScreen() {
 
     const isOutsideDeliveryArea =
       restaurant.isServiceableForSelectedLocation === false ||
-      (typeof restaurant.distanceKm === "number" &&
+      (restaurant.isServiceableForSelectedLocation == null &&
+        typeof restaurant.distanceKm === "number" &&
         Number.isFinite(restaurant.distanceKm) &&
         restaurant.distanceKm > deliveryRadiusKm);
 

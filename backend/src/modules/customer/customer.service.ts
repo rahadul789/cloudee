@@ -2,6 +2,7 @@ import { getLiveRestaurantAvailability, assertRestaurantAcceptingOrders } from "
 import crypto from "node:crypto";
 import { getCustomerPaymentReturnBase } from "./customer-payment-return";
 import { getAreaWebDeals } from "./customer-home-web";
+import { buildRestaurantDiscoveryGeoNear } from "./restaurant-discovery-geo";
 import mongoose from "mongoose";
 
 import { StatusCodes } from "http-status-codes";
@@ -89,7 +90,6 @@ import {
   assertLocationInsideServiceArea,
   assertRestaurantMatchesDeliveryServiceArea,
   buildZoneServiceHoursMap,
-  getServiceAreaRestaurantDistanceKm,
   getServiceHoursOverrideForZone,
   isCoordinateInsideServiceArea,
   isServiceAreaModeEnabled,
@@ -2537,34 +2537,28 @@ export async function listDiscoverableRestaurants(params?: {
         if (!selectedServiceArea) {
           return [];
         }
+        // Scope the database lookup to the zone, rather than fetching every
+        // restaurant or limiting distance from the customer's delivery point.
+        geoNearQuery.locationPoint = {
+          $geoWithin: {
+            $centerSphere: [
+              [selectedServiceArea.snapshot.center.longitude,
+                selectedServiceArea.snapshot.center.latitude],
+              (selectedServiceArea.snapshot.radiusKm + 0.025) / 6371,
+            ],
+          },
+        };
       }
-      const maxDistanceKm = isServiceAreaModeEnabled()
-        ? getServiceAreaRestaurantDistanceKm(
-            selectedServiceArea?.snapshot,
-            platformContent.operations.serviceArea.radiusKm,
-          )
-        : Math.max(
-            0,
-            Math.min(
-              typeof params?.radiusKm === "number"
-                ? params.radiusKm
-                : platformContent.operations.serviceArea.radiusKm,
-              platformContent.operations.serviceArea.radiusKm,
-            ),
-          );
-
       const restaurants = await RestaurantModel.aggregate([
         {
-          $geoNear: {
-            near: {
-              type: "Point",
-              coordinates: [longitude, latitude],
-            },
-            distanceField: "distanceMeters",
-            maxDistance: maxDistanceKm * 1000,
-            spherical: true,
+          $geoNear: buildRestaurantDiscoveryGeoNear({
+            latitude: latitude!,
+            longitude: longitude!,
             query: geoNearQuery,
-          },
+            zoneBased: isServiceAreaModeEnabled(),
+            fallbackRadiusKm: platformContent.operations.serviceArea.radiusKm,
+            requestedRadiusKm: params?.radiusKm,
+          }),
         },
         {
           $addFields: {
