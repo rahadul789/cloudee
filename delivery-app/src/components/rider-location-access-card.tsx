@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  Platform,
 } from "react-native";
 
 import { useUpdateRiderProfileLocationMutation } from "@/src/hooks/use-rider-api";
@@ -23,14 +24,18 @@ import { palette } from "@/src/theme/palette";
 export function RiderLocationAccessCard() {
   const updateLocationMutation = useUpdateRiderProfileLocationMutation();
   const [permission, setPermission] =
-    useState<Location.PermissionResponse | null>(null);
+    useState<Location.LocationPermissionResponse | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [backgroundPermission, setBackgroundPermission] = useState<Location.PermissionResponse | null>(null);
 
   const refreshPermission = useCallback(async () => {
     const nextPermission = await getRiderForegroundPermission().catch(
       () => null,
     );
     setPermission(nextPermission);
+    if (Platform.OS !== "web") {
+      setBackgroundPermission(await Location.getBackgroundPermissionsAsync().catch(() => null));
+    }
   }, []);
 
   useEffect(() => {
@@ -59,7 +64,8 @@ export function RiderLocationAccessCard() {
         return;
       }
 
-      void requestRiderBackgroundPermission().catch(() => undefined);
+      const background = await requestRiderBackgroundPermission().catch(() => null);
+      setBackgroundPermission(background);
 
       const payload = await getBestAvailableRiderLocationPayload();
       await updateLocationMutation.mutateAsync(payload);
@@ -70,12 +76,15 @@ export function RiderLocationAccessCard() {
     }
   }, [refreshPermission, updateLocationMutation]);
 
-  if (permission?.status === "granted") {
+  const needsPrecise = Platform.OS === "android" && permission?.status === "granted" && permission.android?.accuracy === "coarse";
+  const needsBackground = Platform.OS !== "web" && permission?.status === "granted" && backgroundPermission?.status !== "granted";
+  if (permission?.status === "granted" && !needsBackground && !needsPrecise) {
     return null;
   }
 
   const shouldShowSettings =
-    permission?.status === "denied" && permission.canAskAgain === false;
+    (permission?.status === "denied" && permission.canAskAgain === false) ||
+    (needsBackground && backgroundPermission?.canAskAgain === false);
   const isBusy = isRequesting || updateLocationMutation.isPending;
 
   return (
@@ -84,21 +93,23 @@ export function RiderLocationAccessCard() {
         <Ionicons name="navigate-outline" size={18} color={palette.primary} />
       </View>
       <View style={styles.copy}>
-        <Text style={styles.title}>Location access needed</Text>
+        <Text style={styles.title}>{needsPrecise ? "Precise location needed" : needsBackground ? "Background location needed" : "Location access needed"}</Text>
         <Text style={styles.text}>
-          Go online and pick up orders with accurate live tracking.
+          {needsPrecise ? "Turn on Use precise location in the app location settings for accurate rider tracking." : needsBackground
+            ? "Allow location all the time so customers can track you when the screen is locked."
+            : "Go online and pick up orders with accurate live tracking."}
         </Text>
       </View>
       <View style={styles.actions}>
         <Pressable
           style={[styles.primaryButton, isBusy ? styles.buttonDisabled : null]}
-          onPress={handleAllowLocation}
+          onPress={needsPrecise ? () => { void openRiderLocationSettings(); } : handleAllowLocation}
           disabled={isBusy}
         >
           {isBusy ? (
             <ActivityIndicator size="small" color={palette.surface} />
           ) : (
-            <Text style={styles.primaryButtonText}>Allow</Text>
+            <Text style={styles.primaryButtonText}>{needsPrecise ? "Settings" : "Allow"}</Text>
           )}
         </Pressable>
         {shouldShowSettings ? (

@@ -124,6 +124,7 @@ type SendParams = {
   conversionWindowDays?: number;
   campaignId?: string;
   testMode?: boolean;
+  testRecipientPhone?: string;
   pushEnabled?: boolean;
   scheduledAt?: string;
   adminId?: string;
@@ -432,6 +433,57 @@ async function getScopedRestaurantIds(params: { zoneId?: string; districtId?: st
 async function getScopedRiderIds(params: { zoneId?: string; districtId?: string }) {
   if (!hasAreaScope(params)) return null;
   return RiderModel.distinct("_id", buildRiderServiceAreaScopeFilter(params));
+}
+
+function testPhoneCandidates(value: string) {
+  const entered = value.trim();
+  const digits = entered.replace(/\D/g, "");
+  const local = digits.startsWith("880") ? `0${digits.slice(3)}` : digits;
+  const candidates = new Set([entered, digits, local]);
+  if (/^01\d{9}$/.test(local)) {
+    candidates.add(`880${local.slice(1)}`);
+    candidates.add(`+880${local.slice(1)}`);
+  }
+  return [...candidates].filter(Boolean);
+}
+
+async function resolveTestRecipientIdByPhone(params: SendParams) {
+  const phone = params.testRecipientPhone?.trim() ?? "";
+  if (!phone) throw new Error("Enter a phone number for the test notification");
+  const phoneCandidates = testPhoneCandidates(phone);
+  if (!phoneCandidates.length) throw new Error("Enter a valid phone number for the test notification");
+
+  if (params.recipientType === "customers") {
+    const customer = await CustomerModel.findOne({ status: "active", phone: { $in: phoneCandidates } })
+      .select("_id")
+      .lean();
+    const scopedIds = await getScopedCustomerIds(params);
+    if (!customer || (scopedIds && !scopedIds.map(objectIdString).includes(objectIdString(customer._id)))) {
+      throw new Error("No active customer with this phone number exists in the selected area");
+    }
+    return objectIdString(customer._id);
+  }
+
+  if (params.recipientType === "owners") {
+    const owner = await OwnerModel.findOne({ activeRestaurantId: { $ne: null }, phone: { $in: phoneCandidates } })
+      .select("activeRestaurantId")
+      .lean();
+    const scopedIds = await getScopedRestaurantIds(params);
+    const restaurantId = objectIdString(owner?.activeRestaurantId);
+    if (!restaurantId || (scopedIds && !scopedIds.map(objectIdString).includes(restaurantId))) {
+      throw new Error("No active restaurant owner with this phone number exists in the selected area");
+    }
+    return restaurantId;
+  }
+
+  const rider = await RiderModel.findOne({ status: "active", phone: { $in: phoneCandidates } })
+    .select("_id")
+    .lean();
+  const scopedIds = await getScopedRiderIds(params);
+  if (!rider || (scopedIds && !scopedIds.map(objectIdString).includes(objectIdString(rider._id)))) {
+    throw new Error("No active rider with this phone number exists in the selected area");
+  }
+  return objectIdString(rider._id);
 }
 
 function addAndQuery(query: Record<string, any>, condition: Record<string, unknown> | null) {
@@ -2198,6 +2250,15 @@ async function recordInstantAdminNotificationCampaign(params: SendParams, result
 }
 
 export async function sendAdminNotification(params: SendParams) {
+  if (params.testMode) {
+    const recipientId = await resolveTestRecipientIdByPhone(params);
+    params = {
+      ...params,
+      audience: "selected",
+      recipientIds: [recipientId],
+      scheduledAt: undefined,
+    };
+  }
   const title = params.title.trim();
   const body = params.body.trim();
   const path = params.path?.trim() ?? "";

@@ -688,8 +688,8 @@ export const platformContent = {
     liveTracking: {
       mode: "balanced",
       updateIntervalSeconds: 15,
-      distanceIntervalMeters: 60,
-      passiveHeartbeatSeconds: 60,
+      distanceIntervalMeters: 30,
+      passiveHeartbeatSeconds: 25,
     },
     // Compensation policy when a rider reports a failed delivery (order already picked
     // up but undeliverable). All admin-controlled.

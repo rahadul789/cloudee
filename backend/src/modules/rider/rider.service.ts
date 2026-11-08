@@ -1394,6 +1394,7 @@ export async function markAllRiderNotificationsAsRead(riderId: string) {
 
 export async function updateRiderLastKnownLocation(params: {
   riderId: string
+  recordedAt?: string
   latitude: number
   longitude: number
   heading?: number
@@ -1408,6 +1409,10 @@ export async function updateRiderLastKnownLocation(params: {
 
   assertRiderAccessible(rider)
 
+  const sampleAt = params.recordedAt ? new Date(Math.min(Date.now(), Date.parse(params.recordedAt))) : new Date()
+  const previousAt = rider.lastKnownLocation?.updatedAt
+  if (previousAt && new Date(previousAt).getTime() > sampleAt.getTime()) return mapRiderProfile(rider)
+
   const pickedUpOrders = await OrderModel.find({
     riderId: rider.id,
     status: "PickedUp"
@@ -1421,7 +1426,7 @@ export async function updateRiderLastKnownLocation(params: {
     heading: params.heading ?? null,
     accuracyMeters: params.accuracyMeters ?? null,
     speedKmph: params.speedKmph ?? null,
-    updatedAt: new Date()
+    updatedAt: sampleAt
   }
 
   const pickedUpOrderIds = pickedUpOrders.map((order) => order.id)
@@ -1435,7 +1440,19 @@ export async function updateRiderLastKnownLocation(params: {
   const hasFocusChanged = nextFocusedOrderId !== currentFocusedOrderId
   rider.activeTrackingOrderId = nextFocusedOrderId
 
-  await rider.save()
+  const saved = await RiderModel.updateOne(
+    { _id: rider.id, $or: [
+      { "lastKnownLocation.updatedAt": { $lte: sampleAt } },
+      { "lastKnownLocation.updatedAt": null }
+    ] },
+    { $set: { lastKnownLocation: rider.lastKnownLocation,
+      ...(hasFocusChanged ? { activeTrackingOrderId: nextFocusedOrderId } : {}) } }
+  )
+  // Two slow requests can finish out of order on different backend workers.
+  if (saved.matchedCount === 0) {
+    const latest = await RiderModel.findById(params.riderId)
+    return mapRiderProfile(latest ?? rider)
+  }
 
   const profile = mapRiderProfile(rider)
   if (hasFocusChanged) {
@@ -1849,6 +1866,7 @@ export async function pickupRiderOrder(params: {
   riderId: string
   orderId: string
   location?: {
+    recordedAt?: string
     latitude: number
     longitude: number
     heading?: number
@@ -1923,14 +1941,22 @@ export async function pickupRiderOrder(params: {
     })
   }
 
-  if (params.location) {
-    const updatedAt = new Date()
+  const known = rider.lastKnownLocation
+  const knownAt = known?.updatedAt ? new Date(known.updatedAt).getTime() : 0
+  const recentKnown = known && knownAt > 0 && Date.now() - knownAt <= 45_000 &&
+    typeof known.latitude === "number" && typeof known.longitude === "number" ? known : null
+  const pickupLocation = params.location ?? recentKnown
+  if (pickupLocation) {
+    // Preserve the actual sample age when using a recent pre-pickup location.
+    const updatedAt = params.location
+      ? (params.location.recordedAt ? new Date(Math.min(Date.now(), Date.parse(params.location.recordedAt))) : new Date())
+      : new Date(knownAt)
     const locationSnapshot = {
-      latitude: params.location.latitude,
-      longitude: params.location.longitude,
-      heading: params.location.heading ?? null,
-      accuracyMeters: params.location.accuracyMeters ?? null,
-      speedKmph: params.location.speedKmph ?? null,
+      latitude: pickupLocation.latitude,
+      longitude: pickupLocation.longitude,
+      heading: pickupLocation.heading ?? null,
+      accuracyMeters: pickupLocation.accuracyMeters ?? null,
+      speedKmph: pickupLocation.speedKmph ?? null,
       updatedAt
     }
 
@@ -1945,10 +1971,12 @@ export async function pickupRiderOrder(params: {
       // (isFocused: false) until that delivery finishes and promotes this one.
       isFocused: !hadActiveTrip,
       currentLocation: locationSnapshot,
+      lastUpdatedAt: updatedAt,
       lastSeenAt: updatedAt,
       disconnectedAt: null
     })
     await updatedOrder.save()
+    await emitOrderRealtimeUpdate(updatedOrder.toObject(), { type: "order.pickup_location", orderId: order.id })
   }
 
   emitSocketEvent(`rider:${rider.id}`, "rider.order.updated", updatedOrder.toObject())
@@ -2163,6 +2191,7 @@ async function flushRiderOrderLocation(orderId: string) {
       updateOrderRiderLocation({
         orderId: update.orderId,
         actor: "rider",
+        recordedAt: update.receivedAt.toISOString(),
         latitude: update.latitude,
         longitude: update.longitude,
         heading: update.heading,
@@ -2195,12 +2224,24 @@ async function flushRiderOrderLocation(orderId: string) {
     ])
     const updatedOrderObject =
       typeof updatedOrder.toObject === "function" ? updatedOrder.toObject() : updatedOrder
+    // A small server acknowledgement keeps the rider UI freshness in sync without
+    // echoing a full order or refetching every order list on each GPS fix.
+    if (updatedOrderObject.status === "PickedUp") emitSocketEvent(`rider:${update.riderId}`, "rider.location.updated", {
+      orderId,
+      riderTracking: decorateTrackingSnapshot(updatedOrderObject.riderTracking ?? {}, "PickedUp")
+    })
     entry.lastSavedAtMs = Date.now()
     recentRiderOrderLocationUpdates.set(orderId, {
       savedAtMs: entry.lastSavedAtMs,
       order: updatedOrderObject
     })
   } catch (error) {
+    // Retry a recent sample after transient storage/routing failures. Preserve any
+    // newer queued fix, and never revive an ended/unassigned delivery.
+    const retryable = !(error instanceof AppError) || error.statusCode >= 500;
+    if (retryable && !entry.latest && Date.now() - update.receivedAt.getTime() <= 45_000) {
+      entry.latest = update;
+    }
     logger.warn(
       {
         error,
@@ -2263,6 +2304,7 @@ function pruneIdleRiderOrderLocationQueue(now = Date.now()) {
 
 function buildAcceptedRiderLocationOrder(params: {
   orderId: string
+  recordedAt?: string
   activeTrackingOrderId?: string
   latitude: number
   longitude: number
@@ -2270,7 +2312,7 @@ function buildAcceptedRiderLocationOrder(params: {
   accuracyMeters?: number
   speedKmph?: number
 }) {
-  const now = new Date()
+  const now = params.recordedAt ? new Date(Math.min(Date.now(), Date.parse(params.recordedAt))) : new Date()
   const isFocusedLiveTrip =
     Boolean(params.activeTrackingOrderId) && params.activeTrackingOrderId === params.orderId
 
@@ -2303,6 +2345,7 @@ function buildAcceptedRiderLocationOrder(params: {
 export async function postRiderLocation(params: {
   riderId: string
   orderId: string
+  recordedAt?: string
   latitude: number
   longitude: number
   heading?: number
@@ -2342,7 +2385,7 @@ export async function postRiderLocation(params: {
 
   if (activeTrackingOrderId === orderId) {
     enqueueRiderOrderLocationUpdate({
-      receivedAt: new Date(),
+      receivedAt: params.recordedAt ? new Date(Math.min(Date.now(), Date.parse(params.recordedAt))) : new Date(),
       orderId,
       riderId,
       riderName: rider.fullName ?? "",
@@ -2357,6 +2400,7 @@ export async function postRiderLocation(params: {
 
   return buildAcceptedRiderLocationOrder({
     orderId,
+    recordedAt: params.recordedAt,
     activeTrackingOrderId,
     latitude: params.latitude,
     longitude: params.longitude,

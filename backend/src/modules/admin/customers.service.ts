@@ -1284,6 +1284,17 @@ export async function removeAdminCustomerGroupMember(params: {
   return mapCustomerGroup(group);
 }
 
+export async function assertAdminCustomerAreaAccess(customerId: string, params: { zoneId?: string; districtId?: string } = {}) {
+  const customerScope = buildCustomerServiceAreaScopeFilter(params);
+  if (!Object.keys(customerScope).length) return;
+  const safeCustomerId = toObjectIdOrThrow(customerId, "Customer");
+  const [profile, order] = await Promise.all([
+    CustomerModel.exists({ _id: safeCustomerId, ...customerScope }),
+    OrderModel.exists({ customerId: safeCustomerId.toString(), ...buildOrderServiceAreaScopeFilter(params) }),
+  ]);
+  if (!profile && !order) throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found");
+}
+
 export async function getAdminCustomerDetails(
   customerId: string,
   params?: { preset?: string; from?: string; to?: string; zoneId?: string; districtId?: string },
@@ -1294,13 +1305,7 @@ export async function getAdminCustomerDetails(
   if (!customer) {
     throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found");
   }
-  const customerScopeFilter = buildCustomerServiceAreaScopeFilter(params ?? {});
-  if (
-    Object.keys(customerScopeFilter).length > 0 &&
-    !(await CustomerModel.exists({ _id: safeCustomerId, ...customerScopeFilter }))
-  ) {
-    throw new AppError(StatusCodes.NOT_FOUND, "CUSTOMER_NOT_FOUND", "Customer not found");
-  }
+  await assertAdminCustomerAreaAccess(customerId, params);
 
   const customerIdString = safeCustomerId.toString();
   const customOfferSettings = await getCustomerCustomOfferSettings();

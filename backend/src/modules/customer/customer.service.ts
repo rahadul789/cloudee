@@ -7311,6 +7311,8 @@ export async function createCustomerSupportCase(params: {
   const message = params.message.trim();
   const supportCase = await SupportCaseModel.create({
     source: "customer",
+    serviceAreaSnapshot: customer.serviceArea ?? customer.savedLocations?.find((location) => location.serviceArea?.zoneId)?.serviceArea ?? (await OrderModel.findOne({ customerId: customer._id }).sort({ createdAt: -1 }).select({ serviceAreaSnapshot: 1 }).lean())?.serviceAreaSnapshot ?? null,
+    lastCustomerMessageAt: new Date(),
     customerId: customer._id,
     customerSnapshot: {
       fullName: customer.fullName ?? "",
@@ -7360,6 +7362,7 @@ export async function createCustomerSupportCase(params: {
     iconKey: "headphones",
     dedupeKey: `support:${supportCase.id}:created`,
     metadata: {
+      serviceAreaSnapshot: supportCase.serviceAreaSnapshot,
       supportCaseId: supportCase.id,
       source: "customer",
       priority: "medium",
@@ -7391,7 +7394,7 @@ export async function appendCustomerSupportCaseMessage(params: {
   }>;
 }) {
   const safeCustomerId = ensureCustomerIdentity(params.customerId);
-  const supportCase = await SupportCaseModel.findOne({
+  let supportCase = await SupportCaseModel.findOne({
     _id: params.supportCaseId,
     source: "customer",
     customerId: safeCustomerId,
@@ -7427,13 +7430,28 @@ export async function appendCustomerSupportCaseMessage(params: {
     })
     .slice(-MAX_SUPPORT_CASE_REPLIES);
 
-  supportCase.set("replies", nextReplies);
-  if (supportCase.status === "resolved" || supportCase.status === "closed") {
-    supportCase.status = "open";
-  }
-  await supportCase.save();
+  const incomingReply = nextReplies[nextReplies.length - 1]!;
+  supportCase = await SupportCaseModel.findOneAndUpdate(
+    { _id: params.supportCaseId, source: "customer", customerId: safeCustomerId },
+    {
+      $push: { replies: { $each: [incomingReply], $slice: -MAX_SUPPORT_CASE_REPLIES } },
+      $set: { lastCustomerMessageAt: incomingReply.createdAt, ...(["resolved", "closed"].includes(supportCase.status) ? { status: "open" } : {}) },
+    },
+    { new: true },
+  );
+  if (!supportCase) throw new AppError(StatusCodes.NOT_FOUND, "SUPPORT_CASE_NOT_FOUND", "Support case not found");
 
   const message = params.message.trim();
+  void sendSupportCaseToTelegram({
+    supportCaseId: supportCase.id,
+    customerName: supportCase.customerSnapshot?.fullName || "Customer",
+    customerPhone: supportCase.customerSnapshot?.phone || "",
+    subject: supportCase.subject,
+    message,
+    attachmentCount: params.attachments?.length ?? 0,
+    isReply: true,
+    areaName: supportCase.serviceAreaSnapshot?.zoneName || supportCase.serviceAreaSnapshot?.districtName || "",
+  }).catch(() => undefined);
   const latestReply = nextReplies[nextReplies.length - 1] as
     | Record<string, unknown>
     | undefined;
@@ -7457,6 +7475,7 @@ export async function appendCustomerSupportCaseMessage(params: {
       supportCaseId: supportCase.id,
       source: "customer",
       customerId: safeCustomerId,
+      serviceAreaSnapshot: supportCase.serviceAreaSnapshot,
       customerName: supportCase.customerSnapshot?.fullName || "Customer",
       customerPhone: supportCase.customerSnapshot?.phone || "",
       replyCount: nextReplies.length,

@@ -13,7 +13,7 @@ import {
 } from "@/src/lib/new-order-sound";
 import { useDeliveryCopy } from "@/src/lib/copy";
 import { getFreshRiderAccessToken } from "@/src/lib/api";
-import { patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
+import { patchRiderTrackingCaches, patchRiderOrderCaches, type RiderOrder } from "@/src/hooks/use-rider-api";
 import { useRiderAuthStore, type RiderProfile } from "@/src/store/auth-store";
 import { setDeliveryNetworkOnline, useNetworkStore } from "@/src/store/network-store";
 import { palette } from "@/src/theme/palette";
@@ -420,6 +420,10 @@ export function RiderSocketBridge() {
     socket.on("connect", handleSocketConnected);
     socket.on("disconnect", handleSocketDisconnected);
     socket.on("connect_error", handleConnectError);
+    const handleLocationUpdated = (payload: { orderId: string; riderTracking: RiderOrder["riderTracking"] }) => {
+      if (payload?.orderId) patchRiderTrackingCaches(queryClient, payload.orderId, payload.riderTracking);
+    };
+    socket.on("rider.location.updated", handleLocationUpdated);
     socket.on("rider.order.updated", handleOrderUpdated);
     socket.on("rider.assignment.updated", handleAssignmentUpdated);
     socket.on("rider.profile.updated", handleProfileUpdated);
@@ -435,6 +439,7 @@ export function RiderSocketBridge() {
       socket.off("connect", handleSocketConnected);
       socket.off("disconnect", handleSocketDisconnected);
       socket.off("connect_error", handleConnectError);
+      socket.off("rider.location.updated", handleLocationUpdated);
       socket.off("rider.order.updated", handleOrderUpdated);
       socket.off("rider.assignment.updated", handleAssignmentUpdated);
       socket.off("rider.profile.updated", handleProfileUpdated);

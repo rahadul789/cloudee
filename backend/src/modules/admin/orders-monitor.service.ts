@@ -1681,6 +1681,7 @@ function isAssignmentTimedOut(
   settings: DispatchSettings,
 ) {
   const dispatchMeta = getDispatchMeta(order);
+  if (dispatchMeta.acknowledgedAt) return false;
   const assignedAt = dispatchMeta.assignedAt ?? getReadyForPickupAt(order);
   if (!assignedAt) return false;
 

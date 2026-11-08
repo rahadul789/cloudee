@@ -873,8 +873,8 @@ const platformContentSchema = z.object({
     liveTracking: z.object({
       mode: z.enum(["balanced", "battery_saver", "high_accuracy"]).optional().default("balanced"),
       updateIntervalSeconds: z.number().int().min(10).max(60).optional().default(15),
-      distanceIntervalMeters: z.number().int().min(30).max(100).optional().default(60),
-      passiveHeartbeatSeconds: z.number().int().min(30).max(180).optional().default(60),
+      distanceIntervalMeters: z.number().int().min(30).max(100).optional().default(30),
+      passiveHeartbeatSeconds: z.number().int().min(15).max(180).optional().default(25),
     }),
     failedDelivery: z
       .object({

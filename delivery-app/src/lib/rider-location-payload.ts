@@ -1,6 +1,7 @@
 import type { LocationObject } from "expo-location";
 
 export type RiderLocationPayload = {
+  recordedAt?: string;
   latitude: number;
   longitude: number;
   heading?: number;
@@ -11,6 +12,8 @@ export type RiderLocationPayload = {
 export function getRiderLocationPayload(position: LocationObject): RiderLocationPayload {
   const { latitude, longitude, heading, accuracy, speed } = position.coords;
   return {
+    recordedAt: typeof position.timestamp === "number" && Number.isFinite(position.timestamp)
+      ? new Date(position.timestamp).toISOString() : undefined,
     latitude,
     longitude,
     // Native APIs use -1 when heading/accuracy/speed are unavailable. Optional

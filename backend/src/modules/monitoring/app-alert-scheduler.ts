@@ -41,6 +41,25 @@ async function checkRateLimitPressure() {
 let schedulerTimer: NodeJS.Timeout | null = null;
 let isRunning = false;
 
+// Order-monitoring alerts are useful in the admin action centre while an order
+// is live, but forwarding the still-open list on every scheduler restart can
+// produce old delivery messages the next morning. They are sent when created;
+// the scheduler must not replay them.
+export function shouldForwardCriticalAlertToTelegram(alert: {
+  severity: string;
+  entityType?: string;
+  source?: string;
+  alertType?: string;
+}) {
+  if (alert.severity !== "critical") return false;
+  const orderDeliveryAlert =
+    alert.entityType === "order" &&
+    (alert.source === "Delivery" ||
+      alert.alertType?.startsWith("delivery_") ||
+      alert.alertType?.startsWith("rider_"));
+  return !orderDeliveryAlert;
+}
+
 async function runAppAlertCheck() {
   if (!env.ALERTS_ENABLED || isRunning) return;
   isRunning = true;
@@ -48,7 +67,8 @@ async function runAppAlertCheck() {
   try {
     const snapshot = await getAdminOperationalHealthSnapshot();
     const criticalAlerts = snapshot.activeAlerts.filter(
-      (alert: { severity: string }) => alert.severity === "critical",
+      (alert: { severity: string; entityType?: string; source?: string; alertType?: string }) =>
+        shouldForwardCriticalAlertToTelegram(alert),
     );
 
     for (const alert of criticalAlerts) {

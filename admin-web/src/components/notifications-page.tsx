@@ -612,7 +612,10 @@ function notificationDeliveryRate(item: AdminNotificationCenterItem) {
 function notificationOpenRate(item: AdminNotificationCenterItem) {
   const delivered = notificationDeliveredCount(item)
   if (delivered <= 0) return 0
-  return Math.min(100, Math.round((numericValue(item.openCount) / delivered) * 100))
+  return Math.min(
+    100,
+    Math.round((numericValue(item.openCount) / delivered) * 100)
+  )
 }
 
 function isCampaignLike(item: AdminNotificationCenterItem) {
@@ -637,7 +640,10 @@ function campaignRefreshInterval(item: AdminNotificationCenterItem | null) {
   if (item.deliveryStatus === "failed" || item.deliveryStatus === "cancelled") {
     return false
   }
-  if (item.deliveryStatus === "scheduled" || item.deliveryStatus === "sending") {
+  if (
+    item.deliveryStatus === "scheduled" ||
+    item.deliveryStatus === "sending"
+  ) {
     return 15_000
   }
   return 30_000
@@ -646,7 +652,8 @@ function campaignRefreshInterval(item: AdminNotificationCenterItem | null) {
 type CampaignTimelineTone = "done" | "current" | "upcoming" | "danger"
 
 function campaignTimelineSteps(item: AdminNotificationCenterItem) {
-  const isScheduled = item.source === "scheduled" || item.sendMode === "scheduled"
+  const isScheduled =
+    item.source === "scheduled" || item.sendMode === "scheduled"
   const status = item.deliveryStatus
   const sentAt = item.sentAt || item.readAt
   const hasOpened = numericValue(item.openCount) > 0
@@ -670,13 +677,17 @@ function campaignTimelineSteps(item: AdminNotificationCenterItem) {
       key: "scheduled",
       label: "Scheduled",
       helper: formatDateTime(item.scheduledAt),
-      tone:
-        status === "scheduled" ? ("current" as const) : ("done" as const),
+      tone: status === "scheduled" ? ("current" as const) : ("done" as const),
     })
   }
 
   steps.push({
-    key: status === "failed" ? "failed" : status === "cancelled" ? "cancelled" : "sent",
+    key:
+      status === "failed"
+        ? "failed"
+        : status === "cancelled"
+          ? "cancelled"
+          : "sent",
     label:
       status === "failed"
         ? "Failed"
@@ -710,15 +721,19 @@ function campaignTimelineSteps(item: AdminNotificationCenterItem) {
 }
 
 function campaignTimelineClass(tone: CampaignTimelineTone) {
-  if (tone === "done") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-  if (tone === "current") return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
+  if (tone === "done")
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (tone === "current")
+    return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
   if (tone === "danger") return "border-rose-200 bg-rose-50 text-rose-700"
   return "border-slate-200 bg-slate-50 text-slate-500"
 }
 
 function recipientReportStatusClass(status: string) {
-  if (status === "opened") return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
-  if (status === "received") return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (status === "opened")
+    return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
+  if (status === "received")
+    return "border-emerald-200 bg-emerald-50 text-emerald-700"
   return "border-amber-200 bg-amber-50 text-amber-700"
 }
 
@@ -885,8 +900,7 @@ function sourceBadgeClass(source: AdminNotificationCenterItem["source"]) {
   if (source === "rider") return "border-cyan-200 bg-cyan-50 text-cyan-700"
   if (source === "campaign")
     return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700"
-  if (source === "ops")
-    return "border-rose-200 bg-rose-50 text-rose-700"
+  if (source === "ops") return "border-rose-200 bg-rose-50 text-rose-700"
   return "border-amber-200 bg-amber-50 text-amber-700"
 }
 
@@ -989,7 +1003,8 @@ function notificationScopeLabel(
       : `Zone ${compactScopeId(item.zoneId)}`
   }
   if (item.districtId) {
-    return currentScope.type === "district" && currentScope.id === item.districtId
+    return currentScope.type === "district" &&
+      currentScope.id === item.districtId
       ? currentScope.label
       : `District ${compactScopeId(item.districtId)}`
   }
@@ -1018,7 +1033,7 @@ export function NotificationsPage() {
   const [localImagePreviewUrl, setLocalImagePreviewUrl] = React.useState("")
   const [scheduleMode, setScheduleMode] = React.useState(false)
   const [scheduledAt, setScheduledAt] = React.useState("")
-  const [testRecipientId, setTestRecipientId] = React.useState("")
+  const [testRecipientPhone, setTestRecipientPhone] = React.useState("")
   const [adminZoneScope, setAdminZoneScope] = React.useState(() =>
     getAdminZoneScope()
   )
@@ -1115,7 +1130,9 @@ export function NotificationsPage() {
       recipientReportStatus,
       adminScopeKey,
     ],
-    enabled: Boolean(selectedItem && isPromotionalPushItem(selectedItem) && selectedCampaignId),
+    enabled: Boolean(
+      selectedItem && isPromotionalPushItem(selectedItem) && selectedCampaignId
+    ),
     queryFn: () =>
       getAdminNotificationCampaignRecipients({
         campaignId: selectedCampaignId,
@@ -1131,11 +1148,13 @@ export function NotificationsPage() {
   React.useEffect(() => {
     if (!selectedItem) return
     const refreshedItem = notificationsQuery.data?.items.find(
-      (item) => item.id === selectedItem.id && item.source === selectedItem.source
+      (item) =>
+        item.id === selectedItem.id && item.source === selectedItem.source
     )
     if (!refreshedItem) return
     setSelectedItem((current) =>
-      current?.id === refreshedItem.id && current.source === refreshedItem.source
+      current?.id === refreshedItem.id &&
+      current.source === refreshedItem.source
         ? refreshedItem
         : current
     )
@@ -1335,7 +1354,9 @@ export function NotificationsPage() {
       void queryClient.invalidateQueries({ queryKey: ["admin-notifications"] })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Failed to refresh conversions"),
+      toast.error(
+        error instanceof Error ? error.message : "Failed to refresh conversions"
+      ),
   })
   const checkReceiptsMutation = useMutation({
     mutationFn: checkAdminNotificationCampaignReceipts,
@@ -1348,10 +1369,14 @@ export function NotificationsPage() {
         )
       }
       void queryClient.invalidateQueries({ queryKey: ["admin-notifications"] })
-      void queryClient.invalidateQueries({ queryKey: ["admin-notification-recipients"] })
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-notification-recipients"],
+      })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Failed to check receipts"),
+      toast.error(
+        error instanceof Error ? error.message : "Failed to check receipts"
+      ),
   })
   const deleteImageMutation = useMutation({
     mutationFn: deleteAdminMediaAsset,
@@ -1369,7 +1394,9 @@ export function NotificationsPage() {
       })
     },
     onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Image delete failed"),
+      toast.error(
+        error instanceof Error ? error.message : "Image delete failed"
+      ),
   })
 
   const data = notificationsQuery.data
@@ -1422,7 +1449,8 @@ export function NotificationsPage() {
   )
   const selectedVoucher = React.useMemo(
     () =>
-      availableVouchers.find((voucher) => voucher._id === form.voucherId) ?? null,
+      availableVouchers.find((voucher) => voucher._id === form.voucherId) ??
+      null,
     [availableVouchers, form.voucherId]
   )
   const groupedNotificationTemplates = React.useMemo(
@@ -1450,14 +1478,20 @@ export function NotificationsPage() {
   ): AdminNotificationSendPayload {
     const merged = { ...form, ...overrides }
     const voucherId =
-      merged.recipientType === "customers" ? merged.voucherId?.trim() ?? "" : ""
+      merged.recipientType === "customers"
+        ? (merged.voucherId?.trim() ?? "")
+        : ""
     const isPersonalVoucher =
       Boolean(voucherId) &&
       (merged.customerAudienceType === "selected_users" ||
         merged.audience === "selected")
     return {
       ...merged,
-      type: voucherId ? "voucher" : merged.type === "voucher" ? "promotion" : merged.type,
+      type: voucherId
+        ? "voucher"
+        : merged.type === "voucher"
+          ? "promotion"
+          : merged.type,
       voucherId: voucherId || undefined,
       voucherCode: undefined,
       voucherLabel: undefined,
@@ -1518,12 +1552,14 @@ export function NotificationsPage() {
       toast.error("Choose schedule date and time")
       return
     }
-    sendMutation.mutate(buildSendPayload({
-      scheduledAt:
-        scheduleMode && scheduledAt
-          ? new Date(scheduledAt).toISOString()
-          : undefined,
-    }))
+    sendMutation.mutate(
+      buildSendPayload({
+        scheduledAt:
+          scheduleMode && scheduledAt
+            ? new Date(scheduledAt).toISOString()
+            : undefined,
+      })
+    )
   }
 
   function sendTestNotification() {
@@ -1535,18 +1571,21 @@ export function NotificationsPage() {
       toast.error("Upload an image for image notification mode")
       return
     }
-    if (!testRecipientId) {
-      toast.error("Choose a test recipient first")
+    if (!testRecipientPhone.trim()) {
+      toast.error("Enter a test phone number first")
       return
     }
 
-    sendMutation.mutate(buildSendPayload({
-      audience: "selected",
-      recipientIds: [testRecipientId],
-      title: `[TEST] ${form.title}`,
-      scheduledAt: undefined,
-      testMode: true,
-    }))
+    sendMutation.mutate(
+      buildSendPayload({
+        audience: "selected",
+        recipientIds: undefined,
+        testRecipientPhone: testRecipientPhone.trim(),
+        title: `[TEST] ${form.title}`,
+        scheduledAt: undefined,
+        testMode: true,
+      })
+    )
   }
 
   function resetFilters() {
@@ -1629,7 +1668,7 @@ export function NotificationsPage() {
   function setPromotionalRecipientType(
     recipientType: AdminNotificationSendPayload["recipientType"]
   ) {
-    setTestRecipientId("")
+    setTestRecipientPhone("")
     setSelectedTemplateKey("")
     if (recipientType !== "customers") clearLocalImagePreview()
     setForm((current) => {
@@ -1727,7 +1766,7 @@ export function NotificationsPage() {
   }
 
   React.useEffect(() => {
-    setTestRecipientId("")
+    setTestRecipientPhone("")
   }, [form.recipientType])
 
   React.useEffect(
@@ -1783,7 +1822,9 @@ export function NotificationsPage() {
       })
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Notification image upload failed"
+        error instanceof Error
+          ? error.message
+          : "Notification image upload failed"
       )
     } finally {
       setIsUploadingImage(false)
@@ -1818,7 +1859,10 @@ export function NotificationsPage() {
   const ctaEnabled = Boolean(form.ctaLabel?.trim() || form.ctaPath?.trim())
   const campaignImagePreviewUrl = localImagePreviewUrl || form.imageUrl || ""
   const previewTitle =
-    form.title.trim() || (isCustomerPromotionForm ? "Weekend treat is here 🍔" : "Notification title")
+    form.title.trim() ||
+    (isCustomerPromotionForm
+      ? "Weekend treat is here 🍔"
+      : "Notification title")
   const previewBody =
     form.body.trim() ||
     (isCustomerPromotionForm
@@ -1848,7 +1892,11 @@ export function NotificationsPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={openNotificationComposer}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={openNotificationComposer}
+          >
             <Bell className="size-4" />
             New notification
           </Button>
@@ -1951,7 +1999,10 @@ export function NotificationsPage() {
                     </Badge>
                   ) : null}
                 </div>
-                <Select value={selectedTemplateKey} onValueChange={applyTemplate}>
+                <Select
+                  value={selectedTemplateKey}
+                  onValueChange={applyTemplate}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a template" />
                   </SelectTrigger>
@@ -2100,16 +2151,23 @@ export function NotificationsPage() {
                             ...current,
                             customerAudienceType:
                               value as AdminNotificationSendPayload["customerAudienceType"],
-                            audience: value === "selected_users" ? "selected" : "all",
+                            audience:
+                              value === "selected_users" ? "selected" : "all",
                           }))
                         }
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all_users">All users</SelectItem>
                           <SelectItem value="new_users">New users</SelectItem>
-                          <SelectItem value="returning_users">Returning users</SelectItem>
-                          <SelectItem value="selected_users">Specific users</SelectItem>
+                          <SelectItem value="returning_users">
+                            Returning users
+                          </SelectItem>
+                          <SelectItem value="selected_users">
+                            Specific users
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -2124,7 +2182,9 @@ export function NotificationsPage() {
                           }))
                         }
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">No smart segment</SelectItem>
                           {smartCustomerGroups.map((group) => (
@@ -2137,7 +2197,10 @@ export function NotificationsPage() {
                               <SelectLabel>Saved groups</SelectLabel>
                               {(customerGroupsQuery.data?.items ?? []).map(
                                 (group: AdminCustomerGroup) => (
-                                  <SelectItem key={group.id} value={`manual:${group.id}`}>
+                                  <SelectItem
+                                    key={group.id}
+                                    value={`manual:${group.id}`}
+                                  >
                                     {group.name} ({group.memberCount})
                                   </SelectItem>
                                 )
@@ -2158,15 +2221,21 @@ export function NotificationsPage() {
                               value as AdminNotificationSendPayload["restaurantScope"],
                             selectedRestaurantIds:
                               value === "selected_restaurants"
-                                ? current.selectedRestaurantIds ?? []
+                                ? (current.selectedRestaurantIds ?? [])
                                 : [],
                           }))
                         }
                       >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all_restaurants">No restaurant filter</SelectItem>
-                          <SelectItem value="selected_restaurants">Users from selected restaurants</SelectItem>
+                          <SelectItem value="all_restaurants">
+                            No restaurant filter
+                          </SelectItem>
+                          <SelectItem value="selected_restaurants">
+                            Users from selected restaurants
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -2180,7 +2249,9 @@ export function NotificationsPage() {
                         onChange={(event) =>
                           setForm((current) => ({
                             ...current,
-                            conversionWindowDays: Number(event.target.value || 7),
+                            conversionWindowDays: Number(
+                              event.target.value || 7
+                            ),
                           }))
                         }
                       />
@@ -2190,32 +2261,49 @@ export function NotificationsPage() {
                   {form.restaurantScope === "selected_restaurants" ? (
                     <ScrollArea className="mt-3 h-44 rounded-lg border bg-background">
                       <div className="space-y-2 p-3">
-                        {(restaurantsQuery.data?.items ?? []).map((restaurant) => {
-                          const selected = new Set(form.selectedRestaurantIds ?? [])
-                          return (
-                            <label
-                              key={restaurant.id}
-                              className="flex cursor-pointer items-start gap-3 rounded-md border p-2"
-                            >
-                              <Checkbox
-                                checked={selected.has(restaurant.id)}
-                                onCheckedChange={(checked) =>
-                                  setForm((current) => ({
-                                    ...current,
-                                    selectedRestaurantIds:
-                                      checked === true
-                                        ? [...(current.selectedRestaurantIds ?? []), restaurant.id]
-                                        : (current.selectedRestaurantIds ?? []).filter((id) => id !== restaurant.id),
-                                  }))
-                                }
-                              />
-                              <span className="min-w-0">
-                                <span className="block truncate text-sm font-medium">{restaurant.name}</span>
-                                <span className="block truncate text-xs text-muted-foreground">{restaurant.city}</span>
-                              </span>
-                            </label>
-                          )
-                        })}
+                        {(restaurantsQuery.data?.items ?? []).map(
+                          (restaurant) => {
+                            const selected = new Set(
+                              form.selectedRestaurantIds ?? []
+                            )
+                            return (
+                              <label
+                                key={restaurant.id}
+                                className="flex cursor-pointer items-start gap-3 rounded-md border p-2"
+                              >
+                                <Checkbox
+                                  checked={selected.has(restaurant.id)}
+                                  onCheckedChange={(checked) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      selectedRestaurantIds:
+                                        checked === true
+                                          ? [
+                                              ...(current.selectedRestaurantIds ??
+                                                []),
+                                              restaurant.id,
+                                            ]
+                                          : (
+                                              current.selectedRestaurantIds ??
+                                              []
+                                            ).filter(
+                                              (id) => id !== restaurant.id
+                                            ),
+                                    }))
+                                  }
+                                />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-medium">
+                                    {restaurant.name}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {restaurant.city}
+                                  </span>
+                                </span>
+                              </label>
+                            )
+                          }
+                        )}
                       </div>
                     </ScrollArea>
                   ) : null}
@@ -2243,7 +2331,10 @@ export function NotificationsPage() {
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              abTest: { ...(current.abTest ?? {}), variantBTitle: event.target.value },
+                              abTest: {
+                                ...(current.abTest ?? {}),
+                                variantBTitle: event.target.value,
+                              },
                             }))
                           }
                           placeholder="Variant B title"
@@ -2253,7 +2344,10 @@ export function NotificationsPage() {
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              abTest: { ...(current.abTest ?? {}), variantBBody: event.target.value },
+                              abTest: {
+                                ...(current.abTest ?? {}),
+                                variantBBody: event.target.value,
+                              },
                             }))
                           }
                           placeholder="Variant B body"
@@ -2263,7 +2357,10 @@ export function NotificationsPage() {
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              abTest: { ...(current.abTest ?? {}), variantBPath: event.target.value },
+                              abTest: {
+                                ...(current.abTest ?? {}),
+                                variantBPath: event.target.value,
+                              },
                             }))
                           }
                           placeholder="Variant B path"
@@ -2276,7 +2373,10 @@ export function NotificationsPage() {
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              abTest: { ...(current.abTest ?? {}), splitPercent: Number(event.target.value || 50) },
+                              abTest: {
+                                ...(current.abTest ?? {}),
+                                splitPercent: Number(event.target.value || 50),
+                              },
                             }))
                           }
                           placeholder="Variant B split %"
@@ -2377,7 +2477,8 @@ export function NotificationsPage() {
                         />
                         <div className="text-xs text-muted-foreground">
                           Recommended: wide promotional image. The app will send
-                          it as notification rich media and keep text as fallback.
+                          it as notification rich media and keep text as
+                          fallback.
                         </div>
                         {form.imageUrl ? (
                           <Button
@@ -2420,14 +2521,17 @@ export function NotificationsPage() {
                                   role="button"
                                   tabIndex={0}
                                   className={cn(
-                                    "group relative overflow-hidden rounded-lg border bg-muted/40 outline-none ring-primary transition",
+                                    "group relative overflow-hidden rounded-lg border bg-muted/40 ring-primary transition outline-none",
                                     selected
                                       ? "border-primary ring-2"
                                       : "hover:border-primary/50"
                                   )}
                                   onClick={() => selectNotificationImage(asset)}
                                   onKeyDown={(event) => {
-                                    if (event.key === "Enter" || event.key === " ") {
+                                    if (
+                                      event.key === "Enter" ||
+                                      event.key === " "
+                                    ) {
                                       event.preventDefault()
                                       selectNotificationImage(asset)
                                     }
@@ -2442,7 +2546,7 @@ export function NotificationsPage() {
                                     type="button"
                                     size="icon-sm"
                                     variant="secondary"
-                                    className="absolute right-1 top-1 size-7 opacity-0 shadow-sm transition group-hover:opacity-100"
+                                    className="absolute top-1 right-1 size-7 opacity-0 shadow-sm transition group-hover:opacity-100"
                                     disabled={deleteImageMutation.isPending}
                                     onClick={(event) => {
                                       event.stopPropagation()
@@ -2561,7 +2665,9 @@ export function NotificationsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="promo_details">Promo details</SelectItem>
+                        <SelectItem value="promo_details">
+                          Promo details
+                        </SelectItem>
                         <SelectItem value="restaurant_details">
                           Restaurant details
                         </SelectItem>
@@ -2569,7 +2675,9 @@ export function NotificationsPage() {
                     </Select>
                     {promoDestination === "restaurant_details" ? (
                       <Select
-                        value={promoRestaurantId || restaurantOptions[0]?.id || ""}
+                        value={
+                          promoRestaurantId || restaurantOptions[0]?.id || ""
+                        }
                         onValueChange={(restaurantId) =>
                           setForm((current) => ({
                             ...current,
@@ -2584,7 +2692,10 @@ export function NotificationsPage() {
                         </SelectTrigger>
                         <SelectContent>
                           {restaurantOptions.map((restaurant) => (
-                            <SelectItem key={restaurant.id} value={restaurant.id}>
+                            <SelectItem
+                              key={restaurant.id}
+                              value={restaurant.id}
+                            >
                               {restaurant.name}
                             </SelectItem>
                           ))}
@@ -2656,10 +2767,12 @@ export function NotificationsPage() {
                   {promoDestination === "restaurant_details" ? (
                     <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
                       <div className="rounded-lg border bg-background p-3 text-sm">
-                        <div className="font-medium">Direct restaurant promotion</div>
+                        <div className="font-medium">
+                          Direct restaurant promotion
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Push tap will open the selected restaurant menu directly.
-                          Promo details CTA is disabled for this mode.
+                          Push tap will open the selected restaurant menu
+                          directly. Promo details CTA is disabled for this mode.
                         </p>
                         <div className="mt-3 rounded-lg border bg-muted/30 p-3">
                           <p className="text-xs text-muted-foreground">
@@ -2670,7 +2783,8 @@ export function NotificationsPage() {
                               "Choose a restaurant above"}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {selectedPromoRestaurant?.city || "No city available"}
+                            {selectedPromoRestaurant?.city ||
+                              "No city available"}
                           </p>
                         </div>
                       </div>
@@ -2704,139 +2818,144 @@ export function NotificationsPage() {
                       </div>
                     </div>
                   ) : (
-                  <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
-                    <div className="space-y-3">
-                      <label className="flex items-start gap-3 rounded-lg border bg-background p-3 text-sm">
-                        <Checkbox
-                          checked={ctaEnabled}
-                          onCheckedChange={(checked) =>
-                            setForm((current) =>
-                              checked === true
-                                ? {
-                                    ...current,
-                                    ctaLabel:
-                                      current.ctaLabel?.trim() ||
-                                      "Browse restaurants",
-                                    ctaPath:
-                                      current.ctaPath?.trim() || "/(tabs)/browse",
-                                  }
-                                : {
-                                    ...current,
-                                    ctaLabel: "",
-                                    ctaPath: "",
-                                  }
-                            )
-                          }
-                        />
-                        <span>
-                          Show CTA button on promo details
-                          <span className="block text-xs text-muted-foreground">
-                            Off means the offer page shows only image and text.
+                    <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
+                      <div className="space-y-3">
+                        <label className="flex items-start gap-3 rounded-lg border bg-background p-3 text-sm">
+                          <Checkbox
+                            checked={ctaEnabled}
+                            onCheckedChange={(checked) =>
+                              setForm((current) =>
+                                checked === true
+                                  ? {
+                                      ...current,
+                                      ctaLabel:
+                                        current.ctaLabel?.trim() ||
+                                        "Browse restaurants",
+                                      ctaPath:
+                                        current.ctaPath?.trim() ||
+                                        "/(tabs)/browse",
+                                    }
+                                  : {
+                                      ...current,
+                                      ctaLabel: "",
+                                      ctaPath: "",
+                                    }
+                              )
+                            }
+                          />
+                          <span>
+                            Show CTA button on promo details
+                            <span className="block text-xs text-muted-foreground">
+                              Off means the offer page shows only image and
+                              text.
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
 
-                      {ctaEnabled ? (
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label>CTA button label</Label>
-                            <Input
-                              value={form.ctaLabel ?? ""}
-                              onChange={(event) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  ctaLabel: event.target.value,
-                                }))
-                              }
-                              placeholder="Order now"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>CTA destination</Label>
-                            <Select
-                              value={ctaDestination}
-                              onValueChange={(value) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  ctaPath:
-                                    value === "custom"
-                                      ? current.ctaPath?.trim() || "/custom-path"
-                                      : destinationPath(value as DestinationPreset),
-                                }))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {destinationOptions
-                                  .filter(
-                                    (option) =>
-                                      option.value !== "promo_details" &&
-                                      option.value !== "restaurant_details" &&
-                                      option.value !== "none"
-                                  )
-                                  .map((option) => (
-                                    <SelectItem
-                                      key={option.value}
-                                      value={option.value}
-                                    >
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                            {ctaDestination === "custom" ? (
+                        {ctaEnabled ? (
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>CTA button label</Label>
                               <Input
-                                value={form.ctaPath ?? ""}
+                                value={form.ctaLabel ?? ""}
                                 onChange={(event) =>
                                   setForm((current) => ({
                                     ...current,
-                                    ctaPath: event.target.value,
+                                    ctaLabel: event.target.value,
                                   }))
                                 }
-                                placeholder="/existing-customer-app-route"
+                                placeholder="Order now"
                               />
-                            ) : null}
+                            </div>
+                            <div className="space-y-2">
+                              <Label>CTA destination</Label>
+                              <Select
+                                value={ctaDestination}
+                                onValueChange={(value) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    ctaPath:
+                                      value === "custom"
+                                        ? current.ctaPath?.trim() ||
+                                          "/custom-path"
+                                        : destinationPath(
+                                            value as DestinationPreset
+                                          ),
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {destinationOptions
+                                    .filter(
+                                      (option) =>
+                                        option.value !== "promo_details" &&
+                                        option.value !== "restaurant_details" &&
+                                        option.value !== "none"
+                                    )
+                                    .map((option) => (
+                                      <SelectItem
+                                        key={option.value}
+                                        value={option.value}
+                                      >
+                                        {option.label}
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                              {ctaDestination === "custom" ? (
+                                <Input
+                                  value={form.ctaPath ?? ""}
+                                  onChange={(event) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      ctaPath: event.target.value,
+                                    }))
+                                  }
+                                  placeholder="/existing-customer-app-route"
+                                />
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="rounded-2xl border bg-background p-3 shadow-sm">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-muted-foreground">
-                          Customer preview
-                        </span>
-                        <Badge variant="outline">Promo details</Badge>
+                        ) : null}
                       </div>
-                      {form.imageUrl ? (
-                        <img
-                          src={form.imageUrl}
-                          alt="Promo preview"
-                          className="mb-3 h-28 w-full rounded-xl object-cover"
-                        />
-                      ) : (
-                        <div className="mb-3 flex h-28 items-center justify-center rounded-xl bg-rose-50 text-3xl">
-                          🍔
+                      <div className="rounded-2xl border bg-background p-3 shadow-sm">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-muted-foreground">
+                            Customer preview
+                          </span>
+                          <Badge variant="outline">Promo details</Badge>
                         </div>
-                      )}
-                      <p className="line-clamp-2 text-sm font-semibold">
-                        {previewTitle}
-                      </p>
-                      <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">
-                        {previewBody}
-                      </p>
-                      {ctaEnabled ? (
-                        <div className="mt-3 rounded-full bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground">
-                          {form.ctaLabel || "Order now"}
-                        </div>
-                      ) : (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          No CTA button
+                        {form.imageUrl ? (
+                          <img
+                            src={form.imageUrl}
+                            alt="Promo preview"
+                            className="mb-3 h-28 w-full rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="mb-3 flex h-28 items-center justify-center rounded-xl bg-rose-50 text-3xl">
+                            🍔
+                          </div>
+                        )}
+                        <p className="line-clamp-2 text-sm font-semibold">
+                          {previewTitle}
                         </p>
-                      )}
+                        <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">
+                          {previewBody}
+                        </p>
+                        {ctaEnabled ? (
+                          <div className="mt-3 rounded-full bg-primary px-3 py-2 text-center text-xs font-semibold text-primary-foreground">
+                            {form.ctaLabel || "Order now"}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            No CTA button
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
                   )}
                 </div>
               ) : null}
@@ -2853,7 +2972,8 @@ export function NotificationsPage() {
                 <span>
                   Send push when supported
                   <span className="block text-xs text-muted-foreground">
-                    Customers, restaurant owners, and riders can receive push when they have an active token.
+                    Customers, restaurant owners, and riders can receive push
+                    when they have an active token.
                   </span>
                 </span>
               </label>
@@ -2887,22 +3007,19 @@ export function NotificationsPage() {
               <div className="rounded-lg border bg-muted/20 p-3">
                 <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
                   <div className="space-y-2">
-                    <Label>Test notification</Label>
-                    <Select value={testRecipientId} onValueChange={setTestRecipientId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a test recipient" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {recipientOptions.map((recipient) => (
-                          <SelectItem key={recipient.id} value={recipient.id}>
-                            {recipient.title} - {recipient.subtitle}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Test phone number</Label>
+                    <Input
+                      value={testRecipientPhone}
+                      onChange={(event) =>
+                        setTestRecipientPhone(event.target.value)
+                      }
+                      inputMode="tel"
+                      placeholder="01XXXXXXXXX"
+                    />
                     <p className="text-xs text-muted-foreground">
-                      Sends only to this recipient and does not create campaign
-                      history or analytics.
+                      Enter the recipient's phone number. This sends only to
+                      that person and does not create campaign history or
+                      analytics.
                     </p>
                   </div>
                   <Button
@@ -2947,7 +3064,8 @@ export function NotificationsPage() {
                   Admin activity and delivery history
                 </CardTitle>
                 <CardDescription>
-                  Admin alerts and campaign delivery records scoped by the selected top-bar area.
+                  Admin alerts and campaign delivery records scoped by the
+                  selected top-bar area.
                 </CardDescription>
               </div>
               <Button
@@ -3087,8 +3205,15 @@ export function NotificationsPage() {
                   </Badge>
                 ) : null}
                 {source !== "all" ? (
-                  <Badge variant="outline" className={sourceBadgeClass(source as AdminNotificationCenterItem["source"])}>
-                    {sourceLabel(source as AdminNotificationCenterItem["source"])}
+                  <Badge
+                    variant="outline"
+                    className={sourceBadgeClass(
+                      source as AdminNotificationCenterItem["source"]
+                    )}
+                  >
+                    {sourceLabel(
+                      source as AdminNotificationCenterItem["source"]
+                    )}
                   </Badge>
                 ) : null}
                 {recipientTypeFilter !== "all" ? (
@@ -3097,7 +3222,10 @@ export function NotificationsPage() {
                   </Badge>
                 ) : null}
                 {deliveryStatus !== "all" ? (
-                  <Badge variant="outline" className={deliveryBadgeClass(deliveryStatus)}>
+                  <Badge
+                    variant="outline"
+                    className={deliveryBadgeClass(deliveryStatus)}
+                  >
                     {deliveryStatusLabel(deliveryStatus)}
                   </Badge>
                 ) : null}
@@ -3106,7 +3234,12 @@ export function NotificationsPage() {
                     {status === "unread" ? "Unread only" : "Read only"}
                   </Badge>
                 ) : null}
-                <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetFilters}
+                >
                   Clear filters
                 </Button>
               </div>
@@ -3153,7 +3286,10 @@ export function NotificationsPage() {
                               >
                                 {item.isRead ? "Read" : "Unread"}
                               </Badge>
-                              <Badge variant="outline" className="bg-background">
+                              <Badge
+                                variant="outline"
+                                className="bg-background"
+                              >
                                 {isPromotionalPushItem(item)
                                   ? "Push"
                                   : "Notification"}
@@ -3323,7 +3459,10 @@ export function NotificationsPage() {
               Send operational or account updates without campaign analytics.
             </SheetDescription>
           </SheetHeader>
-          <form className="flex-1 space-y-5 overflow-y-auto p-6" onSubmit={submitForm}>
+          <form
+            className="flex-1 space-y-5 overflow-y-auto p-6"
+            onSubmit={submitForm}
+          >
             <div className="rounded-lg border bg-muted/20 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -3356,7 +3495,9 @@ export function NotificationsPage() {
                     })
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="customers">Customers</SelectItem>
                     <SelectItem value="owners">Restaurant owners</SelectItem>
@@ -3376,7 +3517,9 @@ export function NotificationsPage() {
                     }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All eligible in scope</SelectItem>
                     <SelectItem value="selected">Selected only</SelectItem>
@@ -3433,11 +3576,15 @@ export function NotificationsPage() {
                     setForm((current) => ({ ...current, type: value }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="system">System update</SelectItem>
                     <SelectItem value="order_status">Order status</SelectItem>
-                    <SelectItem value="restaurant_status">Restaurant status</SelectItem>
+                    <SelectItem value="restaurant_status">
+                      Restaurant status
+                    </SelectItem>
                     <SelectItem value="support">Support</SelectItem>
                     <SelectItem value="review">Review</SelectItem>
                   </SelectContent>
@@ -3457,7 +3604,9 @@ export function NotificationsPage() {
                     }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {destinationOptions
                       .filter(
@@ -3479,7 +3628,10 @@ export function NotificationsPage() {
               <Input
                 value={form.path}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, path: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    path: event.target.value,
+                  }))
                 }
                 placeholder="/existing-app-route"
               />
@@ -3490,7 +3642,10 @@ export function NotificationsPage() {
               <Input
                 value={form.title}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, title: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }))
                 }
                 maxLength={120}
                 placeholder="Short notification title"
@@ -3501,7 +3656,10 @@ export function NotificationsPage() {
               <Textarea
                 value={form.body}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, body: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    body: event.target.value,
+                  }))
                 }
                 maxLength={500}
                 rows={4}
@@ -3522,24 +3680,23 @@ export function NotificationsPage() {
               <span>
                 Send push when supported
                 <span className="block text-xs text-muted-foreground">
-                  Customers, restaurant owners, and riders can receive push when they have an active token.
+                  Customers, restaurant owners, and riders can receive push when
+                  they have an active token.
                 </span>
               </span>
             </label>
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <div className="space-y-2">
-                <Label>Test recipient</Label>
-                <Select value={testRecipientId} onValueChange={setTestRecipientId}>
-                  <SelectTrigger><SelectValue placeholder="Choose recipient" /></SelectTrigger>
-                  <SelectContent>
-                    {recipientOptions.map((recipient) => (
-                      <SelectItem key={recipient.id} value={recipient.id}>
-                        {recipient.title} - {recipient.subtitle}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Test phone number</Label>
+                <Input
+                  value={testRecipientPhone}
+                  onChange={(event) =>
+                    setTestRecipientPhone(event.target.value)
+                  }
+                  inputMode="tel"
+                  placeholder="01XXXXXXXXX"
+                />
               </div>
               <Button
                 type="button"
@@ -3556,7 +3713,9 @@ export function NotificationsPage() {
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={scheduleMode}
-                  onCheckedChange={(checked) => setScheduleMode(checked === true)}
+                  onCheckedChange={(checked) =>
+                    setScheduleMode(checked === true)
+                  }
                 />
                 Schedule for later
               </label>
@@ -3570,7 +3729,11 @@ export function NotificationsPage() {
               ) : null}
             </div>
 
-            <Button type="submit" className="w-full" disabled={sendMutation.isPending}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={sendMutation.isPending}
+            >
               {sendMutation.isPending ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : scheduleMode ? (
@@ -3595,10 +3758,14 @@ export function NotificationsPage() {
               Promotional push
             </SheetTitle>
             <SheetDescription>
-              Promotional push campaigns for customers, restaurant owners, and riders.
+              Promotional push campaigns for customers, restaurant owners, and
+              riders.
             </SheetDescription>
           </SheetHeader>
-          <form className="flex-1 space-y-5 overflow-y-auto p-6" onSubmit={submitForm}>
+          <form
+            className="flex-1 space-y-5 overflow-y-auto p-6"
+            onSubmit={submitForm}
+          >
             <div className="rounded-lg border bg-muted/20 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -3607,7 +3774,9 @@ export function NotificationsPage() {
                     {adminScopeDescription(adminZoneScope)}
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    All areas sends to every eligible recipient. A selected zone or district restricts the campaign to recipients connected to that area.
+                    All areas sends to every eligible recipient. A selected zone
+                    or district restricts the campaign to recipients connected
+                    to that area.
                   </p>
                 </div>
                 <Badge variant="outline" className="bg-background">
@@ -3661,12 +3830,18 @@ export function NotificationsPage() {
                     }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all_users">All users in area</SelectItem>
                     <SelectItem value="new_users">New users in area</SelectItem>
-                    <SelectItem value="returning_users">Returning users in area</SelectItem>
-                    <SelectItem value="selected_users">Specific customers</SelectItem>
+                    <SelectItem value="returning_users">
+                      Returning users in area
+                    </SelectItem>
+                    <SelectItem value="selected_users">
+                      Specific customers
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -3689,7 +3864,9 @@ export function NotificationsPage() {
                     }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">
                       {form.recipientType === "owners"
@@ -3759,7 +3936,9 @@ export function NotificationsPage() {
                       }))
                     }
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No smart segment</SelectItem>
                       {smartCustomerGroups.map((group) => (
@@ -3772,7 +3951,10 @@ export function NotificationsPage() {
                           <SelectLabel>Saved groups</SelectLabel>
                           {(customerGroupsQuery.data?.items ?? []).map(
                             (group: AdminCustomerGroup) => (
-                              <SelectItem key={group.id} value={`manual:${group.id}`}>
+                              <SelectItem
+                                key={group.id}
+                                value={`manual:${group.id}`}
+                              >
                                 {group.name} ({group.memberCount})
                               </SelectItem>
                             )
@@ -3793,15 +3975,21 @@ export function NotificationsPage() {
                           value as AdminNotificationSendPayload["restaurantScope"],
                         selectedRestaurantIds:
                           value === "selected_restaurants"
-                            ? current.selectedRestaurantIds ?? []
+                            ? (current.selectedRestaurantIds ?? [])
                             : [],
                       }))
                     }
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all_restaurants">All restaurants in area</SelectItem>
-                      <SelectItem value="selected_restaurants">Selected restaurants</SelectItem>
+                      <SelectItem value="all_restaurants">
+                        All restaurants in area
+                      </SelectItem>
+                      <SelectItem value="selected_restaurants">
+                        Selected restaurants
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -3826,14 +4014,23 @@ export function NotificationsPage() {
                               ...current,
                               selectedRestaurantIds:
                                 checked === true
-                                  ? [...(current.selectedRestaurantIds ?? []), restaurant.id]
-                                  : (current.selectedRestaurantIds ?? []).filter((id) => id !== restaurant.id),
+                                  ? [
+                                      ...(current.selectedRestaurantIds ?? []),
+                                      restaurant.id,
+                                    ]
+                                  : (
+                                      current.selectedRestaurantIds ?? []
+                                    ).filter((id) => id !== restaurant.id),
                             }))
                           }
                         />
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">{restaurant.name}</span>
-                          <span className="block truncate text-xs text-muted-foreground">{restaurant.city}</span>
+                          <span className="block truncate text-sm font-medium">
+                            {restaurant.name}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {restaurant.city}
+                          </span>
                         </span>
                       </label>
                     )
@@ -3848,7 +4045,10 @@ export function NotificationsPage() {
                 <Input
                   value={form.title}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, title: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
                   }
                   maxLength={120}
                   placeholder="Campaign title"
@@ -3861,11 +4061,14 @@ export function NotificationsPage() {
                   onValueChange={(value) =>
                     setForm((current) => ({
                       ...current,
-                      contentType: value as AdminNotificationSendPayload["contentType"],
+                      contentType:
+                        value as AdminNotificationSendPayload["contentType"],
                     }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="text">Text</SelectItem>
                     <SelectItem value="image">Image</SelectItem>
@@ -3879,7 +4082,10 @@ export function NotificationsPage() {
               <Textarea
                 value={form.body}
                 onChange={(event) =>
-                  setForm((current) => ({ ...current, body: event.target.value }))
+                  setForm((current) => ({
+                    ...current,
+                    body: event.target.value,
+                  }))
                 }
                 maxLength={500}
                 rows={4}
@@ -3892,8 +4098,9 @@ export function NotificationsPage() {
                 <div className="space-y-1">
                   <Label>Attach voucher</Label>
                   <p className="text-xs text-muted-foreground">
-                    Optional. Choose an existing active voucher; Foodbela will show its code,
-                    expiry, and minimum order inside the customer offer details.
+                    Optional. Choose an existing active voucher; Foodbela will
+                    show its code, expiry, and minimum order inside the customer
+                    offer details.
                   </p>
                 </div>
                 <Select
@@ -3906,7 +4113,9 @@ export function NotificationsPage() {
                   <SelectTrigger>
                     <SelectValue
                       placeholder={
-                        vouchersQuery.isLoading ? "Loading vouchers..." : "No voucher attached"
+                        vouchersQuery.isLoading
+                          ? "Loading vouchers..."
+                          : "No voucher attached"
                       }
                     />
                   </SelectTrigger>
@@ -3914,7 +4123,9 @@ export function NotificationsPage() {
                     <SelectItem value="none">No voucher</SelectItem>
                     {availableVouchers.map((voucher) => (
                       <SelectItem key={voucher._id} value={voucher._id}>
-                        {voucher.display?.title || voucher.name} - {formatVoucherCode(voucher) || formatVoucherDiscount(voucher)}
+                        {voucher.display?.title || voucher.name} -{" "}
+                        {formatVoucherCode(voucher) ||
+                          formatVoucherDiscount(voucher)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -3927,7 +4138,9 @@ export function NotificationsPage() {
                 {selectedVoucher ? (
                   <div className="grid gap-3 rounded-md border border-dashed border-primary/40 bg-primary/5 p-3 text-sm sm:grid-cols-2">
                     <div>
-                      <p className="text-xs font-semibold uppercase text-muted-foreground">Voucher</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                        Voucher
+                      </p>
                       <p className="font-semibold text-foreground">
                         {selectedVoucher.display?.title || selectedVoucher.name}
                       </p>
@@ -3936,27 +4149,38 @@ export function NotificationsPage() {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold uppercase text-muted-foreground">Code</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                        Code
+                      </p>
                       <p className="font-mono text-base font-bold text-primary">
                         {formatVoucherCode(selectedVoucher) || "Auto applied"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {selectedVoucher.mode === "auto" ? "Applies automatically" : "Customer enters this code"}
+                        {selectedVoucher.mode === "auto"
+                          ? "Applies automatically"
+                          : "Customer enters this code"}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold uppercase text-muted-foreground">Rules</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                        Rules
+                      </p>
                       <p className="text-muted-foreground">
-                        Min order {formatCurrency(selectedVoucher.minimumOrderAmount)}
+                        Min order{" "}
+                        {formatCurrency(selectedVoucher.minimumOrderAmount)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold uppercase text-muted-foreground">Expiry</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">
+                        Expiry
+                      </p>
                       <p className="text-muted-foreground">
-                        {selectedVoucher.endsAt ? formatDateTime(selectedVoucher.endsAt) : "No expiry"}
+                        {selectedVoucher.endsAt
+                          ? formatDateTime(selectedVoucher.endsAt)
+                          : "No expiry"}
                       </p>
                     </div>
-                    <div className="sm:col-span-2 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 sm:col-span-2">
                       <Badge variant="secondary">
                         {deliveryStatusLabel(selectedVoucher.audienceType)}
                       </Badge>
@@ -3974,7 +4198,8 @@ export function NotificationsPage() {
                   </div>
                 ) : form.voucherId ? (
                   <p className="text-xs text-muted-foreground">
-                    Selected voucher is no longer available in this area. Choose another voucher.
+                    Selected voucher is no longer available in this area. Choose
+                    another voucher.
                   </p>
                 ) : null}
               </div>
@@ -4065,7 +4290,9 @@ export function NotificationsPage() {
                             ""
                           return {
                             ...current,
-                            path: restaurantId ? `/restaurants/${restaurantId}` : current.path,
+                            path: restaurantId
+                              ? `/restaurants/${restaurantId}`
+                              : current.path,
                             ctaLabel: "",
                             ctaPath: "",
                           }
@@ -4077,11 +4304,17 @@ export function NotificationsPage() {
                       })
                     }
                   >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="promo_details">Promo details</SelectItem>
+                      <SelectItem value="promo_details">
+                        Promo details
+                      </SelectItem>
                       <SelectItem value="offers">Offers screen</SelectItem>
-                      <SelectItem value="restaurant_details">Restaurant details</SelectItem>
+                      <SelectItem value="restaurant_details">
+                        Restaurant details
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -4105,12 +4338,19 @@ export function NotificationsPage() {
               <div className="space-y-2">
                 <Label>Push tap opens</Label>
                 <Select
-                  value={form.path || (form.recipientType === "owners" ? "/(tabs)/today" : "/(app)/available")}
+                  value={
+                    form.path ||
+                    (form.recipientType === "owners"
+                      ? "/(tabs)/today"
+                      : "/(app)/available")
+                  }
                   onValueChange={(value) =>
                     setForm((current) => ({ ...current, path: value }))
                   }
                 >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     {(form.recipientType === "owners"
                       ? ownerPromotionPathOptions
@@ -4138,7 +4378,9 @@ export function NotificationsPage() {
                   }))
                 }
               >
-                <SelectTrigger><SelectValue placeholder="Choose restaurant" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose restaurant" />
+                </SelectTrigger>
                 <SelectContent>
                   {restaurantOptions.map((restaurant) => (
                     <SelectItem key={restaurant.id} value={restaurant.id}>
@@ -4157,8 +4399,11 @@ export function NotificationsPage() {
                         checked === true
                           ? {
                               ...current,
-                              ctaLabel: current.ctaLabel?.trim() || "Browse restaurants",
-                              ctaPath: current.ctaPath?.trim() || "/(tabs)/browse",
+                              ctaLabel:
+                                current.ctaLabel?.trim() ||
+                                "Browse restaurants",
+                              ctaPath:
+                                current.ctaPath?.trim() || "/(tabs)/browse",
                             }
                           : { ...current, ctaLabel: "", ctaPath: "" }
                       )
@@ -4167,7 +4412,8 @@ export function NotificationsPage() {
                   <span>
                     Show CTA button on promo details
                     <span className="block text-xs text-muted-foreground">
-                      Use this when the campaign should continue to browse, cart, or a custom route.
+                      Use this when the campaign should continue to browse,
+                      cart, or a custom route.
                     </span>
                   </span>
                 </label>
@@ -4176,14 +4422,20 @@ export function NotificationsPage() {
                     <Input
                       value={form.ctaLabel ?? ""}
                       onChange={(event) =>
-                        setForm((current) => ({ ...current, ctaLabel: event.target.value }))
+                        setForm((current) => ({
+                          ...current,
+                          ctaLabel: event.target.value,
+                        }))
                       }
                       placeholder="CTA label"
                     />
                     <Input
                       value={form.ctaPath ?? ""}
                       onChange={(event) =>
-                        setForm((current) => ({ ...current, ctaPath: event.target.value }))
+                        setForm((current) => ({
+                          ...current,
+                          ctaPath: event.target.value,
+                        }))
                       }
                       placeholder="/(tabs)/browse"
                     />
@@ -4208,7 +4460,7 @@ export function NotificationsPage() {
                         ? `Opens ${selectedPromoRestaurant?.name || "selected restaurant"}`
                         : promoDestination === "offers"
                           ? "Opens customer offers"
-                        : "Opens promo details"
+                          : "Opens promo details"
                       : form.recipientType === "owners"
                         ? "Opens restaurant owner app"
                         : "Opens rider app"}
@@ -4223,7 +4475,9 @@ export function NotificationsPage() {
                 </Badge>
               </div>
               <p className="mt-3 font-semibold">{previewTitle}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{previewBody}</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {previewBody}
+              </p>
               {form.recipientType === "customers" && selectedVoucher ? (
                 <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-dashed border-primary/50 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
                   <ReceiptText className="size-4" />
@@ -4234,23 +4488,15 @@ export function NotificationsPage() {
 
             <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <div className="space-y-2">
-                <Label>
-                  {form.recipientType === "customers"
-                    ? "Test customer"
-                    : form.recipientType === "owners"
-                      ? "Test restaurant"
-                      : "Test rider"}
-                </Label>
-                <Select value={testRecipientId} onValueChange={setTestRecipientId}>
-                  <SelectTrigger><SelectValue placeholder="Choose customer" /></SelectTrigger>
-                  <SelectContent>
-                    {recipientOptions.map((recipient) => (
-                      <SelectItem key={recipient.id} value={recipient.id}>
-                        {recipient.title} - {recipient.subtitle}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Test phone number</Label>
+                <Input
+                  value={testRecipientPhone}
+                  onChange={(event) =>
+                    setTestRecipientPhone(event.target.value)
+                  }
+                  inputMode="tel"
+                  placeholder="01XXXXXXXXX"
+                />
               </div>
               <Button
                 type="button"
@@ -4267,7 +4513,9 @@ export function NotificationsPage() {
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={scheduleMode}
-                  onCheckedChange={(checked) => setScheduleMode(checked === true)}
+                  onCheckedChange={(checked) =>
+                    setScheduleMode(checked === true)
+                  }
                 />
                 Schedule for later
               </label>
@@ -4293,7 +4541,9 @@ export function NotificationsPage() {
               ) : (
                 <Megaphone className="size-4" />
               )}
-              {scheduleMode ? "Schedule promotional push" : "Send promotional push"}
+              {scheduleMode
+                ? "Schedule promotional push"
+                : "Send promotional push"}
             </Button>
           </form>
         </SheetContent>
@@ -4392,8 +4642,13 @@ export function NotificationsPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {getLateDetailRows(selectedItem).map((row) => (
-                        <div key={row.label} className="rounded-md border bg-background p-3">
-                          <p className="text-xs text-muted-foreground">{row.label}</p>
+                        <div
+                          key={row.label}
+                          className="rounded-md border bg-background p-3"
+                        >
+                          <p className="text-xs text-muted-foreground">
+                            {row.label}
+                          </p>
                           <p className="mt-1 text-base font-semibold">
                             {formatMetadataValue(row.value)}
                           </p>
@@ -4418,7 +4673,9 @@ export function NotificationsPage() {
                     </Badge>
                     <Badge
                       variant="outline"
-                      className={deliveryBadgeClass(selectedItem.deliveryStatus)}
+                      className={deliveryBadgeClass(
+                        selectedItem.deliveryStatus
+                      )}
                     >
                       {deliveryStatusLabel(selectedItem.deliveryStatus)}
                     </Badge>
@@ -4428,7 +4685,10 @@ export function NotificationsPage() {
                     >
                       {selectedItem.isRead ? "Read" : "Unread"}
                     </Badge>
-                    <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+                    <Badge
+                      variant="outline"
+                      className="border-slate-200 bg-slate-50 text-slate-700"
+                    >
                       {notificationScopeLabel(selectedItem, adminZoneScope)}
                     </Badge>
                   </div>
@@ -4447,7 +4707,9 @@ export function NotificationsPage() {
                   ) : null}
                   {selectedItem.voucherCode || selectedItem.voucherId ? (
                     <div className="mt-4 rounded-lg border border-dashed border-primary/40 bg-primary/10 p-3">
-                      <p className="text-xs font-medium text-primary">Voucher code</p>
+                      <p className="text-xs font-medium text-primary">
+                        Voucher code
+                      </p>
                       <p className="mt-1 text-lg font-semibold tracking-wide text-primary">
                         {selectedItem.voucherCode || "Auto applied"}
                       </p>
@@ -4485,7 +4747,7 @@ export function NotificationsPage() {
                   </div>
                   <div className="rounded-lg border p-4">
                     <p className="text-xs text-muted-foreground">Destination</p>
-                    <p className="mt-1 break-all font-medium">
+                    <p className="mt-1 font-medium break-all">
                       {destinationLabel(selectedItem.path)}
                     </p>
                     <p className="text-sm text-muted-foreground">
@@ -4511,7 +4773,9 @@ export function NotificationsPage() {
                   <div className="rounded-lg border p-4">
                     <p className="text-xs text-muted-foreground">Read / sent</p>
                     <p className="mt-1 text-sm font-medium">
-                      {formatDateTime(selectedItem.readAt || selectedItem.sentAt)}
+                      {formatDateTime(
+                        selectedItem.readAt || selectedItem.sentAt
+                      )}
                     </p>
                   </div>
                   <div className="rounded-lg border p-4">
@@ -4550,7 +4814,8 @@ export function NotificationsPage() {
                       Push campaign details
                     </SheetTitle>
                     <SheetDescription>
-                      Separate push delivery, audience, and engagement information.
+                      Separate push delivery, audience, and engagement
+                      information.
                     </SheetDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -4626,8 +4891,13 @@ export function NotificationsPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       {getLateDetailRows(selectedItem).map((row) => (
-                        <div key={row.label} className="rounded-md border bg-background p-3">
-                          <p className="text-xs text-muted-foreground">{row.label}</p>
+                        <div
+                          key={row.label}
+                          className="rounded-md border bg-background p-3"
+                        >
+                          <p className="text-xs text-muted-foreground">
+                            {row.label}
+                          </p>
                           <p className="mt-1 text-lg font-semibold">
                             {formatMetadataValue(row.value)}
                           </p>
@@ -4680,7 +4950,9 @@ export function NotificationsPage() {
                   ) : null}
                   {selectedItem.voucherCode || selectedItem.voucherId ? (
                     <div className="mt-4 rounded-lg border border-dashed border-primary/40 bg-primary/10 p-3">
-                      <p className="text-xs font-medium text-primary">Voucher code</p>
+                      <p className="text-xs font-medium text-primary">
+                        Voucher code
+                      </p>
                       <p className="mt-1 text-lg font-semibold tracking-wide text-primary">
                         {selectedItem.voucherCode || "Auto applied"}
                       </p>
@@ -4763,10 +5035,14 @@ export function NotificationsPage() {
                       <div>
                         <p className="font-medium">Campaign timeline</p>
                         <p className="text-xs text-muted-foreground">
-                          Full notification lifecycle from creation to engagement.
+                          Full notification lifecycle from creation to
+                          engagement.
                         </p>
                       </div>
-                      <Badge variant="outline" className={sourceBadgeClass(selectedItem.source)}>
+                      <Badge
+                        variant="outline"
+                        className={sourceBadgeClass(selectedItem.source)}
+                      >
                         {selectedItem.sendMode === "instant"
                           ? "Instant"
                           : selectedItem.sendMode === "cms"
@@ -4775,38 +5051,44 @@ export function NotificationsPage() {
                       </Badge>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-4">
-                      {campaignTimelineSteps(selectedItem).map((step, index) => {
-                        const isLast = index === campaignTimelineSteps(selectedItem).length - 1
-                        return (
-                          <div key={step.key} className="relative">
-                            {!isLast ? (
-                              <div className="absolute left-9 top-5 hidden h-px w-[calc(100%_-_1.5rem)] bg-border sm:block" />
-                            ) : null}
-                            <div className="relative flex gap-3 sm:block">
-                              <div
-                                className={cn(
-                                  "flex size-10 items-center justify-center rounded-full border",
-                                  campaignTimelineClass(step.tone)
-                                )}
-                              >
-                                {step.tone === "done" ? (
-                                  <CheckCircle2 className="size-4" />
-                                ) : step.tone === "danger" ? (
-                                  <XCircle className="size-4" />
-                                ) : (
-                                  <Clock3 className="size-4" />
-                                )}
-                              </div>
-                              <div className="min-w-0 sm:mt-3">
-                                <p className="text-sm font-medium">{step.label}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {step.helper}
-                                </p>
+                      {campaignTimelineSteps(selectedItem).map(
+                        (step, index) => {
+                          const isLast =
+                            index ===
+                            campaignTimelineSteps(selectedItem).length - 1
+                          return (
+                            <div key={step.key} className="relative">
+                              {!isLast ? (
+                                <div className="absolute top-5 left-9 hidden h-px w-[calc(100%_-_1.5rem)] bg-border sm:block" />
+                              ) : null}
+                              <div className="relative flex gap-3 sm:block">
+                                <div
+                                  className={cn(
+                                    "flex size-10 items-center justify-center rounded-full border",
+                                    campaignTimelineClass(step.tone)
+                                  )}
+                                >
+                                  {step.tone === "done" ? (
+                                    <CheckCircle2 className="size-4" />
+                                  ) : step.tone === "danger" ? (
+                                    <XCircle className="size-4" />
+                                  ) : (
+                                    <Clock3 className="size-4" />
+                                  )}
+                                </div>
+                                <div className="min-w-0 sm:mt-3">
+                                  <p className="text-sm font-medium">
+                                    {step.label}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {step.helper}
+                                  </p>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )
-                      })}
+                          )
+                        }
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -4821,7 +5103,8 @@ export function NotificationsPage() {
                         <div>
                           <p className="font-medium">Campaign rules</p>
                           <p className="text-xs text-muted-foreground">
-                            Smart targeting, A/B test, and conversion window migrated from CMS push.
+                            Smart targeting, A/B test, and conversion window
+                            migrated from CMS push.
                           </p>
                         </div>
                       </div>
@@ -4864,13 +5147,19 @@ export function NotificationsPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                       <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Audience</p>
+                        <p className="text-xs text-muted-foreground">
+                          Audience
+                        </p>
                         <p className="mt-1 font-semibold">
-                          {deliveryStatusLabel(selectedItem.customerAudienceType || "all_users")}
+                          {deliveryStatusLabel(
+                            selectedItem.customerAudienceType || "all_users"
+                          )}
                         </p>
                       </div>
                       <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Smart segment</p>
+                        <p className="text-xs text-muted-foreground">
+                          Smart segment
+                        </p>
                         <p className="mt-1 font-semibold">
                           {selectedItem.customerGroupKey
                             ? deliveryStatusLabel(selectedItem.customerGroupKey)
@@ -4878,15 +5167,20 @@ export function NotificationsPage() {
                         </p>
                       </div>
                       <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Restaurant filter</p>
+                        <p className="text-xs text-muted-foreground">
+                          Restaurant filter
+                        </p>
                         <p className="mt-1 font-semibold">
-                          {selectedItem.restaurantScope === "selected_restaurants"
+                          {selectedItem.restaurantScope ===
+                          "selected_restaurants"
                             ? `${formatNumber(selectedItem.selectedRestaurantIds?.length)} selected`
                             : "No filter"}
                         </p>
                       </div>
                       <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">A/B test</p>
+                        <p className="text-xs text-muted-foreground">
+                          A/B test
+                        </p>
                         <p className="mt-1 font-semibold">
                           {selectedItem.abTest?.enabled
                             ? `Variant B ${selectedItem.abTest.splitPercent ?? 50}%`
@@ -4894,7 +5188,9 @@ export function NotificationsPage() {
                         </p>
                       </div>
                       <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Area scope</p>
+                        <p className="text-xs text-muted-foreground">
+                          Area scope
+                        </p>
                         <p className="mt-1 font-semibold">
                           {notificationScopeLabel(selectedItem, adminZoneScope)}
                         </p>
@@ -4910,21 +5206,32 @@ export function NotificationsPage() {
                         </p>
                       </div>
                       <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">Delivered</p>
+                        <p className="text-xs text-muted-foreground">
+                          Delivered
+                        </p>
                         <p className="text-lg font-semibold">
-                          {formatNumber(selectedItem.conversions?.deliveredOrderCount)}
+                          {formatNumber(
+                            selectedItem.conversions?.deliveredOrderCount
+                          )}
                         </p>
                       </div>
                       <div className="rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Revenue</p>
                         <p className="text-lg font-semibold">
-                          {formatCurrency(selectedItem.conversions?.deliveredRevenue)}
+                          {formatCurrency(
+                            selectedItem.conversions?.deliveredRevenue
+                          )}
                         </p>
                       </div>
                       <div className="rounded-lg border p-3">
-                        <p className="text-xs text-muted-foreground">Conversion</p>
+                        <p className="text-xs text-muted-foreground">
+                          Conversion
+                        </p>
                         <p className="text-lg font-semibold">
-                          {formatNumber(selectedItem.conversions?.conversionRate)}%
+                          {formatNumber(
+                            selectedItem.conversions?.conversionRate
+                          )}
+                          %
                         </p>
                       </div>
                     </div>
@@ -4939,7 +5246,8 @@ export function NotificationsPage() {
                         <div>
                           <p className="font-medium">Recipient report</p>
                           <p className="text-xs text-muted-foreground">
-                            See who received, opened, or did not receive this notification.
+                            See who received, opened, or did not receive this
+                            notification.
                           </p>
                         </div>
                       </div>
@@ -4954,7 +5262,9 @@ export function NotificationsPage() {
                                 ? "default"
                                 : "outline"
                             }
-                            onClick={() => setRecipientReportStatus(filter.value)}
+                            onClick={() =>
+                              setRecipientReportStatus(filter.value)
+                            }
                           >
                             {filter.label}
                           </Button>
@@ -4975,65 +5285,92 @@ export function NotificationsPage() {
                       <div className="space-y-3">
                         <div className="grid gap-3 sm:grid-cols-4">
                           <div className="rounded-lg border bg-muted/20 p-3">
-                            <p className="text-xs text-muted-foreground">Total</p>
+                            <p className="text-xs text-muted-foreground">
+                              Total
+                            </p>
                             <p className="text-lg font-semibold">
-                              {formatNumber(recipientsQuery.data?.summary.total)}
+                              {formatNumber(
+                                recipientsQuery.data?.summary.total
+                              )}
                             </p>
                           </div>
                           <div className="rounded-lg border bg-muted/20 p-3">
-                            <p className="text-xs text-muted-foreground">Received</p>
+                            <p className="text-xs text-muted-foreground">
+                              Received
+                            </p>
                             <p className="text-lg font-semibold">
-                              {formatNumber(recipientsQuery.data?.summary.received)}
+                              {formatNumber(
+                                recipientsQuery.data?.summary.received
+                              )}
                             </p>
                           </div>
                           <div className="rounded-lg border bg-muted/20 p-3">
-                            <p className="text-xs text-muted-foreground">Opened</p>
+                            <p className="text-xs text-muted-foreground">
+                              Opened
+                            </p>
                             <p className="text-lg font-semibold">
-                              {formatNumber(recipientsQuery.data?.summary.opened)}
+                              {formatNumber(
+                                recipientsQuery.data?.summary.opened
+                              )}
                             </p>
                           </div>
                           <div className="rounded-lg border bg-muted/20 p-3">
-                            <p className="text-xs text-muted-foreground">Not reached</p>
+                            <p className="text-xs text-muted-foreground">
+                              Not reached
+                            </p>
                             <p className="text-lg font-semibold">
-                              {formatNumber(recipientsQuery.data?.summary.notReached)}
+                              {formatNumber(
+                                recipientsQuery.data?.summary.notReached
+                              )}
                             </p>
                           </div>
                         </div>
 
                         <div className="max-h-96 overflow-y-auto rounded-lg border">
-                          {(recipientsQuery.data?.items ?? []).map((recipient) => (
-                            <div
-                              key={`${recipient.userType}-${recipient.id}`}
-                              className="flex flex-col gap-3 border-b p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="font-medium">{recipient.name}</p>
-                                  <Badge
-                                    variant="outline"
-                                    className={recipientReportStatusClass(recipient.status)}
-                                  >
-                                    {recipient.statusLabel}
-                                  </Badge>
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {recipient.phone || "No phone"}
-                                  {recipient.restaurantName
-                                    ? ` - ${recipient.restaurantName}`
-                                    : ""}
-                                </p>
-                                {recipient.reason ? (
-                                  <p className="mt-1 text-xs text-amber-700">
-                                    {recipient.reason}
+                          {(recipientsQuery.data?.items ?? []).map(
+                            (recipient) => (
+                              <div
+                                key={`${recipient.userType}-${recipient.id}`}
+                                className="flex flex-col gap-3 border-b p-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="font-medium">
+                                      {recipient.name}
+                                    </p>
+                                    <Badge
+                                      variant="outline"
+                                      className={recipientReportStatusClass(
+                                        recipient.status
+                                      )}
+                                    >
+                                      {recipient.statusLabel}
+                                    </Badge>
+                                  </div>
+                                  <p className="mt-1 text-sm text-muted-foreground">
+                                    {recipient.phone || "No phone"}
+                                    {recipient.restaurantName
+                                      ? ` - ${recipient.restaurantName}`
+                                      : ""}
                                   </p>
-                                ) : null}
+                                  {recipient.reason ? (
+                                    <p className="mt-1 text-xs text-amber-700">
+                                      {recipient.reason}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="text-left text-xs text-muted-foreground sm:text-right">
+                                  <p>
+                                    Received:{" "}
+                                    {formatDateTime(recipient.receivedAt)}
+                                  </p>
+                                  <p>
+                                    Opened: {formatDateTime(recipient.openedAt)}
+                                  </p>
+                                </div>
                               </div>
-                              <div className="text-left text-xs text-muted-foreground sm:text-right">
-                                <p>Received: {formatDateTime(recipient.receivedAt)}</p>
-                                <p>Opened: {formatDateTime(recipient.openedAt)}</p>
-                              </div>
-                            </div>
-                          ))}
+                            )
+                          )}
                           {!recipientsQuery.data?.items.length ? (
                             <div className="p-6 text-center text-sm text-muted-foreground">
                               No recipients matched this filter.
@@ -5042,7 +5379,9 @@ export function NotificationsPage() {
                         </div>
                         {(recipientsQuery.data?.total ?? 0) > 50 ? (
                           <p className="text-xs text-muted-foreground">
-                            Showing first 50 of {formatNumber(recipientsQuery.data?.total)} recipients for this filter.
+                            Showing first 50 of{" "}
+                            {formatNumber(recipientsQuery.data?.total)}{" "}
+                            recipients for this filter.
                           </p>
                         ) : null}
                       </div>
@@ -5071,7 +5410,9 @@ export function NotificationsPage() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Campaign ID:{" "}
-                            {selectedItem.campaignId || selectedItem.id || "N/A"}
+                            {selectedItem.campaignId ||
+                              selectedItem.id ||
+                              "N/A"}
                           </p>
                         </div>
                       </div>
@@ -5080,8 +5421,8 @@ export function NotificationsPage() {
                           variant="outline"
                           className="border-emerald-200 bg-emerald-50 text-emerald-700"
                         >
-                          {formatNumber(notificationDeliveryRate(selectedItem))}%
-                          delivered
+                          {formatNumber(notificationDeliveryRate(selectedItem))}
+                          % delivered
                         </Badge>
                         <Badge
                           variant="outline"

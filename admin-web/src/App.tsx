@@ -99,6 +99,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   bootstrapAdmin,
   getAdminServiceAreas,
+  getAdminSupportSummary,
   getAdminReports,
   getAdminSmsBalance,
   listAdminOrders,
@@ -1240,6 +1241,12 @@ function AdminLayout() {
     getAdminZoneScope()
   )
   const adminScopeKey = getAdminZoneScopeKey(adminZoneScope)
+  const supportSummaryQuery = useQuery({
+    queryKey: ["admin-support-summary", adminScopeKey],
+    queryFn: getAdminSupportSummary,
+    enabled: Boolean(adminProfile),
+    refetchInterval: 30_000,
+  })
   const [navNotificationLimit, setNavNotificationLimit] = React.useState(
     NAV_NOTIFICATION_INITIAL_LIMIT
   )
@@ -1379,7 +1386,7 @@ function AdminLayout() {
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar
           adminProfile={adminProfile}
-          badges={sidebarBadges}
+          badges={{ ...sidebarBadges, complaints: supportSummaryQuery.data?.todayNewCount ?? 0 }}
           onLogout={handleLogout}
         />
         <main className="flex min-w-0 flex-1 flex-col">

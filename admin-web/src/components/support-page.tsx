@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { getAdminZoneScopeKey, subscribeAdminZoneScope } from "@/lib/admin-zone-scope"
 import {
   Clock,
   Download,
@@ -86,6 +87,8 @@ function MetricCard({ label, value, helper }: { label: string; value: React.Reac
 
 export function SupportPage() {
   const queryClient = useQueryClient()
+  const [scopeKey, setScopeKey] = React.useState(getAdminZoneScopeKey)
+  React.useEffect(() => subscribeAdminZoneScope(() => setScopeKey(getAdminZoneScopeKey())), [])
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState("")
   const debouncedSearch = useDebouncedValue(search, 350)
@@ -114,7 +117,8 @@ export function SupportPage() {
   }, [searchParams])
 
   const casesQuery = useQuery({
-    queryKey: ["admin-support-cases", debouncedSearch, source, status, priority, assigned, categoryId, sla, sortBy, page, pageSize],
+    queryKey: ["admin-support-cases", scopeKey, debouncedSearch, source, status, priority, assigned, categoryId, sla, sortBy, page, pageSize],
+    refetchInterval: 30_000,
     queryFn: () =>
       listSupportCases({
         search: debouncedSearch,
@@ -134,6 +138,7 @@ export function SupportPage() {
     queryKey: ["admin-support-case", selectedCaseId],
     queryFn: () => getSupportCase(selectedCaseId ?? ""),
     enabled: Boolean(selectedCaseId),
+    refetchInterval: 15_000,
   })
 
   const replyMutation = useMutation({
@@ -142,6 +147,7 @@ export function SupportPage() {
       toast.success("Reply sent")
       setReplyMessage("")
       void queryClient.invalidateQueries({ queryKey: ["admin-support-cases"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-summary"] })
       void queryClient.invalidateQueries({ queryKey: ["admin-support-case", variables.supportCaseId] })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Reply failed"),
@@ -151,6 +157,7 @@ export function SupportPage() {
     mutationFn: updateSupportCase,
     onSuccess: (_, variables) => {
       toast.success("Support case updated")
+      void queryClient.invalidateQueries({ queryKey: ["admin-support-summary"] })
       void queryClient.invalidateQueries({ queryKey: ["admin-support-cases"] })
       void queryClient.invalidateQueries({ queryKey: ["admin-support-case", variables.supportCaseId] })
     },
@@ -172,13 +179,15 @@ export function SupportPage() {
   const summary = data?.summary ?? { total: 0, open: 0, inProgress: 0, resolved: 0, closed: 0, highPriority: 0, unassigned: 0, overdue: 0 }
   const selectedDetails = detailsQuery.data ?? null
   const selectedCase = selectedDetails?.supportCase ?? items.find((item) => item.id === selectedCaseId) ?? null
+  const savedResolutionNote = selectedCase?.resolutionNote ?? ""
+  const savedTags = selectedCase?.tags.join(", ") ?? ""
 
   React.useEffect(() => {
     if (selectedCase) {
-      setResolutionNote(selectedCase.resolutionNote)
-      setTagInput(selectedCase.tags.join(", "))
+      setResolutionNote(savedResolutionNote)
+      setTagInput(savedTags)
     }
-  }, [selectedCase])
+  }, [selectedCase?.id, savedResolutionNote, savedTags])
 
   const resetFilters = () => {
     setSearch("")
@@ -362,16 +371,17 @@ export function SupportPage() {
                   </TableRow>
                 ) : items.length ? (
                   items.map((item) => (
-                    <TableRow key={item.id}>
+                    <TableRow key={item.id} className={item.isNewToday ? "bg-rose-50/60" : undefined}>
                       <TableCell className="max-w-[380px]">
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant="outline">{item.source}</Badge>
+                            {item.isNewToday ? <Badge className="bg-rose-600 text-white">New today · Reply needed</Badge> : null}
                             <Badge variant="outline">{item.kind}</Badge>
                             {item.attachmentCount ? <Badge variant="secondary">{item.attachmentCount} files</Badge> : null}
                           </div>
                           <p className="font-medium">{item.subject}</p>
-                          <p className="line-clamp-2 text-xs text-muted-foreground">{item.message}</p>
+                          <p className="line-clamp-2 text-xs text-muted-foreground">{item.latestReplyMessage || item.message}</p>
                         </div>
                       </TableCell>
                       <TableCell>

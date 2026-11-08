@@ -13,7 +13,6 @@ import {
   RefreshControl,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import {
@@ -53,7 +52,6 @@ import {
   LIVE_ORDER_JOURNEY_STEPS,
 } from "@/src/lib/customer-order-display";
 import {
-  formatDateMedium,
   formatDateTimeAmPm,
   formatDurationMinutes,
   formatDurationRangeMinutes,
@@ -64,6 +62,7 @@ import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import { getCustomerSocket } from "@/src/lib/socket-client";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
+import { getCustomerTrackingFreshness, shouldPollCustomerTracking } from "@/src/lib/tracking-freshness";
 import { palette } from "@/src/theme/palette";
 
 // Statuses where the order is still live and worth polling as a socket fallback.
@@ -413,6 +412,9 @@ export default function OrderTrackingScreen() {
   const isOnline = useIsOnline();
   const order = orderQuery.data;
   const orderStatus = order?.status;
+  const [trackingNow, setTrackingNow] = useState(Date.now);
+  const trackingSampleAt = order?.riderTracking?.lastUpdatedAt;
+  const trackingFocused = order?.riderTracking?.isFocused;
   const refetchOrder = orderQuery.refetch;
   // Resilience fallback: the socket is the primary live channel, but on a flaky
   // network it can silently drop. While a live order is on-screen and the socket is
@@ -423,13 +425,14 @@ export default function OrderTrackingScreen() {
       return;
     }
     const interval = setInterval(() => {
-      if (getCustomerSocket()?.connected) {
-        return;
-      }
+      if (AppState.currentState !== "active") return;
+      setTrackingNow(Date.now());
+      if (!shouldPollCustomerTracking({ socketConnected: Boolean(getCustomerSocket()?.connected),
+        status: orderStatus, isFocused: trackingFocused, lastUpdatedAt: trackingSampleAt })) return;
       void refetchOrder();
     }, 25_000);
     return () => clearInterval(interval);
-  }, [orderStatus, isOnline, refetchOrder]);
+  }, [orderStatus, isOnline, refetchOrder, trackingSampleAt, trackingFocused]);
   const restaurantId = order?.restaurantId;
   const restaurantQuery = useCustomerRestaurantDetailsQuery({
     restaurantId: restaurantId ?? undefined,
@@ -612,7 +615,8 @@ export default function OrderTrackingScreen() {
   const statusMeta = getCustomerOrderStatusMeta(order.status);
   const isQueuedForDelivery =
     order.status === "PickedUp" && order.riderTracking?.isFocused === false;
-  const canShowLiveMap = order.status === "PickedUp" && !isQueuedForDelivery;
+  const canShowLiveMap = order.status === "PickedUp" && !isQueuedForDelivery && Boolean(riderLocation);
+  const trackingFresh = getCustomerTrackingFreshness(trackingSampleAt, Math.max(trackingNow, Date.now())) === "live";
   const queuedDeliveryEtaText =
     typeof queuedEtaMinutes === "number" && Number.isFinite(queuedEtaMinutes)
       ? `Delivery man will start your delivery in ${formatDurationRangeMinutes(
@@ -998,7 +1002,12 @@ export default function OrderTrackingScreen() {
         <View style={styles.trackingCard}>
           {canShowLiveMap ? (
             customerLocation ? (
+              <View>
+              {!trackingFresh ? <View style={{ padding: 12, backgroundColor: "#FFF3D6" }}>
+                <Text style={styles.stateSubtitle}>Showing the rider&apos;s last known location. Waiting for a fresh location update.</Text>
+              </View> : null}
               <LiveOrderMap
+                trackingFresh={trackingFresh}
                 customerLocation={customerLocation}
                 restaurantLocation={restaurantLocation}
                 riderLocation={riderLocation}
@@ -1014,6 +1023,7 @@ export default function OrderTrackingScreen() {
                 trafficAware={order.routeToCustomer?.trafficAware}
                 mapStyle={trackingMapStyleQuery.data}
               />
+              </View>
             ) : (
               <View style={[styles.stateCard, { backgroundColor: "#F3F7FF" }]}>
                 <View

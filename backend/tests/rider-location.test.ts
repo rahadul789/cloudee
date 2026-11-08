@@ -19,6 +19,12 @@ describe("rider location compatibility", () => {
     expect(payload).toMatchObject({ heading: 0, accuracyMeters: 12, speedKmph: 0 });
   });
 
+  it("accepts an optional capture timestamp without requiring it from older APKs", () => {
+    const recordedAt = new Date(Date.now() - 20_000).toISOString();
+    expect(riderLocationSchema.parse({ latitude: 23.8, longitude: 90.4, recordedAt }).recordedAt).toBe(recordedAt);
+    expect(riderLocationSchema.safeParse({ latitude: 23.8, longitude: 90.4, recordedAt: "not-a-date" }).success).toBe(false);
+  });
+
   it("rejects invalid coordinates and arbitrary invalid metadata", () => {
     for (const bad of [{ latitude: 91 }, { longitude: -181 }, { latitude: NaN },
       { heading: 361 }, { accuracyMeters: -20 }, { speedKmph: -20 }]) {

@@ -26,6 +26,7 @@ import {
   patchAdminOrderRefundStatus,
   patchAdminOrderCodCollection,
   patchAdminOrderStatus,
+  postAdminPreparationExtension,
   patchAdminRiderPayrollSettings,
   patchAdminRiderPayrollStatus,
   postAdminBkashPaymentAttemptReconcile,
@@ -106,6 +107,7 @@ adminOrdersMonitorRouter.post(
   postAdminBulkAssignRiders,
 );
 adminOrdersMonitorRouter.get("/orders/:orderId", getAdminOrderMonitor);
+adminOrdersMonitorRouter.post("/orders/:orderId/preparation/extend", postAdminPreparationExtension);
 adminOrdersMonitorRouter.patch(
   "/orders/:orderId/status",
   patchAdminOrderStatus,

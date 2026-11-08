@@ -2622,11 +2622,11 @@ export function SettingsPage() {
                           } else if (mode === "battery_saver") {
                             content.operations.liveTracking.updateIntervalSeconds = 30
                             content.operations.liveTracking.distanceIntervalMeters = 100
-                            content.operations.liveTracking.passiveHeartbeatSeconds = 120
+                            content.operations.liveTracking.passiveHeartbeatSeconds = 45
                           } else {
                             content.operations.liveTracking.updateIntervalSeconds = 15
-                            content.operations.liveTracking.distanceIntervalMeters = 60
-                            content.operations.liveTracking.passiveHeartbeatSeconds = 60
+                            content.operations.liveTracking.distanceIntervalMeters = 30
+                            content.operations.liveTracking.passiveHeartbeatSeconds = 25
                           }
                         })
                       }

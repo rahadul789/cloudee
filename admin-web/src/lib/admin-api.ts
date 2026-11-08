@@ -78,6 +78,9 @@ export type AdminSupportSlaState = {
 }
 
 export type AdminSupportCase = {
+  isNewToday: boolean
+  needsReply: boolean
+  lastCustomerMessageAt: string | null
   id: string
   source: "customer" | "owner" | "rider" | "admin" | string
   ownerId: string
@@ -3284,6 +3287,7 @@ export type AdminPlatformFinanceResponse = {
 
 export type AdminPlatformWalletEntry = {
   id: string
+  serviceAreaSnapshot?: { zoneId: string; zoneName: string; districtId: string; districtName: string } | null
   direction: "credit" | "debit" | string
   category: string
   amount: number
@@ -5060,6 +5064,7 @@ export type AdminNotificationSendPayload = {
   }
   conversionWindowDays?: number
   testMode?: boolean
+  testRecipientPhone?: string
   pushEnabled?: boolean
   scheduledAt?: string
 }
@@ -5510,6 +5515,16 @@ export async function getSupportCase(supportCaseId: string) {
     `/admin/support-cases/${supportCaseId}`
   )
   return response.data
+}
+
+export async function getAdminSupportSummary() {
+  return (await adminRequest<{ todayNewCount: number }>("/admin/support-cases/summary")).data
+}
+
+export async function extendAdminOrderPreparation(params: { orderId: string; minutes: 5 | 10 | 15 }) {
+  return (await adminRequest(`/admin/orders/${params.orderId}/preparation/extend`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ minutes: params.minutes }),
+  })).data
 }
 
 export async function replySupportCase(params: {
@@ -7236,6 +7251,8 @@ export async function updateAdminOrderCodCollection(params: {
   })
   return response.data
 }
+
+
 
 export async function getAdminDispatchSettings() {
   const scope = getAdminZoneScopeQueryParams()

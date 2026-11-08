@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { palette } from "@/src/theme/palette";
 
 type LiveOrderMapProps = {
+  trackingFresh?: boolean;
   customerLocation: {
     latitude: number;
     longitude: number;

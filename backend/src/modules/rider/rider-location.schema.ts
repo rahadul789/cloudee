@@ -3,6 +3,7 @@ import { z } from "zod";
 // Older rider builds send native unavailable values (-1). Accept the coordinate
 // without that metadata so existing installed clients can keep tracking too.
 export const riderLocationSchema = z.object({
+  recordedAt: z.string().datetime({ offset: true }).optional(),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   heading: z.preprocess(

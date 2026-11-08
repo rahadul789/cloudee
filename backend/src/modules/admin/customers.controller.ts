@@ -10,6 +10,7 @@ import {
   createAdminCustomerGroup,
   deleteAdminCustomerPersonalOffer,
   getAdminCustomerDetails,
+  assertAdminCustomerAreaAccess,
   getAdminCustomerDeviceIntel,
   listAdminCustomerGroups,
   listAdminCustomerOrders,
@@ -106,7 +107,7 @@ function getAdminId(req: AuthenticatedRequest) {
 async function assertCustomerInAdminArea(req: AuthenticatedRequest) {
   const scope = detailsQuerySchema.pick({ zoneId: true, districtId: true }).parse(req.query);
   if (!scope.zoneId && !scope.districtId) return;
-  await getAdminCustomerDetails(getStringParam(req.params.customerId), scope);
+  await assertAdminCustomerAreaAccess(getStringParam(req.params.customerId), scope);
 }
 
 export const getAdminCustomers = asyncHandler(

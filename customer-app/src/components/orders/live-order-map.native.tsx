@@ -25,6 +25,7 @@ import { decodePolyline } from "@/src/lib/decode-polyline";
 import { palette } from "@/src/theme/palette";
 
 type LiveOrderMapProps = {
+  trackingFresh?: boolean;
   customerLocation: TrackingCoordinate;
   restaurantLocation?: TrackingCoordinate | null;
   riderLocation?: TrackingCoordinate | null;
@@ -383,6 +384,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   customerLocation,
   restaurantLocation,
   riderLocation,
+  trackingFresh = true,
   status,
   riderName,
   routePolyline,
@@ -558,7 +560,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     : routeDistanceMeters ?? distanceMeters;
   const proximityDistanceMeters = distanceMeters;
   const displayEtaMinutes =
-    hasRouteDetour
+    !trackingFresh ? null : hasRouteDetour
       ? Math.max(1, Math.ceil(distanceMeters / 80))
       : typeof routeDurationMinutes === "number" &&
           Number.isFinite(routeDurationMinutes)
@@ -622,13 +624,14 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     [cameraBand, viewportRegion],
   );
   const isNearby =
-    status === "PickedUp" &&
+    trackingFresh && status === "PickedUp" &&
     proximityDistanceMeters <= TRACKING_NEARBY_DISTANCE_METERS &&
     proximityDistanceMeters > TRACKING_ARRIVED_DISTANCE_METERS;
   const isArriving =
-    status === "PickedUp" &&
+    trackingFresh && status === "PickedUp" &&
     proximityDistanceMeters <= TRACKING_ARRIVED_DISTANCE_METERS;
   const statusChipCopy = useMemo(() => {
+    if (status === "PickedUp" && !trackingFresh) return { label: "Last known location", detail: "Waiting for a fresh rider update" };
     if (status === "Delivered") {
       return {
         label: "Delivered",
@@ -669,6 +672,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
       detail: "Waiting for restaurant handoff",
     };
   }, [
+    trackingFresh,
     isArriving,
     isNearby,
     riderName,

@@ -67,6 +67,7 @@ const sendNotificationSchema = z.object({
     .optional(),
   conversionWindowDays: z.number().int().min(1).max(30).optional(),
   testMode: z.boolean().optional(),
+  testRecipientPhone: z.string().trim().min(6).max(32).optional(),
   pushEnabled: z.boolean().optional(),
   scheduledAt: z.string().trim().optional(),
 });

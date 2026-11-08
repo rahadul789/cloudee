@@ -21,11 +21,15 @@ export async function sendSupportCaseToTelegram(params: {
   subject: string;
   message: string;
   attachmentCount?: number;
+  isReply?: boolean;
+  areaName?: string;
 }) {
   const target = getSupportTelegramTarget();
   if (!target) return { sent: false as const, reason: "not_configured" as const };
 
   const text = [
+    params.isReply ? "💬 Customer sent a new support message" : "🆕 New support conversation",
+    params.areaName ? `Area: ${params.areaName}` : "",
     "🎧 নতুন কাস্টমার সাপোর্ট",
     `নাম: ${params.customerName || "Customer"}`,
     params.customerPhone ? `ফোন: ${params.customerPhone}` : "",
@@ -35,6 +39,7 @@ export async function sendSupportCaseToTelegram(params: {
       ? `\n📎 ${params.attachmentCount} attachment`
       : "",
     `\n${new Date().toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}`,
+    `${env.ADMIN_PANEL_ORIGIN}/support?caseId=${encodeURIComponent(params.supportCaseId)}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -44,6 +49,7 @@ export async function sendSupportCaseToTelegram(params: {
       `https://api.telegram.org/bot${target.token}/sendMessage`,
       {
         method: "POST",
+        signal: AbortSignal.timeout(10_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: target.chatId,

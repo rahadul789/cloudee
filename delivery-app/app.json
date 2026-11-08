@@ -68,6 +68,7 @@
           "locationWhenInUsePermission": "Allow Foodbela Rider to use your location for live delivery tracking.",
           "locationAlwaysAndWhenInUsePermission": "Allow Foodbela Rider to use your location in the background during active deliveries.",
           "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
       ],

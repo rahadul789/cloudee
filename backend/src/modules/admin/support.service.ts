@@ -10,11 +10,14 @@ import { createCustomerNotification, sendPushToCustomer } from "../customer/push
 import { SupportCaseModel } from "../owner/experience.model"
 import { createOwnerNotification } from "../owner/operational.service"
 import { OrderModel } from "../owner/operational.model"
+import { getSupportActivity } from "./support-activity"
+import { buildDhakaPresetRange } from "../owner/date-ranges"
 import {
   buildCustomerServiceAreaScopeFilter,
   buildOrderServiceAreaScopeFilter,
   buildRestaurantServiceAreaScopeFilter,
   buildRiderServiceAreaScopeFilter,
+  assertServiceAreaSnapshotMatchesScope,
 } from "../service-area/service-area.service"
 
 type SupportCaseStatus = "open" | "in_progress" | "resolved" | "closed"
@@ -131,7 +134,7 @@ async function writeSupportAudit(params: {
   })
 }
 
-async function buildSupportQuery(params: ListSupportCasesParams) {
+export async function buildSupportQuery(params: ListSupportCasesParams) {
   const query: Record<string, any> = {}
   if (params.source && params.source !== "all") query.source = params.source
   if (params.status && params.status !== "all") query.status = params.status
@@ -167,7 +170,7 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
       },
     ]
   }
-  const [restaurantIds, orderIds, riderIds, customerIds] = await Promise.all([
+  const [restaurantIds, orderIds, riderIds, customerIds, orderCustomerIds] = await Promise.all([
     Object.keys(buildRestaurantServiceAreaScopeFilter(params)).length
       ? RestaurantModel.distinct("_id", buildRestaurantServiceAreaScopeFilter(params))
       : Promise.resolve([]),
@@ -177,20 +180,19 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
     Object.keys(buildRiderServiceAreaScopeFilter(params)).length
       ? RiderModel.distinct("_id", buildRiderServiceAreaScopeFilter(params))
       : Promise.resolve([]),
-    // A customer support ticket carries no zone of its own, so resolve it through the
-    // customer's OWN service area (active zone or any saved-location zone). This makes a
-    // customer complaint show under the customer's actual zone — proper area-scoping that
-    // keeps working as more zones are added — instead of the old blanket "show every
-    // customer case in every zone" workaround.
+    // Legacy cases without an area snapshot can still be located through the customer.
     Object.keys(buildCustomerServiceAreaScopeFilter(params)).length
       ? CustomerModel.distinct("_id", buildCustomerServiceAreaScopeFilter(params))
+      : Promise.resolve([]),
+    Object.keys(buildOrderServiceAreaScopeFilter(params)).length
+      ? OrderModel.distinct("customerId", buildOrderServiceAreaScopeFilter(params))
       : Promise.resolve([]),
   ])
   const scopeConditions: Record<string, any>[] = []
   if (restaurantIds.length) scopeConditions.push({ restaurantId: { $in: restaurantIds } })
   if (orderIds.length) scopeConditions.push({ orderId: { $in: orderIds } })
   if (riderIds.length) scopeConditions.push({ riderId: { $in: riderIds } })
-  if (customerIds.length) scopeConditions.push({ customerId: { $in: customerIds } })
+  if (customerIds.length || orderCustomerIds.length) scopeConditions.push({ customerId: { $in: [...customerIds, ...orderCustomerIds] } })
   if (params.zoneId?.trim() || params.districtId?.trim()) {
     // Truly unattributable tickets — no customer/restaurant/order/rider to place them in a
     // zone (e.g. an admin-created generic ticket) — stay visible under every zone so they're
@@ -202,7 +204,16 @@ async function buildSupportQuery(params: ListSupportCasesParams) {
       orderId: null,
       riderId: null,
     })
-    query.$and = [...(query.$and ?? []), { $or: scopeConditions }]
+    const snapshotFilter: Record<string, string> = {}
+    if (params.zoneId?.trim()) snapshotFilter["serviceAreaSnapshot.zoneId"] = params.zoneId.trim()
+    if (params.districtId?.trim()) snapshotFilter["serviceAreaSnapshot.districtId"] = params.districtId.trim()
+    query.$and = [...(query.$and ?? []), { $or: [
+      snapshotFilter,
+      { $and: [
+        { $or: [{ serviceAreaSnapshot: null }, { "serviceAreaSnapshot.zoneId": { $in: ["", null] }, "serviceAreaSnapshot.districtId": { $in: ["", null] } }] },
+        { $or: scopeConditions },
+      ] },
+    ] }]
   }
   return query
 }
@@ -248,6 +259,7 @@ function mapSupportCase(params: {
   const lastReply = replies.at(-1)
   return {
     id: objectIdString(item._id),
+    ...getSupportActivity(item),
     source: stringValue(item.source, "owner"),
     ownerId: objectIdString(item.ownerId),
     restaurantId: objectIdString(item.restaurantId),
@@ -512,6 +524,7 @@ export async function replySupportCase(params: {
   }
   const admin = await getAdmin(params.adminId)
   const replyMessage = params.message.trim()
+  supportCase.lastAdminMessageAt = new Date()
   supportCase.replies.push({
     message: replyMessage,
     senderType: "admin",
@@ -554,6 +567,8 @@ export async function messageOrderCustomer(params: {
   orderId: string
   adminId: string
   message: string
+  zoneId?: string
+  districtId?: string
 }) {
   const message = params.message.trim()
   if (!message) {
@@ -566,6 +581,7 @@ export async function messageOrderCustomer(params: {
   if (!order) {
     throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
   }
+  assertServiceAreaSnapshotMatchesScope(order.serviceAreaSnapshot, params)
   const customerId = order.customerId ? String(order.customerId) : ""
   if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) {
     throw new AppError(
@@ -593,6 +609,7 @@ export async function messageOrderCustomer(params: {
       openedByAdmin: true,
       customerId,
       orderId: order._id,
+      serviceAreaSnapshot: order.serviceAreaSnapshot ?? null,
       customerSnapshot: snapshot,
       requesterSnapshot: { ...snapshot, role: "customer" },
       kind: "question",
@@ -616,9 +633,10 @@ export async function messageOrderCustomer(params: {
         },
       ],
     })
-  } else if (!supportCase.orderId) {
+  } else {
     // Stamp order context onto the reused thread the first time.
     supportCase.set("orderId", order._id)
+    supportCase.set("serviceAreaSnapshot", order.serviceAreaSnapshot ?? null)
     await supportCase.save()
   }
 
@@ -627,7 +645,21 @@ export async function messageOrderCustomer(params: {
     adminId: params.adminId,
     message,
     status: "in_progress",
+    zoneId: params.zoneId,
+    districtId: params.districtId,
   })
+}
+
+export async function getSupportTodaySummary(params: { zoneId?: string; districtId?: string } = {}) {
+  const scope = await buildSupportQuery(params)
+  const today = buildDhakaPresetRange({ preset: "today" })!
+  const recent = { $gte: today.start, $lte: today.end }
+  const rows = await SupportCaseModel.find({ $and: [scope, { $or: [
+    { lastCustomerMessageAt: recent },
+    { source: "customer", openedByAdmin: { $ne: true }, createdAt: recent },
+    { replies: { $elemMatch: { senderType: "customer", createdAt: recent } } },
+  ] }] }).select({ source: 1, openedByAdmin: 1, status: 1, createdAt: 1, replies: 1, lastCustomerMessageAt: 1, lastAdminMessageAt: 1 }).lean()
+  return { todayNewCount: rows.filter((row) => getSupportActivity(row).isNewToday).length }
 }
 
 export async function updateSupportCase(params: {

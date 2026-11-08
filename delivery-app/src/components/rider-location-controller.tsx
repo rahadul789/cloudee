@@ -7,7 +7,9 @@ import { buildActiveTrackingConfig, normalizeRiderLiveTrackingPolicy } from "@/s
 import {
   getRiderBackgroundTrackingOrderId,
   isRiderNativeLocationStalled,
+  isRiderPickupPreparing,
   publishRiderLocationAsync,
+  refreshRiderLocationAsync,
   setRiderBackgroundTrackingOrderId,
   startRiderBackgroundLocationAsync,
   stopRiderBackgroundLocationAsync,
@@ -20,12 +22,13 @@ const NOTIFICATION_BODY = "Foodbela is sharing your live delivery location.";
 // Never stop the native stream merely because hydration or a request is pending.
 // Serialize starts/stops so app resumes cannot race delivery completion.
 export function RiderLocationController({ children }: PropsWithChildren) {
-  const riderId = useRiderAuthStore((state) => state.rider?.id ?? "");
+  const rider = useRiderAuthStore((state) => state.rider);
+  const riderId = rider?.id ?? "";
+  const available = rider?.isAvailableForAssignments !== false;
   const isHydrated = useRiderAuthStore((state) => state.isHydrated);
   const orders = useRiderOrdersQuery("active");
   const policy = useRiderLiveTrackingPolicyQuery();
-  const config = buildActiveTrackingConfig(normalizeRiderLiveTrackingPolicy(policy.data));
-  const signature = `${config.accuracy}:${config.distanceIntervalMeters}:${config.heartbeatMs}:${config.timeIntervalMs}`;
+  const normalized = normalizeRiderLiveTrackingPolicy(policy.data);
   const [persistedOrder, setPersistedOrder] = useState<string | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   useEffect(() => {
@@ -43,7 +46,13 @@ export function RiderLocationController({ children }: PropsWithChildren) {
   const ordersConfirmed = orders.isSuccess && orders.isFetchedAfterMount;
   // A failed request is not proof that a delivery ended.
   const orderId = pickedUpOrder ?? (ordersConfirmed ? null : persistedOrder);
-  const canStop = isHydrated && storageReady && (!riderId || (ordersConfirmed && !pickedUpOrder));
+  const canStop = isHydrated && storageReady && (!riderId || (!available && ordersConfirmed && !pickedUpOrder));
+  // Available riders also publish before pickup so dispatch can find the nearest rider.
+  const config = orderId ? buildActiveTrackingConfig(normalized) : {
+    ...buildActiveTrackingConfig(normalized), accuracy: Location.Accuracy.Balanced,
+    timeIntervalMs: 30_000, heartbeatMs: 45_000,
+  };
+  const signature = `${config.accuracy}:${config.distanceIntervalMeters}:${config.heartbeatMs}:${config.timeIntervalMs}`;
   const latest = useRef({ riderId, orderId, canStop, config });
   latest.current = { riderId, orderId, canStop, config };
   const reconcileRef = useRef<() => void>(() => undefined);
@@ -52,20 +61,21 @@ export function RiderLocationController({ children }: PropsWithChildren) {
     let mounted = true;
     let chain = Promise.resolve();
     let fallback: Location.LocationSubscription | null = null;
-    let fallbackRetryAtMs = 0;
-    const removeFallback = () => { fallback?.remove(); fallback = null; };
+    let fallbackSignature = "";
+    let lastOrderId: string | null | undefined;
+    const removeFallback = () => { fallback?.remove(); fallback = null; fallbackSignature = ""; };
     const reconcile = () => {
       chain = chain.then(async () => {
         if (!mounted) return;
         const current = latest.current;
         if (current.canStop) {
-          fallbackRetryAtMs = 0;
+          if (current.riderId && isRiderPickupPreparing()) return;
           removeFallback();
           await stopRiderBackgroundLocationAsync();
           if (mounted) setPersistedOrder(null);
           return;
         }
-        if (!current.riderId || !current.orderId) return;
+        if (!current.riderId || !isHydrated || !storageReady) return;
         if (AppState.currentState !== "active") {
           removeFallback();
           return;
@@ -73,24 +83,30 @@ export function RiderLocationController({ children }: PropsWithChildren) {
         // Check only; existing access cards own permission prompts.
         const permission = await Location.getForegroundPermissionsAsync();
         if (permission.status !== "granted" || !mounted) return;
+        const changedOrder = current.orderId !== lastOrderId;
+        lastOrderId = current.orderId;
+        // A real fresh fix on startup/pickup/resume; no timestamp-only heartbeat.
+        void refreshRiderLocationAsync({ accuracy: current.config.accuracy, force: changedOrder }).catch(() => undefined);
         await setRiderBackgroundTrackingOrderId(current.orderId);
         if (mounted) setPersistedOrder(current.orderId);
         // A registered service can silently stop delivering fixes. Recover while
         // foreground instead of treating hasStarted=true as proof of GPS health.
         if (isRiderNativeLocationStalled()) {
           if (!(await suspendRiderNativeLocationAsync())) return;
-          fallbackRetryAtMs = Date.now() + 90_000;
+          // Restart the native service immediately while foreground. Leaving it
+          // stopped for 90s lost background tracking if the rider locked the phone.
         }
-        if (fallback && Date.now() < fallbackRetryAtMs) return;
-        // Stop fallback before starting the native stream: one GPS producer.
-        if (Date.now() >= fallbackRetryAtMs) {
-          removeFallback();
-          const started = await startRiderBackgroundLocationAsync({
-            ...current.config, notificationBody: NOTIFICATION_BODY,
-          });
-          if (!mounted || started || AppState.currentState !== "active") return;
-        }
-        if (!mounted || AppState.currentState !== "active") return;
+        // Keep an existing fallback alive during native retries. Recreating it on
+        // every watchdog tick can cancel GPS acquisition before the first fix.
+        const started = await startRiderBackgroundLocationAsync({
+          ...current.config, notificationBody: NOTIFICATION_BODY,
+        });
+        if (!mounted || AppState.currentState !== "active") { removeFallback(); return; }
+        if (started) { removeFallback(); return; }
+        const nextFallbackSignature = JSON.stringify(current.config);
+        if (fallback && fallbackSignature === nextFallbackSignature) return;
+        removeFallback();
+        fallbackSignature = nextFallbackSignature;
         fallback = await Location.watchPositionAsync({
           accuracy: current.config.accuracy,
           timeInterval: current.config.timeIntervalMs,
@@ -110,14 +126,14 @@ export function RiderLocationController({ children }: PropsWithChildren) {
     const subscription = AppState.addEventListener("change", reconcile);
     const timer = setInterval(() => {
       if (AppState.currentState === "active") reconcile();
-    }, 30_000);
+    }, 15_000);
     return () => {
       mounted = false;
       clearInterval(timer);
       subscription.remove();
       removeFallback();
     };
-  }, []);
+  }, [isHydrated, storageReady]);
 
   useEffect(() => { reconcileRef.current(); }, [riderId, orderId, canStop, signature]);
   return <>{children}</>;

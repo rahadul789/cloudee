@@ -36,6 +36,7 @@ import { AdminAuditLogModel, AdminModel } from "./admin.model";
 import { resolveAdminOperationalAlertByDedupeKey } from "./admin-alert.service";
 import { notifyOwnerPayoutStatus } from "./payout-owner-notifications";
 import { RiderPayrollCycleModel } from "./rider-payroll.model";
+import { buildWalletAreaFilter, resolveWalletAreaSnapshot } from "./finance-wallet-scope";
 import {
   clampPage,
   clampPageSize,
@@ -542,12 +543,17 @@ async function getPlatformPayrollSummary(
   );
 
   const salaryNotices = riders
+    .filter((rider) => rider.status === "active" && rider.payroll?.isPayrollEnabled !== false)
     .map((rider) => buildRiderSalaryNotice(rider))
     .filter((notice) => notice.status === "due_soon" || notice.status === "overdue");
 
   return {
     months: safeMonths.length,
     ...paidSummary,
+    dailyPayments: cycles.map((cycle) => ({
+      date: new Date(cycle.paidAt!).toISOString().slice(0, 10),
+      amount: summarizePayrollAmount({}, cycle).netPayable,
+    })),
     salaryNotices,
   };
 }
@@ -609,7 +615,7 @@ async function buildRiderProfitabilityRows(
   });
 }
 
-function fillPlatformDailySeries(params: {
+export function fillPlatformDailySeries(params: {
   start: Date;
   end: Date;
   ledgerRows: Array<Record<string, any>>;
@@ -617,6 +623,8 @@ function fillPlatformDailySeries(params: {
   refundRows: Array<Record<string, any>>;
   onlinePaymentRows?: Array<Record<string, any>>;
   payoutRows: Array<Record<string, any>>;
+  walletRows?: Array<Record<string, any>>;
+  payrollPayments?: Array<{ date: string; amount: number }>;
 }) {
   const ledgerMap = new Map(params.ledgerRows.map((row) => [stringValue(row._id), row]));
   const orderMap = new Map(params.orderRows.map((row) => [stringValue(row._id), row]));
@@ -624,6 +632,9 @@ function fillPlatformDailySeries(params: {
   const onlinePaymentMap = new Map((params.onlinePaymentRows ?? []).map((row) => [stringValue(row._id), row]));
   const payoutMap = new Map(params.payoutRows.map((row) => [stringValue(row._id), row]));
   const points = [];
+  const walletMap = new Map((params.walletRows ?? []).map((row) => [stringValue(row._id), row]));
+  const payrollMap = new Map<string, number>();
+  for (const payment of params.payrollPayments ?? []) payrollMap.set(payment.date, (payrollMap.get(payment.date) ?? 0) + payment.amount);
 
   for (
     let cursor = startOfDay(params.start);
@@ -642,8 +653,10 @@ function fillPlatformDailySeries(params: {
     const platformDiscountCost = numberValue(ledger?.platformDiscountCost);
     const refundsPaid = numberValue(refund?.refundsPaid);
     const payoutsPaid = numberValue(payout?.payoutsPaid);
-    const revenue = commission + markup + deliveryFees;
-    const operatingExpense = platformDiscountCost;
+    const wallet = walletMap.get(key);
+    const payroll = payrollMap.get(key) ?? 0;
+    const revenue = commission + markup + deliveryFees + numberValue(wallet?.manualIncome);
+    const operatingExpense = platformDiscountCost + numberValue(wallet?.manualExpense) + payroll;
 
     points.push({
       date: key,
@@ -657,8 +670,8 @@ function fillPlatformDailySeries(params: {
       platformDiscountCost,
       refundsPaid,
       payoutsPaid,
-      cashIn: numberValue(onlinePayment?.onlineCollected) + numberValue(order?.codCollected),
-      cashOut: refundsPaid + payoutsPaid,
+      cashIn: numberValue(onlinePayment?.onlineCollected) + numberValue(order?.codCollected) + numberValue(wallet?.creditAmount),
+      cashOut: refundsPaid + payoutsPaid + numberValue(wallet?.debitAmount) + payroll,
       profit: revenue - operatingExpense,
     });
   }
@@ -1729,6 +1742,7 @@ function mapPlatformFinanceEntry(entry: Record<string, any>) {
     id: objectIdString(entry._id),
     direction: stringValue(entry.direction),
     category: stringValue(entry.category),
+    serviceAreaSnapshot: entry.serviceAreaSnapshot ?? null,
     amount: numberValue(entry.amount),
     status: stringValue(entry.status, "posted"),
     sourceEntityType: stringValue(entry.sourceEntityType),
@@ -1802,10 +1816,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     source: { $ne: "external" },
   };
   const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
-  const hasServiceAreaScope =
-    Object.keys(orderScopeFilter).length > 0 ||
-    Object.keys(restaurantScopeFilter).length > 0 ||
-    Boolean(params.zoneId || params.districtId);
+  const walletAreaFilter = buildWalletAreaFilter(params);
+  const hasServiceAreaScope = Object.keys(walletAreaFilter).length > 0;
   const scopedRestaurantIds = Object.keys(restaurantScopeFilter).length
     ? (
         await RestaurantModel.find(restaurantScopeFilter)
@@ -1853,6 +1865,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     dailyClosingRows,
     codReconciliationRows,
     payrollSummary,
+    dailyWalletRows,
   ] = await Promise.all([
     aggregatePayableLedgerEntries(
       scopedLedgerEarningMatch,
@@ -2449,12 +2462,11 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       { $sort: { deliveryFees: -1 } },
       { $limit: 10 },
     ]),
-    hasServiceAreaScope
-      ? Promise.resolve([])
-      : PlatformFinanceEntryModel.aggregate<Record<string, any>>([
+    PlatformFinanceEntryModel.aggregate<Record<string, any>>([
           {
             $match: {
               status: "posted",
+              ...walletAreaFilter,
               occurredAt: { $gte: range.start, $lte: range.end },
             },
           },
@@ -2511,9 +2523,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
             },
           },
         ]),
-    hasServiceAreaScope
-      ? Promise.resolve([])
-      : PlatformFinanceEntryModel.find({
+    PlatformFinanceEntryModel.find({
+          ...walletAreaFilter,
           status: "posted",
           occurredAt: { $gte: range.start, $lte: range.end },
         })
@@ -2533,7 +2544,6 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       ...orderScopeFilter,
     })
       .sort({ updatedAt: -1, createdAt: -1 })
-      .limit(8)
       .select({
         orderNumber: 1,
         restaurantId: 1,
@@ -2546,6 +2556,16 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       })
       .lean(),
     getPlatformPayrollSummary(range.start, range.end, riderScopeFilter),
+    PlatformFinanceEntryModel.aggregate<Record<string, any>>([
+      { $match: { ...walletAreaFilter, status: "posted", occurredAt: { $gte: range.start, $lte: range.end } } },
+      { $group: {
+        _id: { $dateToString: { date: "$occurredAt", format: "%Y-%m-%d" } },
+        creditAmount: { $sum: { $cond: [{ $eq: ["$direction", "credit"] }, "$amount", 0] } },
+        debitAmount: { $sum: { $cond: [{ $eq: ["$direction", "debit"] }, "$amount", 0] } },
+        manualIncome: { $sum: { $cond: [{ $and: [{ $eq: ["$direction", "credit"] }, { $eq: ["$category", "manual_income"] }] }, "$amount", 0] } },
+        manualExpense: { $sum: { $cond: [{ $and: [{ $eq: ["$direction", "debit"] }, { $in: ["$category", ["manual_expense", "deploy_hosting"]] }] }, "$amount", 0] } },
+      } },
+    ]),
   ]);
 
   const ledger = ledgerRows[0] ?? {};
@@ -2722,6 +2742,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     refundRows: dailyRefundRows,
     onlinePaymentRows: dailyOnlinePaymentRows,
     payoutRows: dailyPayoutRows,
+    walletRows: dailyWalletRows,
+    payrollPayments: payrollSummary.dailyPayments,
   });
 
   return {
@@ -2879,7 +2901,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
         0,
       ),
       pendingCount: codReconciliationRows.length,
-      recentPending: codReconciliationRows.map((order) => {
+      recentPending: codReconciliationRows.slice(0, 8).map((order) => {
         const restaurant = codRestaurantMap.get(objectIdString(order.restaurantId));
         return {
           orderId: objectIdString(order._id),
@@ -2909,7 +2931,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       "Platform cash is an operational estimate from order payments, refunds, payouts, and rider payroll. It is not a bank statement.",
       "Restaurant payout is a liability, not a platform expense. Platform profit uses commission, delivery fee, platform-funded discounts, and rider payroll.",
       ...(hasServiceAreaScope
-        ? ["Manual wallet entries and daily close snapshots are platform-wide, so they are shown only in All areas view."]
+        ? ["Wallet entries use their saved area. Entries without an area and daily close snapshots appear only in All areas view."]
         : []),
     ],
   };
@@ -2919,21 +2941,8 @@ export async function listAdminPlatformWalletEntries(params: WalletEntryListPara
   const range = buildFinanceRange(params);
   const page = clampPage(params.page);
   const pageSize = clampPageSize(params.pageSize);
-  const hasServiceAreaScope = Boolean(params.zoneId || params.districtId);
-  if (hasServiceAreaScope) {
-    return {
-      items: [],
-      ...buildPagination(0, page, pageSize),
-      summary: {
-        creditAmount: 0,
-        debitAmount: 0,
-        netAmount: 0,
-        postedCount: 0,
-      },
-    };
-  }
-
   const query: Record<string, unknown> = {
+    ...buildWalletAreaFilter(params),
     occurredAt: { $gte: range.start, $lte: range.end },
   };
 
@@ -2986,13 +2995,7 @@ export async function listAdminPlatformWalletEntries(params: WalletEntryListPara
 }
 
 export async function createAdminPlatformWalletEntry(params: CreateWalletEntryParams) {
-  if (params.zoneId?.trim() || params.districtId?.trim()) {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "PLATFORM_WALLET_SCOPE_NOT_SUPPORTED",
-      "Manual wallet entries are platform-wide. Switch to All areas before creating one.",
-    );
-  }
+  const serviceAreaSnapshot = await resolveWalletAreaSnapshot(params);
 
   const amount = Math.round(numberValue(params.amount));
   if (amount <= 0) {
@@ -3032,6 +3035,7 @@ export async function createAdminPlatformWalletEntry(params: CreateWalletEntryPa
   }
 
   const entry = await PlatformFinanceEntryModel.create({
+    serviceAreaSnapshot,
     direction: params.direction,
     category: params.category,
     amount,
@@ -3052,13 +3056,6 @@ export async function voidAdminPlatformWalletEntry(params: {
   zoneId?: string;
   districtId?: string;
 }) {
-  if (params.zoneId?.trim() || params.districtId?.trim()) {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "PLATFORM_WALLET_SCOPE_NOT_SUPPORTED",
-      "Manual wallet entries are platform-wide. Switch to All areas before voiding one.",
-    );
-  }
 
   const entryId = toObjectId(params.entryId);
   if (!entryId) {
@@ -3070,7 +3067,7 @@ export async function voidAdminPlatformWalletEntry(params: {
   }
 
   const entry = await PlatformFinanceEntryModel.findOneAndUpdate(
-    { _id: entryId, status: "posted" },
+    { _id: entryId, status: "posted", ...buildWalletAreaFilter(params) },
     {
       $set: {
         status: "void",
@@ -3232,7 +3229,6 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
   };
   const restaurantScopeFilter = buildRestaurantServiceAreaScopeFilter(params);
   const riderScopeFilter = buildRiderServiceAreaScopeFilter(params);
-  const hasServiceAreaScope = Boolean(params.zoneId || params.districtId);
   const [scopedRestaurantsForScope, scopedRidersForScope] = await Promise.all([
     Object.keys(restaurantScopeFilter).length
       ? RestaurantModel.find(restaurantScopeFilter).select({ _id: 1 }).lean()
@@ -3352,9 +3348,8 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
       .sort({ paidAt: -1 })
       .limit(5000)
       .lean(),
-    hasServiceAreaScope
-      ? Promise.resolve([])
-      : PlatformFinanceEntryModel.find({
+    PlatformFinanceEntryModel.find({
+          ...buildWalletAreaFilter(params),
           status: "posted",
           occurredAt: { $gte: range.start, $lte: range.end },
         })

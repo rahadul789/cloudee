@@ -114,6 +114,7 @@ export function AppSidebar({
                         <SidebarMenuButton
                           asChild
                           tooltip={item.title}
+                          className={item.badgeKey === "complaints" && badge ? "pr-16" : undefined}
                           isActive={isActive}
                         >
                           <NavLink to={item.to} end={item.to === "/"}>
@@ -122,7 +123,9 @@ export function AppSidebar({
                           </NavLink>
                         </SidebarMenuButton>
                         {badge ? (
-                          <SidebarMenuBadge>{badge}</SidebarMenuBadge>
+                          <SidebarMenuBadge className={item.badgeKey === "complaints" ? "bg-rose-100 text-rose-700 font-semibold" : undefined}>
+                            {item.badgeKey === "complaints" ? `New ${badge}` : badge}
+                          </SidebarMenuBadge>
                         ) : null}
                       </SidebarMenuItem>
                     )

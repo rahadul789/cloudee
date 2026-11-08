@@ -8,6 +8,7 @@ import {
   addSupportInternalNote,
   getSupportCaseDetails,
   listSupportCases,
+  getSupportTodaySummary,
   messageOrderCustomer,
   replySupportCase,
   updateSupportCase,
@@ -84,6 +85,11 @@ export const getAdminSupportCases = asyncHandler(async (req: AuthenticatedReques
   return sendSuccess(res, { data })
 })
 
+export const getAdminSupportSummary = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const data = await getSupportTodaySummary(getAdminAreaScope(req))
+  return sendSuccess(res, { data })
+})
+
 export const getAdminSupportCase = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   const data = await getSupportCaseDetails(
     getStringParam(req.params.supportCaseId),
@@ -111,6 +117,7 @@ export const postAdminOrderCustomerMessage = asyncHandler(
       orderId: getStringParam(req.params.orderId),
       adminId: getAdminId(req),
       message: payload.message,
+      ...getAdminAreaScope(req),
     })
     return sendSuccess(res, { message: "Message sent to customer", data })
   },

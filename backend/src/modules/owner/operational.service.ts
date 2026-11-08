@@ -27,7 +27,7 @@ import { grantReferralRewardForDeliveredOrder } from "../customer/referral.servi
 import { getPlatformContent } from "../public/content.service";
 import { getOrderRouteMetrics } from "../routing/routing.service";
 import { sendPushToRider } from "../rider/push.service";
-import { getServiceAreaDispatchOverrides } from "../service-area/service-area.service";
+import { getServiceAreaDispatchOverrides, assertRiderAllowedForServiceArea, assertServiceAreaSnapshotMatchesScope } from "../service-area/service-area.service";
 import { syncOrderLedgerForFinalStatus } from "./finance.service";
 import { decorateOwnerFinancials } from "./order-financials";
 import {
@@ -2425,14 +2425,20 @@ export async function transitionOrder(params: {
   return ownerOrderObject;
 }
 
-export async function extendOrderPreparation(params: {
-  ownerId: string;
-  orderId: string;
-  minutes: 5 | 10 | 15;
-}) {
-  const { owner, restaurantId } = await getOwnerRestaurantContext(
-    params.ownerId,
-  );
+export async function extendOrderPreparation(params: { ownerId: string; orderId: string; minutes: 5 | 10 | 15 }) {
+  const { restaurantId } = await getOwnerRestaurantContext(params.ownerId);
+  return extendPreparationTime({ ...params, restaurantId: String(restaurantId), actor: "owner" });
+}
+
+export async function extendAdminOrderPreparation(params: { orderId: string; minutes: 5 | 10 | 15; adminId?: string; zoneId?: string; districtId?: string }) {
+  const order = await OrderModel.findById(params.orderId).lean();
+  if (!order) throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found");
+  assertServiceAreaSnapshotMatchesScope(order.serviceAreaSnapshot, params);
+  return extendPreparationTime({ ...params, restaurantId: String(order.restaurantId), actor: "admin" });
+}
+
+async function extendPreparationTime(params: { orderId: string; restaurantId: string; minutes: 5 | 10 | 15; actor: "owner" | "admin"; adminId?: string }) {
+  const restaurantId = params.restaurantId;
   const [currentOrder, restaurant, content] = await Promise.all([
     OrderModel.findOne({ _id: params.orderId, restaurantId }).lean(),
     RestaurantModel.findById(restaurantId).lean(),
@@ -2488,7 +2494,7 @@ export async function extendOrderPreparation(params: {
   });
 
   const updatedOrder = await OrderModel.findOneAndUpdate(
-    { _id: currentOrder._id, restaurantId, status: "Preparing" },
+    { _id: currentOrder._id, restaurantId, status: "Preparing", $expr: { $eq: [{ $ifNull: ["$preparationMeta.extraMinutes", 0] }, currentExtraMinutes] } },
     {
       $set: {
         preparationMeta,
@@ -2498,8 +2504,8 @@ export async function extendOrderPreparation(params: {
           $each: [
             {
               status: "Preparing",
-              actor: "owner",
-              note: `Owner added ${params.minutes} minutes to preparation time.`,
+              actor: params.actor,
+              note: `${params.actor === "admin" ? "Admin" : "Owner"} added ${params.minutes} minutes to preparation time.`,
               createdAt: now,
             },
           ],
@@ -2528,21 +2534,8 @@ export async function extendOrderPreparation(params: {
     ),
     restaurant as Record<string, any> | null,
   );
-  emitSocketEvent(`owner:${owner.id}`, "order.updated", ownerOrderObject);
-  emitSocketEvent(
-    `restaurant:${restaurantId}`,
-    "order.updated",
-    ownerOrderObject,
-  );
-  emitSocketEvent(`customer:${updatedOrder.customerId}`, "customer.order.updated", {
-    ...orderObject,
-    preparationTiming: ownerOrderObject.preparationTiming,
-  });
-  emitAdminOrderUpdated(orderObject);
-  emitAdminLiveMapUpdated({
-    type: "order.preparation_extended",
-    orderId: updatedOrder.id,
-    status: updatedOrder.status,
+  await emitOrderRealtimeUpdate(orderObject, {
+    type: "order.preparation_extended", orderId: updatedOrder.id, status: updatedOrder.status,
   });
 
   return ownerOrderObject;
@@ -2584,6 +2577,31 @@ export async function transitionOrderBySystem(params: {
       now,
     ),
   };
+  if (params.readyConfirmedByRiderId) {
+    if (params.actor !== "rider" || params.nextStatus !== "ReadyForPickup") {
+      throw new AppError(StatusCodes.BAD_REQUEST, "INVALID_READY_ASSIGNMENT", "Rider assignment requires a food-ready confirmation");
+    }
+    const confirmingRider = await RiderModel.findById(params.readyConfirmedByRiderId);
+    if (!confirmingRider || confirmingRider.status !== "active" || confirmingRider.isAvailableForAssignments === false) {
+      throw new AppError(StatusCodes.FORBIDDEN, "RIDER_NOT_AVAILABLE", "This rider is not available for assignment");
+    }
+    assertRiderAllowedForServiceArea({ rider: confirmingRider, serviceAreaSnapshot: order.serviceAreaSnapshot });
+    setPayload.riderId = params.readyConfirmedByRiderId;
+    setPayload.riderSnapshot = {
+      ...(order.riderSnapshot ?? {}),
+      name: confirmingRider.fullName,
+      phone: confirmingRider.phone,
+      vehicleType: confirmingRider.vehicleType,
+    };
+    setPayload.dispatchMeta = {
+      ...(order.get("dispatchMeta") ?? {}),
+      assignedAt: now,
+      acknowledgedAt: now,
+      lastAssignedRiderId: params.readyConfirmedByRiderId,
+      lastAssignedRiderName: confirmingRider.fullName,
+      lastAssignmentSource: "rider_ready",
+    };
+  }
   if (params.nextStatus === "Cancelled") {
     setPayload.cancelledBy = params.actor;
     setPayload.terminalReason = params.note ?? "system_cancelled";
@@ -2626,7 +2644,7 @@ export async function transitionOrderBySystem(params: {
       ...(order.get("riderTracking") ?? {}),
       isActive: true,
       startedAt: new Date(),
-      lastUpdatedAt: new Date(),
+      // A status change is not a GPS sample; freshness starts with the first real fix.
     };
   }
 
@@ -2642,7 +2660,7 @@ export async function transitionOrderBySystem(params: {
   }
 
   const updatedOrder = await OrderModel.findOneAndUpdate(
-    { _id: order._id, status: order.status, ...(params.readyConfirmedByRiderId ? { $or: [{ riderId: "" }, { riderId: { $exists: false } }, { riderId: params.readyConfirmedByRiderId }] } : {}) },
+    { _id: order._id, status: order.status, ...(params.readyConfirmedByRiderId ? { $or: [{ riderId: "" }, { riderId: null }, { riderId: { $exists: false } }, { riderId: params.readyConfirmedByRiderId }] } : {}) },
     {
       $set: setPayload,
       $push: {
@@ -2800,6 +2818,7 @@ export async function transitionOrderBySystem(params: {
 export async function updateOrderRiderLocation(params: {
   orderId: string;
   actor: "rider" | "admin" | "system";
+  recordedAt?: string;
   latitude: number;
   longitude: number;
   heading?: number;
@@ -2808,7 +2827,7 @@ export async function updateOrderRiderLocation(params: {
   riderName?: string;
   riderPhone?: string;
 }) {
-  const order = await OrderModel.findById(params.orderId);
+  let order = await OrderModel.findById(params.orderId);
 
   if (!order) {
     throw new AppError(
@@ -2826,6 +2845,9 @@ export async function updateOrderRiderLocation(params: {
     );
   }
 
+  const sampleAt = params.recordedAt ? new Date(Math.min(Date.now(), Date.parse(params.recordedAt))) : new Date();
+  const previousAt = order.riderTracking?.lastUpdatedAt;
+  if (previousAt && new Date(previousAt).getTime() > sampleAt.getTime()) return order;
   const deliveryAddress = order.customerSnapshot?.deliveryAddress;
   if (
     typeof deliveryAddress?.latitude !== "number" ||
@@ -2846,6 +2868,7 @@ export async function updateOrderRiderLocation(params: {
         longitude?: number;
       };
       lastUpdatedAt?: string | Date | null;
+      startedAt?: string | Date | null;
       nearCustomerNotifiedAt?: string | Date | null;
       history?: Array<Record<string, unknown>>;
     } | null) ?? {};
@@ -2897,10 +2920,10 @@ export async function updateOrderRiderLocation(params: {
     isActive: true,
     isFocused: Boolean(currentTracking.isFocused),
     startedAt:
-      currentTracking.lastUpdatedAt ??
+      currentTracking.startedAt ??
       order.timestamps?.PickedUp ??
       order.createdAt,
-    lastUpdatedAt: new Date(),
+    lastUpdatedAt: sampleAt,
     currentLocation: {
       latitude: params.latitude,
       longitude: params.longitude,
@@ -2925,7 +2948,7 @@ export async function updateOrderRiderLocation(params: {
         heading: params.heading ?? null,
         accuracyMeters: params.accuracyMeters ?? null,
         speedKmph: trackingEstimate.speedKmph,
-        createdAt: new Date(),
+        createdAt: sampleAt,
       },
     ].slice(-12),
   };
@@ -2939,8 +2962,23 @@ export async function updateOrderRiderLocation(params: {
     };
   }
 
-  order.set("riderTracking", trackingSnapshot);
-  await order.save();
+  const savedOrder = await OrderModel.findOneAndUpdate(
+    { _id: order._id, riderId: order.riderId, status: "PickedUp",
+      ...(typeof currentTracking.isFocused === "boolean" ? { "riderTracking.isFocused": currentTracking.isFocused } : {}),
+      $or: [
+      { "riderTracking.lastUpdatedAt": { $lte: sampleAt } },
+      { "riderTracking.lastUpdatedAt": null },
+    ] },
+    { $set: { riderTracking: trackingSnapshot,
+      ...((params.riderName || params.riderPhone) ? { riderSnapshot: order.riderSnapshot } : {}) } },
+    { new: true },
+  );
+  if (!savedOrder) {
+    const latest = await OrderModel.findById(params.orderId);
+    if (!latest) throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found");
+    return latest;
+  }
+  order = savedOrder;
 
   const restaurantOwner = await OwnerModel.findOne({
     activeRestaurantId: order.restaurantId,

@@ -1550,7 +1550,7 @@ function RiderDetailsSheet({
                         <CardHeader>
                           <CardTitle>Salary adjustment</CardTitle>
                           <CardDescription>
-                            Add bonus, reimbursement, or deduction before marking salary paid.
+                            Admin can manually add bonuses, reimbursements, and deductions.
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-3">
@@ -1648,7 +1648,7 @@ function RiderDetailsSheet({
                           </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Current payment total: {formatCurrency(rider.payroll.netPayable)}. Unpaid salary defaults are ignored in platform profit, cash, and ledger summaries.
+                          Current payment total: {formatCurrency(rider.payroll.netPayable)}.
                         </p>
                         <div className="overflow-hidden rounded-lg border">
                           <Table>

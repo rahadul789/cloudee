@@ -35,11 +35,11 @@ import {
   closeAdminDailyFinance,
   createAdminPlatformWalletEntry,
   getAdminPlatformFinance,
-  updateAdminOrderCodCollection,
   type AdminPlatformFinanceResponse,
   type AdminReportsPreset,
 } from "@/lib/admin-api"
 import { downloadCsv } from "@/lib/export-utils"
+import { getAdminZoneScope, getAdminZoneScopeKey, subscribeAdminZoneScope } from "@/lib/admin-zone-scope"
 import { AdminDateRangeFilter } from "@/components/admin-date-range-filter"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -84,6 +84,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 
 function formatCurrency(value: number) {
   const safeValue = Number.isFinite(value) ? value : 0
@@ -143,6 +144,7 @@ function MetricCard({
   icon,
   tone = "slate",
   badge,
+  onClick,
 }: {
   label: string
   value: React.ReactNode
@@ -150,6 +152,7 @@ function MetricCard({
   icon: React.ReactNode
   tone?: "emerald" | "sky" | "amber" | "rose" | "violet" | "slate"
   badge?: React.ReactNode
+  onClick?: () => void
 }) {
   const toneClass =
     tone === "emerald"
@@ -165,7 +168,18 @@ function MetricCard({
               : "bg-slate-100 text-slate-700"
 
   return (
-    <Card>
+    <Card
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault()
+          onClick()
+        }
+      } : undefined}
+      className={onClick ? "cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : undefined}
+    >
       <CardContent className="pt-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -246,6 +260,7 @@ function PlatformWalletEntryDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const queryClient = useQueryClient()
+  const areaScope = getAdminZoneScope()
   const [direction, setDirection] = React.useState<"credit" | "debit">("debit")
   const [category, setCategory] = React.useState<"cod_deposit" | "deploy_hosting" | "manual_expense" | "manual_income" | "adjustment" | "other">("manual_expense")
   const [amount, setAmount] = React.useState("")
@@ -282,7 +297,13 @@ function PlatformWalletEntryDialog({
         note,
       }),
     onSuccess: () => {
-      toast.success("Platform wallet entry added.")
+      toast.success(
+        category === "manual_income"
+          ? "Entry added: revenue, net profit, and cash increased for the entry date."
+          : category === "manual_expense" || category === "deploy_hosting"
+            ? "Entry added: expense increased; net profit and cash reduced for the entry date."
+            : "Entry added: cash adjusted; net profit unchanged."
+      )
       void queryClient.invalidateQueries({ queryKey: ["admin-platform-finance"] })
       void queryClient.invalidateQueries({ queryKey: ["admin-money-transactions"] })
       onOpenChange(false)
@@ -304,7 +325,12 @@ function PlatformWalletEntryDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-          Deploy / hosting entries are saved as money out and included in platform operating cost.
+          {category === "manual_income"
+            ? "Increases platform revenue, net profit, and cash."
+            : category === "manual_expense" || category === "deploy_hosting"
+              ? "Increases operating cost and reduces net profit and cash."
+              : "Changes cash balance only; does not change net profit. Use Manual income or Manual expense to record profit/loss."}
+          <p className="mt-1">Saved to: {areaScope.type === "all" ? "Platform-wide (All areas only)" : areaScope.label}. Overview includes entries dated within the selected period.</p>
         </div>
         <div className="grid gap-5">
           <div className="grid gap-3 lg:grid-cols-[1.1fr_0.8fr_0.8fr]">
@@ -326,7 +352,7 @@ function PlatformWalletEntryDialog({
             </div>
             <div className="space-y-2">
               <Label>Direction</Label>
-              <Select value={direction} onValueChange={(value) => setDirection(value as "credit" | "debit")}>
+              <Select disabled={["manual_income", "manual_expense", "deploy_hosting", "cod_deposit"].includes(category)} value={direction} onValueChange={(value) => setDirection(value as "credit" | "debit")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -432,7 +458,9 @@ function DailyClosingDialog({
 }
 
 export function FinancePlatformPage() {
-  const [preset, setPreset] = React.useState<AdminReportsPreset>("last30Days")
+  const [scopeKey, setScopeKey] = React.useState(getAdminZoneScopeKey)
+  React.useEffect(() => subscribeAdminZoneScope(() => setScopeKey(getAdminZoneScopeKey())), [])
+  const [preset, setPreset] = React.useState<AdminReportsPreset>("thisMonth")
   const [from, setFrom] = React.useState("")
   const [to, setTo] = React.useState("")
   const [walletDialogOpen, setWalletDialogOpen] = React.useState(false)
@@ -446,7 +474,7 @@ export function FinancePlatformPage() {
   }, [preset])
 
   const platformQuery = useQuery({
-    queryKey: ["admin-platform-finance", preset, from, to],
+    queryKey: ["admin-platform-finance", scopeKey, preset, from, to],
     queryFn: () =>
       getAdminPlatformFinance({
         preset,
@@ -561,18 +589,7 @@ export function FinancePlatformPage() {
 }
 
 function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }) {
-  const queryClient = useQueryClient()
-  const codMutation = useMutation({
-    mutationFn: updateAdminOrderCodCollection,
-    onSuccess: () => {
-      toast.success("COD marked collected.")
-      void queryClient.invalidateQueries({ queryKey: ["admin-platform-finance"] })
-      void queryClient.invalidateQueries({ queryKey: ["admin-payments"] })
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "COD update failed.")
-    },
-  })
+  const [profitDetailsOpen, setProfitDetailsOpen] = React.useState(false)
   const liabilityCoverage =
     data.liabilities.totalLiabilities > 0
       ? Math.max(
@@ -595,6 +612,42 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
 
   return (
     <>
+      <Sheet open={profitDetailsOpen} onOpenChange={setProfitDetailsOpen}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>Net profit / loss breakdown</SheetTitle>
+            <SheetDescription>Uses the same selected dates and area as the overview.</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-6 px-4 pb-6">
+            <section className="space-y-2">
+              <h3 className="font-semibold">Revenue</h3>
+              <AmountRow label="Restaurant commission" value={data.revenue.platformCommission} />
+              <AmountRow label="Price markup" value={data.revenue.platformMarkupRevenue} />
+              <AmountRow label="Delivery fees" value={data.revenue.deliveryFeeRevenue} helper="Includes urgent delivery fees" />
+              <AmountRow label="Manual income" value={data.wallet.manualIncome} />
+              <AmountRow label="Total revenue" value={data.revenue.platformGrossRevenue} valueClassName="font-semibold text-emerald-700" />
+            </section>
+            <section className="space-y-2">
+              <h3 className="font-semibold">Expenses</h3>
+              <AmountRow label="Platform-funded discounts" value={data.expenses.platformVoucherCost} />
+              <AmountRow label="Paid rider payroll" value={data.expenses.riderPayrollExpense} helper="Salary plus allowances, bonuses and reimbursements, less deductions" />
+              <AmountRow label="Manual expense / hosting" value={data.expenses.manualExpense} />
+              <AmountRow label="Total expenses" value={data.expenses.platformVoucherCost + data.expenses.riderPayrollExpense + data.expenses.manualExpense} valueClassName="font-semibold text-rose-700" />
+            </section>
+            <section className="space-y-2 rounded-lg border bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">Total revenue − total expenses</p>
+              <p className="text-sm">{formatCurrency(data.revenue.platformGrossRevenue)} − {formatCurrency(data.expenses.platformVoucherCost + data.expenses.riderPayrollExpense + data.expenses.manualExpense)}</p>
+              <AmountRow label="Net profit / loss" value={data.profitLoss.netProfit} valueClassName={data.profitLoss.netProfit >= 0 ? "font-semibold text-emerald-700" : "font-semibold text-rose-700"} />
+              <p className="text-xs text-muted-foreground">Margin: {data.profitLoss.marginPercent}% of revenue.</p>
+            </section>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>Rider cost comes from payroll marked paid during this period. Unpaid salary and a fixed Tk 30 per successful ride are not automatically deducted.</p>
+              <p>Restaurant payouts settle money owed to restaurants. They are not deducted again because revenue already uses only the platform share.</p>
+              <p>COD deposits and accounting adjustments affect cash, not net profit. Refunds appear in cash movement rather than as a separate expense in this formula.</p>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           label="Platform gross revenue"
@@ -605,8 +658,9 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
         />
         <MetricCard
           label="Net profit / loss"
+          onClick={() => setProfitDetailsOpen(true)}
           value={formatCurrency(data.profitLoss.netProfit)}
-          helper={`${data.profitLoss.marginPercent}% margin`}
+          helper={`${data.profitLoss.marginPercent}% margin · View breakdown`}
           icon={
             data.profitLoss.netProfit >= 0 ? (
               <ArrowUpRight className="size-5" />
@@ -871,7 +925,7 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
           <CardContent>
             <div className="mb-3 flex flex-wrap gap-2">
               <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-                {formatNumber(data.codReconciliation.pendingCount)} pending shown
+                {formatNumber(data.codReconciliation.pendingCount)} pending
               </Badge>
               <Badge variant="outline">
                 {formatCurrency(data.codReconciliation.pendingAmount)} pending cash
@@ -883,7 +937,6 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
                   <TableHead>Order</TableHead>
                   <TableHead>Restaurant / rider</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -899,28 +952,11 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
                         <div className="text-xs text-muted-foreground">{row.riderName} {row.riderPhone ? `- ${row.riderPhone}` : ""}</div>
                       </TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(row.total)}</TableCell>
-                      <TableCell>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={codMutation.isPending}
-                          onClick={() =>
-                            codMutation.mutate({
-                              orderId: row.orderId,
-                              expectedPaymentStatus: row.paymentStatus,
-                              note: "Marked collected from Platform Finance COD reconciliation",
-                            })
-                          }
-                        >
-                          Mark paid
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={3} className="h-24 text-center text-muted-foreground">
                       COD collection is clear.
                     </TableCell>
                   </TableRow>
@@ -969,6 +1005,7 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
                       </TableCell>
                       <TableCell>
                         <div>{entry.reference || "N/A"}</div>
+                        <div className="text-xs text-muted-foreground">{entry.serviceAreaSnapshot?.zoneName || entry.serviceAreaSnapshot?.districtName || "Platform-wide"}</div>
                         <div className="text-xs text-muted-foreground">{entry.note || "No note"}</div>
                       </TableCell>
                       <TableCell className="text-right font-medium">{formatCurrency(entry.amount)}</TableCell>

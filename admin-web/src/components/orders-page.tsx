@@ -41,6 +41,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import {
   assignAdminOrderRider,
   getAdminOrder,
+  extendAdminOrderPreparation,
   listAdminActivityLogs,
   listAdminOrders,
   listAdminRidersAssignmentOptions,
@@ -878,6 +879,17 @@ function OrderDetailsSheet({
   onAssign: (order: OrderTarget) => void
   onRefund: (order: OrderTarget, paymentStatus: RefundStatus, label: string) => void
 }) {
+  const queryClient = useQueryClient()
+  const prepExtensionMutation = useMutation({
+    mutationFn: (minutes: 5 | 10 | 15) => extendAdminOrderPreparation({ orderId, minutes }),
+    onSuccess: () => {
+      toast.success("Preparation time extended")
+      void queryClient.invalidateQueries({ queryKey: ["admin-order", orderId] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders"] })
+      void queryClient.invalidateQueries({ queryKey: ["admin-orders-monitor"] })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not extend preparation time"),
+  })
   const detailsQuery = useQuery({
     queryKey: ["admin-order", orderId],
     queryFn: () => getAdminOrder(orderId),
@@ -1078,6 +1090,18 @@ function OrderDetailsSheet({
                 </div>
               </div>
 
+              {details.status === "Preparing" && prepTiming?.canExtend ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <Clock className="size-4 text-amber-700" />
+                  <span className="mr-2 text-sm font-medium">Add preparation time</span>
+                  {prepTiming.extensionOptions.filter((minutes) => [5, 10, 15].includes(minutes)).map((minutes) => (
+                    <Button key={minutes} size="sm" variant="outline" disabled={prepExtensionMutation.isPending} onClick={() => prepExtensionMutation.mutate(minutes as 5 | 10 | 15)}>
+                      +{minutes} min
+                    </Button>
+                  ))}
+                  <span className="text-xs text-muted-foreground">{Math.max(0, prepTiming.maxExtraMinutes - extraPrepMinutes)} min remaining</span>
+                </div>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-4">
                 <Card className="border-pink-100 bg-pink-50/60">
                   <CardContent className="flex items-center gap-3 p-4">

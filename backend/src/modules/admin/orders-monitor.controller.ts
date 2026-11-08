@@ -6,6 +6,7 @@ import { sendSuccess } from "../../common/utils/api-response";
 import { listAdminActivityLogs } from "./activity-log.service";
 import { reconcileAdminPlatformFinance } from "./restaurants.service";
 import { sendReviewRequestForOrder } from "../customer/push.service";
+import { extendAdminOrderPreparation } from "../owner/operational.service";
 import {
   assignAdminRiderToOrder,
   bulkAssignAdminRidersToOrders,
@@ -816,6 +817,12 @@ export const patchAdminOrderStatus = asyncHandler(
     });
   },
 );
+
+export const postAdminPreparationExtension = asyncHandler(async (req: Request, res: Response) => {
+  const payload = z.object({ minutes: z.union([z.literal(5), z.literal(10), z.literal(15)]) }).parse(req.body);
+  const data = await extendAdminOrderPreparation({ orderId: String(req.params.orderId ?? ""), minutes: payload.minutes, adminId: req.user?.id, ...getAdminAreaScope(req.query) });
+  return sendSuccess(res, { message: "Preparation time extended", data });
+});
 
 export const patchAdminOrderRefundStatus = asyncHandler(
   async (req: Request, res: Response) => {

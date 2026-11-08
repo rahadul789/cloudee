@@ -87,6 +87,9 @@ reviewSchema.index(
 
 const supportCaseSchema = new Schema(
   {
+    serviceAreaSnapshot: { type: Schema.Types.Mixed, default: null },
+    lastCustomerMessageAt: { type: Date, default: null },
+    lastAdminMessageAt: { type: Date, default: null },
     source: { type: String, enum: ["owner", "customer", "rider", "admin"], default: "owner" },
     // A customer-source case that an ADMIN opened (e.g. messaging from order details), so the
     // opening/root bubble is attributed to support, not falsely to the customer ("You").
@@ -186,6 +189,7 @@ supportCaseSchema.index({ slaDueAt: 1, status: 1 })
 supportCaseSchema.index({ customerId: 1, createdAt: -1 })
 supportCaseSchema.index({ riderId: 1, createdAt: -1 })
 supportCaseSchema.index({ orderId: 1, createdAt: -1 })
+supportCaseSchema.index({ "serviceAreaSnapshot.zoneId": 1, lastCustomerMessageAt: -1 })
 
 export const ReviewModel = mongoose.model("Review", reviewSchema)
 export const SupportCaseModel = mongoose.model("SupportCase", supportCaseSchema)

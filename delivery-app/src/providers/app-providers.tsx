@@ -13,9 +13,8 @@ import { queryClient } from "@/src/lib/query-client";
 // Registers the background location TaskManager task (used by RiderLocationController).
 import "@/src/lib/rider-background-location";
 
-// LIVE TRACKING (rebuilt): RiderLocationController is the single, foreground location
-// producer — it publishes the rider's position during an active delivery. Background
-// continuity (foreground-service) is added in a later step.
+// One controller owns online rider presence and active delivery tracking, including
+// the native foreground service used while the app is backgrounded.
 export function AppProviders({ children }: PropsWithChildren) {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -104,10 +104,13 @@ export function getRiderDelaySignal(
 
   if (order.status === "PickedUp") {
     const freshness = order.riderTracking?.freshness;
-    if (freshness?.state === "stale" || freshness?.isStale) {
+    const sampleAt = Date.parse(order.riderTracking?.lastUpdatedAt ?? "");
+    const ageSeconds = Number.isFinite(sampleAt) ? Math.max(0, (nowMs - sampleAt) / 1000) : freshness?.ageSeconds;
+    const stale = Number.isFinite(sampleAt) ? (ageSeconds ?? 0) > 120 : freshness?.state === "stale" || freshness?.isStale;
+    if (stale) {
       const staleMinutes =
-        typeof freshness.ageSeconds === "number"
-          ? Math.max(1, Math.round(freshness.ageSeconds / 60))
+        typeof ageSeconds === "number"
+          ? Math.max(1, Math.round(ageSeconds / 60))
           : null;
 
       return {

@@ -28,7 +28,7 @@ export function isRiderNativeLocationStalled(nowMs = Date.now()) {
 
 // Suspend only the GPS stream when falling back; retain the active delivery and
 // upload cadence. Full delivery completion uses stopRiderBackgroundLocationAsync.
-export async function suspendRiderNativeLocationAsync() {
+async function suspendRiderNativeLocationImpl() {
   try {
     if (await Location.hasStartedLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK)) {
       await Location.stopLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK);
@@ -85,6 +85,12 @@ let backgroundRefreshBackoffUntilMs = 0;
 const MIN_TASK_PROCESS_INTERVAL_MS = 3000;
 let lastTaskProcessedAtMs = 0;
 let locationProcessing = false;
+let nextLocation: Location.LocationObject | null = null;
+let nativeLifecycle: Promise<unknown> = Promise.resolve();
+let uploadBackoffUntilMs = 0;
+let pickupPreparation: { config: Parameters<typeof startRiderBackgroundLocationImpl>[0]; untilMs: number } | null = null;
+let freshFixPromise: Promise<Location.LocationObject | null> | null = null;
+let trackingOrderId: string | null | undefined;
 let lastWarningAtMs = 0;
 
 function warnTrackingFailure(reason: string, status?: number) {
@@ -247,7 +253,11 @@ async function performBackgroundRefresh(refreshToken: string): Promise<string | 
     return null;
   }
 
-  const body = (await response.json().catch(() => null)) as {
+  let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+  const body = (await Promise.race([
+    response.json().catch(() => null),
+    new Promise<null>((resolve) => { bodyTimer = setTimeout(() => resolve(null), 3_000); }),
+  ]).finally(() => { if (bodyTimer) clearTimeout(bodyTimer); })) as {
     data?: {
       accessToken?: string;
       refreshToken?: string;
@@ -296,17 +306,13 @@ async function getBackgroundAccessToken(): Promise<string | null> {
   const auth = await getPersistedAuth();
   const accessToken = auth?.state?.accessToken;
   const refreshToken = auth?.state?.refreshToken;
-  if (!refreshToken) return null;
-
   if (accessToken && isAccessTokenFresh(accessToken, ACCESS_TOKEN_REFRESH_BUFFER_MS)) {
     return accessToken;
   }
 
-  if (Date.now() < backgroundRefreshBackoffUntilMs) {
-    return null;
-  }
-
-  return runBackgroundRefreshOnce(refreshToken);
+  const stillValid = accessToken && isAccessTokenFresh(accessToken, 0) ? accessToken : null;
+  if (!refreshToken || Date.now() < backgroundRefreshBackoffUntilMs) return stillValid;
+  return (await runBackgroundRefreshOnce(refreshToken)) ?? stillValid;
 }
 
 async function persistPendingBackgroundLocation(payload: BackgroundLocationPayload) {
@@ -326,7 +332,17 @@ async function clearPendingBackgroundLocation() {
   pendingNeedsClear = false;
 }
 
-async function writeSendPolicy(policy: SendPolicy) {
+function normalizeSendPolicy(policy: Partial<SendPolicy>): SendPolicy {
+  const clamp = (value: unknown, fallback: number, min: number, max: number) =>
+    typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+  return { moveThresholdMeters: clamp(policy.moveThresholdMeters, DEFAULT_MOVE_THRESHOLD_METERS, 20, 100),
+    heartbeatMs: clamp(policy.heartbeatMs, DEFAULT_HEARTBEAT_MS, 15_000, 45_000) };
+}
+
+async function writeSendPolicy(input: SendPolicy) {
+  const policy = normalizeSendPolicy(input);
+  if (cachedSendPolicy?.moveThresholdMeters === policy.moveThresholdMeters &&
+      cachedSendPolicy?.heartbeatMs === policy.heartbeatMs) return;
   cachedSendPolicy = policy;
   await secureStateStorage.setItem(
     BACKGROUND_SEND_POLICY_KEY,
@@ -340,16 +356,7 @@ async function readSendPolicy(): Promise<SendPolicy> {
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as Partial<SendPolicy>;
-      cachedSendPolicy = {
-        moveThresholdMeters:
-          typeof parsed.moveThresholdMeters === "number"
-            ? parsed.moveThresholdMeters
-            : DEFAULT_MOVE_THRESHOLD_METERS,
-        heartbeatMs:
-          typeof parsed.heartbeatMs === "number"
-            ? parsed.heartbeatMs
-            : DEFAULT_HEARTBEAT_MS,
-      };
+      cachedSendPolicy = normalizeSendPolicy(parsed);
       return cachedSendPolicy;
     } catch {
       // fall through to defaults
@@ -384,6 +391,7 @@ async function sendBackgroundLocationPayload(
   // Proactively resolve a fresh token (single-flight + backoff). Returns null while a
   // refresh backoff window is open (e.g. after a 429), so we skip the send instead of
   // hammering the refresh endpoint — the caller queues it as pending.
+  if (Date.now() < uploadBackoffUntilMs) return false;
   const accessToken = await getBackgroundAccessToken();
 
   if (!accessToken) {
@@ -416,10 +424,11 @@ async function sendBackgroundLocationPayload(
 
   if (!response?.ok) {
     warnTrackingFailure("Location upload failed", response?.status);
+    if (response?.status === 429) uploadBackoffUntilMs = Date.now() + resolveRefreshBackoffMs(response);
     return false;
   }
 
-  // Lifecycle is owned solely by RiderLocationBridge (it starts/stops based on
+  // Lifecycle is owned solely by RiderLocationController (it starts/stops based on
   // whether the rider has any active delivery). The task no longer self-stops on a
   // single "no active order" response — that used to kill tracking during the brief
   // window between one order being delivered and the next being promoted, so the
@@ -428,6 +437,8 @@ async function sendBackgroundLocationPayload(
 }
 
 async function sendBackgroundLocation(location: Location.LocationObject) {
+  // Android may deliver a cached/batched fix. Never relabel an old GPS sample as live.
+  if (typeof location.timestamp === "number" && Date.now() - location.timestamp > 45_000) return;
   const latestPayload = getRiderLocationPayload(location);
   const now = Date.now();
 
@@ -488,15 +499,20 @@ async function sendBackgroundLocation(location: Location.LocationObject) {
 // Both native tasks and the foreground fallback use the same quality gate,
 // cadence and single-flight upload path. Slow PATCHes cannot pile up callbacks.
 export async function publishRiderLocationAsync(location: Location.LocationObject) {
-  const nowMs = Date.now();
-  if (locationProcessing || nowMs - lastTaskProcessedAtMs < MIN_TASK_PROCESS_INTERVAL_MS) return;
-  lastTaskProcessedAtMs = nowMs;
+  // Coalesce fixes arriving during slow mobile uploads instead of dropping the
+  // newest position. One upload at a time, with a bounded drain per native task.
+  if (locationProcessing) { nextLocation = location; return; }
+  if (Date.now() - lastTaskProcessedAtMs < MIN_TASK_PROCESS_INTERVAL_MS) return;
   locationProcessing = true;
   try {
-    await sendBackgroundLocation(location);
-  } finally {
-    locationProcessing = false;
-  }
+    let current: Location.LocationObject | null = location;
+    for (let pass = 0; current && pass < 2; pass++) {
+      nextLocation = null;
+      lastTaskProcessedAtMs = Date.now();
+      await sendBackgroundLocation(current);
+      current = nextLocation;
+    }
+  } finally { locationProcessing = false; }
 }
 
 TaskManager.defineTask(
@@ -508,11 +524,14 @@ TaskManager.defineTask(
     }
 
     const locations = data?.locations ?? [];
-    const latestLocation = locations[locations.length - 1];
+    const latestLocation = locations.reduce<Location.LocationObject | undefined>((latest, candidate) =>
+      !latest || (candidate.timestamp ?? 0) >= (latest.timestamp ?? 0) ? candidate : latest, undefined);
     if (!latestLocation) {
       return;
     }
-    lastNativeFixAtMs = Date.now();
+    if (typeof latestLocation.timestamp !== "number" || Date.now() - latestLocation.timestamp <= 45_000) {
+      lastNativeFixAtMs = Date.now();
+    }
 
     await publishRiderLocationAsync(latestLocation).catch(() => {
       warnTrackingFailure("Native location processing failed");
@@ -520,7 +539,41 @@ TaskManager.defineTask(
   },
 );
 
+// One shared, bounded sampler for pickup and the foreground watchdog. It never
+// falls back to an old last-known coordinate just to make tracking appear fresh.
+export async function getFreshRiderLocationAsync(accuracy = Location.Accuracy.High) {
+  if (freshFixPromise) return freshFixPromise;
+  freshFixPromise = (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if ((await Location.getForegroundPermissionsAsync()).status !== "granted") return null;
+      const fix = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy }),
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 5_000); }),
+      ]);
+      if (!fix || (typeof fix.timestamp === "number" && Date.now() - fix.timestamp > 30_000)) return null;
+      const payload = getRiderLocationPayload(fix);
+      return shouldAcceptFix({ ...payload, nowMs: Date.now(), last: null, consecutiveRejects: 0 }) ? fix : null;
+    } catch { return null; }
+    finally { if (timer) clearTimeout(timer); }
+  })();
+  try { return await freshFixPromise; } finally { freshFixPromise = null; }
+}
+
+export async function refreshRiderLocationAsync({ accuracy, force = false }: {
+  accuracy?: Location.Accuracy; force?: boolean;
+} = {}) {
+  const policy = await readSendPolicy();
+  if (!force && cachedLastSent && Date.now() - cachedLastSent.sentAtMs < policy.heartbeatMs) return;
+  const fix = await getFreshRiderLocationAsync(accuracy);
+  if (fix) await publishRiderLocationAsync(fix);
+}
+
 export async function setRiderBackgroundTrackingOrderId(orderId: string | null) {
+  if (trackingOrderId === orderId) return;
+  trackingOrderId = orderId;
+  cachedLastSent = null;
+  lastTaskProcessedAtMs = 0;
   if (orderId) {
     await secureStateStorage.setItem(BACKGROUND_TRACKING_ORDER_KEY, orderId);
     return;
@@ -561,7 +614,7 @@ async function hasBackgroundPermission() {
   return background.status === "granted";
 }
 
-export async function startRiderBackgroundLocationAsync({
+async function startRiderBackgroundLocationImpl({
   timeIntervalMs = 30000,
   distanceIntervalMeters = DEFAULT_MOVE_THRESHOLD_METERS,
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
@@ -579,7 +632,9 @@ export async function startRiderBackgroundLocationAsync({
   // when the application is in the background". We skip here and let the screen
   // restart tracking when the app returns to the foreground.
   if (Platform.OS === "android" && AppState.currentState !== "active") {
-    return false;
+    // A running service is healthy lifecycle state while locked. Do not stop it
+    // or try to recreate it just because the activity is no longer visible.
+    return Location.hasStartedLocationUpdatesAsync(RIDER_BACKGROUND_LOCATION_TASK).catch(() => false);
   }
 
   try {
@@ -627,12 +682,15 @@ export async function startRiderBackgroundLocationAsync({
       // Sample while stationary too; movement and heartbeat throttle uploads in
       // JS, with a single-flight/3s guard before any expensive processing.
       distanceInterval: 0,
+      deferredUpdatesInterval: 0,
+      deferredUpdatesDistance: 0,
       pausesUpdatesAutomatically: false,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
         notificationTitle: "Foodbela Rider live tracking",
         notificationBody,
         notificationColor: "#0f766e",
+        killServiceOnDestroy: false,
       },
     });
     activeStreamSignature = signature;
@@ -648,7 +706,7 @@ export async function startRiderBackgroundLocationAsync({
   }
 }
 
-export async function stopRiderBackgroundLocationAsync() {
+async function stopRiderBackgroundLocationImpl() {
   activeStreamSignature = "";
   nativeStreamStartedAtMs = 0;
   lastNativeFixAtMs = 0;
@@ -670,4 +728,52 @@ export async function stopRiderBackgroundLocationAsync() {
   await setRiderBackgroundTrackingOrderId(null);
   await clearPendingBackgroundLocation();
   await clearLastSentLocation();
+  nextLocation = null;
+  lastAcceptedFix = null;
+  consecutiveRejects = 0;
+}
+
+// Pickup, app resume and recovery share a single native lifecycle queue.
+function runNativeLifecycle<T>(work: () => Promise<T>): Promise<T> {
+  const result = nativeLifecycle.then(work, work);
+  nativeLifecycle = result.catch(() => undefined);
+  return result;
+}
+export function startRiderBackgroundLocationAsync(options?: Parameters<typeof startRiderBackgroundLocationImpl>[0]) {
+  return runNativeLifecycle(() => startRiderBackgroundLocationImpl(
+    isRiderPickupPreparing() ? pickupPreparation!.config : options));
+}
+export function isRiderPickupPreparing() {
+  return pickupPreparation !== null && Date.now() < pickupPreparation.untilMs;
+}
+export async function withRiderPickupTrackingAsync<T>(config: Parameters<typeof startRiderBackgroundLocationImpl>[0], pickup: () => Promise<T>): Promise<T> {
+  const preparation = { config, untilMs: Date.now() + 120_000 };
+  pickupPreparation = preparation;
+  try { await prepareRiderPickupTrackingAsync(config); return await pickup(); }
+  finally { if (pickupPreparation === preparation) pickupPreparation = null; }
+}
+
+// This runs from the rider's pickup tap, before committing the pickup. Permissions
+// must already be enabled through the access card; lifecycle checks never prompt.
+export async function prepareRiderPickupTrackingAsync(options?: Parameters<typeof startRiderBackgroundLocationImpl>[0]) {
+  if (Platform.OS === "web") return;
+  if (!(await Location.hasServicesEnabledAsync())) throw new Error("Turn on your phone's location before pickup.");
+  const permission = await Location.getForegroundPermissionsAsync();
+  if (permission.status !== "granted") throw new Error("Allow location access before pickup.");
+  if (Platform.OS === "android" && permission.android?.accuracy === "coarse") {
+    throw new Error("Enable Use precise location in the app's location settings before pickup.");
+  }
+  if ((await Location.getBackgroundPermissionsAsync()).status !== "granted") {
+    throw new Error("Allow location all the time before pickup so tracking continues when the screen locks.");
+  }
+  if (!await startRiderBackgroundLocationAsync(options)) {
+    throw new Error("Live tracking could not start. Keep the app open and check location permissions before retrying pickup.");
+  }
+}
+
+export function stopRiderBackgroundLocationAsync() {
+  return runNativeLifecycle(stopRiderBackgroundLocationImpl);
+}
+export function suspendRiderNativeLocationAsync() {
+  return runNativeLifecycle(suspendRiderNativeLocationImpl);
 }

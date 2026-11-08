@@ -109,6 +109,12 @@ const restaurantMetricsSchema = new Schema(
 
 const platformFinanceEntrySchema = new Schema(
   {
+    serviceAreaSnapshot: {
+      zoneId: { type: String, default: "" },
+      zoneName: { type: String, default: "" },
+      districtId: { type: String, default: "" },
+      districtName: { type: String, default: "" }
+    },
     direction: {
       type: String,
       enum: ["credit", "debit"],
@@ -153,6 +159,8 @@ const platformFinanceEntrySchema = new Schema(
 platformFinanceEntrySchema.index({ occurredAt: -1, createdAt: -1 })
 platformFinanceEntrySchema.index({ direction: 1, category: 1, occurredAt: -1 })
 platformFinanceEntrySchema.index({ status: 1, occurredAt: -1 })
+platformFinanceEntrySchema.index({ "serviceAreaSnapshot.zoneId": 1, occurredAt: -1 })
+platformFinanceEntrySchema.index({ "serviceAreaSnapshot.districtId": 1, occurredAt: -1 })
 platformFinanceEntrySchema.index(
   { sourceEntityType: 1, sourceEntityId: 1 },
   {

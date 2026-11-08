@@ -7,9 +7,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
+import { getFreshRiderLocationAsync, withRiderPickupTrackingAsync, setRiderBackgroundTrackingOrderId, startRiderBackgroundLocationAsync } from "@/src/lib/rider-background-location";
+import { getRiderLocationPayload } from "@/src/lib/rider-location-payload";
 import { apiDelete, apiGet, apiPost } from "@/src/lib/api";
 import { buildQueryString } from "@/src/lib/query-params";
-import type { RiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
+import { buildActiveTrackingConfig, normalizeRiderLiveTrackingPolicy, type RiderLiveTrackingPolicy } from "@/src/lib/live-tracking-policy";
 import {
   resolvePlatformMapStyle,
   type DeliveryMapStyleContext,
@@ -334,6 +336,19 @@ function mergeRiderOrder(current: RiderOrder | undefined, nextOrder: RiderOrder)
       ...(nextOrder.timestamps ?? {}),
     },
   };
+}
+
+export function patchRiderTrackingCaches(queryClient: QueryClient, orderId: string, riderTracking: RiderOrder["riderTracking"]) {
+  const merge = (order: RiderOrder | undefined) => {
+    if (!order || order.status !== "PickedUp") return order;
+    const previousAt = Date.parse(order.riderTracking?.lastUpdatedAt ?? "");
+    const nextAt = Date.parse(riderTracking?.lastUpdatedAt ?? "");
+    if (Number.isFinite(previousAt) && nextAt < previousAt) return order;
+    return { ...order, riderTracking: { ...order.riderTracking, ...riderTracking } };
+  };
+  queryClient.setQueryData<RiderOrder>(["rider", "order", orderId], merge);
+  queryClient.setQueryData<RiderOrder[]>(["rider", "orders", "active"], (orders) =>
+    orders?.map((order) => order.id === orderId ? merge(order)! : order));
 }
 
 export function patchRiderOrderCaches(
@@ -788,7 +803,10 @@ export function useMarkReadyMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (orderId: string) => (await apiPost<RiderOrder>(`/rider/orders/${orderId}/ready`)).data,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["rider"] }); },
+    onSuccess: (order, orderId) => {
+      queryClient.setQueryData(["rider", "order", orderId], order);
+      queryClient.invalidateQueries({ queryKey: ["rider"] });
+    },
   });
 }
 
@@ -806,11 +824,22 @@ export function usePickupOrderMutation() {
         speedKmph?: number;
       };
     }) => {
-      const response = await apiPost<RiderOrder>(
-        `/rider/orders/${params.orderId}/pickup`,
-        params.location,
-      );
-      return response.data;
+      const content = queryClient.getQueryData<PlatformContentResponse>(["platform-content", "rider"]);
+      const trackingConfig = buildActiveTrackingConfig(normalizeRiderLiveTrackingPolicy(content?.operations?.liveTracking));
+      return withRiderPickupTrackingAsync(trackingConfig, async () => {
+        const fix = params.location ? null : await getFreshRiderLocationAsync();
+        if (!params.location && !fix) throw new Error("Waiting for an accurate GPS fix. Move to a clear location and try pickup again.");
+        const response = await apiPost<RiderOrder>(
+          `/rider/orders/${params.orderId}/pickup`,
+          params.location ?? (fix ? getRiderLocationPayload(fix) : undefined),
+        );
+        // Publish local pickup state before resolving the mutation, then persist the
+        // delivery identity. A lock immediately after pickup retains the native stream.
+        patchRiderOrderCaches(queryClient, response.data);
+        await setRiderBackgroundTrackingOrderId(response.data.id).catch(() => undefined);
+        await startRiderBackgroundLocationAsync(trackingConfig).catch(() => undefined);
+        return response.data;
+        });
     },
     onSuccess: (data: RiderOrder) => {
       patchRiderOrderCaches(queryClient, data, { invalidateLiveMap: true });

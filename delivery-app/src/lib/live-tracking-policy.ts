@@ -10,12 +10,7 @@ export type RiderLiveTrackingPolicy = {
 export const DEFAULT_RIDER_LIVE_TRACKING_POLICY = {
   mode: "balanced" as const,
   updateIntervalSeconds: 15,
-  // Tighter last-mile cadence. A 60m move threshold + 60s heartbeat made a slow /
-  // near-stationary rider (walking the last block, waiting at a gate) update the
-  // customer only once a minute — that was the "location shares but is slow" report.
-  // 30m/25s keeps the customer marker + ETA fresh without touching accuracy (still
-  // Balanced), so the documented "High accuracy froze the JS thread" regression stays
-  // fixed.
+  // Upload cadence is independent of GPS precision; stationary fixes still refresh.
   distanceIntervalMeters: 30,
   passiveHeartbeatSeconds: 25,
 };
@@ -26,16 +21,11 @@ function clamp(value: unknown, fallback: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.round(numeric)));
 }
 
-// Accuracy per admin mode. IMPORTANT: the default ("balanced") maps to Balanced, NOT
-// High. A regression that pushed "balanced" up to High made the OS stream GPS fixes
-// almost continuously, and since each fix runs work on the JS thread that froze the whole
-// app after pickup. Balanced still places the marker on the road for delivery but lets
-// the OS deliver on the requested interval instead of firing constantly. Only the
-// explicit "high_accuracy" admin mode opts into the heavier continuous GPS.
+// Active deliveries need GPS precision. Upload work remains bounded by the
+// native interval and the single-flight processing gate, independently of accuracy.
 export function accuracyForMode(mode: string | undefined) {
-  if (mode === "high_accuracy") return Location.Accuracy.High;
-  if (mode === "battery_saver") return Location.Accuracy.Low;
-  return Location.Accuracy.Balanced;
+  if (mode === "battery_saver") return Location.Accuracy.Balanced;
+  return Location.Accuracy.High;
 }
 
 // One canonical config for the active-delivery background stream, so every caller
@@ -45,9 +35,9 @@ export function buildActiveTrackingConfig(
   policy: ReturnType<typeof normalizeRiderLiveTrackingPolicy>,
 ) {
   return {
-    timeIntervalMs: policy.updateIntervalSeconds * 1000,
+    timeIntervalMs: Math.min(policy.updateIntervalSeconds, 30) * 1000,
     distanceIntervalMeters: policy.distanceIntervalMeters,
-    heartbeatMs: policy.passiveHeartbeatSeconds * 1000,
+    heartbeatMs: Math.min(policy.passiveHeartbeatSeconds, 30) * 1000,
     accuracy: accuracyForMode(policy.mode),
   };
 }
@@ -73,7 +63,7 @@ export function normalizeRiderLiveTrackingPolicy(
       policy?.passiveHeartbeatSeconds,
       DEFAULT_RIDER_LIVE_TRACKING_POLICY.passiveHeartbeatSeconds,
       15,
-      180,
+      45,
     ),
   };
 }

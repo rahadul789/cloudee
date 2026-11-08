@@ -1372,7 +1372,7 @@ function ContextDetail({
         <Pressable
           style={styles.primaryAction}
           disabled={readyMutation.isPending}
-          onPress={() => Alert.alert("Food ready?", "Confirm the restaurant has finished preparing this order.", [
+          onPress={() => Alert.alert("Food ready?", "Confirm the food is ready. This order will be assigned to you.", [
             { text: "Cancel", style: "cancel" },
             { text: "Food ready", onPress: () => readyMutation.mutate(context.id, {
               onError: (error) => Alert.alert("Unable to mark ready", error.message),

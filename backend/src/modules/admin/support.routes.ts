@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../../common/middleware/auth"
 import {
   getAdminSupportCase,
   getAdminSupportCases,
+  getAdminSupportSummary,
   patchAdminSupportCase,
   postAdminOrderCustomerMessage,
   postAdminSupportInternalNote,
@@ -14,6 +15,7 @@ export const adminSupportRouter = Router()
 
 adminSupportRouter.use(requireAuth, requireRole("admin"))
 adminSupportRouter.get("/support-cases", getAdminSupportCases)
+adminSupportRouter.get("/support-cases/summary", getAdminSupportSummary)
 adminSupportRouter.get("/support-cases/:supportCaseId", getAdminSupportCase)
 adminSupportRouter.patch("/support-cases/:supportCaseId", patchAdminSupportCase)
 adminSupportRouter.post("/support-cases/:supportCaseId/reply", postAdminSupportReply)

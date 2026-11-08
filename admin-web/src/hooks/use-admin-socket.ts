@@ -25,6 +25,8 @@ function invalidateAdminRealtimeQueries(
 
   if (payload?.entityType === "support_case" || payload?.path?.startsWith("/support")) {
     void queryClient.invalidateQueries({ queryKey: ["admin-support-cases"] })
+    void queryClient.invalidateQueries({ queryKey: ["admin-support-summary"] })
+    if (payload.entityId) void queryClient.invalidateQueries({ queryKey: ["admin-support-case", payload.entityId] })
   }
   if (payload?.entityType === "review" || payload?.path?.startsWith("/reviews")) {
     void queryClient.invalidateQueries({ queryKey: ["admin-reviews"] })
