@@ -26,7 +26,7 @@ const ACCENTS: Record<NeonAccent, { color: string; onColor: string }> = {
   // amber = priority / urgent, green = savings / unlocked, pink = referral / social.
   amber: { color: "#FFC94D", onColor: "#1B1426" },
   green: { color: "#35D6A4", onColor: "#0C241C" },
-  pink: { color: "#FF6392", onColor: "#2A0F1A" },
+  pink: { color: "#A86300", onColor: "#2A0F1A" },
 };
 
 export function NeonStickerCard({
@@ -171,19 +171,19 @@ const styles = StyleSheet.create({
   eyebrowText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.6,
   },
   title: {
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   body: {
     fontSize: 12.5,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "#C9C2D6",
   },
 });

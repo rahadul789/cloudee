@@ -1,14 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import Constants from "expo-constants";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Image,
   InteractionManager,
   Linking,
-  Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -17,11 +16,14 @@ import {
 } from "react-native";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { AccountRewardsCard } from "@/src/components/rewards/account-rewards-card";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { PressableScale } from "@/src/components/pressable-scale";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
+import { AppDialog } from "@/src/components/ui";
 import {
   useCustomerFavoriteRestaurantIdsQuery,
   useCustomerCustomOfferSummaryQuery,
@@ -35,11 +37,6 @@ import {
   useCustomerReferralSummaryQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
-import {
-  formatOfferExpiry,
-  getOfferAmountLabel,
-  getOfferCodeLabel,
-} from "@/src/lib/customer-offer-copy";
 import { dedupeById } from "@/src/lib/dedupe";
 import { formatDeliveryAddress } from "@/src/lib/location-address";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
@@ -47,6 +44,7 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { usePaymentPreferencesStore } from "@/src/store/payment-preferences-store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { palette } from "@/src/theme/palette";
 
 const bkashLogo = require("../../assets/images/bkash.png");
@@ -103,6 +101,7 @@ function useDeferredProfileWork(enabled: boolean) {
 }
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const navigate = useCallback(
     (target: Parameters<typeof router.push>[0]) => {
@@ -216,64 +215,11 @@ export default function ProfileScreen() {
         ),
     [personalOffers],
   );
-  const activeHighlightedOffer = activePersonalOffers[0];
   const activeOfferCount = activePersonalOffers.length;
   const customOfferSummary = customOfferSummaryQuery.data;
-  const customOfferProgressPercent = Math.round(
-    Math.max(0, Math.min(customOfferSummary?.progressRatio ?? 0, 1)) * 100,
-  );
   const shouldShowCustomOfferSection =
     customOfferSummary?.enabled !== false &&
     customOfferSummary?.profileSectionEnabled !== false;
-  const canRequestCustomOffer =
-    customOfferSummary?.enabled !== false &&
-    customOfferSummary?.status === "eligible";
-  const customOfferTitle = useMemo(() => {
-    if (customOfferSummary?.status === "requested") {
-      return "Request sent";
-    }
-    if (customOfferSummary?.status === "eligible") {
-      return "Offer unlocked";
-    }
-    if (activeHighlightedOffer) {
-      return getOfferCodeLabel(activeHighlightedOffer);
-    }
-    if (customOfferSummary?.status === "ready") {
-      return getOfferCodeLabel(customOfferSummary);
-    }
-    return "My offer";
-  }, [customOfferSummary, activeHighlightedOffer]);
-  const customOfferMeta = useMemo(() => {
-    if (customOfferSummary?.status === "requested") {
-      return "In review";
-    }
-    if (customOfferSummary?.status === "eligible") {
-      return activeOfferCount > 0
-        ? "Request your next voucher"
-        : "Ready to request";
-    }
-    if (activeHighlightedOffer) {
-      return `${getOfferAmountLabel(activeHighlightedOffer)} - ${formatOfferExpiry(
-        activeHighlightedOffer.voucherExpiresAt,
-      )}`;
-    }
-    if (customOfferSummary?.status === "ready") {
-      return `${getOfferAmountLabel(customOfferSummary)} - ${formatOfferExpiry(
-        customOfferSummary.voucherExpiresAt,
-      )}`;
-    }
-    if (!deferredProfileWorkReady || customOfferSummaryQuery.isLoading) {
-      return "Checking orders";
-    }
-    const remaining = customOfferSummary?.remainingOrderCount ?? 10;
-    return `${remaining} ${remaining === 1 ? "order" : "orders"} left`;
-  }, [
-    customOfferSummary,
-    customOfferSummaryQuery.isLoading,
-    deferredProfileWorkReady,
-    activeHighlightedOffer,
-    activeOfferCount,
-  ]);
   const favoriteCount = favoriteRestaurantIdsQuery.data?.length ?? 0;
   const referralSummary = referralSummaryQuery.data;
   const isReferralSummaryLoading =
@@ -283,6 +229,7 @@ export default function ProfileScreen() {
   const referralRewardLabel = referralSummary
     ? `Tk ${Math.round(referralSummary.rewardAmount)}`
     : "Reward";
+  const referralBadge = referralSummary ? `৳${Math.round(referralSummary.rewardAmount)}` : undefined;
 
   const displayName = useMemo(
     () => getCustomerDisplayName(customer?.fullName),
@@ -339,6 +286,7 @@ export default function ProfileScreen() {
     [navigate],
   );
   const openOffers = useCallback(() => navigate("/offers"), [navigate]);
+  const openRewards = useCallback(() => navigate("/rewards"), [navigate]);
   const openProfileEdit = useCallback(
     () => navigate("/profile-edit"),
     [navigate],
@@ -409,33 +357,28 @@ export default function ProfileScreen() {
       switch (item) {
         case "hero":
           return (
-            <View style={styles.hero}>
-              <View pointerEvents="none" style={styles.heroGlowPrimary} />
-              <View pointerEvents="none" style={styles.heroGlowSecondary} />
+            <View style={[styles.hero, { paddingTop: insets.top + 10 }]}>
               <View style={styles.heroTopRow}>
-                <Text style={styles.kicker}>Profile</Text>
+                <Text style={styles.heroTitle}>Account</Text>
                 <PressableScale
-                  scaleTo={0.95}
-                  style={styles.heroGhostButton}
+                  scaleTo={0.92}
+                  style={styles.heroIconButton}
                   onPress={openNotifications}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"
+                  }
                 >
-                  <Ionicons
-                    name="notifications-outline"
-                    size={16}
-                    color={palette.foreground}
-                  />
-                  <Text style={styles.heroGhostButtonText}>Alerts</Text>
+                  <Ionicons name="notifications-outline" size={20} color={palette.onPrimary} />
                   {unreadCount > 0 ? (
-                    <View style={styles.heroGhostBadge}>
-                      <Text style={styles.heroGhostBadgeText}>
-                        {unreadCount > 99 ? "99+" : unreadCount}
-                      </Text>
+                    <View style={styles.heroBadge}>
+                      <Text style={styles.heroBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
                     </View>
                   ) : null}
                 </PressableScale>
               </View>
 
-              <View style={styles.identityCard}>
+              <View style={styles.identityRow}>
                 <View style={styles.avatar}>
                   {customer.profileImage?.url ? (
                     <RemoteImage
@@ -449,351 +392,233 @@ export default function ProfileScreen() {
                     <Text style={styles.avatarText}>{initials}</Text>
                   )}
                 </View>
-
                 <View style={styles.identityCopy}>
-                  <View style={styles.nameRow}>
-                    <Text style={styles.name} numberOfLines={2}>
-                      {displayName}
-                    </Text>
-                    <PressableScale
-                      scaleTo={0.9}
-                      style={styles.nameEditButton}
-                      onPress={openProfileEdit}
-                      hitSlop={10}
-                      accessibilityRole="button"
-                      accessibilityLabel="Edit your name"
-                    >
-                      <Ionicons
-                        name="create-outline"
-                        size={17}
-                        color={palette.foreground}
-                      />
-                    </PressableScale>
-                  </View>
-                  <Text style={styles.subtitle}>
-                    Keep your account, notifications, rewards, and support
-                    details in one place.
+                  <Text style={styles.name} numberOfLines={1}>
+                    {displayName}
                   </Text>
-
-                  <View style={styles.heroPillRow}>
-                    <InfoPill
-                      icon="location-outline"
-                      text={heroLocationText}
-                      onPress={openLocationPicker}
-                    />
+                  <View style={styles.phoneRow}>
+                    <Text style={styles.phoneText} numberOfLines={1}>
+                      {customer.phone}
+                    </Text>
+                    <View style={styles.verifiedChip}>
+                      <Ionicons name="checkmark-circle" size={12} color={palette.successText} />
+                      <Text style={styles.verifiedText}>Verified</Text>
+                    </View>
                   </View>
                 </View>
+                <PressableScale
+                  scaleTo={0.92}
+                  style={styles.editButton}
+                  onPress={openProfileEdit}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit profile"
+                >
+                  <Ionicons name="create-outline" size={15} color={palette.onPrimary} />
+                  <Text style={styles.editButtonText}>Edit</Text>
+                </PressableScale>
               </View>
+
+              <PressableScale
+                scaleTo={0.98}
+                style={styles.locationBar}
+                onPress={openLocationPicker}
+                accessibilityRole="button"
+                accessibilityLabel="Change delivery point"
+              >
+                <Ionicons name="location" size={15} color={palette.onPrimary} />
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {heroLocationText}
+                </Text>
+                <Text style={styles.locationAction}>Change</Text>
+              </PressableScale>
             </View>
           );
         case "offer":
           return (
-            <PressableScale
-              scaleTo={0.98}
-              style={styles.offerPeekCard}
-              onPress={openOffers}
-            >
-              {activeOfferCount > 0 ? (
-                <View style={styles.offerCountBadge}>
-                  <Text style={styles.offerCountBadgeText}>
-                    {activeOfferCount}
-                  </Text>
-                </View>
-              ) : null}
-              <View style={styles.offerPeekHeader}>
-                <View style={styles.offerPeekIcon}>
-                  <Ionicons
-                    name="ticket-outline"
-                    size={21}
-                    color={palette.secondary}
-                  />
-                </View>
-                <View style={styles.offerPeekCopy}>
-                  <Text style={styles.offerPeekLabel}>My offer</Text>
-                  <Text style={styles.offerPeekTitle} numberOfLines={1}>
-                    {customOfferTitle}
-                  </Text>
-                  <Text style={styles.offerPeekMeta} numberOfLines={1}>
-                    {customOfferMeta}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#D7DBE5" />
-              </View>
-
-              <View style={styles.offerProgressHeader}>
-                <Text style={styles.offerProgressLabel}>
-                  {customOfferSummary?.status === "ready" ||
-                  activeHighlightedOffer
-                    ? "Ready"
-                    : customOfferSummary?.status === "requested"
-                      ? "Request sent"
-                      : canRequestCustomOffer
-                        ? "Ready to request"
-                        : `${customOfferSummary?.remainingOrderCount ?? 10} ${
-                            (customOfferSummary?.remainingOrderCount ?? 10) ===
-                            1
-                              ? "order"
-                              : "orders"
-                          } left to unlock`}
-                </Text>
-                <Text style={styles.offerProgressCount}>
-                  {customOfferSummary?.completedOrderCount ?? 0}/
-                  {customOfferSummary?.targetOrderCount ?? 10}
-                </Text>
-              </View>
-              <View style={styles.offerProgressTrack}>
-                <View
-                  style={[
-                    styles.offerProgressFill,
-                    { width: `${customOfferProgressPercent}%` },
-                  ]}
-                />
-              </View>
-              <Text style={styles.offerDetailHint}>View</Text>
-            </PressableScale>
+            <View style={styles.gutter}>
+              <AccountRewardsCard onOpenRewards={openRewards} />
+            </View>
           );
         case "overview":
           return (
-            <View style={styles.section}>
-              <SectionHeader
-                title="Overview"
-                subtitle="Quick signals for the things you use most."
-              />
-
-              {!isOnline ? (
-                <View style={styles.sectionNoticeWrap}>
-                  <OfflineNoticeCard description="Showing your saved profile details. Reconnect to refresh alerts and update account changes." />
-                </View>
-              ) : null}
-
-              <View style={styles.overviewGrid}>
-                <OverviewCard
-                  icon="call-outline"
-                  label="Phone"
-                  value={customer.phone}
-                  caption="Verified"
-                  tint="#E8F1FF"
+            <View style={styles.gutter}>
+              <View style={styles.quickRow}>
+                <QuickTile
+                  icon="pricetags-outline"
+                  label="Vouchers"
+                  badge={activeOfferCount}
+                  onPress={openOffers}
                 />
-                <OverviewCard
+                <QuickTile
                   icon="heart-outline"
-                  label="Favorites"
-                  value={`${favoriteCount}`}
-                  caption="Saved restaurants"
-                  tint="#FFF1C9"
+                  label="Favourites"
+                  badge={favoriteCount}
+                  badgeMuted
                   onPress={openFavoriteRestaurants}
                 />
                 {isReferralSummaryLoading ? (
-                  <ReferralOverviewCardSkeleton />
+                  <ShimmerBlock style={styles.quickTileSkeleton} />
                 ) : shouldShowReferral ? (
-                  <OverviewCard
+                  <QuickTile
                     icon="gift-outline"
                     label="Refer"
-                    value={referralRewardLabel}
-                    caption="Per reward"
-                    tint="#FFF0F6"
-                    highlight
+                    badgeText={referralBadge}
                     onPress={openReferrals}
                   />
                 ) : null}
-                <OverviewCard
-                  icon="help-circle-outline"
-                  label="Help center"
-                  value="Open"
-                  caption="Support and guides"
-                  tint="#E8FFF1"
-                  onPress={openSupport}
-                />
+                <QuickTile icon="headset-outline" label="Help" onPress={openSupport} />
               </View>
+              {!isOnline ? (
+                <View style={styles.noticeWrap}>
+                  <OfflineNoticeCard description="Showing your saved profile details. Reconnect to refresh alerts and update account changes." />
+                </View>
+              ) : null}
             </View>
           );
         case "preferences":
           return (
-            <View style={styles.section}>
-              <SectionHeader
-                title="Preferences"
-                subtitle="Open a section to manage the details."
-              />
-
-              <View style={styles.cardStack}>
-                <ProfileNavCard
-                  icon={
-                    preferredPaymentMethod === "Bkash"
-                      ? "phone-portrait-outline"
-                      : "cash-outline"
-                  }
-                  imageSource={
-                    preferredPaymentMethod === "Bkash" ? bkashLogo : undefined
-                  }
-                  tint="#FFF0F6"
-                  title="Default payment method"
-                  caption={
-                    preferredPaymentMethod === "Bkash"
-                      ? paymentSettings.bkashLabel
-                      : "Cash on delivery"
-                  }
-                  onPress={openPaymentPreferences}
-                />
-                <ProfileNavCard
+            <View style={styles.groups}>
+              <SettingsGroup title="Account">
+                <SettingsRow
                   icon="person-outline"
-                  tint="#FFE7F1"
                   title="Personal info"
+                  caption={displayName}
                   onPress={openProfileEdit}
                 />
-                <ProfileNavCard
+                <SettingsRow
                   icon="location-outline"
-                  tint="#FFF0E8"
                   title="Delivery point"
+                  caption={heroLocationText}
                   onPress={openLocationPicker}
                 />
-                <ProfileNavCard
+                <SettingsRow
+                  icon={preferredPaymentMethod === "Bkash" ? "phone-portrait-outline" : "cash-outline"}
+                  imageSource={preferredPaymentMethod === "Bkash" ? bkashLogo : undefined}
+                  title="Default payment"
+                  caption={preferredPaymentMethod === "Bkash" ? paymentSettings.bkashLabel : "Cash on delivery"}
+                  onPress={openPaymentPreferences}
+                />
+                <SettingsRow
                   icon="lock-closed-outline"
-                  tint="#EEF8F2"
-                  title={
-                    customer.hasPassword ? "Change password" : "Add password"
-                  }
+                  title={customer.hasPassword ? "Change password" : "Add password"}
                   onPress={openProfilePassword}
+                  last
                 />
-                {isReferralSummaryLoading ? (
-                  <ReferralNavCardSkeleton />
-                ) : shouldShowReferral ? (
-                  <ProfileNavCard
-                    icon="gift-outline"
-                    tint="#FFF0F6"
-                    title="Refer & earn"
-                    caption={`${referralRewardLabel} reward available`}
-                    highlight
-                    onPress={openReferrals}
-                  />
-                ) : null}
-                <ProfileNavCard
-                  icon="logo-youtube"
-                  iconColor="#FF0000"
-                  tint="#FFECEC"
-                  trailingIcon="open-outline"
-                  title="How to order"
-                  caption="Watch the quick video guide"
-                  onPress={openHowToOrder}
-                />
-                <ProfileNavCard
+              </SettingsGroup>
+
+              <SettingsGroup title="Notifications">
+                <SettingsRow
                   icon="notifications-outline"
-                  tint="#EEF5FF"
                   title="Notifications center"
+                  value={unreadCount > 0 ? `${unreadCount > 99 ? "99+" : unreadCount} new` : undefined}
                   onPress={openNotifications}
                 />
-                <View style={styles.navCard}>
-                  <View
-                    style={[styles.navIconWrap, { backgroundColor: "#FFF3E0" }]}
-                  >
-                    <Ionicons
-                      name="megaphone-outline"
-                      size={18}
-                      color={palette.foreground}
-                    />
+                <View style={[styles.row, styles.rowLast]}>
+                  <View style={styles.rowIcon}>
+                    <Ionicons name="megaphone-outline" size={18} color={palette.foreground} />
                   </View>
-                  <View style={styles.navCopy}>
-                    <Text style={styles.navTitle}>
-                      Promotional notifications
-                    </Text>
-                    <Text style={styles.navCaption}>
-                      Offers, vouchers and campaign updates
+                  <View style={styles.rowCopy}>
+                    <Text style={styles.rowTitle}>Offers & promotions</Text>
+                    <Text style={styles.rowCaption} numberOfLines={1}>
+                      Vouchers, deals and campaign alerts
                     </Text>
                   </View>
                   <Switch
                     value={promotionsEnabled}
                     onValueChange={togglePromotions}
-                    trackColor={{ true: palette.secondary, false: "#E4D7DE" }}
+                    trackColor={{ true: palette.primary, false: "#DADCE0" }}
                     thumbColor="#ffffff"
+                    accessibilityLabel="Offers and promotions notifications"
                   />
                 </View>
-                <ProfileNavCard
-                  icon="help-circle-outline"
-                  tint="#FFF0E8"
-                  title="Help center"
-                  onPress={openSupport}
+              </SettingsGroup>
+
+              <SettingsGroup title="Help & info">
+                {isReferralSummaryLoading ? (
+                  <SettingsRowSkeleton />
+                ) : shouldShowReferral ? (
+                  <SettingsRow
+                    icon="gift-outline"
+                    title="Refer & earn"
+                    value={referralRewardLabel}
+                    valueAccent
+                    onPress={openReferrals}
+                  />
+                ) : null}
+                <SettingsRow
+                  icon="logo-youtube"
+                  iconColor="#FF0000"
+                  title="How to order"
+                  caption="Quick video guide"
+                  trailingIcon="open-outline"
+                  onPress={openHowToOrder}
                 />
-                <ProfileNavCard
+                <SettingsRow
                   icon="shield-checkmark-outline"
-                  tint="#EEF8F2"
                   title="Privacy policy"
                   onPress={openPrivacyPolicy}
+                  last
                 />
-              </View>
+              </SettingsGroup>
             </View>
           );
         case "history":
           return (
-            <View style={styles.section}>
-              <SectionHeader
-                title="Account history"
-                subtitle="Past verified numbers tied to this account."
-              />
-              <View style={styles.cardStack}>
-                <View style={styles.historyCard}>
-                  {customer.previousPhones?.map((entry, index) => (
-                    <View
-                      key={`${entry.phone}-${index}`}
-                      style={[
-                        styles.historyRow,
-                        index < (customer.previousPhones?.length ?? 0) - 1
-                          ? styles.historyRowBorder
-                          : null,
-                      ]}
-                    >
-                      <View style={styles.historyDot} />
-                      <View style={styles.historyCopy}>
-                        <Text style={styles.historyTitle}>{entry.phone}</Text>
-                        <Text style={styles.historyMeta}>
-                          {entry.changedAt
-                            ? formatDateTimeAmPm(entry.changedAt)
-                            : "Change date unavailable"}
-                        </Text>
-                      </View>
+            <View style={styles.groups}>
+              <SettingsGroup title="Previous numbers">
+                {customer.previousPhones?.map((entry, index) => (
+                  <View
+                    key={`${entry.phone}-${index}`}
+                    style={[
+                      styles.row,
+                      index === (customer.previousPhones?.length ?? 0) - 1 ? styles.rowLast : null,
+                    ]}
+                  >
+                    <View style={styles.rowIcon}>
+                      <Ionicons name="time-outline" size={18} color={palette.mutedForeground} />
                     </View>
-                  ))}
-                </View>
-              </View>
+                    <View style={styles.rowCopy}>
+                      <Text style={styles.rowTitle}>{entry.phone}</Text>
+                      <Text style={styles.rowCaption}>
+                        {entry.changedAt ? formatDateTimeAmPm(entry.changedAt) : "Change date unavailable"}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </SettingsGroup>
             </View>
           );
         case "account":
           return (
-            <View style={styles.section}>
-              <SectionHeader
-                title="Account"
-                subtitle="Sign out when from this device."
-              />
-              <View style={styles.cardStack}>
+            <View style={styles.groups}>
+              <View style={styles.groupCard}>
                 <Pressable
                   style={({ pressed }) => [
-                    styles.logoutCard,
-                    logoutMutation.isPending ? styles.disabledCard : null,
-                    pressed && !logoutMutation.isPending
-                      ? styles.navCardPressed
-                      : null,
+                    styles.row,
+                    styles.rowLast,
+                    logoutMutation.isPending ? styles.disabled : null,
+                    pressed && !logoutMutation.isPending ? styles.rowPressed : null,
                   ]}
                   disabled={logoutMutation.isPending}
                   onPress={showLogoutConfirm}
+                  accessibilityRole="button"
                 >
-                  <View style={styles.logoutIconWrap}>
+                  <View style={[styles.rowIcon, styles.dangerIcon]}>
                     {logoutMutation.isPending ? (
-                      <ActivityIndicator size="small" color={palette.primary} />
+                      <ActivityIndicator size="small" color={DANGER} />
                     ) : (
-                      <Ionicons
-                        name="log-out-outline"
-                        size={18}
-                        color={palette.primary}
-                      />
+                      <Ionicons name="log-out-outline" size={18} color={DANGER} />
                     )}
                   </View>
-                  <View style={styles.logoutCopy}>
-                    <Text style={styles.logoutTitle}>Sign out</Text>
+                  <View style={styles.rowCopy}>
+                    <Text style={[styles.rowTitle, styles.dangerText]}>Sign out</Text>
                   </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={18}
-                    color={palette.mutedForeground}
-                  />
                 </Pressable>
               </View>
+              <Text style={styles.footer}>
+                Foodbela{APP_VERSION ? ` · v${APP_VERSION}` : ""}
+              </Text>
             </View>
           );
         default:
@@ -802,20 +627,12 @@ export default function ProfileScreen() {
     },
     [
       activeOfferCount,
-      canRequestCustomOffer,
       customer,
-      customOfferMeta,
-      customOfferProgressPercent,
-      customOfferSummary?.completedOrderCount,
-      customOfferSummary?.remainingOrderCount,
-      customOfferSummary?.status,
-      customOfferSummary?.targetOrderCount,
-      customOfferTitle,
       displayName,
       favoriteCount,
-      activeHighlightedOffer,
       heroLocationText,
       initials,
+      insets.top,
       isOnline,
       isReferralSummaryLoading,
       logoutMutation.isPending,
@@ -829,1066 +646,380 @@ export default function ProfileScreen() {
       openProfileEdit,
       openProfilePassword,
       openReferrals,
+      openRewards,
       openSignIn,
       openSupport,
       paymentSettings.bkashLabel,
       preferredPaymentMethod,
       promotionsEnabled,
-      togglePromotions,
+      referralBadge,
       referralRewardLabel,
       shouldShowReferral,
       showLogoutConfirm,
+      togglePromotions,
       unreadCount,
     ],
   );
 
   return (
-    <Screen>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          !customer ? styles.guestContainer : null,
-        ]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={palette.secondary}
-            colors={[palette.secondary]}
-          />
-        }
-      >
-        {profileListItems.map((item, index) => (
-          <View key={keyExtractor(item)}>
-            {index > 0 ? <ProfileListSeparator /> : null}
-            {renderProfileItem({ item })}
-          </View>
-        ))}
-      </ScrollView>
+    <Screen edges={["left", "right"]}>
+      <BelaPullToRefresh refreshing={isRefreshing} onRefresh={handleRefresh}>
+        <ScrollView
+          contentContainerStyle={[styles.container, !customer ? styles.guestContainer : null]}
+          showsVerticalScrollIndicator={false}
+        >
+          {profileListItems.map((item, index) => (
+            <View key={keyExtractor(item)}>
+              {index > 0 ? <View style={styles.separator} /> : null}
+              {renderProfileItem({ item })}
+            </View>
+          ))}
+        </ScrollView>
+      </BelaPullToRefresh>
 
-      <Modal
+      <AppDialog
         visible={logoutConfirmVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLogoutConfirmVisible(false)}
-      >
-        <View style={styles.confirmOverlay}>
-          <Pressable
-            style={styles.confirmBackdrop}
-            onPress={() => setLogoutConfirmVisible(false)}
-          />
-          <View style={styles.confirmCard}>
-            <View style={styles.confirmIconWrap}>
-              <Ionicons
-                name="log-out-outline"
-                size={26}
-                color={palette.primary}
-              />
-            </View>
-            <Text style={styles.confirmTitle}>Sign out?</Text>
-            <Text style={styles.confirmText}>
-              You can still browse restaurants as a guest. Sign in again when
-              you want to checkout or view orders.
-            </Text>
-            <View style={styles.confirmActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.confirmSecondaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-                onPress={() => setLogoutConfirmVisible(false)}
-              >
-                <Text style={styles.confirmSecondaryText}>Stay signed in</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.confirmPrimaryButton,
-                  pressed && styles.confirmButtonPressed,
-                ]}
-                disabled={logoutMutation.isPending}
-                onPress={() => {
-                  setLogoutConfirmVisible(false);
-                  logoutMutation.mutate();
-                }}
-              >
-                {logoutMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.confirmPrimaryText}>Sign out</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setLogoutConfirmVisible(false)}
+        icon="log-out-outline"
+        title="Sign out?"
+        message="You can still browse restaurants as a guest. Sign in again when you want to checkout or view orders."
+        actions={[
+          { label: "Stay signed in", variant: "secondary", onPress: () => setLogoutConfirmVisible(false) },
+          {
+            label: "Sign out",
+            loading: logoutMutation.isPending,
+            onPress: () => {
+              setLogoutConfirmVisible(false);
+              logoutMutation.mutate();
+            },
+          },
+        ]}
+      />
     </Screen>
   );
 }
 
-const ProfileListSeparator = memo(function ProfileListSeparator() {
-  return <View style={styles.profileListSeparator} />;
-});
+const DANGER = "#D93025";
+const APP_VERSION = Constants.expoConfig?.version ?? "";
 
-const SectionHeader = memo(function SectionHeader({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionSubtitle}>{subtitle}</Text>
-    </View>
-  );
-});
-
-const InfoPill = memo(function InfoPill({
-  icon,
-  text,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  text: string;
-  onPress?: () => void;
-}) {
-  const content = (
-    <>
-      <Ionicons name={icon} size={14} color={palette.foreground} />
-      <Text style={styles.infoPillText} numberOfLines={1}>
-        {text}
-      </Text>
-      {onPress ? (
-        <Ionicons
-          name="chevron-forward"
-          size={13}
-          color={palette.mutedForeground}
-        />
-      ) : null}
-    </>
-  );
-
-  if (onPress) {
-    return (
-      <PressableScale
-        scaleTo={0.95}
-        style={styles.infoPill}
-        onPress={onPress}
-        accessibilityRole="button"
-      >
-        {content}
-      </PressableScale>
-    );
-  }
-
-  return <View style={styles.infoPill}>{content}</View>;
-});
-
-const OverviewCard = memo(function OverviewCard({
+const QuickTile = memo(function QuickTile({
   icon,
   label,
-  value,
-  caption,
-  tint,
-  wide = false,
+  badge = 0,
+  badgeText,
+  badgeMuted = false,
   onPress,
-  highlight = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
-  value: string;
-  caption: string;
-  tint: string;
-  wide?: boolean;
-  onPress?: () => void;
-  highlight?: boolean;
+  badge?: number;
+  /** Text badge on the icon (e.g. "৳25") — same spot/shape as the count badge. */
+  badgeText?: string;
+  badgeMuted?: boolean;
+  onPress: () => void;
 }) {
-  const cardStyle = [
-    styles.overviewCard,
-    wide ? styles.overviewCardWide : null,
-    highlight ? styles.overviewCardHighlighted : null,
-    { backgroundColor: tint },
-  ];
-
-  if (!onPress) {
-    return (
-      <View style={cardStyle}>
-        <View style={styles.overviewIconWrap}>
-          <Ionicons name={icon} size={18} color={palette.foreground} />
-        </View>
-        <Text style={styles.overviewValue} numberOfLines={1}>
-          {value}
-        </Text>
-        <Text style={styles.overviewLabel}>{label}</Text>
-        <Text style={styles.overviewCaption}>{caption}</Text>
-      </View>
-    );
-  }
-
+  const shown = badgeText || (badge > 0 ? (badge > 99 ? "99+" : String(badge)) : "");
   return (
     <PressableScale
-      scaleTo={0.97}
+      scaleTo={0.95}
       onPress={onPress}
       accessibilityRole="button"
-      containerStyle={wide ? styles.overviewCardSlotWide : styles.overviewCardSlot}
-      style={[
-        styles.overviewCard,
-        styles.overviewCardFill,
-        wide ? styles.overviewCardWide : null,
-        highlight ? styles.overviewCardHighlighted : null,
-        { backgroundColor: tint },
-      ]}
+      accessibilityLabel={shown ? `${label}, ${shown}` : label}
+      containerStyle={styles.quickSlot}
+      style={styles.quickTile}
     >
-      <View style={styles.overviewActionCue}>
-        <Ionicons name="chevron-forward" size={14} color={palette.foreground} />
+      <View style={styles.quickIcon}>
+        <Ionicons name={icon} size={20} color={palette.onPrimary} />
+        {shown ? (
+          <View
+            style={[
+              styles.quickBadge,
+              badgeText ? styles.quickBadgeWide : null,
+              badgeMuted ? styles.quickBadgeMuted : null,
+            ]}
+          >
+            <Text
+              style={[styles.quickBadgeText, badgeMuted ? styles.quickBadgeTextMuted : null]}
+              numberOfLines={1}
+            >
+              {shown}
+            </Text>
+          </View>
+        ) : null}
       </View>
-      <View style={styles.overviewIconWrap}>
-        <Ionicons name={icon} size={18} color={palette.foreground} />
-      </View>
-      <Text style={styles.overviewValue} numberOfLines={1}>
-        {value}
+      <Text style={styles.quickLabel} numberOfLines={1}>
+        {label}
       </Text>
-      <Text style={styles.overviewLabel}>{label}</Text>
-      <Text style={styles.overviewCaption}>{caption}</Text>
     </PressableScale>
   );
 });
 
-const ReferralOverviewCardSkeleton = memo(
-  function ReferralOverviewCardSkeleton() {
-    return (
-      <View style={[styles.overviewCard, styles.referralSkeletonCard]}>
-        <ShimmerBlock style={styles.referralSkeletonIcon} />
-        <ShimmerBlock style={styles.referralSkeletonValue} />
-        <ShimmerBlock style={styles.referralSkeletonLabel} />
-        <ShimmerBlock style={styles.referralSkeletonCaption} />
-      </View>
-    );
-  },
-);
+const SettingsGroup = memo(function SettingsGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.group}>
+      <Text style={styles.groupTitle}>{title}</Text>
+      <View style={styles.groupCard}>{children}</View>
+    </View>
+  );
+});
 
-const ProfileNavCard = memo(function ProfileNavCard({
+const SettingsRow = memo(function SettingsRow({
   icon,
   imageSource,
-  tint,
   title,
   caption,
+  value,
+  valueAccent = false,
   onPress,
-  highlight = false,
+  last = false,
   iconColor = palette.foreground,
   trailingIcon = "chevron-forward",
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   imageSource?: number;
-  tint: string;
   title: string;
   caption?: string;
+  value?: string;
+  valueAccent?: boolean;
   onPress: () => void;
-  highlight?: boolean;
+  last?: boolean;
   iconColor?: string;
   trailingIcon?: keyof typeof Ionicons.glyphMap;
 }) {
   return (
-    <PressableScale
-      scaleTo={0.97}
-      accessibilityRole="button"
-      style={[
-        styles.navCard,
-        highlight ? styles.navCardHighlighted : null,
-      ]}
+    <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.row, last ? styles.rowLast : null, pressed ? styles.rowPressed : null]}
     >
-      <View style={[styles.navIconWrap, { backgroundColor: tint }]}>
+      <View style={styles.rowIcon}>
         {imageSource ? (
-          <Image
-            source={imageSource}
-            resizeMode="contain"
-            style={styles.navLogoImage}
-          />
+          <Image source={imageSource} resizeMode="contain" style={styles.rowLogo} />
         ) : (
           <Ionicons name={icon} size={18} color={iconColor} />
         )}
       </View>
-      <View style={styles.navCopy}>
-        <Text style={styles.navTitle}>{title}</Text>
-        {caption ? <Text style={styles.navCaption}>{caption}</Text> : null}
+      <View style={styles.rowCopy}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        {caption ? (
+          <Text style={styles.rowCaption} numberOfLines={1}>
+            {caption}
+          </Text>
+        ) : null}
       </View>
-      <Ionicons name={trailingIcon} size={18} color={palette.mutedForeground} />
-    </PressableScale>
+      {value ? (
+        <Text style={[styles.rowValue, valueAccent ? styles.rowValueAccent : null]} numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
+      <Ionicons name={trailingIcon} size={17} color="#B0B4BA" />
+    </Pressable>
   );
 });
 
-const ReferralNavCardSkeleton = memo(function ReferralNavCardSkeleton() {
+const SettingsRowSkeleton = memo(function SettingsRowSkeleton() {
   return (
-    <View style={[styles.navCard, styles.referralNavSkeletonCard]}>
-      <ShimmerBlock style={styles.referralNavSkeletonIcon} />
-      <View style={styles.navCopy}>
-        <ShimmerBlock style={styles.referralNavSkeletonTitle} />
-        <ShimmerBlock style={styles.referralNavSkeletonCaption} />
+    <View style={styles.row}>
+      <ShimmerBlock style={styles.rowIconSkeleton} />
+      <View style={styles.rowCopy}>
+        <ShimmerBlock style={styles.rowTitleSkeleton} />
       </View>
-      <ShimmerBlock style={styles.referralNavSkeletonChevron} />
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingBottom: 40,
-  },
-  profileListSeparator: { height: 28 },
-  guestContainer: {
-    justifyContent: "center",
-  },
-  emptyWrap: {
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
+  container: { flexGrow: 1, paddingBottom: 40 },
+  guestContainer: { justifyContent: "center" },
+  emptyWrap: { justifyContent: "center", paddingHorizontal: 20 },
+  separator: { height: 20 },
+  gutter: { paddingHorizontal: 16 },
+  noticeWrap: { marginTop: 12 },
+
+  // hero — flat amber, no decorative glows
   hero: {
-    overflow: "hidden",
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 24,
-    backgroundColor: palette.heroBackground,
-    borderBottomLeftRadius: 34,
-    borderBottomRightRadius: 34,
-    gap: 18,
+    paddingHorizontal: 16,
+    paddingBottom: 18,
+    gap: 16,
+    backgroundColor: palette.primary,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  heroGlowPrimary: {
-    position: "absolute",
-    top: -54,
-    right: -28,
-    width: 170,
-    height: 170,
-    borderRadius: 999,
-    backgroundColor: palette.heroOrbPrimary,
-  },
-  heroGlowSecondary: {
-    position: "absolute",
-    bottom: -62,
-    left: -40,
-    width: 160,
-    height: 160,
-    borderRadius: 999,
-    backgroundColor: palette.heroOrbSecondary,
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  kicker: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: palette.primary,
-  },
-  heroGhostButton: {
-    minHeight: 36,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    flexDirection: "row",
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroTitle: { fontSize: 22, lineHeight: 28, fontWeight: "700", color: palette.onPrimary },
+  heroIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    backgroundColor: "rgba(255,255,255,0.84)",
+    backgroundColor: "rgba(255,255,255,0.4)",
   },
-  heroGhostBadge: {
+  heroBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E5484D",
+    borderWidth: 2,
+    borderColor: palette.primary,
+  },
+  heroBadgeText: { fontSize: 9.5, lineHeight: 11, fontWeight: "700", color: "#FFFFFF" },
+  identityRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surface,
+  },
+  avatarImage: { width: "100%", height: "100%" },
+  avatarText: { fontSize: 21, lineHeight: 26, fontWeight: "700", color: palette.secondary },
+  identityCopy: { flex: 1, minWidth: 0, gap: 4 },
+  name: { fontSize: 19, lineHeight: 24, fontWeight: "700", color: palette.onPrimary },
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  phoneText: { flexShrink: 1, fontSize: 13.5, lineHeight: 18, fontWeight: "500", color: "rgba(17,17,17,0.75)" },
+  verifiedChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.75)",
+  },
+  verifiedText: { fontSize: 10.5, fontWeight: "700", color: palette.successText },
+  editButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.4)",
+  },
+  editButtonText: { fontSize: 13, fontWeight: "700", color: palette.onPrimary },
+  locationBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    height: 42,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.4)",
+  },
+  locationText: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: "500", color: palette.onPrimary },
+  locationAction: { fontSize: 12.5, fontWeight: "700", color: palette.onPrimary, textDecorationLine: "underline" },
+
+  // quick tiles
+  quickRow: { flexDirection: "row", gap: 10 },
+  // PressableScale wraps in an Animated.View: flex must live on the outer slot.
+  quickSlot: { flex: 1, minWidth: 0 },
+  quickTile: {
+    alignItems: "center",
+    gap: 6,
+    paddingTop: 14,
+    paddingBottom: 12,
+    paddingHorizontal: 4,
+    minHeight: 92,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
+  },
+  quickTileSkeleton: { flex: 1, minHeight: 92, borderRadius: 18 },
+  quickIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  quickBadge: {
+    position: "absolute",
+    top: -6,
+    right: -8,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     paddingHorizontal: 5,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
-  },
-  heroGhostBadgeText: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  heroGhostButtonText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  identityCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    padding: 16,
-    borderRadius: 30,
-    backgroundColor: "rgba(255,255,255,0.86)",
-    shadowColor: palette.shadow,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.06)",
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 999,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FF8DB1",
-  },
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  avatarText: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "800",
-    color: palette.surface,
-  },
-  identityCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  name: {
-    flex: 1,
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  nameEditButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "500",
-    color: palette.mutedForeground,
-  },
-  heroPillRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4,
-  },
-  infoPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: palette.surface,
-    maxWidth: "100%",
-    flexShrink: 1,
-  },
-  infoPillText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    color: palette.foreground,
-    flexShrink: 1,
-    minWidth: 0,
-  },
-  offerPeekCard: {
-    position: "relative",
-    marginHorizontal: 20,
-    marginTop: -6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
-    backgroundColor: "#171923",
-    padding: 12,
-    gap: 9,
-  },
-  offerCountBadge: {
-    position: "absolute",
-    top: -8,
-    right: -8,
-    zIndex: 2,
-    minWidth: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: "#171923",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 7,
-    backgroundColor: palette.secondary,
-  },
-  offerCountBadgeText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-  offerPeekHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  offerPeekIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
-    backgroundColor: "rgba(255, 92, 147, 0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  offerPeekCopy: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
-  },
-  offerPeekLabel: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    color: "#FF8FBC",
-  },
-  offerPeekTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  offerPeekMeta: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-    color: "#C9CEDA",
-  },
-  offerCodeChip: {
-    alignSelf: "flex-start",
-    maxWidth: "100%",
-    marginTop: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255, 143, 188, 0.35)",
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  offerCodeChipLabel: {
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "800",
-    color: "#FFB6D1",
-    textTransform: "uppercase",
-  },
-  offerCodeChipValue: {
-    maxWidth: 132,
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    letterSpacing: 0,
-  },
-  offerProgressHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  offerProgressLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
-    color: "#C9CEDA",
-    textTransform: "uppercase",
-  },
-  offerProgressCount: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  offerProgressTrack: {
-    height: 7,
-    borderRadius: 999,
-    overflow: "hidden",
-    backgroundColor: "rgba(255, 255, 255, 0.14)",
-  },
-  offerProgressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: palette.secondary,
-  },
-  offerDetailHint: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  offerDetailsProgressCard: {
-    width: "100%",
-    gap: 8,
-    borderRadius: 18,
-    backgroundColor: "#FFF7FA",
-    padding: 14,
-  },
-  offerCodeFieldWrap: {
-    width: "100%",
-    gap: 7,
-    alignItems: "stretch",
-  },
-  offerCodeReadOnly: {
-    width: "100%",
-    gap: 6,
-    borderRadius: 16,
-    backgroundColor: "#F7F8FA",
-    padding: 12,
-  },
-  offerCodeLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  offerCodeInput: {
-    minHeight: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  offerCodeValue: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.secondary,
-  },
-  offerActionRow: {
-    minHeight: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  offerActionText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  offerActionButton: {
-    minWidth: 78,
-    minHeight: 38,
-    borderRadius: 999,
-    paddingHorizontal: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.secondary,
-  },
-  offerActionButtonMuted: {
-    backgroundColor: "#C9CDD5",
-  },
-  offerActionButtonText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-  section: { gap: 14 },
-  sectionHeader: {
-    paddingHorizontal: 20,
-    gap: 3,
-  },
-  sectionTitle: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  sectionSubtitle: {
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: "500",
-    color: palette.mutedForeground,
-  },
-  overviewGrid: {
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  sectionNoticeWrap: {
-    paddingHorizontal: 20,
-  },
-  overviewCard: {
-    position: "relative",
-    width: "48%",
-    minHeight: 132,
-    padding: 16,
-    borderRadius: 28,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.06)",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  overviewCardWide: {
-    width: "100%",
-    minHeight: 112,
-  },
-  // PressableScale wraps the card in an Animated.View; the grid width must live on that
-  // outer view (containerStyle), while the inner Pressable fills it (else "48%" resolves
-  // against a shrink-to-fit box ≈ 0).
-  overviewCardSlot: {
-    width: "48%",
-  },
-  overviewCardSlotWide: {
-    width: "100%",
-  },
-  overviewCardFill: {
-    width: "100%",
-  },
-  overviewCardHighlighted: {
-    borderWidth: 1,
-    borderColor: "rgba(228, 17, 111, 0.34)",
-    shadowOpacity: 0,
-  },
-  referralSkeletonCard: {
-    backgroundColor: "#F0F7FF",
-    borderWidth: 0,
-  },
-  referralSkeletonIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  referralSkeletonValue: {
-    width: "52%",
-    height: 22,
-    borderRadius: 11,
-  },
-  referralSkeletonLabel: {
-    width: "46%",
-    height: 15,
-    borderRadius: 8,
-  },
-  referralSkeletonCaption: {
-    width: "64%",
-    height: 12,
-    borderRadius: 6,
-  },
-  overviewIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.82)",
-  },
-  overviewActionCue: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.68)",
-  },
-  overviewValue: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  overviewLabel: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  overviewCaption: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  cardStack: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  navCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderRadius: 28,
-    backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.06)",
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  navCardPressed: {
-    transform: [{ scale: 0.985 }, { translateY: 1 }],
-    opacity: 0.95,
-  },
-  iconButtonPressed: {
-    transform: [{ scale: 0.94 }],
-    opacity: 0.9,
-  },
-  navCardHighlighted: {
-    borderWidth: 1,
-    borderColor: "rgba(216, 27, 96, 0.22)",
-    backgroundColor: "#FFF7FB",
-  },
-  referralNavSkeletonCard: {
-    borderWidth: 0,
-    backgroundColor: palette.surface,
-  },
-  referralNavSkeletonIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-  },
-  referralNavSkeletonTitle: {
-    width: "46%",
-    height: 16,
-    borderRadius: 8,
-  },
-  referralNavSkeletonCaption: {
-    marginTop: 4,
-    width: "62%",
-    height: 12,
-    borderRadius: 6,
-  },
-  referralNavSkeletonChevron: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-  },
-  navIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  navLogoImage: {
-    width: 26,
-    height: 26,
-  },
-  navCopy: {
-    flex: 1,
-    gap: 0,
-  },
-  navTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  navCaption: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  historyCard: {
-    borderRadius: 28,
-    backgroundColor: palette.surface,
-    padding: 16,
-    shadowColor: palette.shadow,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.06)",
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  historyRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    paddingVertical: 10,
-  },
-  historyRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: palette.border,
-  },
-  historyDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
     backgroundColor: palette.primary,
-    marginTop: 5,
+    borderWidth: 2,
+    borderColor: palette.surface,
   },
-  historyCopy: { flex: 1, gap: 2 },
-  historyTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  historyMeta: {
+  quickBadgeMuted: { backgroundColor: "#EEEFF2" },
+  quickBadgeText: { fontSize: 10.5, lineHeight: 12, fontWeight: "700", color: palette.onPrimary },
+  quickBadgeTextMuted: { color: palette.foreground },
+  quickLabel: { fontSize: 12.5, fontWeight: "700", color: palette.foreground },
+  // Text badge ("৳25") hangs further right so it doesn't cover the icon.
+  quickBadgeWide: { right: -18 },
+
+  // grouped settings
+  groups: { paddingHorizontal: 16, gap: 20 },
+  group: { gap: 8 },
+  groupTitle: {
+    paddingHorizontal: 4,
     fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
     color: palette.mutedForeground,
   },
-  logoutCard: {
+  groupCard: {
+    overflow: "hidden",
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
+  },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    padding: 16,
-    borderRadius: 28,
-    backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.06)",
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  disabledCard: {
-    opacity: 0.65,
-  },
-  logoutIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFEAF3",
-  },
-  logoutCopy: {
-    flex: 1,
-  },
-  logoutTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  confirmOverlay: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  confirmBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(31, 36, 48, 0.42)",
-  },
-  confirmCard: {
-    width: "100%",
-    maxWidth: 360,
-    alignItems: "center",
     gap: 12,
-    borderRadius: 24,
-    backgroundColor: palette.surface,
-    padding: 20,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    minHeight: 58,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#ECEDEF",
   },
-  confirmIconWrap: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  rowLast: { borderBottomWidth: 0 },
+  rowPressed: { backgroundColor: "#F7F7F8" },
+  rowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.surfaceMuted,
   },
-  confirmTitle: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  confirmText: {
-    textAlign: "center",
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "500",
-    color: palette.mutedForeground,
-  },
-  confirmActions: {
-    width: "100%",
-    gap: 10,
-    marginTop: 4,
-  },
-  confirmSecondaryButton: {
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.surface,
-  },
-  confirmSecondaryText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  confirmPrimaryButton: {
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: palette.secondary,
-  },
-  confirmPrimaryText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  confirmButtonPressed: {
-    opacity: 0.7,
-    transform: [{ scale: 0.98 }],
-  },
+  rowLogo: { width: 24, height: 24 },
+  rowCopy: { flex: 1, minWidth: 0, gap: 1 },
+  rowTitle: { fontSize: 15, lineHeight: 20, fontWeight: "500", color: palette.foreground },
+  rowCaption: { fontSize: 12.5, lineHeight: 17, color: palette.mutedForeground },
+  rowValue: { maxWidth: 110, fontSize: 13, fontWeight: "500", color: palette.mutedForeground },
+  rowValueAccent: { fontWeight: "700", color: palette.secondary },
+  rowIconSkeleton: { width: 36, height: 36, borderRadius: 12 },
+  rowTitleSkeleton: { width: "50%", height: 14, borderRadius: 7 },
+  dangerIcon: { backgroundColor: "#FDECEA" },
+  dangerText: { color: DANGER, fontWeight: "700" },
+  disabled: { opacity: 0.6 },
+  footer: { textAlign: "center", fontSize: 12, color: "#9AA0A6" },
 });

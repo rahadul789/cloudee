@@ -22,6 +22,7 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  Smartphone,
   Truck,
   Unlock,
 } from "lucide-react"
@@ -47,6 +48,7 @@ import {
   subscribeAdminZoneScope,
 } from "@/lib/admin-zone-scope"
 import { AccountDeletionRequestsCard } from "@/components/account-deletion-requests-card"
+import { OpenNotifyDemandCard } from "@/components/open-notify-demand-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -612,6 +614,49 @@ const defaultAccountDeletionSettings: NonNullable<
 > = {
   enabled: true,
   reviewDays: 7,
+}
+
+const defaultCustomerTrackingSettings: NonNullable<PlatformContent["operations"]["customerTracking"]> = {
+  fallbackPollSeconds: 25,
+  staleAfterSeconds: 120,
+  refetchIfQuietSeconds: 45,
+}
+
+function ensureCustomerTrackingSettings(content: PlatformContent) {
+  content.operations.customerTracking = {
+    ...defaultCustomerTrackingSettings,
+    ...(content.operations.customerTracking ?? {}),
+  }
+  return content.operations.customerTracking
+}
+
+const defaultAppUpdateSettings: NonNullable<PlatformContent["operations"]["appUpdate"]> = {
+  enabled: true,
+  latestVersion: "",
+  minimumVersion: "",
+  message: "",
+  storeUrl: "",
+}
+
+function ensureAppUpdateSettings(content: PlatformContent) {
+  content.operations.appUpdate = {
+    ...defaultAppUpdateSettings,
+    ...(content.operations.appUpdate ?? {}),
+  }
+  return content.operations.appUpdate
+}
+
+const VERSION_PATTERN = /^\d+(\.\d+){0,3}$/
+
+function compareAppVersions(a: string, b: string) {
+  const left = a.split(".").map(Number)
+  const right = b.split(".").map(Number)
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const x = left[i] ?? 0
+    const y = right[i] ?? 0
+    if (x !== y) return x < y ? -1 : 1
+  }
+  return 0
 }
 
 function ensureAccountDeletionSettings(content: PlatformContent) {
@@ -1855,6 +1900,24 @@ export function SettingsPage() {
     ...defaultAccountDeletionSettings,
     ...(draft.operations.accountDeletion ?? {}),
   }
+  const customerTracking = {
+    ...defaultCustomerTrackingSettings,
+    ...(draft.operations.customerTracking ?? {}),
+  }
+  const appUpdate = {
+    ...defaultAppUpdateSettings,
+    ...(draft.operations.appUpdate ?? {}),
+  }
+  const latestVersionInvalid =
+    appUpdate.latestVersion.trim() !== "" && !VERSION_PATTERN.test(appUpdate.latestVersion.trim())
+  const minimumVersionInvalid =
+    appUpdate.minimumVersion.trim() !== "" && !VERSION_PATTERN.test(appUpdate.minimumVersion.trim())
+  const minimumAboveLatest =
+    !latestVersionInvalid &&
+    !minimumVersionInvalid &&
+    appUpdate.latestVersion.trim() !== "" &&
+    appUpdate.minimumVersion.trim() !== "" &&
+    compareAppVersions(appUpdate.minimumVersion.trim(), appUpdate.latestVersion.trim()) > 0
   const minimumOrderAmount =
     typeof draft.operations.minimumOrderAmount === "number"
       ? draft.operations.minimumOrderAmount
@@ -2261,6 +2324,8 @@ export function SettingsPage() {
                 </CardContent>
               </Card>
 
+              {!isScopedSettings ? <OpenNotifyDemandCard /> : null}
+
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -2535,6 +2600,113 @@ export function SettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
+                    <Smartphone className="size-4" />
+                    App update (customer app)
+                  </CardTitle>
+                  <CardDescription>
+                    Ask customers on an old app version to update from the Play Store. Use the
+                    version number from the customer app&rsquo;s <code>app.json</code> (e.g.{" "}
+                    <code>1.1.0</code>). Leave a field empty to switch that prompt off. Works only
+                    on app builds that include this feature (1.1.0 and newer).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Enable update prompts"
+                    description="Master switch. Off = no update prompt for anyone."
+                  >
+                    <Switch
+                      checked={appUpdate.enabled}
+                      onCheckedChange={(checked) =>
+                        updateDraft((content) => {
+                          ensureAppUpdateSettings(content).enabled = checked
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Latest version (soft prompt)"
+                    description="Older apps see 'New update available' with Update / Later. Later hides it for 3 days."
+                  >
+                    <div className="space-y-1">
+                      <Input
+                        className="w-40"
+                        placeholder="e.g. 1.1.0"
+                        value={appUpdate.latestVersion}
+                        aria-invalid={latestVersionInvalid}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureAppUpdateSettings(content).latestVersion = event.target.value
+                          })
+                        }
+                      />
+                      {latestVersionInvalid ? (
+                        <p className="text-xs text-destructive">Use numbers like 1.1.0</p>
+                      ) : null}
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="Minimum version (forced update)"
+                    description="Apps older than this are BLOCKED until updated. Use only for real breakages (prices, payments, security)."
+                  >
+                    <div className="space-y-1">
+                      <Input
+                        className="w-40"
+                        placeholder="e.g. 1.0.9"
+                        value={appUpdate.minimumVersion}
+                        aria-invalid={minimumVersionInvalid || minimumAboveLatest}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            ensureAppUpdateSettings(content).minimumVersion = event.target.value
+                          })
+                        }
+                      />
+                      {minimumVersionInvalid ? (
+                        <p className="text-xs text-destructive">Use numbers like 1.0.9</p>
+                      ) : minimumAboveLatest ? (
+                        <p className="text-xs text-destructive">
+                          Minimum is higher than latest. Make sure that version is live on Play Store.
+                        </p>
+                      ) : null}
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="Message (optional)"
+                    description="Shown under the title. Empty = a default Bangla message."
+                  >
+                    <Input
+                      className="w-full max-w-md"
+                      maxLength={300}
+                      placeholder="নতুন ফিচার আর আরও দ্রুত অভিজ্ঞতার জন্য অ্যাপটি আপডেট করুন।"
+                      value={appUpdate.message}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureAppUpdateSettings(content).message = event.target.value
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Store link (optional)"
+                    description="Empty = Foodbela on Google Play (com.foodbela.app)."
+                  >
+                    <Input
+                      className="w-full max-w-md"
+                      placeholder="https://play.google.com/store/apps/details?id=com.foodbela.app"
+                      value={appUpdate.storeUrl}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureAppUpdateSettings(content).storeUrl = event.target.value
+                        })
+                      }
+                    />
+                  </SettingRow>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
                     <Trash2 className="size-4" />
                     Account deletion (Play compliance)
                   </CardTitle>
@@ -2673,6 +2845,85 @@ export function SettingsPage() {
                       </p>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Truck className="size-4" />
+                    Customer live tracking (app)
+                  </CardTitle>
+                  <CardDescription>
+                    How the customer&rsquo;s tracking screen keeps the rider moving when the live
+                    connection is weak. Changes reach every app within a few minutes — no app
+                    update needed. Defaults: 25s / 120s / 45s.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <SettingRow
+                    title="Backup refresh (seconds)"
+                    description="When the live connection drops, the screen re-fetches the order this often. Lower = smoother map, more data. 5–120."
+                  >
+                    <Input
+                      type="number"
+                      min={5}
+                      max={120}
+                      className="w-32"
+                      value={customerTracking.fallbackPollSeconds}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureCustomerTrackingSettings(content).fallbackPollSeconds = clampNumber(
+                            Math.round(numberFromInput(event.target.value, customerTracking.fallbackPollSeconds)),
+                            5,
+                            120,
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Refresh if rider is quiet (seconds)"
+                    description="Live connection is up but no rider location arrived for this long while 'On the way' → re-fetch. 10–600."
+                  >
+                    <Input
+                      type="number"
+                      min={10}
+                      max={600}
+                      className="w-32"
+                      value={customerTracking.refetchIfQuietSeconds}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureCustomerTrackingSettings(content).refetchIfQuietSeconds = clampNumber(
+                            Math.round(numberFromInput(event.target.value, customerTracking.refetchIfQuietSeconds)),
+                            10,
+                            600,
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="Mark location old after (seconds)"
+                    description="A rider location older than this is shown to the customer as not live. 30–900."
+                  >
+                    <Input
+                      type="number"
+                      min={30}
+                      max={900}
+                      className="w-32"
+                      value={customerTracking.staleAfterSeconds}
+                      onChange={(event) =>
+                        updateDraft((content) => {
+                          ensureCustomerTrackingSettings(content).staleAfterSeconds = clampNumber(
+                            Math.round(numberFromInput(event.target.value, customerTracking.staleAfterSeconds)),
+                            30,
+                            900,
+                          )
+                        })
+                      }
+                    />
+                  </SettingRow>
                 </CardContent>
               </Card>
 
@@ -5402,11 +5653,11 @@ export function SettingsPage() {
                   </SettingRow>
                   <SettingRow
                     title="Support call number"
-                    description="The number the 'Call for instant OTP' button dials."
+                    description="The number the 'Call for instant OTP' button dials. Leave empty to use the Support contact phone."
                   >
                     <Input
                       value={otp.supportCallNumber ?? ""}
-                      placeholder="017XXXXXXXX"
+                      placeholder="Empty = Support contact phone"
                       onChange={(event) =>
                         updateDraft((content) => {
                           content.auth.otp.supportCallNumber = event.target.value

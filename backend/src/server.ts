@@ -1,5 +1,8 @@
 import { startRestaurantAutomationScheduler, stopRestaurantAutomationScheduler } from "./modules/owner/restaurant-automation.service"
 import http from "node:http"
+import { startOpenNotifyWorker, stopOpenNotifyWorker } from "./modules/open-notify/open-notify.service"
+import { startWinBackWorker, stopWinBackWorker } from "./modules/win-back/win-back.service"
+import { startRewardsWorker, stopRewardsWorker } from "./modules/rewards/rewards.service"
 import mongoose from "mongoose"
 
 import { createApp } from "./app"
@@ -20,6 +23,10 @@ import {
   startAppAlertScheduler,
   stopAppAlertScheduler,
 } from "./modules/monitoring/app-alert-scheduler"
+import {
+  startTrackingWatchdog,
+  stopTrackingWatchdog,
+} from "./modules/rider/tracking-watchdog"
 import {
   startMenuTrashPurgeScheduler,
   stopMenuTrashPurgeScheduler,
@@ -46,6 +53,10 @@ async function bootstrap() {
     startAppAlertScheduler()
     startMenuTrashPurgeScheduler()
     startRestaurantAutomationScheduler()
+    startTrackingWatchdog()
+    startOpenNotifyWorker()
+    startWinBackWorker()
+    startRewardsWorker()
   })
 
   let isShuttingDown = false
@@ -58,6 +69,10 @@ async function bootstrap() {
     stopPlatformContentScheduler()
     stopAdminNotificationScheduler()
     stopAppAlertScheduler()
+    stopTrackingWatchdog()
+    stopOpenNotifyWorker()
+    stopWinBackWorker()
+    stopRewardsWorker()
     stopMenuTrashPurgeScheduler()
     stopRestaurantAutomationScheduler()
 

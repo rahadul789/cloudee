@@ -9,6 +9,8 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  // Unpadded container → give the inline header the standard 16px gutter.
+  headerInset: { paddingHorizontal: 16 },
   header: {
     paddingHorizontal: 18,
     flexDirection: "row",
@@ -43,12 +45,12 @@ export const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFE9F1",
+    backgroundColor: palette.surface,
   },
   title: {
     fontSize: 20,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   list: {
@@ -81,14 +83,14 @@ export const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: "#FFE9F1",
+    backgroundColor: "#FFF1DC",
     alignItems: "center",
     justifyContent: "center",
   },
   emptyTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   emptyDescription: {
@@ -108,7 +110,7 @@ export const styles = StyleSheet.create({
   quickChip: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#F2D9E4",
+    borderColor: "#EFE4D3",
     backgroundColor: "#FFF6FA",
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -150,20 +152,20 @@ export const styles = StyleSheet.create({
   unreadLine: {
     flex: 1,
     height: 1,
-    backgroundColor: "#F2D9E4",
+    backgroundColor: "#EFE4D3",
   },
   unreadChip: {
     borderRadius: 999,
     backgroundColor: "#FFF2F7",
     borderWidth: 1,
-    borderColor: "#F7D1E0",
+    borderColor: "#EFE4D3",
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   unreadChipText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   messageRowUser: {
@@ -181,7 +183,7 @@ export const styles = StyleSheet.create({
     gap: 6,
   },
   messageBubbleUser: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderBottomRightRadius: 8,
   },
   messageBubbleSupport: {
@@ -201,7 +203,7 @@ export const styles = StyleSheet.create({
     color: palette.foreground,
   },
   messageTextUser: {
-    color: "#fff",
+    color: palette.onPrimary,
   },
   messageTime: {
     fontSize: 11,
@@ -214,7 +216,7 @@ export const styles = StyleSheet.create({
   messageMeta: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   messageMetaUser: {
@@ -275,7 +277,7 @@ export const styles = StyleSheet.create({
   errorText: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "#C62828",
   },
   retryRow: {
@@ -340,7 +342,7 @@ export const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   sendButtonDisabled: {
     opacity: 0.45,
@@ -360,39 +362,14 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
-  sheetBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(11, 15, 24, 0.22)",
-    justifyContent: "flex-end",
-    padding: 18,
-  },
-  sheetCard: {
-    borderRadius: 28,
-    backgroundColor: palette.surface,
-    padding: 18,
-    gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  sheetTitle: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
   sheetAction: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.background,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceMuted,
     paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
   },
   sheetActionIcon: {
     width: 38,
@@ -400,7 +377,7 @@ export const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFE9F1",
+    backgroundColor: "#FFF1DC",
   },
   sheetActionCopy: {
     flex: 1,
@@ -409,7 +386,7 @@ export const styles = StyleSheet.create({
   sheetActionTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   sheetActionText: {

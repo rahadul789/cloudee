@@ -1,3 +1,4 @@
+import { OrderChatPanel } from "@/components/order-chat-panel"
 import * as React from "react"
 import {
   keepPreviousData,
@@ -1437,6 +1438,8 @@ function OrderDetailsSheet({
                       </CardContent>
                     </Card>
                   </div>
+
+                  <OrderChatPanel orderId={orderId} />
 
                   {details.review ? (
                     <Card>

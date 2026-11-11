@@ -30,7 +30,7 @@ export const PANEL_PRESETS: Record<string, PanelTheme> = {
   midnight: { bg: "#14161F", accent: "#60A5FA", accentOn: "#0A1220", text: "#E8ECF5", subText: "#A9B0C2", border: "rgba(96,165,250,0.4)", glow: "#60A5FA" },
   mocha: { bg: "#241A16", accent: "#E9A06A", accentOn: "#241108", text: "#F6EAE0", subText: "#CFB6A4", border: "rgba(233,160,106,0.4)", glow: "#E9A06A" },
   // Light grounds → dark text.
-  light: { bg: "#FFFFFF", accent: "#FF6392", accentOn: "#FFFFFF", text: "#2E2E38", subText: "#6F7285", border: "rgba(255,224,236,0.92)", glow: "rgba(31,36,48,0.1)" },
+  light: { bg: "#FFFFFF", accent: "#A86300", accentOn: "#FFFFFF", text: "#2E2E38", subText: "#6F7285", border: "rgba(255,224,236,0.92)", glow: "rgba(31,36,48,0.1)" },
   rose: { bg: "#FFF0F5", accent: "#E11D66", accentOn: "#FFFFFF", text: "#3A2530", subText: "#8A6D78", border: "rgba(225,29,102,0.25)", glow: "rgba(225,29,102,0.16)" },
   mint: { bg: "#EAF8F0", accent: "#0E9F6E", accentOn: "#FFFFFF", text: "#14261C", subText: "#5E8571", border: "rgba(14,159,110,0.25)", glow: "rgba(14,159,110,0.16)" },
   sand: { bg: "#FBF3E7", accent: "#C77D33", accentOn: "#FFFFFF", text: "#2E2416", subText: "#7A6A50", border: "rgba(199,125,51,0.28)", glow: "rgba(199,125,51,0.16)" },
@@ -79,7 +79,7 @@ function buildCustomTheme(bg: string): PanelTheme {
     bg,
     text: dark ? "#F2EEF7" : "#242028",
     subText: dark ? "#C4BDD0" : "#6F6A78",
-    accent: dark ? "#FFC94D" : "#FF6392",
+    accent: dark ? "#FFC94D" : "#A86300",
     accentOn: dark ? "#1B1426" : "#FFFFFF",
     border: dark ? "rgba(255,255,255,0.22)" : "rgba(31,36,48,0.14)",
     glow: dark ? "#FFC94D" : "rgba(31,36,48,0.12)",

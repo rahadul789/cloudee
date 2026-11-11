@@ -149,6 +149,14 @@ export type OwnerOrderResponse = {
   orderNumber: string
   status: OrderStatus
   isUrgent?: boolean
+  // "Send food home" gift: hand the food to the recipient, not the (paying) sender.
+  gift?: {
+    isGift?: boolean
+    recipientName?: string
+    recipientPhone?: string
+    message?: string
+    senderName?: string
+  } | null
   paymentMethod: string
   createdAt?: string
   updatedAt?: string
@@ -1584,9 +1592,16 @@ export function mapOwnerOrder(order: OwnerOrderResponse): Order {
     id: order._id,
     orderNumber: order.orderNumber,
     isUrgent: order.isUrgent === true,
+    isGift: order.gift?.isGift === true,
+    giftFrom: order.gift?.isGift ? order.gift.senderName ?? "" : "",
+    giftMessage: order.gift?.isGift ? order.gift.message ?? "" : "",
     customer: {
-      name: order.customerSnapshot?.fullName ?? "Customer",
-      phone: order.customerSnapshot?.phone ?? "",
+      name: order.gift?.isGift
+        ? order.gift.recipientName || "Gift receiver"
+        : order.customerSnapshot?.fullName ?? "Customer",
+      phone: order.gift?.isGift
+        ? order.gift.recipientPhone ?? ""
+        : order.customerSnapshot?.phone ?? "",
       address:
         order.customerSnapshot?.deliveryAddress?.addressLine ??
         order.customerSnapshot?.deliveryAddress?.label ??

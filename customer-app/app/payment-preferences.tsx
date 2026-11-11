@@ -11,6 +11,7 @@ import {
   type CustomerPreferredPaymentMethod,
 } from "@/src/store/payment-preferences-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 const bkashLogo = require("../assets/images/bkash.png");
 
@@ -78,21 +79,11 @@ export default function PaymentPreferencesScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <PressableScale
-            scaleTo={0.9}
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </PressableScale>
-          <View style={styles.headerCopy}>
-            <Text style={styles.title}>Default payment</Text>
-            <Text style={styles.subtitle}>
-              Choose what checkout should select first.
-            </Text>
-          </View>
-        </View>
+        <AppHeader
+          inline
+          title="Default payment"
+          subtitle="Choose what checkout should select first."
+        />
 
         <View style={styles.currentCard}>
           <Text style={styles.currentLabel}>Current preference</Text>
@@ -208,25 +199,20 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     lineHeight: 32,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
     marginTop: 2,
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   currentCard: {
     borderRadius: 24,
     backgroundColor: palette.surface,
     padding: 16,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
   },
   currentLabel: {
     fontSize: 12,
@@ -238,14 +224,14 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 24,
     lineHeight: 30,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   currentHint: {
     marginTop: 8,
     fontSize: 12,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   optionStack: {
@@ -255,7 +241,7 @@ const styles = StyleSheet.create({
     minHeight: 78,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#F0D7E1",
+    borderColor: "#EFE4D3",
     backgroundColor: palette.surface,
     padding: 13,
     flexDirection: "row",
@@ -264,7 +250,7 @@ const styles = StyleSheet.create({
   },
   optionCardActive: {
     borderColor: palette.secondary,
-    backgroundColor: "#FFF3F8",
+    backgroundColor: "#FFFAF2",
   },
   optionCardDisabled: {
     opacity: 0.45,
@@ -278,7 +264,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8EFE8",
   },
   optionIconActive: {
-    backgroundColor: "#FFE2EE",
+    backgroundColor: "#FFF1DC",
   },
   optionCopy: {
     flex: 1,
@@ -287,13 +273,13 @@ const styles = StyleSheet.create({
   optionTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   optionSubtitle: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   footer: {
@@ -306,7 +292,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   saveButtonDisabled: {
     opacity: 0.45,
@@ -314,7 +300,7 @@ const styles = StyleSheet.create({
   saveButtonText: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

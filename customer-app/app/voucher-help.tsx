@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PressableScale } from "@/src/components/pressable-scale";
 import { Screen } from "@/src/components/screen";
 import { palette } from "@/src/theme/palette";
+import { HeaderBackButton } from "@/src/components/ui";
 
 const voucherIssueCards = [
   {
@@ -59,13 +60,7 @@ export default function VoucherHelpScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons
-              name="chevron-back"
-              size={20}
-              color={palette.foreground}
-            />
-          </Pressable>
+          <HeaderBackButton />
         </View>
 
         <View style={styles.hero}>
@@ -150,7 +145,7 @@ export default function VoucherHelpScreen() {
               <Ionicons
                 name="search-outline"
                 size={18}
-                color={palette.surface}
+                color={palette.onPrimary}
               />
               <Text style={[styles.secondaryActionText, styles.primaryActionText]}>
                 Browse offers
@@ -192,7 +187,7 @@ const styles = StyleSheet.create({
     width: 138,
     height: 138,
     borderRadius: 69,
-    backgroundColor: "#FFE7F1",
+    backgroundColor: "#FFF1DC",
   },
   heroGlowSecondary: {
     position: "absolute",
@@ -206,7 +201,7 @@ const styles = StyleSheet.create({
   kicker: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
     color: palette.secondary,
@@ -214,7 +209,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     lineHeight: 34,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: { fontSize: 14, lineHeight: 22, color: palette.mutedForeground },
@@ -222,7 +217,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   sectionSubtitle: {
@@ -251,7 +246,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   cardText: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
@@ -268,7 +263,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     marginTop: 6,
   },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
@@ -294,9 +289,9 @@ const styles = StyleSheet.create({
   },
   primaryAction: {
     borderColor: palette.secondary,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   primaryActionText: {
-    color: palette.surface,
+    color: palette.onPrimary,
   },
 });

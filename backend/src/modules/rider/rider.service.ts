@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import { decorateOwnerFinancials } from "../owner/order-financials"
+import { deliveryContactOf } from "../customer/gift-order"
 
 import { StatusCodes } from "http-status-codes"
 
@@ -76,6 +77,7 @@ const RIDER_ORDER_LIST_SELECT = [
   "customerSnapshot.name",
   "customerSnapshot.fullName",
   "customerSnapshot.phone",
+  "gift",
   "customerSnapshot.deliveryAddress",
   "riderSnapshot",
   "riderTracking",
@@ -100,6 +102,7 @@ const RIDER_LIVE_MAP_ORDER_SELECT = [
   "customerSnapshot.name",
   "customerSnapshot.fullName",
   "customerSnapshot.phone",
+  "gift",
   "customerSnapshot.deliveryAddress",
   "riderTracking",
   "preparationMeta",
@@ -343,9 +346,13 @@ function mapRiderOrder(
     timestamps: order.timestamps ?? {},
     riderSnapshot: order.riderSnapshot ?? {},
     riderTracking: decorateTrackingSnapshot(order.riderTracking ?? {}, order.status ?? ""),
+    // Gift orders hand off to the RECIPIENT: rider calls/meets them, not the sender.
     customer: {
-      name: order.customerSnapshot?.name ?? order.customerSnapshot?.fullName ?? "",
-      phone: order.customerSnapshot?.phone ?? "",
+      name: deliveryContactOf(order).name,
+      phone: deliveryContactOf(order).phone,
+      isGift: deliveryContactOf(order).isGift,
+      giftFrom: deliveryContactOf(order).giftFrom,
+      giftMessage: deliveryContactOf(order).giftMessage,
       deliveryAddress: {
         label: order.customerSnapshot?.deliveryAddress?.label ?? "",
         addressLine: order.customerSnapshot?.deliveryAddress?.addressLine ?? "",
@@ -511,9 +518,10 @@ function mapLiveMapOrder(
     },
     customer: {
       id: String(order.customerId ?? ""),
-      name: order.customerSnapshot?.name ?? order.customerSnapshot?.fullName ?? "",
-      // The rider can call the customer for THEIR OWN delivery (same as the full order detail).
-      phone: order.customerSnapshot?.phone ?? "",
+      name: deliveryContactOf(order).name,
+      // The rider can call the customer for THEIR OWN delivery (gift → the receiver).
+      phone: deliveryContactOf(order).phone,
+      isGift: deliveryContactOf(order).isGift,
       addressLabel: customerAddress.label ?? "",
       addressLine: customerAddress.addressLine ?? "",
       addressDetails: customerAddress.addressDetails ?? "",

@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { CustomerLocationSync } from "@/src/components/customer-location-sync";
+import { CartReminderBridge } from "@/src/components/cart-reminder-bridge";
 import { DeferredMount } from "@/src/components/deferred-mount";
 import { NetworkStateBridge } from "@/src/components/network-state-bridge";
 import { AppBannerHost } from "@/src/components/app-banner-host";
@@ -31,6 +32,8 @@ export function AppProviders({ children }: PropsWithChildren) {
               <CustomerSocketBridge />
               <AppBannerHost />
               <LiveOrderFloatingButton />
+              {/* One gentle local "cart is waiting" reminder (strict limits). */}
+              <CartReminderBridge />
             </DeferredMount>
           </CustomerPushBridge>
         </QueryClientProvider>

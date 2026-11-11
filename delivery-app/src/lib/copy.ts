@@ -16,6 +16,9 @@ const copy = {
       batteryBody:
         "So tracking doesn't stop when the phone is locked, set this app to Unrestricted battery and enable Autostart.",
       batteryAction: "Open settings",
+      batteryOnTitle: "Battery optimization is ON — tracking will stop",
+      batteryOnBody:
+        "When the screen is off, your phone stops this app's location, so the customer can't see you. Open settings → Battery → set to Unrestricted (and turn on Autostart if your phone has it).",
       dismiss: "Got it",
       settings: "Settings",
     },
@@ -390,6 +393,9 @@ const copy = {
       batteryBody:
         "ফোন লক করলে ট্র্যাকিং যেন বন্ধ না হয়, এই অ্যাপের জন্য ব্যাটারি Unrestricted রাখুন ও Autostart চালু করুন।",
       batteryAction: "সেটিংস খুলুন",
+      batteryOnTitle: "ব্যাটারি অপটিমাইজেশন চালু — লোকেশন বন্ধ হয়ে যাবে",
+      batteryOnBody:
+        "স্ক্রিন বন্ধ হলে ফোন এই অ্যাপের লোকেশন বন্ধ করে দেয়, তখন কাস্টমার আপনাকে দেখতে পান না। সেটিংস → Battery → Unrestricted করুন (ফোনে Autostart থাকলে সেটাও চালু করুন)।",
       dismiss: "বুঝেছি",
       settings: "সেটিংস",
     },

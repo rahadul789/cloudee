@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Battery from "expo-battery";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -6,6 +7,7 @@ import {
   Dimensions,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +33,8 @@ import {
 } from "@/src/hooks/use-rider-api";
 import { getOrderStatusBadge, getPaymentMethodBadge } from "@/src/lib/rider-order-display";
 import { useDeliveryCopy } from "@/src/lib/copy";
+import { router } from "expo-router";
+import { useRiderOrderChatQuery } from "@/src/hooks/use-rider-order-chat";
 import { palette } from "@/src/theme/palette";
 import {
   PersistentBottomSheet,
@@ -358,11 +362,30 @@ export function HomeOrdersSheet({
           text: t.yesPickedUp,
           onPress: () => {
             setBusyId(order.id);
-            pickupMutation.mutate({ orderId: order.id }, { onSettled: () => setBusyId(""), onError });
+            pickupMutation.mutate(
+              { orderId: order.id },
+              {
+                onSettled: () => setBusyId(""),
+                onError,
+                onSuccess: () => void remindBatteryAfterPickup(),
+              },
+            );
           },
         },
       ],
     );
+  }
+
+  // Live tracking only survives a locked screen if the OS isn't battery-optimizing the app.
+  async function remindBatteryAfterPickup() {
+    if (Platform.OS !== "android") return;
+    const optimized = await Battery.isBatteryOptimizationEnabledAsync().catch(() => false);
+    if (!optimized) return;
+    const h = copy.trackingHealth;
+    Alert.alert(h.batteryOnTitle, h.batteryOnBody, [
+      { text: h.dismiss, style: "cancel" },
+      { text: h.batteryAction, onPress: () => void Linking.openSettings() },
+    ]);
   }
 
   function deliver(order: RiderOrder) {
@@ -1005,6 +1028,12 @@ function OrderDetail({
         }
         phone={order.customer?.phone || undefined}
         onCall={order.customer?.phone ? () => call(order.customer?.phone) : undefined}
+        chatOrderId={
+          order.assignmentState === "assigned_to_you" &&
+          ["Accepted", "Preparing", "ReadyForPickup", "PickedUp"].includes(order.status)
+            ? order.id
+            : undefined
+        }
         onNavigate={() =>
           openMapsTo(
             order.customer?.deliveryAddress?.latitude,
@@ -1447,6 +1476,7 @@ function DetailRow({
   phone,
   onCall,
   onNavigate,
+  chatOrderId,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
@@ -1454,6 +1484,8 @@ function DetailRow({
   phone?: string;
   onCall?: () => void;
   onNavigate?: () => void;
+  /** Shows a chat button (rider ↔ customer) for this order. */
+  chatOrderId?: string;
 }) {
   return (
     <View style={styles.detailRow}>
@@ -1475,6 +1507,7 @@ function DetailRow({
         ) : null}
       </View>
       <View style={styles.detailRowActions}>
+        {chatOrderId ? <ChatIconButton orderId={chatOrderId} /> : null}
         {onCall ? (
           <Pressable style={styles.callButton} onPress={onCall} hitSlop={6}>
             <Ionicons name="call" size={17} color={palette.success} />
@@ -1490,7 +1523,52 @@ function DetailRow({
   );
 }
 
+// Opens the customer chat; shows the unread count from the cached/socket-fed thread.
+function ChatIconButton({ orderId }: { orderId: string }) {
+  const chatQuery = useRiderOrderChatQuery(orderId);
+  const unread = chatQuery.data?.unreadCount ?? 0;
+  return (
+    <Pressable
+      style={styles.chatButton}
+      onPress={() => router.push(`/orders/${orderId}/chat` as never)}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={unread > 0 ? `Chat, ${unread} unread` : "Chat with customer"}
+    >
+      <Ionicons name="chatbubble-ellipses" size={17} color={palette.primary} />
+      {unread > 0 ? (
+        <View style={styles.chatBadge}>
+          <Text style={styles.chatBadgeText}>{unread > 9 ? "9+" : unread}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  chatButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  chatBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.danger,
+    borderWidth: 1.5,
+    borderColor: palette.surface,
+  },
+  chatBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: "700", color: "#FFFFFF" },
   peek: {
     flex: 1,
     flexDirection: "row",

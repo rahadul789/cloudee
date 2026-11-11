@@ -10,6 +10,7 @@ import {
 } from "../../common/middleware/rate-limit"
 
 import { requireAuth, requireRole } from "../../common/middleware/auth"
+import { riderOrderChat } from "../order-chat/order-chat.controller"
 import {
   getRiderLiveMapView,
   getRiderNotifications,
@@ -102,6 +103,9 @@ riderRouter.get("/live-map", requireAuth, requireRole("rider"), getRiderLiveMapV
 riderRouter.get("/orders", requireAuth, requireRole("rider"), getRiderOrders)
 riderRouter.get("/orders/summary", requireAuth, requireRole("rider"), getRiderOrdersSummary)
 riderRouter.get("/orders/:orderId", requireAuth, requireRole("rider"), getRiderOrder)
+riderRouter.get("/orders/:orderId/chat", requireAuth, requireRole("rider"), riderOrderChat.getThread)
+riderRouter.post("/orders/:orderId/chat", requireAuth, requireRole("rider"), riderOrderChat.send)
+riderRouter.post("/orders/:orderId/chat/read", requireAuth, requireRole("rider"), riderOrderChat.markRead)
 riderRouter.get(
   "/orders/:orderId/reassign-candidates",
   requireAuth,

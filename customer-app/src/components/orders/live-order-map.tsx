@@ -29,6 +29,8 @@ type LiveOrderMapProps = {
   routeProvider?: "google" | "haversine" | null;
   trafficAware?: boolean | null;
   mapStyle?: unknown;
+  bare?: boolean;
+  height?: number;
 };
 
 export const LiveOrderMap = memo(function LiveOrderMap({
@@ -51,7 +53,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
         <View style={styles.endpoint}>
           <Text style={styles.endpointLabel}>You</Text>
           <View style={styles.homePin}>
-            <Ionicons name="home" size={14} color="#fff" />
+            <Ionicons name="home" size={14} color={palette.onPrimary} />
           </View>
         </View>
 
@@ -102,7 +104,7 @@ const styles = StyleSheet.create({
     width: 110,
     height: 110,
     borderRadius: 55,
-    backgroundColor: "rgba(255, 122, 89, 0.12)",
+    backgroundColor: "rgba(255, 184, 76, 0.12)",
   },
   glowCool: {
     position: "absolute",
@@ -135,7 +137,7 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   pathColumn: {
     flex: 1,
@@ -147,7 +149,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   pathLine: {
     flex: 1,

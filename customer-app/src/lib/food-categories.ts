@@ -36,7 +36,7 @@ export function normalizeFoodCategorySuggestions<
       searchQuery,
       imageUrl: item.imageUrl?.trim() || undefined,
       icon: item.icon || "restaurant-outline",
-      color: item.color || "#FFF0F6",
+      color: item.color || "#FFF6E8",
     });
   }
 

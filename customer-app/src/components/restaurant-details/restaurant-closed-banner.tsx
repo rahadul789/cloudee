@@ -27,7 +27,7 @@ export function RestaurantClosedBanner({
         <Ionicons
           name={opensSoon ? "time" : "moon"}
           size={18}
-          color={opensSoon ? palette.primary : palette.mutedForeground}
+          color={opensSoon ? palette.secondary : palette.mutedForeground}
         />
       </View>
       <View style={styles.body}>
@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
   },
   cardOpens: {
     backgroundColor: "#FFF3EE",
-    borderColor: "rgba(255, 122, 89, 0.32)",
+    borderColor: "rgba(255, 184, 76, 0.32)",
   },
   cardBusy: {
     backgroundColor: palette.surfaceMuted,
@@ -69,13 +69,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  iconWrapOpens: { backgroundColor: "rgba(255, 122, 89, 0.16)" },
+  iconWrapOpens: { backgroundColor: "rgba(255, 184, 76, 0.16)" },
   iconWrapBusy: { backgroundColor: "rgba(20, 24, 35, 0.06)" },
   body: { flex: 1, gap: 2 },
   title: {
     fontSize: 14.5,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
     letterSpacing: 0.1,
   },
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
 });

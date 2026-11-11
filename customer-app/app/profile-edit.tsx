@@ -30,6 +30,7 @@ import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 type ProfileImageValue = {
   url?: string;
@@ -329,21 +330,7 @@ export default function ProfileEditScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.topBar}>
-            <PressableScale
-              scaleTo={0.9}
-              onPress={() => router.back()}
-              style={styles.backButton}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={20}
-                color={palette.foreground}
-              />
-            </PressableScale>
-            <Text style={styles.topBarTitle}>Edit profile</Text>
-            <View style={styles.topBarSpacer} />
-          </View>
+          <AppHeader inline title="Edit profile" />
 
           {!isOnline ? (
             <OfflineNoticeCard description="You can review your profile here. Reconnect to upload a photo or save changes." />
@@ -388,7 +375,7 @@ export default function ProfileEditScreen() {
                   ) : null}
                 </View>
                 <View style={styles.avatarEditBadge}>
-                  <Ionicons name="camera" size={13} color="#fff" />
+                  <Ionicons name="camera" size={13} color={palette.onPrimary} />
                 </View>
               </PressableScale>
 
@@ -425,10 +412,10 @@ export default function ProfileEditScreen() {
                 disabled={isUploadingImage || isSavingProfile || updateMutation.isPending || !isOnline}
               >
                 {isUploadingImage ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={palette.onPrimary} />
                 ) : (
                   <>
-                    <Ionicons name="image-outline" size={16} color="#fff" />
+                    <Ionicons name="image-outline" size={16} color={palette.onPrimary} />
                     <Text style={styles.photoButtonPrimaryText}>
                       {profileImage?.url ? "Change photo" : "Upload photo"}
                     </Text>
@@ -583,11 +570,11 @@ export default function ProfileEditScreen() {
               }
             >
               {isSavingProfile || updateMutation.isPending ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={palette.onPrimary} />
               ) : (
                 <>
                   <Text style={styles.primaryButtonText}>Save changes</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#fff" />
+                  <Ionicons name="arrow-forward" size={16} color={palette.onPrimary} />
                 </>
               )}
             </PressableScale>
@@ -625,7 +612,7 @@ const styles = StyleSheet.create({
   topBarTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   topBarSpacer: {
@@ -641,11 +628,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(31, 36, 48, 0.08)",
     padding: 16,
     gap: 16,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   // Soft tinted header band + a warm glow behind the avatar — lifts the card from a
   // plain white sheet to a considered "identity" header.
@@ -655,7 +637,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 96,
-    backgroundColor: "#FFF3F8",
+    backgroundColor: "#FFFAF2",
   },
   heroAccentGlow: {
     position: "absolute",
@@ -674,11 +656,6 @@ const styles = StyleSheet.create({
   avatarShellWrap: {
     position: "relative",
     borderRadius: 30,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 4,
   },
   avatarEditBadge: {
     position: "absolute",
@@ -687,7 +664,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2.5,
@@ -710,13 +687,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFE7F1",
+    backgroundColor: "#FFF1DC",
   },
   avatarFallbackText: {
     fontSize: 30,
     lineHeight: 34,
-    fontWeight: "800",
-    color: "#D85A8A",
+    fontWeight: "700",
+    color: "#A86300",
   },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -731,14 +708,14 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
     textTransform: "uppercase",
   },
   heroName: {
     fontSize: 23,
     lineHeight: 29,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   phoneChip: {
@@ -755,7 +732,7 @@ const styles = StyleSheet.create({
   phoneChipText: {
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#127C57",
     fontVariant: ["tabular-nums"],
   },
@@ -781,14 +758,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   photoButtonPrimary: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderColor: palette.secondary,
   },
   photoButtonPrimaryText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   photoButtonText: {
     fontSize: 14,
@@ -810,7 +787,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   inputShell: {
@@ -862,7 +839,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   locationLinkCopy: {
     flex: 1,
@@ -871,32 +848,32 @@ const styles = StyleSheet.create({
   locationLinkLabel: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
     textTransform: "uppercase",
   },
   locationLinkTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   locationLinkSubtitle: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   errorText: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "#C62828",
   },
   primaryButton: {
     minHeight: 52,
     borderRadius: 20,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -908,7 +885,7 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

@@ -254,12 +254,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   description: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   dismiss: {
     maxWidth: 88,
@@ -269,6 +269,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
   },
 });

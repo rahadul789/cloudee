@@ -25,7 +25,7 @@ export function ErrorRetryCard({
   return (
     <View style={styles.card}>
       <View style={styles.iconWrap}>
-        <Ionicons name="alert-circle-outline" size={26} color={palette.primary} />
+        <Ionicons name="alert-circle-outline" size={26} color={palette.secondary} />
       </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.description}>{description}</Text>
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },

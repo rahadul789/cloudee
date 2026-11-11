@@ -58,6 +58,8 @@ export type DiscoverableRestaurant = {
   };
   preparationTimeMinutes?: number | null;
   lowestMenuPrice?: number | null;
+  /** Estimated delivery fee (৳) to the selected location — same pricing as checkout. */
+  deliveryFee?: number | null;
   distanceKm?: number | null;
   deliveryRadiusKm?: number | null;
   isServiceableForSelectedLocation?: boolean | null;
@@ -195,7 +197,42 @@ export type CustomerPanelThemeConfig = {
   customColor?: string;
 };
 
+export type CustomerHomeHeroSlide = {
+  id: string;
+  mediaUrl: string;
+  mediaPublicId?: string;
+  title?: string;
+  linkEnabled?: boolean;
+  ctaPath?: string;
+  /** Admin-picked colour for the "Deliver to" + bell overlay on this slide ("" = default). */
+  overlayTextColor?: string;
+};
+
+export type CustomerHomeHeroCarousel = {
+  enabled: boolean;
+  autoPlay?: boolean;
+  intervalSeconds?: number;
+  aspectRatio?: "16:9" | "2:1" | "4:3" | "1:1";
+  showDots?: boolean;
+  slides: CustomerHomeHeroSlide[];
+};
+
+export type CustomerHomeOrderAgainSection = {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
+  maxItems: number;
+  maxAgeDays: number;
+  placement: "before_top_sections" | "after_top_sections";
+};
+
 export type CustomerHomeCms = {
+  /** Top-of-home animated banner (GIF / animated WebP / images). Absent on old backends. */
+  heroCarousel?: CustomerHomeHeroCarousel;
+  /** Admin control for the "Order again" rail. Absent on old backends → defaults (on). */
+  orderAgainSection?: CustomerHomeOrderAgainSection;
+  /** Home "Foodbela is closed" card + its "Notify me" button (admin; both default ON). */
+  closedNotice?: { enabled?: boolean; notifyButton?: boolean };
   offerStrip: {
     isActive: boolean;
     showVoucherStrip?: boolean;
@@ -411,7 +448,19 @@ export type DiscoverableRestaurantsPage = {
   areaHasRestaurants?: boolean;
 };
 
+/** Item-price discount (menu markdown) shown on restaurant details. */
+export type CustomerMenuDeal = {
+  _id: string;
+  name: string;
+  type: "percentage" | "flat";
+  discountValue: number;
+  maxDiscountAmount: number | null;
+  applicability: string;
+};
+
 export type CustomerRestaurantDetails = {
+  /** Menu-price deals (markdowns). Absent on older backends. */
+  menuDeals?: CustomerMenuDeal[];
   restaurant: DiscoverableRestaurant;
   categories: CustomerRestaurantCategory[];
   menuItems: CustomerRestaurantMenuItem[];

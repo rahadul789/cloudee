@@ -286,6 +286,25 @@ export function computeRestaurantAvailability(params: {
 
   // Deterministic, area-wide: the platform/zone window is closed.
   if (!windowOpen) {
+    // A restaurant with its OWN schedule may open later than the area (e.g. area 12 PM,
+    // restaurant 2 PM): its reopen = first moment both are open. Same intersection the
+    // auto mode uses; falls back to the area's open time when it has no schedule.
+    if (evaluateSchedule(params.openingHours, now).hasSchedule) {
+      const combined = computeAutoAvailability(
+        params.openingHours as NonNullable<OpeningHoursInput>,
+        params.serviceHours,
+        now,
+      )
+      if (typeof combined.opensAtEpochMs === "number") {
+        return {
+          isOpen: false,
+          closedReason: "service_window",
+          opensAtLabel: combined.opensAtLabel,
+          opensAtEpochMs: combined.opensAtEpochMs,
+          closesAtEpochMs: null,
+        }
+      }
+    }
     return {
       isOpen: false,
       closedReason: "service_window",

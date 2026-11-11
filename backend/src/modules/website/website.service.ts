@@ -1,4 +1,6 @@
 import { createAdminOperationalAlert } from "../admin/admin-alert.service";
+import { getSupportPhone } from "../public/content.service";
+import { DEFAULT_SUPPORT_PHONE } from "../public/content";
 import { RestaurantModel } from "../auth/auth.model";
 import { slugify } from "../../common/utils/slugify";
 import { ServiceZoneModel } from "../service-area/service-area.model";
@@ -384,6 +386,8 @@ async function getServiceAreasForWebsite(row: any) {
 
 async function serializeSettings(row: any) {
   const serviceAreas = await getServiceAreasForWebsite(row);
+  // The website shows the same support number as the apps (admin Settings → Support contact).
+  const supportPhone = await getSupportPhone().catch(() => DEFAULT_SUPPORT_PHONE);
 
   return {
     siteUrl: row.siteUrl ?? defaultSiteUrl,
@@ -400,7 +404,7 @@ async function serializeSettings(row: any) {
     appDownloadUrl: row.appDownloadUrl ?? "",
     restaurantApplyUrl: row.restaurantApplyUrl ?? "/restaurants#apply",
     riderApplyUrl: row.riderApplyUrl ?? "/riders#apply",
-    supportPhone: row.supportPhone ?? "+880 1700-000000",
+    supportPhone,
     supportEmail: row.supportEmail ?? "hello@foodbela.com",
     facebookUrl: row.facebookUrl ?? "#",
     instagramUrl: row.instagramUrl ?? "#",

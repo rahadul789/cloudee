@@ -10,9 +10,11 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { palette } from "@/src/theme/palette";
 
-const IMAGE_SKELETON_COLOR = "#FFF0F6";
+const IMAGE_SKELETON_COLOR = "#FFF6E8";
 
 // ── Single shared shimmer driver ────────────────────────────────────────────
 // Every skeleton shares ONE Animated.Value driven by ONE native loop, instead of
@@ -329,38 +331,41 @@ export function OrdersTabSkeleton() {
   );
 }
 
+// Mirrors the redesigned details header: full-bleed cover under the status bar, the floating
+// info card (logo + 3 meta lines + search pill), the category tab bar, then menu rows.
 export function RestaurantDetailsSkeleton() {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.detailsContent}>
-      <ShimmerBlock style={styles.detailsHero} />
-      <View style={styles.detailsInfoCard}>
-        <View style={styles.detailsInfoTop}>
-          <ShimmerBlock style={styles.detailsLogo} />
-          <View style={styles.detailsTitleStack}>
-            <ShimmerBlock style={styles.detailsTitle} />
-            <ShimmerBlock style={styles.detailsSubtitle} />
-          </View>
+    <View style={styles.detailsRoot}>
+      <ShimmerBlock style={[styles.detailsCover, { height: 250 + insets.top }]} />
+      <View style={styles.detailsCard}>
+        <View style={styles.detailsStatsRow}>
+          {[0, 1, 2, 3].map((index) => (
+            <View key={index} style={styles.detailsStat}>
+              <ShimmerBlock style={styles.detailsStatValue} />
+              <ShimmerBlock style={styles.detailsStatLabel} />
+            </View>
+          ))}
         </View>
-        <View style={styles.detailsFactGrid}>
-          <ShimmerBlock style={styles.detailsFact} />
-          <ShimmerBlock style={styles.detailsFact} />
-          <ShimmerBlock style={styles.detailsFact} />
-          <ShimmerBlock style={styles.detailsFact} />
-        </View>
+        <ShimmerBlock style={styles.detailsSearchPill} />
       </View>
-      {/* Search bar + category rail sit together in the real header (controlsStack, gap 10). */}
-      <View style={styles.detailsControls}>
-        <ShimmerBlock style={styles.detailsSearchBar} />
-        <MenuCategoryChipsSkeleton />
+      <View style={styles.detailsTabs}>
+        <ShimmerBlock style={styles.detailsTabMenu} />
+        <ShimmerBlock style={styles.detailsTab} />
+        <ShimmerBlock style={styles.detailsTab} />
+        <ShimmerBlock style={styles.detailsTabShort} />
       </View>
-      {/* Reuse the SAME popular sub-skeleton the header/list use → every skeleton on this screen is
-          identical, and its 287px rail matches the real one so the menu doesn't jump when it fills. */}
-      <MenuPopularSkeleton />
-      <View style={styles.menuSkeletonList}>
+      <View style={styles.detailsRows}>
         <ShimmerBlock style={styles.menuSectionTitle} />
-        <ShimmerBlock style={styles.menuItem} />
-        <ShimmerBlock style={styles.menuItem} />
-        <ShimmerBlock style={styles.menuItem} />
+        {[0, 1, 2].map((index) => (
+          <View key={index} style={styles.detailsRow}>
+            <ShimmerBlock style={styles.detailsRowImage} />
+            <View style={styles.detailsRowCopy}>
+              <ShimmerBlock style={styles.detailsTitle} />
+              <ShimmerBlock style={styles.detailsSubtitle} />
+            </View>
+          </View>
+        ))}
       </View>
     </View>
   );
@@ -672,7 +677,7 @@ const styles = StyleSheet.create({
     position: "relative",
     height: 132,
     overflow: "hidden",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantImageShellCompact: {},
   restaurantImage: {
@@ -702,7 +707,7 @@ const styles = StyleSheet.create({
     width: 92,
     height: 24,
     borderRadius: 8,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantCopy: {
     paddingHorizontal: 13,
@@ -748,6 +753,43 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 8,
   },
+  detailsRoot: { flex: 1, backgroundColor: palette.surface },
+  detailsCover: { width: "100%" },
+  detailsCard: {
+    marginHorizontal: 16,
+    marginTop: -26,
+    padding: 10,
+    gap: 10,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    shadowColor: "#000000",
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  detailsCardLogo: { width: 72, height: 72, borderRadius: 14 },
+  detailsMetaLine: { width: "70%", height: 12, borderRadius: 6 },
+  detailsSearchPill: { height: 38, borderRadius: 10 },
+  detailsStatsRow: { flexDirection: "row" },
+  detailsStat: { flex: 1, alignItems: "center", gap: 6, paddingVertical: 6 },
+  detailsStatValue: { width: 46, height: 14, borderRadius: 7 },
+  detailsStatLabel: { width: 56, height: 10, borderRadius: 5 },
+  detailsTabs: {
+    height: 56,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  detailsTabMenu: { width: 36, height: 36, borderRadius: 18 },
+  detailsTab: { width: 96, height: 36, borderRadius: 18 },
+  detailsTabShort: { width: 64, height: 36, borderRadius: 18 },
+  detailsRows: { paddingHorizontal: 16, paddingTop: 20, gap: 18 },
+  detailsRow: { flexDirection: "row-reverse", gap: 14 },
+  detailsRowImage: { width: 112, height: 104, borderRadius: 14 },
+  detailsRowCopy: { flex: 1, gap: 10, paddingTop: 4 },
   detailsContent: {
     paddingBottom: 44,
     gap: 14,

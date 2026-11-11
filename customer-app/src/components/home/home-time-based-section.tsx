@@ -12,7 +12,7 @@ import type {
 
 function withAlpha(hex: string | undefined, alpha: number) {
   const normalized = (hex ?? "").replace("#", "").trim();
-  if (normalized.length !== 3 && normalized.length !== 6) return hex ?? "#FF5C93";
+  if (normalized.length !== 3 && normalized.length !== 6) return hex ?? "#A86300";
   const full =
     normalized.length === 3
       ? normalized

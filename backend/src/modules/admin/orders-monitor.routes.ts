@@ -1,6 +1,33 @@
 import { Router } from "express";
 
 import { requireAuth, requireRole } from "../../common/middleware/auth";
+import { getAdminOpenNotifyStats } from "../open-notify/open-notify.controller";
+import {
+  getAdminMysteryBoxesController,
+  getAdminRewardTestersController,
+  postAdminRewardTestGrant,
+  putAdminRewardTestersController,
+  postAdminMysteryBoxDecision,
+  getAdminRewardSettingsController,
+  getAdminRewardsOverviewController,
+  putAdminRewardSettingsController,
+} from "../rewards/rewards.controller";
+import {
+  deleteAdminHypeItemController,
+  getAdminHypeComments,
+  getAdminHypeItems,
+  postAdminHypeCommentModeration,
+  postAdminHypeItem,
+  putAdminHypeItem,
+} from "../hype/hype.controller";
+import {
+  getAdminWinBackCandidates,
+  getAdminWinBackSettings,
+  getAdminWinBackStats,
+  postAdminWinBackSend,
+  putAdminWinBackSettings,
+} from "../win-back/win-back.controller";
+import { getAdminOrderChatController } from "../order-chat/order-chat.controller";
 import {
   getAdminDispatchConfig,
   getAdminDispatchLogs,
@@ -107,6 +134,32 @@ adminOrdersMonitorRouter.post(
   postAdminBulkAssignRiders,
 );
 adminOrdersMonitorRouter.get("/orders/:orderId", getAdminOrderMonitor);
+// Read-only audit of the rider ↔ customer chat on this order.
+adminOrdersMonitorRouter.get("/orders/:orderId/chat", getAdminOrderChatController);
+// Demand while closed: how many customers tapped "Notify me when open".
+adminOrdersMonitorRouter.get("/open-notify/stats", getAdminOpenNotifyStats);
+// Win-back: vouchers for customers who stopped ordering (settings, today's list, send, results).
+adminOrdersMonitorRouter.get("/win-back/settings", getAdminWinBackSettings);
+adminOrdersMonitorRouter.put("/win-back/settings", putAdminWinBackSettings);
+adminOrdersMonitorRouter.get("/win-back/candidates", getAdminWinBackCandidates);
+adminOrdersMonitorRouter.post("/win-back/send", postAdminWinBackSend);
+adminOrdersMonitorRouter.get("/win-back/stats", getAdminWinBackStats);
+// Hype tab content (drops / events / videos).
+adminOrdersMonitorRouter.get("/hype/items", getAdminHypeItems);
+adminOrdersMonitorRouter.post("/hype/items", postAdminHypeItem);
+adminOrdersMonitorRouter.put("/hype/items/:itemId", putAdminHypeItem);
+adminOrdersMonitorRouter.delete("/hype/items/:itemId", deleteAdminHypeItemController);
+adminOrdersMonitorRouter.get("/hype/items/:itemId/comments", getAdminHypeComments);
+// Stamp card / scratch-card rewards.
+adminOrdersMonitorRouter.get("/rewards/settings", getAdminRewardSettingsController);
+adminOrdersMonitorRouter.put("/rewards/settings", putAdminRewardSettingsController);
+adminOrdersMonitorRouter.get("/rewards/overview", getAdminRewardsOverviewController);
+adminOrdersMonitorRouter.get("/rewards/boxes", getAdminMysteryBoxesController);
+adminOrdersMonitorRouter.post("/rewards/boxes/:boxId/decision", postAdminMysteryBoxDecision);
+adminOrdersMonitorRouter.get("/rewards/testers", getAdminRewardTestersController);
+adminOrdersMonitorRouter.put("/rewards/testers", putAdminRewardTestersController);
+adminOrdersMonitorRouter.post("/rewards/testers/:customerId/grant", postAdminRewardTestGrant);
+adminOrdersMonitorRouter.post("/hype/comments/:commentId/moderate", postAdminHypeCommentModeration);
 adminOrdersMonitorRouter.post("/orders/:orderId/preparation/extend", postAdminPreparationExtension);
 adminOrdersMonitorRouter.patch(
   "/orders/:orderId/status",

@@ -17,6 +17,15 @@ import { patchRiderTrackingCaches, patchRiderOrderCaches, type RiderOrder } from
 import { useRiderAuthStore, type RiderProfile } from "@/src/store/auth-store";
 import { setDeliveryNetworkOnline, useNetworkStore } from "@/src/store/network-store";
 import { palette } from "@/src/theme/palette";
+import { riderOrderChatKey } from "@/src/hooks/use-rider-order-chat";
+import {
+  applyChatRead,
+  getOpenChatOrderId,
+  upsertChatMessage,
+  type ChatRole,
+  type OrderChatMessage,
+  type OrderChatThread,
+} from "@/src/lib/order-chat";
 
 type RiderSocketOrderPayload = RiderOrder & {
   _id?: string;
@@ -50,6 +59,8 @@ type AssignmentNotice = {
   title: string;
   message: string;
   orderId?: string;
+  /** Where a tap goes (defaults to the order). */
+  href?: string;
   navigate?: { latitude: number; longitude: number };
 };
 
@@ -423,6 +434,35 @@ export function RiderSocketBridge() {
     const handleLocationUpdated = (payload: { orderId: string; riderTracking: RiderOrder["riderTracking"] }) => {
       if (payload?.orderId) patchRiderTrackingCaches(queryClient, payload.orderId, payload.riderTracking);
     };
+    // Rider ↔ customer chat: keep any cached thread live; pop a tappable notice for a new
+    // customer message unless that chat is already on screen.
+    const handleChatMessage = (event: { orderId?: string; message?: OrderChatMessage }) => {
+      if (!event?.orderId || !event.message) return;
+      const key = riderOrderChatKey(event.orderId);
+      if (queryClient.getQueryData(key)) {
+        queryClient.setQueryData<OrderChatThread>(key, (thread) =>
+          thread ? upsertChatMessage(thread, event.message as OrderChatMessage, "rider") : thread,
+        );
+      } else {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+      if (event.message.senderRole === "customer" && getOpenChatOrderId() !== event.orderId) {
+        showAssignmentNotice({
+          title: language === "en" ? "New customer message" : "গ্রাহকের নতুন মেসেজ",
+          message: event.message.text,
+          orderId: event.orderId,
+          href: `/orders/${event.orderId}/chat`,
+        });
+      }
+    };
+    const handleChatRead = (event: { orderId?: string; readerRole?: ChatRole; readAt?: string }) => {
+      if (!event?.orderId || !event.readerRole || !event.readAt) return;
+      queryClient.setQueryData<OrderChatThread>(riderOrderChatKey(event.orderId), (thread) =>
+        thread ? applyChatRead(thread, event.readerRole as ChatRole, event.readAt as string) : thread,
+      );
+    };
+    socket.on("order.chat.message", handleChatMessage);
+    socket.on("order.chat.read", handleChatRead);
     socket.on("rider.location.updated", handleLocationUpdated);
     socket.on("rider.order.updated", handleOrderUpdated);
     socket.on("rider.assignment.updated", handleAssignmentUpdated);
@@ -439,6 +479,8 @@ export function RiderSocketBridge() {
       socket.off("connect", handleSocketConnected);
       socket.off("disconnect", handleSocketDisconnected);
       socket.off("connect_error", handleConnectError);
+      socket.off("order.chat.message", handleChatMessage);
+      socket.off("order.chat.read", handleChatRead);
       socket.off("rider.location.updated", handleLocationUpdated);
       socket.off("rider.order.updated", handleOrderUpdated);
       socket.off("rider.assignment.updated", handleAssignmentUpdated);
@@ -470,7 +512,7 @@ export function RiderSocketBridge() {
         onPress={() => {
           if (!assignmentNotice.orderId) return;
           setAssignmentNotice(null);
-          router.push(`/orders/${assignmentNotice.orderId}`);
+          router.push((assignmentNotice.href ?? `/orders/${assignmentNotice.orderId}`) as never);
         }}
         style={({ pressed }) => [styles.noticeCard, pressed ? styles.noticePressed : null]}
       >

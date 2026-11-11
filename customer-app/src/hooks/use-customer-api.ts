@@ -1,3 +1,5 @@
+import type { AppUpdateConfig } from "@/src/lib/app-update";
+import { resolveTrackingTuning, type CustomerTrackingTuning } from "@/src/lib/tracking-freshness";
 import { useEffect } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
@@ -8,6 +10,7 @@ import {
   apiPost,
   apiProtectedGet,
   apiProtectedPost,
+  ApiRequestError,
 } from "@/src/lib/api";
 import {
   clearRegisteredCustomerPushToken,
@@ -81,6 +84,11 @@ export type CustomerPaymentSettings = {
 };
 
 type PlatformContentResponse = {
+  supportContact?: {
+    phone?: string;
+    email?: string;
+    supportHours?: string;
+  };
   customerApp?: {
     homeCms?: Partial<CustomerHomeCms>;
   };
@@ -94,8 +102,30 @@ type PlatformContentResponse = {
       enabled?: boolean;
       reviewDays?: number;
     };
+    appUpdate?: AppUpdateConfig;
+    customerTracking?: CustomerTrackingTuning;
   };
 };
+
+/** Admin-tunable live-tracking timings (clamped; shipped defaults when unset). */
+export function useCustomerTrackingTuningQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) => resolveTrackingTuning(content.operations?.customerTracking),
+  });
+}
+
+/** Admin "App update" settings (soft / forced update prompt). Shares the content cache. */
+export function useAppUpdateConfigQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content): AppUpdateConfig => content.operations?.appUpdate ?? {},
+  });
+}
 
 export type CustomerAccountDeletionConfig = {
   enabled: boolean;
@@ -371,6 +401,9 @@ export type CustomerNotification = {
   voucherLabel?: string;
   voucherExpiresAt?: string | null;
   voucherMinOrder?: number | null;
+  voucherDiscountType?: "flat" | "percentage" | "free_delivery" | "";
+  voucherDiscountValue?: number | null;
+  voucherMaxDiscount?: number | null;
   voucherUsageStatus?: "available" | "used" | "expired" | "info";
   voucherAppliedAt?: string | null;
   voucherOrderId?: string;
@@ -611,6 +644,22 @@ export function useCustomerPaymentSettingsQuery() {
   });
 }
 
+/** Fallback when the backend is unreachable — admin Settings → Support contact is the source of truth. */
+export const DEFAULT_SUPPORT_PHONE = "+8809658806633";
+
+export function useCustomerSupportContactQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) => ({
+      phone: content.supportContact?.phone?.trim() || DEFAULT_SUPPORT_PHONE,
+      email: content.supportContact?.email?.trim() || "support@foodbela.com",
+      hours: content.supportContact?.supportHours?.trim() || "",
+    }),
+  });
+}
+
 export function useCustomerRiderReviewEnabledQuery() {
   return useQuery({
     queryKey: ["platform-content"],
@@ -795,7 +844,7 @@ export function useCustomerNotificationsQuery(enabled = true) {
 export function useCustomerNotificationsInfiniteQuery(
   enabled = true,
   limit = 20,
-  category: "all" | "orders" | "offers" | "personal_offers" = "all",
+  category: "all" | "orders" | "offers" | "personal_offers" | "updates" = "all",
 ) {
   const isAuthenticated = useCustomerAuthStore((state) => Boolean(state.accessToken));
 
@@ -1095,6 +1144,8 @@ const CUSTOMER_LIVE_ORDER_STATUSES = [
 type CustomerOrderResponse = {
   _id: string;
   restaurantId?: string;
+  /** Restaurant name + cover for order cards / the home "Order again" rail (newer backends). */
+  restaurantCard?: { name: string; imageUrl: string | null } | null;
   orderNumber: string;
   status: string;
   paymentMethod: string;
@@ -1130,6 +1181,8 @@ type CustomerOrderResponse = {
   };
   pricing?: {
     subtotal?: number;
+    // Platform-funded item discounts (menu markdowns) taken off the item prices.
+    menuMarkdownAmount?: number;
     deliveryFee?: number;
     rainSurcharge?: number;
     platformFee?: number;
@@ -1146,6 +1199,13 @@ type CustomerOrderResponse = {
   };
   // True when the customer paid for urgent/priority delivery.
   isUrgent?: boolean;
+  // "Send as a gift": food goes to someone else (the rider calls them).
+  gift?: {
+    isGift?: boolean;
+    recipientName?: string;
+    recipientPhone?: string;
+    message?: string;
+  } | null;
   riderSnapshot?: {
     id?: string;
     name?: string;
@@ -1251,6 +1311,12 @@ type CustomerReorderResult =
       addedItemCount: number;
       skippedCount: number;
       skippedNames: string[];
+    }
+  | {
+      /** Restaurant (or Foodbela) is outside its hours — nothing was added. */
+      status: "closed";
+      restaurantName: string;
+      opensAtLabel: string | null;
     };
 
 function upsertCustomerOrderList(
@@ -1751,6 +1817,7 @@ export function useCustomerPlaceOrderMutation() {
       note?: string;
       platformFeeOptedIn?: boolean;
       urgentDeliveryOptedIn?: boolean;
+      gift?: { recipientName: string; recipientPhone: string; message?: string };
       deliveryAddress: {
         label: string;
         addressLine: string;
@@ -1799,6 +1866,7 @@ export function useBkashInitiateMutation() {
       walletNumber: string;
       platformFeeOptedIn?: boolean;
       urgentDeliveryOptedIn?: boolean;
+      gift?: { recipientName: string; recipientPhone: string; message?: string };
       deliveryAddress: {
         label: string;
         addressLine: string;
@@ -2127,6 +2195,13 @@ export function useCustomerReorderMutation() {
         `/customer/restaurants/${restaurantId}`
       );
       const details = detailsResponse.data;
+      const closedResult = {
+        status: "closed" as const,
+        restaurantName: details.restaurant?.name ?? "This restaurant",
+        opensAtLabel: details.restaurant?.availability?.opensAtLabel ?? null,
+      };
+      // Closed right now → say so instead of letting the cart quote throw.
+      if (details.restaurant?.isOpen === false) return closedResult;
 
       const menuItemMap = new Map(details.menuItems.map((item) => [item._id, item]));
       const imageMap = new Map(
@@ -2207,20 +2282,8 @@ export function useCustomerReorderMutation() {
         };
       }
 
-      const currentCart = useCartStore.getState();
-      if (
-        !params.forceReplace &&
-        currentCart.restaurant &&
-        currentCart.restaurant.restaurantId !== restaurantId &&
-        currentCart.items.length > 0
-      ) {
-        return {
-          status: "conflict",
-          incomingRestaurantName: details.restaurant.name,
-          currentRestaurantName: currentCart.restaurant.restaurantName,
-          previewItemName: reorderCandidates[0]?.name ?? "Selected item",
-        };
-      }
+      // Multi-cart: reordering fills that restaurant's own cart and other carts stay put,
+      // so a reorder never conflicts with another restaurant's cart.
 
       const mergedItems = new Map<
         string,
@@ -2246,15 +2309,22 @@ export function useCustomerReorderMutation() {
         }
       }
 
-      const quoteResponse = await apiPost<CartQuoteResponse>("/customer/cart/quote", {
-        restaurantId,
-        items: Array.from(mergedItems.values()).map((item) => ({
-          itemId: item.itemId,
-          quantity: item.quantity,
-          selectedVariantOptions: item.selectedVariantOptions ?? [],
-          selectedAddOnOptions: item.selectedAddOnOptions ?? [],
-        })),
-      });
+      let quoteResponse: Awaited<ReturnType<typeof apiPost<CartQuoteResponse>>>;
+      try {
+        quoteResponse = await apiPost<CartQuoteResponse>("/customer/cart/quote", {
+          restaurantId,
+          items: Array.from(mergedItems.values()).map((item) => ({
+            itemId: item.itemId,
+            quantity: item.quantity,
+            selectedVariantOptions: item.selectedVariantOptions ?? [],
+            selectedAddOnOptions: item.selectedAddOnOptions ?? [],
+          })),
+        });
+      } catch (error) {
+        // Closed between the details read and the quote (409 RESTAURANT_OUTSIDE_SERVICE_HOURS).
+        if (error instanceof ApiRequestError && error.status === 409) return closedResult;
+        throw error;
+      }
 
       const quotedItems = quoteResponse.data.items;
       const mergedImageMap = new Map<string, string | null>();

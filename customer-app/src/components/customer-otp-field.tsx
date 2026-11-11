@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
     padding: 13,
   },
   shellError: {
-    borderColor: "#F0B8C8",
+    borderColor: "#EFE4D3",
     backgroundColor: "#FFFBFC",
   },
   shellDisabled: {
@@ -339,12 +339,12 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   counter: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   pressTarget: {
@@ -378,11 +378,11 @@ const styles = StyleSheet.create({
     borderColor: "#DCD4CE",
   },
   cellError: {
-    borderColor: "#D75A79",
+    borderColor: "#A86300",
   },
   cellText: {
     fontSize: 22,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   cellTextError: {
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
   },
   cellLineActive: {
     width: 24,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   cellLineError: {
     width: 24,

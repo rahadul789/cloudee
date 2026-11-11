@@ -255,7 +255,7 @@ export function HomePollModal({
         disabled={!selectedOption || submitting}
       >
         {submitting ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color={palette.onPrimary} />
         ) : (
           <Text style={styles.submitText}>Submit</Text>
         )}
@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 180,
     borderRadius: 12,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   endsPill: {
     alignSelf: "flex-start",
@@ -323,13 +323,13 @@ const styles = StyleSheet.create({
   },
   endsText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 0.2,
   },
   question: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   options: {
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14.5,
     lineHeight: 19,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.foreground,
   },
   feedback: {
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
   },
   error: {
     fontSize: 12.5,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "#C0392B",
   },
   // marginTop:auto lives on the PressableScale wrapper (the flex child) so the button
@@ -406,8 +406,8 @@ const styles = StyleSheet.create({
   },
   submitText: {
     fontSize: 14.5,
-    fontWeight: "900",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   thanksScroll: {
     alignItems: "center",
@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
   thanksTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     textAlign: "center",
     color: palette.foreground,
   },
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   },
   resultPct: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
     fontVariant: ["tabular-nums"],
   },
@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
   },
   resultTotal: {
     fontSize: 12,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
     textAlign: "center",
     marginTop: 2,

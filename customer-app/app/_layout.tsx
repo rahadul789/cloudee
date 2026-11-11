@@ -2,10 +2,12 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 
+import { AppAlertHost } from "@/src/components/app-alert-host";
 import { AppBootstrapGate } from "@/src/components/app-bootstrap-gate";
 import { CustomerAnalyticsBridge } from "@/src/components/customer-analytics-bridge";
 import { DeferredMount } from "@/src/components/deferred-mount";
 import { OtaUpdateGate } from "@/src/components/ota-update-gate";
+import { AppUpdateGate } from "@/src/components/app-update-gate";
 import { AppProviders } from "@/src/providers/app-providers";
 import { Sentry, initSentry, setSentryUser } from "@/src/lib/sentry";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
@@ -60,12 +62,19 @@ function RootLayout() {
           <Stack.Screen name="orders/[orderId]" />
           <Stack.Screen name="orders/[orderId]/tracking" />
           <Stack.Screen name="restaurants/[restaurantId]" />
+          <Stack.Screen name="collection/[kind]" />
+          <Stack.Screen name="watch/[videoId]" />
+          <Stack.Screen name="guide-video" />
+          <Stack.Screen name="rewards" />
           <Stack.Screen
             name="location-picker"
             options={{ presentation: "card" }}
           />
         </Stack>
         <OtaUpdateGate />
+        {/* Play Store "update required" prompt (admin → Settings → App update). */}
+        <AppUpdateGate />
+        <AppAlertHost />
       </AppBootstrapGate>
     </AppProviders>
   );

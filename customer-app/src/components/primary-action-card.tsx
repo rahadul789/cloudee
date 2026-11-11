@@ -24,7 +24,7 @@ export function PrimaryActionCard({
       <View style={styles.accentOrbSecondary} />
       <View style={styles.row}>
         <View style={styles.pinWrap}>
-          <Ionicons name="location" size={18} color={palette.primary} />
+          <Ionicons name="location" size={18} color={palette.secondary} />
         </View>
         <View style={styles.copy}>
           <Text style={styles.eyebrow}>{eyebrow}</Text>
@@ -33,7 +33,7 @@ export function PrimaryActionCard({
         </View>
         <View style={styles.actionPill}>
           <Text style={styles.actionText}>{actionLabel}</Text>
-          <Ionicons name="chevron-down" size={14} color={palette.primary} />
+          <Ionicons name="chevron-down" size={14} color={palette.secondary} />
         </View>
       </View>
     </Pressable>
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
 });

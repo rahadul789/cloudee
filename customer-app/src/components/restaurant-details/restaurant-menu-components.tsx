@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Easing,
   Keyboard,
   Pressable,
   ScrollView,
@@ -17,6 +18,7 @@ import {
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
 import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
+import { HeaderBackButton, SearchField } from "@/src/components/ui";
 import { formatCurrency } from "@/src/lib/currency";
 import {
   computeOfferProgress,
@@ -160,15 +162,12 @@ export function CategoryRail({
             }}
             onPress={() => onPressCategory(tab.id)}
             style={[styles.categoryChip, isActive ? styles.categoryChipActive : null]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isActive }}
           >
-            <View
-              style={[
-                styles.categoryChipIndicator,
-                isActive ? styles.categoryChipIndicatorActive : null,
-              ]}
-            />
             <Text
               style={[styles.categoryChipText, isActive ? styles.categoryChipTextActive : null]}
+              numberOfLines={1}
             >
               {tab.label}
             </Text>
@@ -176,6 +175,42 @@ export function CategoryRail({
         );
       })}
     </ScrollView>
+  );
+}
+
+export function CategoryTabsBar({
+  categories,
+  activeCategoryId,
+  onPressCategory,
+  onPressMenu,
+}: {
+  categories: { id: string; label: string }[];
+  activeCategoryId: string;
+  onPressCategory: (categoryId: string) => void;
+  onPressMenu: () => void;
+}) {
+  return (
+    <View style={styles.categoryTabsBar}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.categoryMenuButton,
+          pressed ? styles.categoryMenuButtonPressed : null,
+        ]}
+        onPress={onPressMenu}
+        accessibilityRole="button"
+        accessibilityLabel="All menu categories"
+        hitSlop={6}
+      >
+        <Ionicons name="grid-outline" size={17} color={palette.foreground} />
+      </Pressable>
+      <View style={styles.categoryTabsRail}>
+        <CategoryRail
+          categories={categories}
+          activeCategoryId={activeCategoryId}
+          onPressCategory={onPressCategory}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -260,18 +295,22 @@ export const SearchResultsOverlay = memo(function SearchResultsOverlay({
       <View style={styles.searchOverlaySurface}>
         <View style={styles.searchOverlayHeader}>
           <View style={styles.searchHeaderRow}>
-            <Pressable style={styles.searchBackButton} onPress={onBack}>
-              <Ionicons name="chevron-back" size={18} color={palette.foreground} />
-            </Pressable>
-            <View style={styles.searchHeaderField}>
-              <MenuSearchBar
-                inputRef={inputRef}
-                value={value}
-                onChangeText={onChangeText}
-                flush
-              />
-            </View>
+            <HeaderBackButton onPress={onBack} />
+            <SearchField
+              inputRef={inputRef}
+              value={value}
+              onChangeText={onChangeText}
+              placeholder="Search this menu"
+              style={styles.searchHeaderField}
+            />
           </View>
+          {value.trim() ? (
+            <Text style={styles.searchResultCount}>
+              {searchResults.length
+                ? `${searchResults.length} item${searchResults.length === 1 ? "" : "s"} found`
+                : "No items found"}
+            </Text>
+          ) : null}
         </View>
 
         <ScrollView
@@ -461,7 +500,7 @@ const InlineMenuQuantityControl = memo(function InlineMenuQuantityControl({
           <Ionicons
             name="add"
             size={15}
-            color={isDisabled ? palette.mutedForeground : palette.surface}
+            color={isDisabled ? palette.mutedForeground : palette.onPrimary}
           />
         </Pressable>
         </View>
@@ -475,10 +514,18 @@ const InlineMenuQuantityControl = memo(function InlineMenuQuantityControl({
           ]}
           onPressIn={handleIncreasePress}
         >
+          <Text
+            style={[
+              styles.addPillText,
+              isDisabled ? styles.addPillTextDisabled : null,
+            ]}
+          >
+            Add
+          </Text>
           <Ionicons
             name="add"
-            size={16}
-            color={isDisabled ? palette.mutedForeground : palette.surface}
+            size={15}
+            color={isDisabled ? palette.mutedForeground : palette.secondary}
           />
         </Pressable>
       )}
@@ -585,12 +632,59 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
     ]).start();
   }, [offerActive, offerUnlockAnim]);
 
-  if (!hasCart) {
+  // Slides up from the bottom when the first item is added, slides away when the cart
+  // empties, and gives a small "bump" every time another item lands in the cart.
+  const enter = useRef(new Animated.Value(0)).current;
+  const bump = useRef(new Animated.Value(1)).current;
+  const [shown, setShown] = useState(hasCart);
+  const lastCountRef = useRef(itemCount);
+  useEffect(() => {
+    if (hasCart) {
+      setShown(true);
+      Animated.spring(enter, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 170,
+        mass: 0.8,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    Animated.timing(enter, {
+      toValue: 0,
+      duration: 200,
+      easing: Easing.in(Easing.quad),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setShown(false);
+    });
+  }, [enter, hasCart]);
+  useEffect(() => {
+    if (itemCount > lastCountRef.current && lastCountRef.current > 0) {
+      bump.setValue(1);
+      Animated.sequence([
+        Animated.timing(bump, { toValue: 1.04, duration: 110, useNativeDriver: true }),
+        Animated.spring(bump, { toValue: 1, damping: 9, stiffness: 260, useNativeDriver: true }),
+      ]).start();
+    }
+    lastCountRef.current = itemCount;
+  }, [bump, itemCount]);
+
+  if (!shown) {
     return null;
   }
 
   return (
-    <View style={[styles.cartBarWrap, { paddingBottom: bottomInset }]}>
+    <Animated.View
+      style={[
+        styles.cartBarWrap,
+        {
+          paddingBottom: bottomInset,
+          opacity: enter.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] }),
+          transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [140, 0] }) }],
+        },
+      ]}
+    >
       {offerProgress ? (
         <Animated.View
           style={[
@@ -648,27 +742,38 @@ export const ConnectedRestaurantCartFooter = memo(function ConnectedRestaurantCa
         </Animated.View>
       ) : null}
 
+      <Animated.View style={{ transform: [{ scale: bump }] }}>
       <PressableScale
         scaleTo={0.98}
         style={styles.cartBarLift}
-        onPress={() => router.push("/(tabs)/cart")}
+        onPress={() =>
+          router.push({ pathname: "/(tabs)/cart", params: { view: "active" } })
+        }
+        accessibilityRole="button"
+        accessibilityLabel={`View cart, ${itemCount} ${itemCount === 1 ? "item" : "items"}`}
       >
         <View style={styles.cartBar}>
           <View style={styles.cartBarGlow} />
           <View style={styles.cartBarSheen} />
+          <View style={styles.cartBarIcon}>
+            <Ionicons name="bag-handle" size={18} color={palette.onPrimary} />
+          </View>
           <View style={styles.cartBarCopy}>
-            <Text style={styles.cartBarTitle}>{itemCount} items in cart</Text>
-            <Text style={styles.cartBarSubtitle}>
-            {restaurantName} • {formatCurrency(subtotal)}
+            <Text style={styles.cartBarTitle}>
+              {itemCount} {itemCount === 1 ? "item" : "items"} in cart
+            </Text>
+            <Text style={styles.cartBarSubtitle} numberOfLines={1}>
+              {restaurantName} · <Text style={styles.cartBarAmount}>{formatCurrency(subtotal)}</Text>
             </Text>
           </View>
           <View style={styles.cartBarAction}>
             <Text style={styles.cartBarActionText}>View cart</Text>
-            <Ionicons name="arrow-forward" size={15} color={palette.secondary} />
+            <Ionicons name="arrow-forward" size={14} color={palette.secondary} />
           </View>
         </View>
       </PressableScale>
-    </View>
+      </Animated.View>
+    </Animated.View>
   );
 });
 
@@ -740,8 +845,8 @@ export function FactChip({
           }
         : label === "From"
           ? {
-              card: "#FFF0F6",
-              iconWrap: "#FFD9E8",
+              card: "#FFF6E8",
+              iconWrap: "#FFF1DC",
               icon: palette.secondary,
             }
           : {
@@ -848,85 +953,94 @@ export const ConnectedPopularItemCard = memo(function ConnectedPopularItemCard({
         if (!isDisabled) onPressCard(item);
       }}
     >
-      <RemoteImage
-        uri={item.images?.[0]?.url}
-        style={styles.popularImage}
-        fallbackIcon="fast-food-outline"
-        targetWidth={200}
-        accessibilityLabel={`${item.name} popular food photo`}
-      />
-      <View style={styles.popularMetaBadge}>
-        <Ionicons name="flame" size={12} color={palette.primary} />
-        <Text style={styles.popularMetaBadgeText}>Popular</Text>
+      <View style={styles.popularImageWrap}>
+        <RemoteImage
+          uri={item.images?.[0]?.url}
+          style={styles.popularImage}
+          fallbackIcon="fast-food-outline"
+          targetWidth={400}
+          accessibilityLabel={`${item.name} popular food photo`}
+        />
+        {item.availability === "unavailable" ? (
+          <View style={styles.soldOutOverlay}>
+            <Text style={styles.soldOutText}>Sold out</Text>
+          </View>
+        ) : null}
       </View>
-      <Text numberOfLines={1} style={styles.popularTitle}>
-        {item.name}
-      </Text>
-      <Text numberOfLines={2} style={styles.popularDescription}>
-        {item.description}
-      </Text>
-      <View style={styles.popularFooter}>
-        <View style={styles.popularPriceBlock}>
-          <MenuItemPrice
-            item={item}
-            priceStyle={styles.popularPrice}
-            customizablePrefix="From "
-          />
-        </View>
-        <View style={styles.quantityActionSlot}>
-          {displayQuantity > 0 ? (
-            <View style={styles.popularQuantityControl}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.popularIconButton,
-                pressed
-                  ? [
-                      styles.quickButtonPressed,
-                      styles.quickButtonSecondaryPressed,
-                    ]
-                  : null,
-              ]}
-              onPressIn={handleDecreasePress}
-            >
-              <Ionicons
-                name={displayQuantity === 1 ? "trash-outline" : "remove"}
-                size={15}
-                color={palette.foreground}
-              />
-            </Pressable>
-            <Text style={styles.popularQuantityText}>{displayQuantity}</Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.popularIconButton,
-                styles.popularIconButtonPrimary,
-                pressed ? styles.quickButtonPressed : null,
-              ]}
-              onPressIn={handleIncreasePress}
-            >
-              <Ionicons name="add" size={15} color={palette.surface} />
-            </Pressable>
-            </View>
-          ) : (
-            <Pressable
-              disabled={isDisabled}
-              style={({ pressed }) => [
-                styles.popularAddButton,
-                isDisabled ? styles.iconButtonDisabled : null,
-                pressed ? styles.quickButtonPressed : null,
-              ]}
-              onPressIn={handleIncreasePress}
-            >
-              <Ionicons name="add" size={15} color={isDisabled ? palette.mutedForeground : palette.surface} />
-            </Pressable>
-          )}
-          {burstKey > 0 ? (
-            <View pointerEvents="none" style={styles.quantityBurstAnchor}>
-              <ButtonParticleBurst
-                triggerKey={burstKey}
-                onComplete={handleBurstComplete}
-              />
-            </View>
-          ) : null}
+      <View style={styles.popularBody}>
+        <Text numberOfLines={1} style={styles.popularTitle}>
+          {item.name}
+        </Text>
+        <View style={styles.popularFooter}>
+          <View style={styles.popularPriceBlock}>
+            <MenuItemPrice
+              item={item}
+              priceStyle={styles.popularPrice}
+              customizablePrefix="From "
+            />
+          </View>
+          <View style={styles.quantityActionSlot}>
+            {displayQuantity > 0 ? (
+              <View style={styles.popularQuantityControl}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.popularIconButton,
+                    pressed
+                      ? [styles.quickButtonPressed, styles.quickButtonSecondaryPressed]
+                      : null,
+                  ]}
+                  onPressIn={handleDecreasePress}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove one ${item.name}`}
+                >
+                  <Ionicons
+                    name={displayQuantity === 1 ? "trash-outline" : "remove"}
+                    size={14}
+                    color={palette.foreground}
+                  />
+                </Pressable>
+                <Text style={styles.popularQuantityText}>{displayQuantity}</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.popularIconButton,
+                    styles.popularIconButtonPrimary,
+                    pressed ? styles.quickButtonPressed : null,
+                  ]}
+                  onPressIn={handleIncreasePress}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add one more ${item.name}`}
+                >
+                  <Ionicons name="add" size={14} color={palette.onPrimary} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                disabled={isDisabled}
+                style={({ pressed }) => [
+                  styles.popularAddButton,
+                  isDisabled ? styles.iconButtonDisabled : null,
+                  pressed ? styles.quickButtonPressed : null,
+                ]}
+                onPressIn={handleIncreasePress}
+                accessibilityRole="button"
+                accessibilityLabel={`Add ${item.name}`}
+              >
+                <Ionicons
+                  name="add"
+                  size={18}
+                  color={isDisabled ? palette.mutedForeground : palette.onPrimary}
+                />
+              </Pressable>
+            )}
+            {burstKey > 0 ? (
+              <View pointerEvents="none" style={styles.quantityBurstAnchor}>
+                <ButtonParticleBurst
+                  triggerKey={burstKey}
+                  onComplete={handleBurstComplete}
+                />
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
     </Pressable>
@@ -963,43 +1077,53 @@ export const MenuCard = memo(function MenuCard({
       ]}
     >
       <View style={styles.menuCardCopy}>
-        <View style={styles.menuMetaRow}>
-          {item.isPopular ? (
-            <View style={[styles.metaBadge, styles.metaBadgePopular]}>
-              <Ionicons name="flame" size={12} color={palette.primary} />
-              <Text style={[styles.metaBadgeText, styles.metaBadgeTextPopular]}>Popular</Text>
-            </View>
-          ) : null}
-          {customizable ? (
-            <View style={styles.metaBadge}>
-              <Text style={styles.metaBadgeText}>Customizable</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.titleBlock}>
-          <Text numberOfLines={1} style={styles.menuItemTitle}>
-            {item.name}
-          </Text>
-          <Text numberOfLines={2} style={styles.menuDescription}>
-            {item.description}
-          </Text>
-        </View>
-
+        {item.isPopular || customizable ? (
+          <View style={styles.menuMetaRow}>
+            {item.isPopular ? (
+              <View style={[styles.metaBadge, styles.metaBadgePopular]}>
+                <Ionicons name="trending-up" size={11} color={palette.secondary} />
+                <Text style={[styles.metaBadgeText, styles.metaBadgeTextPopular]}>
+                  Bestseller
+                </Text>
+              </View>
+            ) : null}
+            {customizable ? (
+              <View style={styles.metaBadge}>
+                <Ionicons name="options-outline" size={11} color={palette.mutedForeground} />
+                <Text style={styles.metaBadgeText}>Customizable</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        <Text numberOfLines={2} style={styles.menuItemTitle}>
+          {item.name}
+        </Text>
         <View style={styles.menuPriceRow}>
           <MenuItemPrice item={item} priceStyle={styles.menuPrice} />
         </View>
+        {item.description ? (
+          <Text numberOfLines={2} style={styles.menuDescription}>
+            {item.description}
+          </Text>
+        ) : null}
       </View>
 
-      <View style={styles.mediaColumn}>
-        <RemoteImage
-          uri={item.images?.[0]?.url}
-          style={styles.menuImage}
-          fallbackIcon="fast-food-outline"
-          targetWidth={96}
-          accessibilityLabel={`${item.name} food photo`}
-        />
-
+      <View style={styles.menuMediaColumn}>
+        <View style={styles.menuImageWrap}>
+          <RemoteImage
+            uri={item.images?.[0]?.url}
+            style={styles.menuImage}
+            fallbackIcon="fast-food-outline"
+            targetWidth={220}
+            accessibilityLabel={`${item.name} food photo`}
+          />
+          {item.availability === "unavailable" ? (
+            <View style={styles.soldOutOverlay}>
+              <Text style={styles.soldOutText}>Sold out</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.menuActionDock}>
           <InlineMenuQuantityControl
             quantity={quantity}
             isDisabled={isDisabled}
@@ -1014,6 +1138,7 @@ export const MenuCard = memo(function MenuCard({
             }}
           />
         </View>
+      </View>
       </Pressable>
     );
 });

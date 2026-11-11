@@ -2,10 +2,13 @@ const staticCustomerRoutes = new Set([
   "/(tabs)",
   "/(tabs)/browse",
   "/(tabs)/cart",
+  "/(tabs)/favorites",
+  "/(tabs)/hype",
   "/(tabs)/orders",
   "/(tabs)/profile",
   "/checkout",
   "/favorite-restaurants",
+  "/guide-video",
   "/location-picker",
   "/notifications",
   "/offer-details",
@@ -18,6 +21,9 @@ const staticCustomerRoutes = new Set([
   "/profile-password",
   "/rate-order",
   "/referrals",
+  "/rewards",
+  // Admin promo CTAs: "search for a food" → /search?query=biryani
+  "/search",
   "/sign-in",
   "/support",
   "/support-chat",
@@ -29,8 +35,10 @@ const dynamicCustomerRoutes = [
   /^\/orders\/[A-Za-z0-9_-]+$/,
   /^\/orders\/[A-Za-z0-9_-]+\/tracking$/,
   /^\/orders\/[A-Za-z0-9_-]+\/review$/,
+  /^\/orders\/[A-Za-z0-9_-]+\/chat$/,
   /^\/restaurants\/[A-Za-z0-9_-]+$/,
-  /^\/restaurants\/[A-Za-z0-9_-]+\/reviews$/,
+  /^\/watch\/[A-Za-z0-9_-]+$/,
+  /^\/collection\/(featured|offers|popular)$/,
 ];
 
 function getPathWithoutQuery(route: string) {
@@ -87,6 +95,9 @@ export function resolveCustomerRoute(
   }
 
   const pathname = getPathWithoutQuery(target);
+  // The standalone reviews screen was retired — old links open the restaurant page.
+  const legacyReviews = pathname.match(/^\/restaurants\/([A-Za-z0-9_-]+)\/reviews$/);
+  if (legacyReviews) return `/restaurants/${legacyReviews[1]}`;
   if (staticCustomerRoutes.has(pathname)) return target;
   if (dynamicCustomerRoutes.some((pattern) => pattern.test(pathname))) {
     return target;
@@ -130,6 +141,18 @@ export function resolveCustomerPushRoute(data?: Record<string, unknown> | null) 
     getRouteSegment(getQueryParam(rawPath, "order"));
   const orderPathMatch = rawPath.match(/^\/orders\/([A-Za-z0-9_-]+)(?:\/tracking)?(?:[?#].*)?$/);
   const orderId = explicitOrderId || pathOrderId || getRouteSegment(orderPathMatch?.[1]);
+
+  if (type === "cart_reminder") {
+    return "/(tabs)/cart";
+  }
+
+  if (type === "open_notify") {
+    return "/(tabs)";
+  }
+
+  if (type === "order_chat") {
+    return orderId ? `/orders/${orderId}/chat` : "/(tabs)/orders";
+  }
 
   if (type === "review_request") {
     return orderId ? `/rate-order?orderId=${orderId}` : "/(tabs)/orders";

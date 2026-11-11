@@ -24,15 +24,10 @@ export const styles = StyleSheet.create({
   backButton: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
   },
   headerCopy: {
     flex: 1,
@@ -40,7 +35,7 @@ export const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
@@ -52,19 +47,19 @@ export const styles = StyleSheet.create({
     marginHorizontal: 18,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    borderRadius: 22,
+    borderRadius: 18,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
   },
   networkCardWarning: {
-    backgroundColor: "#FFF0F6",
-    borderColor: "#FFD7C7",
+    backgroundColor: palette.primarySoft,
+    borderColor: "#F5D9A8",
   },
   networkCardInfo: {
-    backgroundColor: "#FFF2F8",
-    borderColor: "#FFD6E7",
+    backgroundColor: palette.surfaceMuted,
+    borderColor: palette.primarySoft,
   },
   networkCopy: {
     flex: 1,
@@ -72,7 +67,7 @@ export const styles = StyleSheet.create({
   },
   networkTitle: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   networkSubtitle: {
@@ -99,7 +94,7 @@ export const styles = StyleSheet.create({
     gap: 6,
   },
   networkActionPrimary: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderColor: palette.secondary,
   },
   networkActionDisabled: {
@@ -108,14 +103,14 @@ export const styles = StyleSheet.create({
   networkActionText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   networkActionPrimaryText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   offlineWrap: {
     marginHorizontal: 18,
@@ -124,16 +119,11 @@ export const styles = StyleSheet.create({
     marginHorizontal: 18,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    borderRadius: 22,
-    backgroundColor: "#FFEAF3",
+    borderRadius: 18,
+    backgroundColor: palette.primarySoft,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   reorderContextIconWrap: {
     width: 34,
@@ -149,7 +139,7 @@ export const styles = StyleSheet.create({
   },
   reorderContextTitle: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   reorderContextSubtitle: {
@@ -176,7 +166,7 @@ export const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   sectionHint: {
@@ -190,10 +180,10 @@ export const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 13,
     paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F0E2D8",
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   addressIconWrap: {
     width: 34,
@@ -201,7 +191,7 @@ export const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: palette.primarySoft,
     marginTop: 1,
   },
   addressCopy: {
@@ -218,19 +208,19 @@ export const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   changePill: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: palette.primarySoft,
     marginTop: 0,
   },
   changePillText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   addressLine: {
@@ -241,14 +231,11 @@ export const styles = StyleSheet.create({
   surfaceCard: {
     marginHorizontal: 18,
     padding: 16,
-    borderRadius: 26,
-    backgroundColor: palette.surface,
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   voucherRow: {
     flexDirection: "row",
@@ -276,7 +263,7 @@ export const styles = StyleSheet.create({
     minHeight: 46,
     paddingHorizontal: 16,
     borderRadius: 18,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -285,8 +272,8 @@ export const styles = StyleSheet.create({
   },
   voucherButtonText: {
     fontSize: 13,
-    fontWeight: "800",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   voucherFeedbackWrap: {
     marginTop: 8,
@@ -303,7 +290,7 @@ export const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 999,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: palette.primarySoft,
   },
   voucherFeedbackTextSuccess: {
     color: palette.successText,
@@ -332,7 +319,7 @@ export const styles = StyleSheet.create({
   },
   voucherSavedText: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.successText,
   },
   paymentList: {
@@ -341,31 +328,23 @@ export const styles = StyleSheet.create({
   },
   paymentCard: {
     padding: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#F0D7E1",
-    backgroundColor: palette.surface,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 0,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   paymentCardActive: {
-    borderColor: palette.secondary,
-    backgroundColor: "#FFF3F8",
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    borderWidth: 1.5,
+    borderColor: palette.primary,
+    backgroundColor: palette.primarySoft,
   },
   paymentIconWrap: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -375,7 +354,7 @@ export const styles = StyleSheet.create({
   },
   paymentTitle: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   paymentSubtitle: {
@@ -392,11 +371,11 @@ export const styles = StyleSheet.create({
   restaurantNoteCard: {
     marginHorizontal: 18,
     padding: 14,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#F0D7E1",
-    backgroundColor: "#FFFDFB",
     gap: 12,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   restaurantNoteHeader: {
     flexDirection: "row",
@@ -409,7 +388,7 @@ export const styles = StyleSheet.create({
     borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: palette.primarySoft,
   },
   restaurantNoteCopy: {
     flex: 1,
@@ -418,7 +397,7 @@ export const styles = StyleSheet.create({
   restaurantNoteTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   restaurantNoteOptional: {
@@ -446,14 +425,11 @@ export const styles = StyleSheet.create({
   summaryCard: {
     marginHorizontal: 18,
     padding: 18,
-    borderRadius: 28,
-    backgroundColor: palette.surface,
     gap: 14,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   summaryHeader: {
     flexDirection: "row",
@@ -463,7 +439,7 @@ export const styles = StyleSheet.create({
   },
   summaryTitle: {
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   summaryMeta: {
@@ -498,7 +474,7 @@ export const styles = StyleSheet.create({
   summaryItemName: {
     fontSize: 14,
     color: palette.foreground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   summaryItemMetaRow: {
     flexDirection: "row",
@@ -520,7 +496,7 @@ export const styles = StyleSheet.create({
   summaryItemPrice: {
     fontSize: 12,
     color: palette.foreground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   summaryTotals: {
     gap: 10,
@@ -544,14 +520,14 @@ export const styles = StyleSheet.create({
   summaryRowValue: {
     fontSize: 14,
     color: palette.foreground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   summaryRowHighlight: {
     color: palette.successText,
   },
   summaryRowStrong: {
     fontSize: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   // Delivery fee row + its "why this fee" note, kept together so the note sits right
@@ -567,7 +543,7 @@ export const styles = StyleSheet.create({
     marginTop: -2,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   summaryDeliveryNote: {
@@ -606,7 +582,7 @@ export const styles = StyleSheet.create({
   },
   platformFeeOptInAmount: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
     marginLeft: "auto",
   },
@@ -621,7 +597,7 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.surface,
   },
   platformFeeCheckOn: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderColor: palette.secondary,
   },
   divider: {
@@ -638,7 +614,7 @@ export const styles = StyleSheet.create({
     gap: 2,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#F1E2EA",
+    borderColor: "#ECECEC",
     backgroundColor: palette.primarySoft,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -662,7 +638,7 @@ export const styles = StyleSheet.create({
   },
   firstOrderBannerTitle: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   firstOrderBannerSubtitle: {
@@ -675,13 +651,13 @@ export const styles = StyleSheet.create({
     marginTop: 8,
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#F0DCE7",
+    backgroundColor: "#EFE6D6",
     overflow: "hidden",
   },
   firstOrderProgressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   footerWrap: {
     position: "absolute",
@@ -692,17 +668,18 @@ export const styles = StyleSheet.create({
   footerCard: {
     paddingHorizontal: 18,
     paddingVertical: 14,
-    borderRadius: 28,
-    backgroundColor: palette.secondary,
+    borderRadius: 24,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 8,
+    // The only shadow on checkout: this bar floats above the content.
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   footerCopy: {
     flex: 1,
@@ -714,20 +691,13 @@ export const styles = StyleSheet.create({
   },
   footerAmount: {
     fontSize: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
   placeOrderButtonLift: {
     borderRadius: 999,
-    shadowColor: "#111827",
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 5,
   },
   placeOrderButtonLiftDisabled: {
-    shadowOpacity: 0,
-    elevation: 0,
   },
   placeOrderButton: {
     overflow: "hidden",
@@ -752,7 +722,7 @@ export const styles = StyleSheet.create({
   },
   placeOrderButtonText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   footerNote: {
@@ -767,6 +737,6 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 6,
     fontSize: 12,
     lineHeight: 18,
-    color: "#D83A66",
+    color: "#A86300",
   },
 });

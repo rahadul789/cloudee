@@ -21,6 +21,7 @@ import {
   TRACKING_NEARBY_DISTANCE_METERS,
   type TrackingCoordinate,
 } from "@/src/lib/order-tracking";
+import { formatPrepTimeRange } from "@/src/lib/date-time";
 import { decodePolyline } from "@/src/lib/decode-polyline";
 import { palette } from "@/src/theme/palette";
 
@@ -41,12 +42,16 @@ type LiveOrderMapProps = {
   routeProvider?: "google" | "haversine" | null;
   trafficAware?: boolean | null;
   mapStyle?: MapStyleElement[] | null;
+  /** Map only — no card, no info footer (full-bleed "stage" on the tracking screen). */
+  bare?: boolean;
+  /** Fixed height (defaults to a share of the window). */
+  height?: number;
 };
 
-const FOODPANDA_PINK = "#FF2B85";
+const FOODPANDA_PINK = "#E8930C";
 const ESTIMATED_ROUTE = "rgba(31, 36, 48, 0.45)";
 const RIDER_PIN_YELLOW = "#FFD54A";
-const RIDER_ICON_DARK = "#1F2430";
+const RIDER_ICON_DARK = "#111111";
 const OFF_ROAD_GAP_METERS = 25;
 // The destination is a FIXED saved pin (no GPS jitter), so any real gap between
 // the road route's end and the pin is a genuine off-road handoff. Keep the floor
@@ -83,7 +88,9 @@ function formatEta(minutes?: number | null) {
     return "Soon";
   }
 
-  return `${Math.max(1, Math.round(minutes))} min`;
+  const rounded = Math.max(1, Math.round(minutes));
+  // Last couple of minutes: a range would read oddly ("1-9 min"), so say it plainly.
+  return rounded <= 2 ? "Arriving" : formatPrepTimeRange(rounded, "Soon");
 }
 
 // Build a camera region that contains every given coordinate, padded, but never
@@ -393,6 +400,8 @@ export const LiveOrderMap = memo(function LiveOrderMap({
   routeProvider,
   trafficAware,
   mapStyle,
+  bare = false,
+  height,
 }: LiveOrderMapProps) {
   const { height: windowHeight } = useWindowDimensions();
   const mapRef = useRef<MapView | null>(null);
@@ -733,9 +742,8 @@ export const LiveOrderMap = memo(function LiveOrderMap({
     lastProximityStateRef.current = nextState;
   }, [isArriving, isNearby]);
 
-  return (
-    <View style={styles.card}>
-      <View style={[styles.mapWrap, { height: mapHeight }]}>
+  const mapView = (
+      <View style={[bare ? styles.mapWrapBare : styles.mapWrap, { height: height ?? mapHeight }]}>
         <MapView
           key={TRACKING_MAP_VISUAL_VERSION}
           ref={mapRef}
@@ -813,7 +821,12 @@ export const LiveOrderMap = memo(function LiveOrderMap({
           </MarkerAnimated>
         </MapView>
       </View>
+  );
+  if (bare) return mapView;
 
+  return (
+    <View style={styles.card}>
+      {mapView}
       <View style={styles.statusFooter}>
         <View
           style={[
@@ -836,7 +849,7 @@ export const LiveOrderMap = memo(function LiveOrderMap({
                 size={17}
                 color={
                   isArriving
-                    ? palette.primary
+                    ? palette.secondary
                     : isNearby
                       ? FOODPANDA_PINK
                       : palette.foreground
@@ -887,11 +900,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: palette.surface,
     overflow: "hidden",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.75,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
   },
   mapWrap: {
     overflow: "hidden",
@@ -901,6 +909,10 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapWrapBare: {
+    overflow: "hidden",
+    backgroundColor: "#F7F8F4",
   },
   statusFooter: {
     paddingHorizontal: 12,
@@ -915,21 +927,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 43, 133, 0.14)",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.36,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
+    borderColor: "rgba(255, 168, 40, 0.14)",
     gap: 12,
   },
   infoPanelNearby: {
-    backgroundColor: "#FFF0F6",
-    borderColor: "rgba(255, 43, 133, 0.24)",
+    backgroundColor: "#FFF6E8",
+    borderColor: "rgba(255, 168, 40, 0.24)",
   },
   infoPanelArriving: {
     backgroundColor: "#FFF4EE",
-    borderColor: "rgba(255, 122, 89, 0.22)",
+    borderColor: "rgba(255, 184, 76, 0.22)",
   },
   infoPanelTop: {
     flexDirection: "row",
@@ -942,7 +949,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF4F8",
+    backgroundColor: "#FFFAF2",
     position: "relative",
   },
   statusIconWrapNearby: {
@@ -973,7 +980,7 @@ const styles = StyleSheet.create({
   infoEyebrow: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     color: FOODPANDA_PINK,
     textTransform: "uppercase",
     letterSpacing: 0,
@@ -982,19 +989,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 23,
     color: palette.foreground,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   infoTitleNearby: {
     fontSize: 27,
     lineHeight: 31,
-    fontWeight: "900",
+    fontWeight: "700",
     color: FOODPANDA_PINK,
   },
   infoTitleArriving: {
     fontSize: 25,
     lineHeight: 30,
-    fontWeight: "900",
-    color: palette.primary,
+    fontWeight: "700",
+    color: palette.secondary,
   },
   infoDetail: {
     fontSize: 12,
@@ -1009,12 +1016,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1F2430",
+    backgroundColor: "#111111",
   },
   etaBubbleValue: {
     fontSize: 15,
     lineHeight: 19,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#fff",
   },
   infoStatsRow: {
@@ -1022,7 +1029,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    backgroundColor: "#FFF7FB",
+    backgroundColor: "#FFFAF2",
     flexDirection: "row",
     alignItems: "center",
   },
@@ -1049,13 +1056,13 @@ const styles = StyleSheet.create({
   infoStatValue: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   infoStatLabel: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   markerRoot: {

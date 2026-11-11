@@ -426,12 +426,10 @@ export const OrderCard = memo(function OrderCard({
 
         <View style={styles.activeTrackCta}>
           <View style={styles.activeTrackCtaLeft}>
-            <Ionicons name="navigate" size={15} color={palette.secondary} />
-            <Text style={styles.activeTrackCtaText}>
-              Tap to track your order
-            </Text>
+            <Ionicons name="navigate" size={15} color={palette.onPrimary} />
+            <Text style={styles.activeTrackCtaText}>Track order</Text>
           </View>
-          <Ionicons name="arrow-forward" size={16} color={palette.secondary} />
+          <Ionicons name="arrow-forward" size={17} color={palette.onPrimary} />
         </View>
       </PressableScale>
     );
@@ -500,7 +498,7 @@ export const OrderCard = memo(function OrderCard({
           <View style={styles.compactHistoryActions}>
             {card.status === "Delivered" && onReorderPress ? (
               <Pressable
-                android_ripple={{ color: "rgba(216, 27, 96, 0.08)" }}
+                android_ripple={{ color: "rgba(168, 99, 0, 0.08)" }}
                 style={({ pressed }) => [
                   styles.reorderButton,
                   styles.reorderButtonCompact,
@@ -623,7 +621,7 @@ export const OrderCard = memo(function OrderCard({
 
       {card.status === "Delivered" && onReorderPress ? (
         <Pressable
-          android_ripple={{ color: "rgba(216, 27, 96, 0.08)" }}
+          android_ripple={{ color: "rgba(168, 99, 0, 0.08)" }}
           style={({ pressed }) => [
             styles.reorderButton,
             reorderPending ? styles.reorderButtonDisabled : null,

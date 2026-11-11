@@ -14,7 +14,7 @@ const fallbackSettings = {
   appDownloadUrl: "https://play.google.com/store/apps/details?id=com.foodbela.app",
   restaurantApplyUrl: "/restaurant-partner#apply",
   riderApplyUrl: "/riders#apply",
-  supportPhone: "+880 1700-000000",
+  supportPhone: "+8809658806633",
   supportEmail: "hello@foodbela.com",
   facebookUrl: "#",
   instagramUrl: "#",

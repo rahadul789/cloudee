@@ -21,6 +21,7 @@ export default function RootLayout() {
             <Stack.Screen name="notifications" />
             <Stack.Screen name="reviews" />
             <Stack.Screen name="orders/[orderId]" />
+            <Stack.Screen name="orders/[orderId]/chat" />
           </Stack>
           <OtaUpdateGate />
         </AppBootstrapGate>

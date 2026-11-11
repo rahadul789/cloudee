@@ -1,7 +1,7 @@
 const site = {
   name: "Foodbela",
   tagline: "Food, partners, and riders moving in one smooth flow.",
-  phone: "+880 1700-000000",
+  phone: "+8809658806633",
   email: "hello@foodbela.com",
   navLinks: [
     { label: "Home", href: "/" },

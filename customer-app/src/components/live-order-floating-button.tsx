@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
     zIndex: 45,
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
-    shadowColor: "#1F2430",
+    shadowColor: "#111111",
     shadowOpacity: 0.18,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 10 },
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
     borderWidth: 2,
-    borderColor: "rgba(255, 99, 146, 0.46)",
+    borderColor: "rgba(255, 184, 76, 0.46)",
     backgroundColor: "rgba(255, 255, 255, 0.34)",
   },
   liveRingUrgent: {
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "rgba(255, 99, 146, 0.22)",
+    borderColor: "rgba(255, 184, 76, 0.22)",
     overflow: "hidden",
   },
   buttonUrgent: {
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: "rgba(255, 99, 146, 0.12)",
+    backgroundColor: "rgba(255, 184, 76, 0.12)",
   },
   buttonSheenUrgent: {
     backgroundColor: "rgba(255, 201, 77, 0.16)",
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FF6392",
+    backgroundColor: "#A86300",
   },
   iconCoreUrgent: {
     backgroundColor: "#FFC94D",

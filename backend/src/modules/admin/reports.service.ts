@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import { ownerRealLineTotalAggExpr } from "../../common/utils/order-pricing";
+import { getAdminPlatformProfitLoss } from "./finance.service";
 
 import { RestaurantModel, RiderModel } from "../auth/auth.model";
 import { CustomerModel, VoucherRedemptionModel } from "../customer/customer.model";
@@ -785,7 +786,11 @@ export async function getAdminReports(params: ReportParams) {
   const ledgerGrossAmount = numberValue(ledger.grossAmount);
   const platformGrossIncome = numberValue(ledger.platformCommission) + numberValue(delivered.deliveryFees);
   const platformOperatingExpense = numberValue(ledger.platformDiscountCost) + payrollSummary.netPayable;
-  const estimatedPlatformMargin = platformGrossIncome - platformOperatingExpense;
+  // Same number as Finance → Net profit / loss (single source of truth). Falls back to the
+  // local estimate only if the finance computation fails.
+  const estimatedPlatformMargin = await getAdminPlatformProfitLoss(params)
+    .then((profitLoss) => profitLoss.netProfit)
+    .catch(() => platformGrossIncome - platformOperatingExpense);
   const reconciliationDifference = Math.round(deliveredSubtotalGross - ledgerGrossAmount);
   const reconciliationTolerance = Math.max(5, Math.round(deliveredSubtotalGross * 0.005));
   const hasReconciliationWarning = Math.abs(reconciliationDifference) > reconciliationTolerance;

@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   discount: {
     fontSize: 13,
     lineHeight: 16,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: -0.3,
   },
   condition: {
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   code: {
     fontSize: 13.5,
     lineHeight: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.4,
     textAlign: "center",
   },

@@ -5,6 +5,7 @@ import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout";
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { getPlatformContent } from "../public/content.service";
+import { DEFAULT_SUPPORT_PHONE } from "../public/content";
 
 type SmsBdResponse = {
   error?: number | string;
@@ -117,7 +118,7 @@ export function getFallbackOtpDeliveryConfig(): OtpDeliveryConfig {
     messageTemplate: DEFAULT_OTP_MESSAGE_TEMPLATE,
     telegramFallbackEnabled: true,
     callButtonAfterResends: 2,
-    supportCallNumber: "01883552285",
+    supportCallNumber: DEFAULT_SUPPORT_PHONE,
     whatsappOtpEnabled: false,
     whatsappAfterResends: 1,
     smsProvider: env.SMS_PROVIDER,
@@ -162,10 +163,13 @@ export async function getOtpDeliveryConfig(): Promise<OtpDeliveryConfig> {
         1,
         5,
       ),
+      // A custom OTP call number wins; empty → the platform support number.
       supportCallNumber:
-        typeof otpSettings?.supportCallNumber === "string"
+        (typeof otpSettings?.supportCallNumber === "string"
           ? otpSettings.supportCallNumber.trim().slice(0, 20)
-          : fallback.supportCallNumber,
+          : "") ||
+        content.supportContact?.phone?.trim() ||
+        fallback.supportCallNumber,
       whatsappOtpEnabled: otpSettings?.whatsappOtpEnabled === true,
       whatsappAfterResends: clampInteger(
         otpSettings?.whatsappAfterResends,

@@ -19,9 +19,10 @@ export const styles = StyleSheet.create({
     paddingBottom: 160,
     gap: 20,
   },
+  // Same position as checkout: 16px gutter, no extra top offset (back button lines up).
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingTop: 0,
     gap: 6,
   },
   kicker: {
@@ -35,7 +36,7 @@ export const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     lineHeight: 38,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
@@ -66,7 +67,7 @@ export const styles = StyleSheet.create({
   infoPillLabel: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   infoPillValue: {
@@ -84,11 +85,6 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.6,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   validationIconWrap: {
     width: 34,
@@ -99,7 +95,7 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.warningSurface,
   },
   validationIconWrapInfo: {
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.primarySoft,
   },
   validationCopy: {
     flex: 1,
@@ -108,7 +104,7 @@ export const styles = StyleSheet.create({
   validationTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   validationSubtitle: {
@@ -138,35 +134,30 @@ export const styles = StyleSheet.create({
     opacity: 0.68,
   },
   validationActionPrimary: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderColor: palette.secondary,
   },
   validationActionText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   validationActionPrimaryText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   reorderBadgeCard: {
     marginHorizontal: 20,
     paddingHorizontal: 14,
     paddingVertical: 14,
     borderRadius: 24,
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.primarySoft,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   reorderBadgeIconWrap: {
     width: 34,
@@ -183,7 +174,7 @@ export const styles = StyleSheet.create({
   reorderBadgeTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   reorderBadgeSubtitle: {
@@ -202,14 +193,11 @@ export const styles = StyleSheet.create({
   restaurantCard: {
     marginHorizontal: 20,
     padding: 20,
-    borderRadius: 38,
-    backgroundColor: palette.surface,
     gap: 14,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 7,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   restaurantCardHeader: {
     flexDirection: "row",
@@ -224,13 +212,13 @@ export const styles = StyleSheet.create({
   restaurantName: {
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   restaurantMeta: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   clearButton: {
@@ -271,13 +259,13 @@ export const styles = StyleSheet.create({
   recommendationTitle: {
     fontSize: 13.5,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   recommendationSubtitle: {
     fontSize: 11.5,
     lineHeight: 15,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   recommendationHint: {
@@ -285,7 +273,7 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 6,
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.primarySoft,
     flexDirection: "row",
     alignItems: "center",
     gap: 2,
@@ -293,7 +281,7 @@ export const styles = StyleSheet.create({
   recommendationHintText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   recommendationRow: {
@@ -304,8 +292,9 @@ export const styles = StyleSheet.create({
   },
   recommendationCard: {
     // width is set inline (measured for a 3-card + peek layout) — see recommendationCardWidth.
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    // A plain tile (image + text): no border/shadow — a horizontal ScrollView clips shadows
+    // and the bordered box made the rounded photo look misaligned inside it.
+    width: "100%",
   },
   recommendationCardPressed: {
     opacity: 0.9,
@@ -320,10 +309,10 @@ export const styles = StyleSheet.create({
   },
   recommendationImage: {
     width: "100%",
-    height: 84,
-    borderRadius: 16,
+    aspectRatio: 1,
+    borderRadius: 14,
     overflow: "hidden",
-    backgroundColor: "#F3E6DE",
+    backgroundColor: palette.surfaceMuted,
   },
   recommendationCopy: {
     minHeight: 33,
@@ -332,15 +321,15 @@ export const styles = StyleSheet.create({
     gap: 1,
   },
   recommendationName: {
-    fontSize: 11,
-    lineHeight: 13.5,
-    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "500",
     color: palette.foreground,
   },
   recommendationPrice: {
-    fontSize: 10.5,
-    lineHeight: 13,
-    fontWeight: "800",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
     color: palette.secondary,
   },
   recommendationAction: {
@@ -352,12 +341,7 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
-    shadowColor: "rgba(255,99,146,0.32)",
-    shadowOpacity: 1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    backgroundColor: palette.primary,
   },
   recommendationPopularIcon: {
     position: "absolute",
@@ -368,7 +352,7 @@ export const styles = StyleSheet.create({
     borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,99,146,0.94)",
+    backgroundColor: "rgba(255, 184, 76,0.94)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.8)",
   },
@@ -387,9 +371,9 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 8,
-    backgroundColor: "#FFF4F8",
+    backgroundColor: "#FFFAF2",
     borderWidth: 1,
-    borderColor: "rgba(255, 43, 133, 0.22)",
+    borderColor: "rgba(255, 168, 40, 0.22)",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -448,7 +432,7 @@ export const styles = StyleSheet.create({
   itemMeta: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   itemMetaBlock: {
@@ -475,20 +459,20 @@ export const styles = StyleSheet.create({
   itemPriceStrike: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
     textDecorationLine: "line-through",
   },
   itemLineTotal: {
     fontSize: 15,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   itemUnitCaption: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   itemOfferPill: {
@@ -500,7 +484,7 @@ export const styles = StyleSheet.create({
   itemOfferPillText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.successText,
   },
   itemPriceChanged: {
@@ -519,7 +503,7 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.primarySoft,
     overflow: "visible",
   },
   quantityButton: {
@@ -532,14 +516,14 @@ export const styles = StyleSheet.create({
     overflow: "visible",
   },
   quantityButtonPrimary: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   quantityButtonPressed: {
     opacity: 0.86,
     transform: [{ scale: 0.94 }],
   },
   quantityButtonSecondaryPressed: {
-    backgroundColor: "#FFEAF3",
+    backgroundColor: palette.primarySoft,
   },
   quantityText: {
     minWidth: 20,
@@ -553,19 +537,16 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "700",
-    color: palette.primary,
+    color: palette.secondary,
   },
   summaryCard: {
     marginHorizontal: 20,
     padding: 20,
-    borderRadius: 38,
-    backgroundColor: palette.surface,
     gap: 10,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
   // Dark-neon "reward progress" card — same visual family as the urgent-delivery priority
   // sticker (NeonStickerCard). Amber accent while the offer is still locked, switching to
@@ -573,20 +554,14 @@ export const styles = StyleSheet.create({
   offerProgressCard: {
     marginBottom: 14,
     padding: 14,
-    borderRadius: 22,
+    borderRadius: 18,
     backgroundColor: "#211A2E",
     borderWidth: 1,
     borderColor: "rgba(255, 201, 77, 0.35)",
     gap: 8,
-    shadowColor: "#FFC94D",
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
   },
   offerProgressCardUnlocked: {
     borderColor: "rgba(53, 214, 164, 0.4)",
-    shadowColor: "#35D6A4",
   },
   offerProgressHeader: {
     flexDirection: "row",
@@ -627,7 +602,7 @@ export const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#FFC94D",
     textTransform: "uppercase",
     letterSpacing: 0.6,
@@ -639,7 +614,7 @@ export const styles = StyleSheet.create({
     flexShrink: 0,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#FFFFFF",
     fontVariant: ["tabular-nums"],
   },
@@ -666,7 +641,7 @@ export const styles = StyleSheet.create({
   summaryTitle: {
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
     marginBottom: 2,
   },
@@ -701,7 +676,7 @@ export const styles = StyleSheet.create({
     marginTop: -2,
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   // Sits directly under the "Delivery fee" row (the summaryCard gap is 10, so the negative top
@@ -751,7 +726,7 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.surface,
   },
   platformFeeCheckOn: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     borderColor: palette.secondary,
   },
   summaryStrong: {
@@ -801,7 +776,7 @@ export const styles = StyleSheet.create({
   minimumOrderNoticeText: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.warningText,
   },
   minimumOrderTrack: {
@@ -819,16 +794,17 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderRadius: 38,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 14,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 7,
+    // The only shadow on the cart: this bar floats above the content.
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
   checkoutCopy: {
     flex: 1,
@@ -837,26 +813,19 @@ export const styles = StyleSheet.create({
   checkoutLabel: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "rgba(255,255,255,0.82)",
   },
   checkoutAmount: {
     fontSize: 21,
     lineHeight: 27,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   checkoutButtonLift: {
     borderRadius: 999,
-    shadowColor: "#111827",
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 5,
   },
   checkoutButtonLiftDisabled: {
-    shadowOpacity: 0,
-    elevation: 0,
   },
   checkoutButton: {
     minWidth: 164,
@@ -889,5 +858,47 @@ export const styles = StyleSheet.create({
   },
   checkoutButtonSpinner: {
     marginLeft: -2,
+  },
+  kpiStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 46,
+    paddingHorizontal: 6,
+    borderRadius: 16,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
+  },
+  kpi: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+  },
+  kpiDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: "#ECECEC",
+  },
+  kpiValue: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  kpiValueGood: {
+    color: palette.successText,
+  },
+  kpiLabel: {
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: palette.mutedForeground,
+  },
+  kpiLabelWarn: {
+    fontWeight: "700",
+    color: palette.warningText,
   },
 });

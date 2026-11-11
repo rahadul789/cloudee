@@ -3096,6 +3096,8 @@ export type AdminPlatformFinanceResponse = {
   revenue: {
     platformCommission: number
     platformMarkupRevenue: number
+    /** Customer platform fee (admin-set; 0 when off). */
+    platformFeeRevenue?: number
     deliveryFeeRevenue: number
     platformGrossRevenue: number
     deliveredOrders: number
@@ -4426,10 +4428,25 @@ export type PlatformContent = {
         enabled: boolean
         activeFrom?: string
       }
+      heroCarousel?: HomeHeroCarousel
       dealsSection?: {
         enabled: boolean
         title: string
         offerIds: string[]
+      }
+      /** Home "Foodbela is closed" card + its "Notify me when open" button. */
+      closedNotice?: {
+        enabled: boolean
+        notifyButton: boolean
+      }
+      /** Home "Order again" rail (signed-in customers' last delivered orders). */
+      orderAgainSection?: {
+        enabled: boolean
+        title: string
+        subtitle: string
+        maxItems: number
+        maxAgeDays: number
+        placement: "before_top_sections" | "after_top_sections"
       }
       homeCategories?: {
         isActive: boolean
@@ -4656,6 +4673,20 @@ export type PlatformContent = {
     accountDeletion?: {
       enabled: boolean
       reviewDays: number
+    }
+    /** Customer-app live-tracking timings (seconds). */
+    customerTracking?: {
+      fallbackPollSeconds: number
+      staleAfterSeconds: number
+      refetchIfQuietSeconds: number
+    }
+    /** Customer-app "update required" prompt (Play Store). "" = not set. */
+    appUpdate?: {
+      enabled: boolean
+      latestVersion: string
+      minimumVersion: string
+      message: string
+      storeUrl: string
     }
     minimumOrderAmount: number
     serviceHours: {
@@ -4999,6 +5030,8 @@ export type AdminNotificationCenterItem = {
   inAppCount?: number
   skippedCount?: number
   openCount?: number
+  /** Distinct customers who pressed the promo CTA button. */
+  ctaClickCount?: number
   scheduledAt?: string | null
   sentAt?: string | null
   failureReason?: string
@@ -7077,6 +7110,44 @@ function buildAdminPaymentsQuery(params?: {
   if (params?.page) searchParams.set("page", `${params.page}`)
   if (params?.pageSize) searchParams.set("pageSize", `${params.pageSize}`)
   return searchParams.toString() ? `?${searchParams.toString()}` : ""
+}
+
+export type AdminOrderChat = {
+  orderId: string
+  orderNumber: string
+  status: string
+  customerName: string
+  riderName: string
+  messages: Array<{
+    id: string
+    orderId: string
+    senderRole: "customer" | "rider"
+    text: string
+    createdAt: string
+    readAt: string | null
+    clientMessageId: string
+  }>
+}
+
+// Read-only rider ↔ customer chat on one order (admin audit).
+export type AdminOpenNotifyStats = {
+  days: number
+  pending: number
+  requests: number
+  sent: number
+  cancelled: number
+  byDay: Array<{ date: string; requests: number; customers: number }>
+}
+
+/** "Notify me when open" demand while the platform is closed. */
+export async function getAdminOpenNotifyStats(days = 14) {
+  const response = await adminRequest<AdminOpenNotifyStats>(`/admin/open-notify/stats?days=${days}`)
+  return response.data
+}
+
+export async function getAdminOrderChat(orderId: string) {
+  const response = await adminRequest<AdminOrderChat>(`/admin/orders/${orderId}/chat`)
+  return response.data
 }
 
 export async function getAdminOrder(orderId: string) {
@@ -9213,16 +9284,51 @@ export async function deleteAdminMediaAsset(assetId: string) {
   return response.data
 }
 
+export type HomeHeroCarouselSlide = {
+  id: string
+  mediaUrl: string
+  mediaPublicId: string
+  title: string
+  linkEnabled: boolean
+  ctaPath: string
+  /** "Deliver to" + bell overlay colour on this slide (#RRGGBB, "" = app default). */
+  overlayTextColor?: string
+  isActive: boolean
+  startsAt: string
+  endsAt: string
+}
+
+export type HomeHeroCarousel = {
+  enabled: boolean
+  autoPlay: boolean
+  intervalSeconds: number
+  aspectRatio: "16:9" | "2:1" | "4:3" | "1:1"
+  showDots: boolean
+  slides: HomeHeroCarouselSlide[]
+}
+
+export const DEFAULT_HERO_CAROUSEL: HomeHeroCarousel = {
+  enabled: true,
+  autoPlay: true,
+  intervalSeconds: 4,
+  aspectRatio: "16:9",
+  showDots: false,
+  slides: [],
+}
+
 export async function uploadAdminMedia(
   file: File,
   folder = "foodbela/admin/home-cms",
   context = "admin_media",
   resourceType = "image",
+  maxImageBytes = 3 * 1024 * 1024,
 ) {
-  // Central 3 MB guard for every admin image upload (CMS, polls, restaurant media, …).
-  // Non-image files (e.g. KYC PDFs) skip this — they keep their own larger doc limit.
-  if (file.type.startsWith("image/") && file.size > 3 * 1024 * 1024) {
-    throw new Error("Image is too large — please upload one smaller than 3 MB.")
+  // Central image-size guard (default 3 MB) for every admin image upload (CMS, polls,
+  // restaurant media, …). Animated hero media passes a larger limit. Non-image files
+  // (e.g. KYC PDFs) skip this — they keep their own larger doc limit.
+  if (file.type.startsWith("image/") && file.size > maxImageBytes) {
+    const limitMb = Math.round((maxImageBytes / (1024 * 1024)) * 10) / 10
+    throw new Error(`Image is too large — please upload one smaller than ${limitMb} MB.`)
   }
   const signatureResponse = await adminRequest<{
     cloudName: string
@@ -9411,4 +9517,371 @@ export async function archiveAdminServiceZone(zoneId: string) {
     method: "DELETE",
   })
   return response.data
+}
+
+// ── Win-back (vouchers for customers who stopped ordering) ──
+export type WinBackSegment = "one_time" | "regular" | "loyal"
+
+export type AdminWinBackSettings = {
+  enabled: boolean
+  mode: "approval" | "auto"
+  lapsedDays: number
+  amounts: Record<WinBackSegment, number>
+  minOrderAmount: number
+  validityDays: number
+  monthlyBudget: number
+  maxAttemptsPer90Days: number
+  controlPercent: number
+  sendMinuteOfDay: number
+}
+
+export type AdminWinBackCandidate = {
+  customerId: string
+  name: string
+  phoneTail: string
+  segment: WinBackSegment
+  deliveredOrders: number
+  daysSinceOrder: number
+  favouriteRestaurantId: string
+  favouriteRestaurantName: string
+  amount: number
+  isControl: boolean
+}
+
+export type AdminWinBackCandidatesResponse = {
+  settings: AdminWinBackSettings
+  candidates: AdminWinBackCandidate[]
+  summary: {
+    total: number
+    willReceive: number
+    controlGroup: number
+    overBudget: number
+    batchCost: number
+    spentThisMonth: number
+    remainingBudget: number
+    bySegment: Record<WinBackSegment, number>
+    skipped: Record<string, number>
+  }
+}
+
+export type AdminWinBackStats = {
+  days: number
+  sent: number
+  control: number
+  cameBack: number
+  cameBackRate: number
+  controlCameBack: number
+  controlCameBackRate: number
+  revenueFromReturned: number
+  vouchersRedeemed: number
+  voucherCost: number
+  spentThisMonth: number
+}
+
+const jsonHeaders = { "content-type": "application/json" }
+
+export async function getAdminWinBackSettings() {
+  return (await adminRequest<AdminWinBackSettings>("/admin/win-back/settings")).data
+}
+
+export async function saveAdminWinBackSettings(patch: Partial<AdminWinBackSettings>) {
+  return (
+    await adminRequest<AdminWinBackSettings>("/admin/win-back/settings", {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(patch),
+    })
+  ).data
+}
+
+export async function getAdminWinBackCandidates() {
+  return (await adminRequest<AdminWinBackCandidatesResponse>("/admin/win-back/candidates")).data
+}
+
+export async function sendAdminWinBack(customerIds?: string[]) {
+  return (
+    await adminRequest<{ sent: number; control: number; failed: number; overBudget: number; cost: number }>(
+      "/admin/win-back/send",
+      { method: "POST", headers: jsonHeaders, body: JSON.stringify({ customerIds }) }
+    )
+  ).data
+}
+
+export async function getAdminWinBackStats(days = 90) {
+  return (await adminRequest<AdminWinBackStats>(`/admin/win-back/stats?days=${days}`)).data
+}
+
+// ── Hype tab (customer app): drops / events / videos ──
+export type AdminHypeKind = "drop" | "event" | "video" | "poll"
+export type AdminHypeCategory = "food" | "funny" | "local" | "other"
+
+export type AdminHypeItem = {
+  id: string
+  kind: AdminHypeKind
+  title: string
+  description: string
+  imageUrl: string
+  restaurantId: string | null
+  restaurantName: string
+  ctaLabel: string
+  ctaPath: string
+  externalUrl: string
+  startsAt: string | null
+  endsAt: string | null
+  limitLabel: string
+  location: string
+  youtubeId: string
+  category: AdminHypeCategory
+  durationLabel: string
+  likeCount: number
+  dislikeCount: number
+  viewCount: number
+  impressionCount: number
+  openCount: number
+  ctaCount: number
+  websiteCount: number
+  remindCount: number
+  voteCount: number
+  pollOptions: Array<{ id: string; label: string; voteCount: number }>
+  allowComments: boolean
+  commentCount: number
+  isPublished: boolean
+  position: number
+  createdAt: string | null
+}
+
+export type AdminHypeItemInput = {
+  kind: AdminHypeKind
+  title: string
+  description?: string
+  imageUrl?: string
+  restaurantId?: string | null
+  ctaLabel?: string
+  ctaPath?: string
+  externalUrl?: string
+  startsAt?: string | null
+  endsAt?: string | null
+  limitLabel?: string
+  location?: string
+  youtubeUrl?: string
+  category?: AdminHypeCategory
+  durationLabel?: string
+  isPublished?: boolean
+  position?: number
+  pollOptions?: Array<{ id?: string; label: string }>
+  allowComments?: boolean
+}
+
+export type AdminHypeComment = {
+  id: string
+  authorName: string
+  customerName: string
+  customerPhone: string
+  text: string
+  status: "visible" | "hidden"
+  customerId: string
+  createdAt: string
+}
+
+export async function listAdminHypeComments(itemId: string) {
+  return (await adminRequest<AdminHypeComment[]>(`/admin/hype/items/${itemId}/comments`)).data
+}
+
+export async function moderateAdminHypeComment(commentId: string, action: "hide" | "show" | "delete") {
+  return (
+    await adminRequest<{ ok: boolean }>(`/admin/hype/comments/${commentId}/moderate`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action }),
+    })
+  ).data
+}
+
+export async function listAdminHypeItems(kind?: AdminHypeKind) {
+  return (await adminRequest<AdminHypeItem[]>(`/admin/hype/items${kind ? `?kind=${kind}` : ""}`)).data
+}
+
+export async function createAdminHypeItem(input: AdminHypeItemInput) {
+  return (
+    await adminRequest<AdminHypeItem>("/admin/hype/items", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+  ).data
+}
+
+export async function updateAdminHypeItem(id: string, input: AdminHypeItemInput) {
+  return (
+    await adminRequest<AdminHypeItem>(`/admin/hype/items/${id}`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+  ).data
+}
+
+export async function deleteAdminHypeItem(id: string) {
+  return (await adminRequest<{ deleted: boolean }>(`/admin/hype/items/${id}`, { method: "DELETE" })).data
+}
+
+// ── Rewards: spin wheel, coins, stamp card, mystery box ──
+export type AdminRewardPrizeType = "coins" | "bonus_stamp" | "free_delivery" | "discount" | "fun"
+export type AdminRewardPrize = { id?: string; type: AdminRewardPrizeType; label: string; weight: number; amount: number }
+export type AdminBoxPrize = { amount: number; weight: number }
+
+export type AdminRewardSettings = {
+  scratchEnabled: boolean
+  minOrderAmount: number
+  spinUnlockHours: number
+  skipCoinCost: number
+  cardExpiryDays: number
+  prizeVoucherValidityDays: number
+  prizeVoucherMinOrder: number
+  freeDeliveryCostEstimate: number
+  monthlyBudget: number
+  prizes: AdminRewardPrize[]
+  stampCoinPrice: number
+  maxCoinStampsPerCycle: number
+  coinExpiryDays: number
+  boxPrizes: AdminBoxPrize[]
+  claimMode: "auto" | "approval"
+  claimMinOrder: number
+  claimValidityDays: number
+  claimReminderEnabled: boolean
+  claimReminderAfterDays: number
+  claimReminderTitle: string
+  claimReminderBody: string
+  spinReadyLocalNotify: boolean
+  testModeEnabled: boolean
+  testSpinUnlockMinutes: number
+  stampTarget: number
+  estimate: { boxValue: number; coinsPerSpin: number; ordersPerBox: number; costPerOrder: number }
+}
+
+export type AdminRewardsOverview = {
+  stats: {
+    issued: number
+    scratched: number
+    expired: number
+    scratchRate: number
+    spentThisMonth: number
+    monthlyBudget: number
+    byPrize: Array<{ type: AdminRewardPrizeType; count: number; cost: number }>
+    coinsIssued: number
+    stampsBought: number
+    spinsSkipped: number
+    boxesGiven: number
+    boxValueGiven: number
+    deliveredOrders: number
+    actualUsedValue: number
+    actualCostPerOrder: number
+  }
+  winners: {
+    total: number
+    page: number
+    pageSize: number
+    items: Array<{
+      id: string
+      customerId: string
+      customerName: string
+      customerPhone: string
+      orderNumber: string
+      prizeType: AdminRewardPrizeType
+      prizeLabel: string
+      cost: number
+      budgetCapped: boolean
+      voucherCode: string
+      voucherUsed: boolean
+      scratchedAt: string | null
+    }>
+  }
+}
+
+export type AdminMysteryBox = {
+  id: string
+  customerId: string
+  customerName: string
+  customerPhone: string
+  status: "requested" | "ready" | "opened" | "rejected"
+  requestedCode: string
+  prizeAmount: number
+  voucherCode: string
+  voucherUsed: boolean
+  decidedBy: string
+  rejectReason: string
+  isTest?: boolean
+  createdAt: string
+}
+
+export async function getAdminRewardSettings() {
+  return (await adminRequest<AdminRewardSettings>("/admin/rewards/settings")).data
+}
+
+export async function saveAdminRewardSettings(input: Partial<AdminRewardSettings>) {
+  return (
+    await adminRequest<AdminRewardSettings>("/admin/rewards/settings", {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+  ).data
+}
+
+export async function getAdminRewardsOverview(params: { days: number; prizeType?: string; page?: number }) {
+  const query = new URLSearchParams({
+    days: String(params.days),
+    page: String(params.page ?? 1),
+    ...(params.prizeType ? { prizeType: params.prizeType } : {}),
+  })
+  return (await adminRequest<AdminRewardsOverview>(`/admin/rewards/overview?${query}`)).data
+}
+
+export async function listAdminMysteryBoxes(status: string) {
+  return (await adminRequest<AdminMysteryBox[]>(`/admin/rewards/boxes?status=${status}`)).data
+}
+
+export async function decideAdminMysteryBox(boxId: string, action: "approve" | "reject", reason?: string) {
+  return (
+    await adminRequest<{ ok: boolean }>(`/admin/rewards/boxes/${boxId}/decision`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action, reason }),
+    })
+  ).data
+}
+
+// ── Rewards test mode ──
+export type AdminRewardTester = {
+  customerId: string
+  name: string
+  phone: string
+  coins: number
+  stamps: string
+  spinsWaiting: number
+  boxStatus: string
+}
+
+export async function listAdminRewardTesters() {
+  return (await adminRequest<AdminRewardTester[]>("/admin/rewards/testers")).data
+}
+
+export async function saveAdminRewardTesters(phones: string[]) {
+  return (
+    await adminRequest<{ notFound: string[]; testers: AdminRewardTester[] }>("/admin/rewards/testers", {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ phones }),
+    })
+  ).data
+}
+
+export async function grantAdminRewardTest(customerId: string, action: "spin" | "coins" | "stamp" | "fill_card" | "reset") {
+  return (
+    await adminRequest<AdminRewardTester[]>(`/admin/rewards/testers/${customerId}/grant`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ action }),
+    })
+  ).data
 }

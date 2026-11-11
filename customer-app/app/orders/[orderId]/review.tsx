@@ -1,22 +1,20 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Keyboard,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RemoteImage } from "@/src/components/remote-image";
-import { RiderRatingCard } from "@/src/components/orders/rider-rating-card";
 import { Screen } from "@/src/components/screen";
+import { AppHeader, Chip, SectionHeading } from "@/src/components/ui";
 import {
   useCustomerOrderDetailsQuery,
   useCustomerRestaurantDetailsQuery,
@@ -24,59 +22,80 @@ import {
   useCustomerRiderReviewEnabledQuery,
 } from "@/src/hooks/use-customer-api";
 import { getRatingLabel } from "@/src/lib/rating-labels";
+import {
+  composePresetComment,
+  getFoodPresets,
+  getRiderPresets,
+  isPositiveRating,
+  keepValidPicks,
+  RATING_EMOJI,
+} from "@/src/lib/review-presets";
 import { palette } from "@/src/theme/palette";
 
-const QUICK_CHIPS = [
-  "Great food",
-  "On time",
-  "Well packaged",
-  "Good value",
-  "Hot & fresh",
-  "Will order again",
-];
+// One star row (food or rider). Native-driver "pop" on change, nothing looping.
+function StarRow({
+  value,
+  onChange,
+  size,
+  labelPrefix,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  size: number;
+  labelPrefix: string;
+}) {
+  const pop = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (value === 0) return;
+    pop.setValue(0.88);
+    Animated.spring(pop, {
+      toValue: 1,
+      friction: 5,
+      tension: 140,
+      useNativeDriver: true,
+    }).start();
+  }, [value, pop]);
 
+  return (
+    <Animated.View style={[styles.starRow, { transform: [{ scale: pop }] }]}>
+      {Array.from({ length: 5 }, (_, index) => {
+        const star = index + 1;
+        const active = star <= value;
+        return (
+          <Pressable
+            key={star}
+            onPress={() => onChange(star)}
+            hitSlop={6}
+            style={({ pressed }) => [styles.starButton, pressed ? styles.starPressed : null]}
+            accessibilityRole="button"
+            accessibilityLabel={`${labelPrefix} ${star} star${star === 1 ? "" : "s"}`}
+            accessibilityState={{ selected: active }}
+          >
+            <Ionicons
+              name={active ? "star" : "star-outline"}
+              size={size}
+              color={active ? palette.primary : "#D9DADD"}
+            />
+          </Pressable>
+        );
+      })}
+    </Animated.View>
+  );
+}
+
+// Order rating: stars + preset chips only (no free text). Reached from the "rate your
+// order" notification (/rate-order) and from order details/tracking.
 export default function OrderReviewScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ orderId?: string }>();
-  const scrollRef = useRef<ScrollView>(null);
-  const commentYRef = useRef(0);
-  const riderCardYRef = useRef(0);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const orderId =
-    typeof params.orderId === "string" ? params.orderId : undefined;
-
-  useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, (event) =>
-      setKeyboardHeight(event.endCoordinates?.height ?? 0),
-    );
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
-  // Scroll the focused field to just below the top of the (keyboard-shrunk) view.
-  // Targeting the field's own offset — not scrollToEnd — keeps it from flying up
-  // past the fields/submit button that sit below it.
-  const scrollFieldIntoView = (y: number) => {
-    setTimeout(
-      () => scrollRef.current?.scrollTo({ y: Math.max(y - 24, 0), animated: true }),
-      150,
-    );
-  };
+  const orderId = typeof params.orderId === "string" ? params.orderId : undefined;
 
   const [rating, setRating] = useState(0);
+  const [foodPicks, setFoodPicks] = useState<string[]>([]);
   const [riderRating, setRiderRating] = useState(0);
-  const [riderComment, setRiderComment] = useState("");
-  const [comment, setComment] = useState("");
-  const [selectedChips, setSelectedChips] = useState<string[]>([]);
-  const riderReviewEnabled =
-    useCustomerRiderReviewEnabledQuery().data !== false;
+  const [riderPicks, setRiderPicks] = useState<string[]>([]);
+  const riderReviewEnabled = useCustomerRiderReviewEnabledQuery().data !== false;
 
   const orderQuery = useCustomerOrderDetailsQuery(orderId);
   const order = orderQuery.data;
@@ -89,58 +108,38 @@ export default function OrderReviewScreen() {
   const existingReview = order?.customerReview ?? null;
   const isDelivered = order?.status === "Delivered";
   const alreadyReviewed = Boolean(existingReview);
-  const hasRider = Boolean(order?.riderSnapshot?.name);
+  const riderName = order?.riderSnapshot?.name?.trim() || "";
+  const showRider = Boolean(riderName) && riderReviewEnabled;
 
   const restaurantName = restaurant?.name || "Restaurant";
-  const restaurantImage =
-    restaurant?.logo?.url || restaurant?.coverImage?.url || null;
+  const restaurantImage = restaurant?.logo?.url || restaurant?.coverImage?.url || null;
 
-  // Single native-driver pop when the rating changes — cheap, no loops.
-  const starPop = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (rating === 0) return;
-    starPop.setValue(0.85);
-    Animated.spring(starPop, {
-      toValue: 1,
-      friction: 5,
-      tension: 140,
-      useNativeDriver: true,
-    }).start();
-  }, [rating, starPop]);
+  const foodPresets = getFoodPresets(rating);
+  const riderPresets = getRiderPresets(riderRating);
 
-  const composedComment = useMemo(() => {
-    const chipText = selectedChips.join(", ");
-    const typed = comment.trim();
-    if (chipText && typed) return `${chipText}. ${typed}`;
-    return chipText || typed;
-  }, [comment, selectedChips]);
+  const changeRating = (next: number) => {
+    setRating(next);
+    setFoodPicks((current) => keepValidPicks(current, getFoodPresets(next)));
+  };
+  const changeRiderRating = (next: number) => {
+    setRiderRating(next);
+    setRiderPicks((current) => keepValidPicks(current, getRiderPresets(next)));
+  };
+  const toggle = (list: string[], chip: string) =>
+    list.includes(chip) ? list.filter((value) => value !== chip) : [...list, chip];
 
   const canSubmit =
-    Boolean(orderId) &&
-    isDelivered &&
-    !alreadyReviewed &&
-    rating > 0 &&
-    !reviewMutation.isPending;
-
-  const toggleChip = (chip: string) => {
-    setSelectedChips((current) =>
-      current.includes(chip)
-        ? current.filter((value) => value !== chip)
-        : [...current, chip],
-    );
-  };
+    Boolean(orderId) && isDelivered && !alreadyReviewed && rating > 0 && !reviewMutation.isPending;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     try {
       await reviewMutation.mutateAsync({
         rating,
-        comment: composedComment || undefined,
-        riderRating: riderRating > 0 ? riderRating : undefined,
+        comment: composePresetComment(foodPicks),
+        riderRating: showRider && riderRating > 0 ? riderRating : undefined,
         riderComment:
-          riderRating > 0 && riderComment.trim()
-            ? riderComment.trim()
-            : undefined,
+          showRider && riderRating > 0 ? composePresetComment(riderPicks) : undefined,
       });
       router.back();
     } catch {
@@ -148,508 +147,285 @@ export default function OrderReviewScreen() {
     }
   };
 
+  const showForm = Boolean(order) && isDelivered && !alreadyReviewed;
+
   return (
     <Screen>
-      {/* Manual keyboard padding instead of KeyboardAvoidingView: on Android
-          edge-to-edge, KAV "height" double-adjusted with the OS and left a residual
-          gap at the top/bottom after the keyboard closed (hiding the submit button).
-          Padding the scroll content by the exact keyboard height — and scrolling the
-          focused field into view — lifts the field with no leftover layout. */}
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => router.back()}
-            style={styles.headerButton}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-          >
-            <Ionicons name="arrow-back" size={22} color={palette.foreground} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Rate your order</Text>
-          <View style={styles.headerButton} />
-        </View>
+        <AppHeader title="Rate your order" subtitle={order ? `Order #${order.orderNumber}` : undefined} />
 
         <ScrollView
-          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            keyboardHeight > 0
-              ? { paddingBottom: keyboardHeight + 24 }
-              : null,
+            { paddingBottom: showForm ? 120 + insets.bottom : 32 },
           ]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
-        {orderQuery.isLoading ? (
-          <View style={styles.loadingState}>
-            <ActivityIndicator color={palette.primary} />
-          </View>
-        ) : !order ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={32}
-              color={palette.mutedForeground}
-            />
-            <Text style={styles.emptyText}>
-              We couldn&apos;t find this order.
-            </Text>
-          </View>
-        ) : (
-          <>
+          {orderQuery.isLoading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator color={palette.secondary} />
+            </View>
+          ) : !order ? (
+            <View style={styles.centerState}>
+              <Ionicons name="alert-circle-outline" size={32} color={palette.mutedForeground} />
+              <Text style={styles.centerText}>We couldn&apos;t find this order.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.restaurantRow}>
+                <RemoteImage
+                  uri={restaurantImage}
+                  style={styles.restaurantImage}
+                  fallbackIcon="restaurant-outline"
+                  accessibilityLabel={restaurantName}
+                />
+                <View style={styles.restaurantCopy}>
+                  <Text style={styles.restaurantName} numberOfLines={1}>
+                    {restaurantName}
+                  </Text>
+                  <Text style={styles.restaurantMeta}>Delivered order</Text>
+                </View>
+              </View>
+
+              {alreadyReviewed ? (
+                <View style={styles.doneCard}>
+                  <View style={styles.doneBadge}>
+                    <Ionicons name="checkmark" size={26} color={palette.onPrimary} />
+                  </View>
+                  <Text style={styles.doneTitle}>Thanks for your rating!</Text>
+                  <View style={styles.starRowStatic}>
+                    {Array.from({ length: 5 }, (_, index) => (
+                      <Ionicons
+                        key={index}
+                        name={index < (existingReview?.rating ?? 0) ? "star" : "star-outline"}
+                        size={22}
+                        color={palette.primary}
+                      />
+                    ))}
+                  </View>
+                  {existingReview?.comment ? (
+                    <View style={styles.doneChips}>
+                      {existingReview.comment.split(",").map((part) =>
+                        part.trim() ? <Chip key={part} label={part.trim()} active /> : null,
+                      )}
+                    </View>
+                  ) : null}
+                  <Pressable
+                    style={({ pressed }) => [styles.ghostButton, pressed ? styles.pressed : null]}
+                    onPress={() => router.back()}
+                  >
+                    <Text style={styles.ghostButtonText}>Done</Text>
+                  </Pressable>
+                </View>
+              ) : !isDelivered ? (
+                <View style={styles.centerState}>
+                  <Ionicons name="time-outline" size={32} color={palette.mutedForeground} />
+                  <Text style={styles.centerText}>
+                    You can rate this order once it&apos;s delivered.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.card}>
+                    <Text style={styles.emoji}>{rating > 0 ? RATING_EMOJI[rating] : "🍽️"}</Text>
+                    <Text style={styles.question}>How was the food?</Text>
+                    <StarRow value={rating} onChange={changeRating} size={42} labelPrefix="Food" />
+                    <Text style={[styles.ratingLabel, rating > 0 ? styles.ratingLabelActive : null]}>
+                      {getRatingLabel(rating)}
+                    </Text>
+                  </View>
+
+                  {foodPresets.length ? (
+                    <View style={styles.block}>
+                      <SectionHeading
+                        icon={isPositiveRating(rating) ? "thumbs-up" : "alert-circle"}
+                        title={isPositiveRating(rating) ? "What did you love?" : "What went wrong?"}
+                        subtitle="Pick all that apply"
+                      />
+                      <View style={styles.chipWrap}>
+                        {foodPresets.map((chip) => (
+                          <Chip
+                            key={chip}
+                            label={chip}
+                            icon={foodPicks.includes(chip) ? "checkmark" : undefined}
+                            active={foodPicks.includes(chip)}
+                            onPress={() => setFoodPicks((current) => toggle(current, chip))}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
+
+                  {showRider ? (
+                    <View style={styles.card}>
+                      <View style={styles.riderHead}>
+                        <View style={styles.riderAvatar}>
+                          <Ionicons name="bicycle" size={20} color={palette.onPrimary} />
+                        </View>
+                        <View style={styles.riderCopy}>
+                          <Text style={styles.riderTitle}>How was {riderName}?</Text>
+                          <Text style={styles.riderSub}>Your delivery rider · optional</Text>
+                        </View>
+                      </View>
+                      <StarRow
+                        value={riderRating}
+                        onChange={changeRiderRating}
+                        size={32}
+                        labelPrefix="Rider"
+                      />
+                      {riderPresets.length ? (
+                        <View style={[styles.chipWrap, styles.chipWrapCenter]}>
+                          {riderPresets.map((chip) => (
+                            <Chip
+                              key={chip}
+                              label={chip}
+                              icon={riderPicks.includes(chip) ? "checkmark" : undefined}
+                              active={riderPicks.includes(chip)}
+                              onPress={() => setRiderPicks((current) => toggle(current, chip))}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </>
+          )}
+        </ScrollView>
+
+        {showForm ? (
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <Pressable
               style={({ pressed }) => [
-                styles.restaurantCard,
-                pressed ? styles.restaurantCardPressed : null,
+                styles.submit,
+                !canSubmit ? styles.submitDisabled : null,
+                pressed && canSubmit ? styles.pressed : null,
               ]}
-              onPress={() =>
-                router.push({
-                  pathname: "/orders/[orderId]/tracking",
-                  params: { orderId: orderId ?? "" },
-                })
-              }
+              onPress={handleSubmit}
+              disabled={!canSubmit}
               accessibilityRole="button"
-              accessibilityLabel="View order details"
             >
-              <RemoteImage
-                uri={restaurantImage}
-                style={styles.restaurantImage}
-                fallbackIcon="restaurant-outline"
-                accessibilityLabel={restaurantName}
-              />
-              <View style={styles.restaurantCopy}>
-                <Text style={styles.restaurantName} numberOfLines={1}>
-                  {restaurantName}
+              {reviewMutation.isPending ? (
+                <ActivityIndicator color={palette.onPrimary} />
+              ) : (
+                <Text style={[styles.submitText, !canSubmit ? styles.submitTextDisabled : null]}>
+                  {rating > 0 ? "Submit rating" : "Tap a star to continue"}
                 </Text>
-                <View style={styles.orderNumberRow}>
-                  <Text style={styles.orderNumber}>
-                    Order #{order.orderNumber}
-                  </Text>
-                  {/* <Text style={styles.viewDetailsText}>View details</Text> */}
-                </View>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={palette.placeholder}
-              />
+              )}
             </Pressable>
-
-            {alreadyReviewed ? (
-              <View style={styles.thankYouCard}>
-                <View style={styles.thankYouBadge}>
-                  <Ionicons name="checkmark" size={24} color="#fff" />
-                </View>
-                <Text style={styles.thankYouTitle}>
-                  Thanks for your rating!
-                </Text>
-                <View style={styles.starRowStatic}>
-                  {Array.from({ length: 5 }, (_, index) => (
-                    <Ionicons
-                      key={`done-star-${index}`}
-                      name={
-                        index < (existingReview?.rating ?? 0)
-                          ? "star"
-                          : "star-outline"
-                      }
-                      size={22}
-                      color={palette.amber}
-                    />
-                  ))}
-                </View>
-                {existingReview?.comment ? (
-                  <Text style={styles.thankYouComment}>
-                    &ldquo;{existingReview.comment}&rdquo;
-                  </Text>
-                ) : null}
-                <Pressable
-                  style={styles.secondaryButton}
-                  onPress={() => router.back()}
-                >
-                  <Text style={styles.secondaryButtonText}>Done</Text>
-                </Pressable>
-              </View>
-            ) : !isDelivered ? (
-              <View style={styles.emptyState}>
-                <Ionicons
-                  name="time-outline"
-                  size={32}
-                  color={palette.mutedForeground}
-                />
-                <Text style={styles.emptyText}>
-                  You can rate this order once it&apos;s delivered.
-                </Text>
-              </View>
-            ) : (
-              <>
-                <View style={styles.ratingCard}>
-                  <Text style={styles.prompt}>How was your order?</Text>
-                  <Animated.View
-                    style={[
-                      styles.starRow,
-                      { transform: [{ scale: starPop }] },
-                    ]}
-                  >
-                    {Array.from({ length: 5 }, (_, index) => {
-                      const value = index + 1;
-                      const active = value <= rating;
-                      return (
-                        <Pressable
-                          key={`star-${value}`}
-                          onPress={() => setRating(value)}
-                          hitSlop={6}
-                          style={({ pressed }) => [
-                            styles.starButton,
-                            pressed ? styles.starButtonPressed : null,
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${value} star`}
-                        >
-                          <Ionicons
-                            name={active ? "star" : "star-outline"}
-                            size={42}
-                            color={active ? palette.amber : palette.border}
-                          />
-                        </Pressable>
-                      );
-                    })}
-                  </Animated.View>
-                  <Text
-                    style={[
-                      styles.ratingLabel,
-                      rating > 0 ? styles.ratingLabelActive : null,
-                    ]}
-                  >
-                    {getRatingLabel(rating)}
-                  </Text>
-                  <View style={styles.chipWrap}>
-                    {QUICK_CHIPS.map((chip) => {
-                      const active = selectedChips.includes(chip);
-                      return (
-                        <Pressable
-                          key={chip}
-                          onPress={() => toggleChip(chip)}
-                          style={[
-                            styles.chip,
-                            active ? styles.chipActive : null,
-                          ]}
-                        >
-                          {active ? (
-                            <Ionicons
-                              name="checkmark"
-                              size={13}
-                              color={palette.secondary}
-                            />
-                          ) : null}
-                          <Text
-                            style={[
-                              styles.chipText,
-                              active ? styles.chipTextActive : null,
-                            ]}
-                          >
-                            {chip}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                <TextInput
-                  style={styles.commentInput}
-                  value={comment}
-                  onChangeText={setComment}
-                  placeholder="Add a comment about the food and your order (optional)"
-                  placeholderTextColor={palette.placeholder}
-                  multiline
-                  numberOfLines={4}
-                  maxLength={500}
-                  textAlignVertical="top"
-                  onLayout={(event) => {
-                    commentYRef.current = event.nativeEvent.layout.y;
-                  }}
-                  onFocus={() => scrollFieldIntoView(commentYRef.current)}
-                />
-
-                {hasRider && riderReviewEnabled ? (
-                  <View
-                    onLayout={(event) => {
-                      riderCardYRef.current = event.nativeEvent.layout.y;
-                    }}
-                  >
-                    <RiderRatingCard
-                      value={riderRating}
-                      onChange={setRiderRating}
-                      comment={riderComment}
-                      onCommentChange={setRiderComment}
-                      onCommentFocus={() => scrollFieldIntoView(riderCardYRef.current)}
-                      riderName={order.riderSnapshot?.name}
-                    />
-                  </View>
-                ) : null}
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.submitButton,
-                    !canSubmit ? styles.submitButtonDisabled : null,
-                    pressed && canSubmit ? styles.submitButtonPressed : null,
-                  ]}
-                  onPress={handleSubmit}
-                  disabled={!canSubmit}
-                >
-                  {reviewMutation.isPending ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.submitButtonText}>Submit rating</Text>
-                  )}
-                </Pressable>
-              </>
-            )}
-          </>
-        )}
-      </ScrollView>
+          </View>
+        ) : null}
       </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  flex: {
-    flex: 1,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 48,
-    gap: 16,
-  },
-  loadingState: {
-    paddingVertical: 80,
-    alignItems: "center",
-  },
-  emptyState: {
-    paddingVertical: 60,
-    alignItems: "center",
-    gap: 10,
-  },
-  emptyText: {
+  flex: { flex: 1, backgroundColor: palette.surface },
+  content: { paddingHorizontal: 16, paddingTop: 16, gap: 18 },
+  centerState: { alignItems: "center", gap: 10, paddingVertical: 48 },
+  centerText: {
     fontSize: 14,
+    lineHeight: 20,
     color: palette.mutedForeground,
     textAlign: "center",
   },
-  restaurantCard: {
+  restaurantRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    padding: 14,
-    borderRadius: 20,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  restaurantCardPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.99 }],
-  },
-  orderNumberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  viewDetailsText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: palette.secondary,
-  },
-  restaurantImage: {
-    width: 52,
-    height: 52,
+    gap: 12,
+    padding: 12,
     borderRadius: 16,
     backgroundColor: palette.surfaceMuted,
   },
-  restaurantCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  restaurantName: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  orderNumber: {
-    fontSize: 13,
-    color: palette.mutedForeground,
-  },
-  ratingCard: {
+  restaurantImage: { width: 48, height: 48, borderRadius: 12 },
+  restaurantCopy: { flex: 1, gap: 2 },
+  restaurantName: { fontSize: 15.5, lineHeight: 20, fontWeight: "700", color: palette.foreground },
+  restaurantMeta: { fontSize: 12.5, lineHeight: 17, color: palette.mutedForeground },
+  card: {
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 22,
-    paddingHorizontal: 16,
-    borderRadius: 22,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  prompt: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-    textAlign: "center",
-  },
-  starRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 6,
-  },
-  starButton: {
-    padding: 4,
-  },
-  starButtonPressed: {
-    transform: [{ scale: 0.86 }],
-  },
-  ratingLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  ratingLabelActive: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: palette.amber,
-  },
-  sectionLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: palette.foreground,
-    marginTop: 2,
-  },
-  chipWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
     gap: 10,
-    marginTop: 4,
-  },
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E6E6E6",
   },
-  chipActive: {
-    backgroundColor: "#FFF0F6",
-    borderColor: palette.secondary,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  chipTextActive: {
-    color: palette.secondary,
-  },
-  commentInput: {
-    minHeight: 110,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.surface,
-    padding: 14,
-    fontSize: 14,
-    color: palette.foreground,
-  },
-  submitButton: {
-    marginTop: 6,
-    height: 54,
-    borderRadius: 18,
-    backgroundColor: palette.secondary,
+  emoji: { fontSize: 40, lineHeight: 48 },
+  question: { fontSize: 19, lineHeight: 25, fontWeight: "700", color: palette.foreground },
+  starRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  starRowStatic: { flexDirection: "row", gap: 4 },
+  starButton: { padding: 2 },
+  starPressed: { transform: [{ scale: 0.9 }] },
+  ratingLabel: { fontSize: 14, lineHeight: 19, fontWeight: "500", color: palette.mutedForeground },
+  ratingLabelActive: { color: palette.secondary, fontWeight: "700" },
+  block: { gap: 12 },
+  chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chipWrapCenter: { justifyContent: "center", marginTop: 4 },
+  riderHead: { flexDirection: "row", alignItems: "center", gap: 12, alignSelf: "stretch" },
+  riderAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: palette.secondary,
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    backgroundColor: palette.primary,
   },
-  submitButtonDisabled: {
-    opacity: 0.45,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  submitButtonPressed: {
-    transform: [{ scale: 0.985 }],
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  thankYouCard: {
+  riderCopy: { flex: 1, gap: 1 },
+  riderTitle: { fontSize: 16, lineHeight: 21, fontWeight: "700", color: palette.foreground },
+  riderSub: { fontSize: 12.5, lineHeight: 17, color: palette.mutedForeground },
+  doneCard: {
     alignItems: "center",
     gap: 12,
-    padding: 24,
-    borderRadius: 22,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: "#FFF8EC",
   },
-  thankYouBadge: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: palette.successText,
+  doneBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: palette.primary,
   },
-  thankYouTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  starRowStatic: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  thankYouComment: {
-    fontSize: 14,
-    color: palette.mutedForeground,
-    textAlign: "center",
-    fontStyle: "italic",
-  },
-  secondaryButton: {
-    marginTop: 6,
+  doneTitle: { fontSize: 19, lineHeight: 25, fontWeight: "700", color: palette.foreground },
+  doneChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
+  ghostButton: {
+    marginTop: 4,
     paddingHorizontal: 28,
-    paddingVertical: 12,
+    height: 44,
     borderRadius: 14,
-    backgroundColor: palette.surfaceMuted,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E3E4E6",
+    backgroundColor: palette.surface,
   },
-  secondaryButtonText: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: palette.foreground,
+  ghostButtonText: { fontSize: 14.5, lineHeight: 19, fontWeight: "700", color: palette.foreground },
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: palette.surface,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E3E4E6",
   },
+  submit: {
+    height: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+  },
+  submitDisabled: { backgroundColor: palette.surfaceMuted },
+  submitText: { fontSize: 15.5, lineHeight: 20, fontWeight: "700", color: palette.onPrimary },
+  submitTextDisabled: { color: palette.mutedForeground },
+  pressed: { opacity: 0.85 },
 });

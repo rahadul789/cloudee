@@ -4,40 +4,40 @@ import { createJSONStorage, persist, type StateStorage } from "zustand/middlewar
 
 import { appStateStorage } from "@/src/lib/app-storage";
 
+import {
+  addItemToCarts,
+  buildCartItemKey,
+  migrateSingleCart,
+  mirrorActive,
+  putCart,
+  type AddCartItemInput,
+  type CartItem,
+  type CartReorderContext,
+  type RestaurantCart,
+  type RestaurantCartIdentity,
+} from "@/src/lib/multi-cart";
+
+export {
+  buildCartItemKey,
+  getAllCarts,
+  getAllCartsItemCount,
+  getCartItemCount,
+  getCartSubtotal,
+} from "@/src/lib/multi-cart";
+export type { CartItem, RestaurantCart, RestaurantCartIdentity } from "@/src/lib/multi-cart";
+
 const CART_PERSIST_WRITE_DELAY_MS = 120;
 
-type SelectedOption = {
-  groupName: string;
-  optionLabel: string;
-};
-
-export type CartItem = {
-  key: string;
-  itemId: string;
-  name: string;
-  imageUrl?: string | null;
-  quantity: number;
-  unitPrice: number;
-  selectedVariantOptions: SelectedOption[];
-  selectedAddOnOptions: SelectedOption[];
-};
-
-type RestaurantCartIdentity = {
-  restaurantId: string;
-  restaurantName: string;
-};
-
-type AddCartItemInput = {
-  restaurant: RestaurantCartIdentity;
-  item: Omit<CartItem, "key">;
-};
-
-type CartReorderContext = {
-  orderId: string;
-  orderNumber: string;
-};
-
+// MULTI-CART MODEL
+// `carts` holds every restaurant's cart; `activeRestaurantId` picks the one the cart
+// screen / checkout / restaurant footer work on. `restaurant`, `items` and
+// `reorderContext` are kept as a MIRROR of the active cart so every existing consumer
+// (checkout, cart screen, details footer, quotes) keeps working unchanged. Adding an item
+// from another restaurant no longer conflicts: it goes into that restaurant's own cart,
+// which becomes active. Placing an order clears only the active cart.
 type CartStore = {
+  carts: Record<string, RestaurantCart>;
+  activeRestaurantId: string | null;
   restaurant: RestaurantCartIdentity | null;
   items: CartItem[];
   reorderContext: CartReorderContext | null;
@@ -54,34 +54,19 @@ type CartStore = {
     restaurant: RestaurantCartIdentity;
     items: Omit<CartItem, "key">[];
   }) => void;
+  /** Make a saved cart the active one (no-op if it doesn't exist). */
+  setActiveCart: (restaurantId: string) => void;
+  /** Delete one restaurant's cart (active or not). */
+  removeCart: (restaurantId: string) => void;
   setReorderContext: (context: CartReorderContext | null) => void;
   setPlatformFeeOptedIn: (value: boolean) => void;
   setUrgentDeliveryOptedIn: (value: boolean) => void;
   syncPricing: (items: { key: string; unitPrice: number }[]) => void;
   updateQuantity: (key: string, quantity: number) => void;
   removeItem: (key: string) => void;
+  /** Clears the ACTIVE cart only (e.g. after its order is placed); other carts stay. */
   clearCart: () => void;
 };
-
-export function buildCartItemKey(item: Omit<CartItem, "key">) {
-  const variants = item.selectedVariantOptions
-    .map((option) => `${option.groupName}:${option.optionLabel}`)
-    .sort()
-    .join("|");
-  const addOns = item.selectedAddOnOptions
-    .map((option) => `${option.groupName}:${option.optionLabel}`)
-    .sort()
-    .join("|");
-  return `${item.itemId}__${variants}__${addOns}`;
-}
-
-export function getCartItemCount(items: CartItem[]) {
-  return items.reduce((total, item) => total + item.quantity, 0);
-}
-
-export function getCartSubtotal(items: CartItem[]) {
-  return items.reduce((total, item) => total + item.quantity * item.unitPrice, 0);
-}
 
 function createCartStateStorage(): StateStorage {
   const pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
@@ -160,121 +145,148 @@ const cartStateStorage = createCartStateStorage();
 
 export const useCartStore = create<CartStore>()(
   persist(
-    (set) => ({
-      restaurant: null,
-      items: [],
-      reorderContext: null,
-      platformFeeOptedIn: false,
-      urgentDeliveryOptedIn: false,
-      addItem: ({ restaurant, item }) =>
-        set((state) => {
-          const key = buildCartItemKey(item);
-          if (state.restaurant && state.restaurant.restaurantId !== restaurant.restaurantId) {
-            return state;
-          }
+    (set) => {
+      // Apply a change to the ACTIVE cart's items (quantity edits, pricing sync, removals).
+      const updateActive = (
+        state: CartStore,
+        fn: (items: CartItem[]) => CartItem[] | null,
+      ): Partial<CartStore> | CartStore => {
+        const id = state.activeRestaurantId;
+        const active = id ? state.carts[id] : undefined;
+        if (!id || !active) return state;
+        const nextItems = fn(active.items);
+        if (nextItems === null) return state;
+        const carts = putCart(state.carts, id, {
+          ...active,
+          items: nextItems,
+          updatedAt: Date.now(),
+        });
+        return mirrorActive(carts, carts[id] ? id : null);
+      };
 
-          const existingItem = state.items.find((entry) => entry.key === key);
-          if (existingItem) {
-            return {
+      return {
+        carts: {},
+        activeRestaurantId: null,
+        restaurant: null,
+        items: [],
+        reorderContext: null,
+        platformFeeOptedIn: false,
+        urgentDeliveryOptedIn: false,
+        addItem: (input) =>
+          set((state) =>
+            mirrorActive(addItemToCarts(state.carts, input), input.restaurant.restaurantId),
+          ),
+        replaceCart: ({ restaurant, item }) =>
+          set((state) => {
+            const carts = putCart(state.carts, restaurant.restaurantId, {
               restaurant,
-              items: state.items.map((entry) =>
-                entry.key === key
-                  ? { ...entry, quantity: entry.quantity + item.quantity }
-                  : entry
-              ),
-            };
-          }
-
-          return {
-            restaurant,
-            items: [...state.items, { ...item, key }],
-          };
-        }),
-      replaceCart: ({ restaurant, item }) =>
-        set({
-          restaurant,
-          reorderContext: null,
-          items: [{ ...item, key: buildCartItemKey(item) }],
-        }),
-      setCart: ({ restaurant, items }) =>
-        set({
-          restaurant,
-          items: items.map((item) => ({ ...item, key: buildCartItemKey(item) })),
-        }),
-      setReorderContext: (context) =>
-        set({
-          reorderContext: context,
-        }),
-      setPlatformFeeOptedIn: (value) =>
-        set({
-          platformFeeOptedIn: value,
-        }),
-      setUrgentDeliveryOptedIn: (value) =>
-        set({
-          urgentDeliveryOptedIn: value,
-        }),
-      syncPricing: (pricedItems) =>
-        set((state) => {
-          if (!pricedItems.length) {
-            return state;
-          }
-
-          const priceMap = new Map(pricedItems.map((item) => [item.key, item.unitPrice]));
-          let hasChange = false;
-
-          const nextItems = state.items.map((item) => {
-            const nextPrice = priceMap.get(item.key);
-            if (typeof nextPrice !== "number" || nextPrice === item.unitPrice) {
-              return item;
-            }
-
-            hasChange = true;
-            return { ...item, unitPrice: nextPrice };
-          });
-
-          return hasChange ? { items: nextItems } : state;
-        }),
-      updateQuantity: (key, quantity) =>
-        set((state) => {
-          if (quantity <= 0) {
-            const nextItems = state.items.filter((item) => item.key !== key);
-            return {
-              restaurant: nextItems.length > 0 ? state.restaurant : null,
-              items: nextItems,
-            };
-          }
-
-          return {
-            items: state.items.map((item) =>
-              item.key === key ? { ...item, quantity } : item
+              items: [{ ...item, key: buildCartItemKey(item) }],
+              reorderContext: null,
+              updatedAt: Date.now(),
+            });
+            return mirrorActive(carts, restaurant.restaurantId);
+          }),
+        setCart: ({ restaurant, items }) =>
+          set((state) => {
+            const carts = putCart(state.carts, restaurant.restaurantId, {
+              restaurant,
+              items: items.map((item) => ({ ...item, key: buildCartItemKey(item) })),
+              reorderContext: state.carts[restaurant.restaurantId]?.reorderContext ?? null,
+              updatedAt: Date.now(),
+            });
+            return mirrorActive(carts, restaurant.restaurantId);
+          }),
+        setActiveCart: (restaurantId) =>
+          set((state) =>
+            state.carts[restaurantId] && state.activeRestaurantId !== restaurantId
+              ? {
+                  ...mirrorActive(state.carts, restaurantId),
+                  // Opt-ins belong to one checkout — don't carry them to another cart.
+                  platformFeeOptedIn: false,
+                  urgentDeliveryOptedIn: false,
+                }
+              : state,
+          ),
+        removeCart: (restaurantId) =>
+          set((state) => {
+            const carts = putCart(state.carts, restaurantId, null);
+            return mirrorActive(
+              carts,
+              state.activeRestaurantId === restaurantId ? null : state.activeRestaurantId,
+            );
+          }),
+        setReorderContext: (context) =>
+          set((state) => {
+            const id = state.activeRestaurantId;
+            const active = id ? state.carts[id] : undefined;
+            if (!id || !active) return { reorderContext: context };
+            const carts = { ...state.carts, [id]: { ...active, reorderContext: context } };
+            return mirrorActive(carts, id);
+          }),
+        setPlatformFeeOptedIn: (value) => set({ platformFeeOptedIn: value }),
+        setUrgentDeliveryOptedIn: (value) => set({ urgentDeliveryOptedIn: value }),
+        syncPricing: (pricedItems) =>
+          set((state) => {
+            if (!pricedItems.length) return state;
+            const priceMap = new Map(pricedItems.map((item) => [item.key, item.unitPrice]));
+            return updateActive(state, (items) => {
+              let hasChange = false;
+              const next = items.map((item) => {
+                const nextPrice = priceMap.get(item.key);
+                if (typeof nextPrice !== "number" || nextPrice === item.unitPrice) return item;
+                hasChange = true;
+                return { ...item, unitPrice: nextPrice };
+              });
+              return hasChange ? next : null;
+            });
+          }),
+        updateQuantity: (key, quantity) =>
+          set((state) =>
+            updateActive(state, (items) =>
+              quantity <= 0
+                ? items.filter((item) => item.key !== key)
+                : items.map((item) => (item.key === key ? { ...item, quantity } : item)),
             ),
-          };
-        }),
-      removeItem: (key) =>
-        set((state) => {
-          const nextItems = state.items.filter((item) => item.key !== key);
-          return {
-            restaurant: nextItems.length > 0 ? state.restaurant : null,
-            items: nextItems,
-          };
-        }),
-      clearCart: () =>
-        set({
-          restaurant: null,
-          items: [],
-          reorderContext: null,
-          platformFeeOptedIn: false,
-          urgentDeliveryOptedIn: false,
-        }),
-    }),
+          ),
+        removeItem: (key) =>
+          set((state) => updateActive(state, (items) => items.filter((item) => item.key !== key))),
+        clearCart: () =>
+          set((state) => ({
+            ...mirrorActive(
+              state.activeRestaurantId
+                ? putCart(state.carts, state.activeRestaurantId, null)
+                : state.carts,
+              null,
+            ),
+            platformFeeOptedIn: false,
+            urgentDeliveryOptedIn: false,
+          })),
+      };
+    },
     {
       name: "customer-cart-state",
+      version: 1,
       storage: createJSONStorage(() => cartStateStorage),
       partialize: (state) => ({
-        restaurant: state.restaurant,
-        items: state.items,
-        reorderContext: state.reorderContext,
+        carts: state.carts,
+        activeRestaurantId: state.activeRestaurantId,
       }),
-    }
-  )
+      // v0 stored one cart as { restaurant, items, reorderContext } — lift it into `carts`.
+      migrate: (persisted, version) =>
+        version === 0
+          ? migrateSingleCart(persisted as Record<string, unknown>)
+          : (persisted as { carts: Record<string, RestaurantCart>; activeRestaurantId: string | null }),
+      // Rebuild the active-cart mirror from what was persisted.
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as {
+          carts?: Record<string, RestaurantCart>;
+          activeRestaurantId?: string | null;
+        };
+        return {
+          ...current,
+          ...mirrorActive(saved.carts ?? {}, saved.activeRestaurantId ?? null),
+        };
+      },
+    },
+  ),
 );

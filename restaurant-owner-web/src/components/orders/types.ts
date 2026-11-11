@@ -109,6 +109,10 @@ export type Order = {
   id: string
   orderNumber: string
   isUrgent: boolean
+  /** Gift order: customer.name/phone are the RECEIVER; giftFrom = who paid. */
+  isGift?: boolean
+  giftFrom?: string
+  giftMessage?: string
   customer: OrderCustomer
   rider: OrderRider
   items: OrderLineItem[]

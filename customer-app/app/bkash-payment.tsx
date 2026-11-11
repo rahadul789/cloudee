@@ -1,4 +1,3 @@
-import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +16,7 @@ import {
 } from "@/src/lib/bkash-payment-draft";
 import { useCartStore } from "@/src/store/cart-store";
 import { palette } from "@/src/theme/palette";
+import { HeaderBackButton } from "@/src/components/ui";
 
 function isTrustedBkashPaymentUrl(value: string) {
   try {
@@ -327,9 +327,7 @@ export default function BkashPaymentScreen() {
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <StatusBar style="dark" />
         <View style={styles.emptyState}>
-          <Pressable style={styles.backButton} onPress={() => router.replace("/checkout")}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
+          <HeaderBackButton onPress={() => router.replace("/checkout")} />
           {isDraftLoading ? (
             <>
               <View style={styles.loaderIconWrap}>
@@ -455,11 +453,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
   },
   backButtonDisabled: {
     opacity: 0.5,
@@ -497,7 +490,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },
@@ -546,14 +539,14 @@ const styles = StyleSheet.create({
   retryButton: {
     alignSelf: "center",
     borderRadius: 999,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     paddingHorizontal: 16,
     paddingVertical: 9,
   },
   retryButtonText: {
-    color: palette.surface,
+    color: palette.onPrimary,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   noticeButton: {
     alignSelf: "center",
@@ -565,7 +558,7 @@ const styles = StyleSheet.create({
   noticeButtonText: {
     color: palette.secondary,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   emptyState: {
     flex: 1,

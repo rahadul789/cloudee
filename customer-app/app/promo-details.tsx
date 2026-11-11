@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { LinkifiedText, isExternalHttpUrl, openExternalUrl } from "@/src/components/linkified-text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -12,8 +14,11 @@ import {
   useCustomerNotificationQuery,
 } from "@/src/hooks/use-customer-api";
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
+import { apiProtectedPost } from "@/src/lib/api";
 import { resolveCustomerRoute } from "@/src/lib/customer-routes";
+import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 function paramValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -32,6 +37,7 @@ export default function PromoDetailsScreen() {
     ctaPath?: string;
     createdAt?: string;
   }>();
+  const isSignedIn = useCustomerAuthStore((state) => Boolean(state.accessToken));
   const notificationId = paramValue(params.notificationId);
   const campaignId = paramValue(params.campaignId);
   const fallbackTitle = paramValue(params.title);
@@ -82,7 +88,8 @@ export default function PromoDetailsScreen() {
     voucherExpiryDate !== null &&
     !Number.isNaN(voucherExpiryDate.getTime()) &&
     voucherExpiryDate.getTime() <= Date.now();
-  const showCta = Boolean(ctaLabel.trim() && safeCtaPath && !voucherExpired);
+  const externalCta = isExternalHttpUrl(ctaPath) ? ctaPath.trim() : "";
+  const showCta = Boolean(ctaLabel.trim() && (safeCtaPath || externalCta) && !voucherExpired);
   const voucherMeta = [
     typeof notification?.voucherMinOrder === "number"
       ? `Min order ${Math.round(notification.voucherMinOrder).toLocaleString()}tk`
@@ -99,17 +106,7 @@ export default function PromoDetailsScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
-          <View style={styles.topCopy}>
-            <Text style={styles.eyebrow}>Offer details</Text>
-            <Text style={styles.title} numberOfLines={1}>
-              Foodbela
-            </Text>
-          </View>
-        </View>
+        <AppHeader inline style={styles.headerInset} eyebrow="Offer details" title="Foodbela" />
 
         {isLoading && !hasFallback ? (
           <View style={styles.feedbackWrap}>
@@ -164,7 +161,7 @@ export default function PromoDetailsScreen() {
                   </Text>
                 </View>
                 <Text style={styles.offerTitle}>{title}</Text>
-                <Text style={styles.offerBody}>{body}</Text>
+                <LinkifiedText style={styles.offerBody}>{body}</LinkifiedText>
                 {createdAt ? (
                   <View style={styles.timeRow}>
                     <Ionicons name="time-outline" size={15} color={palette.mutedForeground} />
@@ -200,10 +197,24 @@ export default function PromoDetailsScreen() {
             ) : showCta ? (
               <Pressable
                 style={styles.primaryButton}
-                onPress={() => router.push(safeCtaPath as never)}
+                onPress={() => {
+                  // Campaign funnel: opened → pressed CTA → ordered (once per person, auth only).
+                  const effectiveCampaignId = campaignId || notification?.campaignId || "";
+                  if (effectiveCampaignId && isSignedIn) {
+                    void apiProtectedPost("/customer/push-events/cta", {
+                      campaignId: effectiveCampaignId,
+                      ctaPath: safeCtaPath ?? externalCta,
+                    }).catch(() => undefined);
+                  }
+                  if (externalCta) {
+                    openExternalUrl(externalCta);
+                    return;
+                  }
+                  router.push(safeCtaPath as never);
+                }}
               >
                 <Text style={styles.primaryButtonText}>{ctaLabel}</Text>
-                <Ionicons name="arrow-forward" size={18} color={palette.surface} />
+                <Ionicons name={externalCta ? "open-outline" : "arrow-forward"} size={18} color={palette.onPrimary} />
               </Pressable>
             ) : null}
           </ScrollView>
@@ -215,6 +226,8 @@ export default function PromoDetailsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // Unpadded container → give the inline header the standard 16px gutter.
+  headerInset: { paddingHorizontal: 16 },
   topBar: {
     paddingHorizontal: 18,
     paddingTop: 4,
@@ -237,13 +250,13 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   title: {
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   feedbackWrap: {
@@ -276,11 +289,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.92)",
     overflow: "hidden",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
   },
   heroImage: {
     width: "100%",
@@ -289,7 +297,7 @@ const styles = StyleSheet.create({
   },
   heroFallback: {
     height: 220,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -307,14 +315,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     borderRadius: 999,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
     paddingHorizontal: 11,
     paddingVertical: 7,
   },
   offerBadgeText: {
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   offerBadgeExpired: {
@@ -326,7 +334,7 @@ const styles = StyleSheet.create({
   offerTitle: {
     fontSize: 24,
     lineHeight: 31,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   offerBody: {
@@ -351,8 +359,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#FFC0D4",
-    backgroundColor: "#FFF0F6",
+    borderColor: "#FFE2B3",
+    backgroundColor: "#FFF6E8",
     padding: 14,
     gap: 6,
   },
@@ -369,13 +377,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   voucherCode: {
     fontSize: 24,
     lineHeight: 30,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.secondary,
     letterSpacing: 0,
   },
@@ -391,27 +399,20 @@ const styles = StyleSheet.create({
   primaryButton: {
     minHeight: 54,
     borderRadius: 27,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    shadowColor: palette.secondary,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 9 },
-    elevation: 4,
   },
   primaryButtonDisabled: {
     backgroundColor: palette.surfaceMuted,
-    shadowOpacity: 0,
-    elevation: 0,
   },
   primaryButtonText: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "900",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   primaryButtonTextDisabled: {
     color: palette.mutedForeground,

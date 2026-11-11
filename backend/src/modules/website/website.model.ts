@@ -93,7 +93,8 @@ const websiteSettingsSchema = new Schema(
     appDownloadUrl: { type: String, default: "" },
     restaurantApplyUrl: { type: String, default: "/restaurants#apply" },
     riderApplyUrl: { type: String, default: "/riders#apply" },
-    supportPhone: { type: String, default: "+880 1700-000000" },
+    // Legacy: the website now shows the platform support number (Settings → Support contact).
+    supportPhone: { type: String, default: "" },
     supportEmail: { type: String, default: "hello@foodbela.com" },
     facebookUrl: { type: String, default: "#" },
     instagramUrl: { type: String, default: "#" },

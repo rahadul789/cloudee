@@ -20,6 +20,7 @@ import {
   Store,
   Truck,
   UserRound,
+  MousePointerClick,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -56,6 +57,8 @@ import {
 } from "@/lib/admin-zone-scope"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { AppLinkPicker } from "@/components/app-link-picker"
+import { APP_ROUTE_SUGGESTIONS } from "@/lib/app-link"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -477,9 +480,9 @@ const destinationOptions: Array<{
   },
   {
     value: "custom",
-    label: "Custom app path",
+    label: "Other screen / website",
     path: "",
-    helper: "Use only when the route already exists in the customer app.",
+    helper: "Pick any app screen from the suggestions, or paste a https:// website link.",
   },
 ]
 
@@ -526,6 +529,19 @@ const riderPromotionPathOptions = [
   { value: "/(app)/profile", label: "Profile" },
   { value: "/notifications", label: "Notifications" },
 ]
+
+// Shared <datalist> so the "Custom" destination suggests every customer-app screen.
+function RouteSuggestions() {
+  return (
+    <datalist id="customer-app-route-suggestions">
+      {APP_ROUTE_SUGGESTIONS.map((route) => (
+        <option key={route.path} value={route.path}>
+          {route.label}
+        </option>
+      ))}
+    </datalist>
+  )
+}
 
 function isCustomerPromotionType(type?: string) {
   return type === "promotion" || type === "voucher" || type === "campaign"
@@ -1680,7 +1696,7 @@ export function NotificationsPage() {
           recipientIds: [],
           path: "/promo-details",
           ctaLabel: current.ctaLabel?.trim() || "Browse restaurants",
-          ctaPath: current.ctaPath?.trim() || "/(tabs)/browse",
+          ctaPath: current.ctaPath?.trim() || "/(tabs)",
           type: "promotion",
           contentType:
             current.contentType === "text" ? "image_text" : current.contentType,
@@ -1844,7 +1860,6 @@ export function NotificationsPage() {
 
   const isCustomerPromotionForm = isCustomerPromotionDraft
   const openDestination = destinationFromPath(form.path)
-  const ctaDestination = destinationFromPath(form.ctaPath)
   const promoDestination = isCustomerPromotionForm
     ? destinationFromPath(form.path) === "restaurant_details"
       ? "restaurant_details"
@@ -2740,6 +2755,7 @@ export function NotificationsPage() {
                       </SelectContent>
                     </Select>
                     {openDestination === "custom" ? (
+                      <>
                       <Input
                         value={form.path}
                         onChange={(event) =>
@@ -2748,8 +2764,11 @@ export function NotificationsPage() {
                             path: event.target.value,
                           }))
                         }
-                        placeholder="/existing-customer-app-route"
+                        placeholder="Pick a screen or paste a https:// website link"
+                        list="customer-app-route-suggestions"
                       />
+                      <RouteSuggestions />
+                      </>
                     ) : (
                       <p className="text-xs text-muted-foreground">
                         {
@@ -2869,54 +2888,13 @@ export function NotificationsPage() {
                             </div>
                             <div className="space-y-2">
                               <Label>CTA destination</Label>
-                              <Select
-                                value={ctaDestination}
-                                onValueChange={(value) =>
-                                  setForm((current) => ({
-                                    ...current,
-                                    ctaPath:
-                                      value === "custom"
-                                        ? current.ctaPath?.trim() ||
-                                          "/custom-path"
-                                        : destinationPath(
-                                            value as DestinationPreset
-                                          ),
-                                  }))
+                              <AppLinkPicker
+                                value={form.ctaPath}
+                                restaurants={restaurantOptions}
+                                onChange={(ctaPath) =>
+                                  setForm((current) => ({ ...current, ctaPath }))
                                 }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {destinationOptions
-                                    .filter(
-                                      (option) =>
-                                        option.value !== "promo_details" &&
-                                        option.value !== "restaurant_details" &&
-                                        option.value !== "none"
-                                    )
-                                    .map((option) => (
-                                      <SelectItem
-                                        key={option.value}
-                                        value={option.value}
-                                      >
-                                        {option.label}
-                                      </SelectItem>
-                                    ))}
-                                </SelectContent>
-                              </Select>
-                              {ctaDestination === "custom" ? (
-                                <Input
-                                  value={form.ctaPath ?? ""}
-                                  onChange={(event) =>
-                                    setForm((current) => ({
-                                      ...current,
-                                      ctaPath: event.target.value,
-                                    }))
-                                  }
-                                  placeholder="/existing-customer-app-route"
-                                />
-                              ) : null}
+                              />
                             </div>
                           </div>
                         ) : null}
@@ -3344,12 +3322,14 @@ export function NotificationsPage() {
                             <p className="mt-1 text-xs text-muted-foreground">
                               {formatNumber(item.openCount)} opens /{" "}
                               {formatNumber(item.sentCount)} sent
+                              {item.ctaClickCount ? ` · ${formatNumber(item.ctaClickCount)} CTA clicks` : ""}
                             </p>
                           ) : null}
                           {item.source === "scheduled" ? (
                             <p className="mt-1 text-xs text-muted-foreground">
                               {formatNumber(item.openCount)} opens /{" "}
                               {formatNumber(item.totalTargets)} targets
+                              {item.ctaClickCount ? ` · ${formatNumber(item.ctaClickCount)} CTA clicks` : ""}
                             </p>
                           ) : null}
                         </TableCell>
@@ -3625,6 +3605,7 @@ export function NotificationsPage() {
             </div>
 
             {openDestination === "custom" ? (
+              <>
               <Input
                 value={form.path}
                 onChange={(event) =>
@@ -3633,8 +3614,11 @@ export function NotificationsPage() {
                     path: event.target.value,
                   }))
                 }
-                placeholder="/existing-app-route"
+                placeholder="Pick a screen or paste a https:// website link"
+                list="customer-app-route-suggestions"
               />
+              <RouteSuggestions />
+              </>
             ) : null}
 
             <div className="space-y-2">
@@ -4403,7 +4387,7 @@ export function NotificationsPage() {
                                 current.ctaLabel?.trim() ||
                                 "Browse restaurants",
                               ctaPath:
-                                current.ctaPath?.trim() || "/(tabs)/browse",
+                                current.ctaPath?.trim() || "/(tabs)",
                             }
                           : { ...current, ctaLabel: "", ctaPath: "" }
                       )
@@ -4429,15 +4413,12 @@ export function NotificationsPage() {
                       }
                       placeholder="CTA label"
                     />
-                    <Input
-                      value={form.ctaPath ?? ""}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          ctaPath: event.target.value,
-                        }))
+                    <AppLinkPicker
+                      value={form.ctaPath}
+                      restaurants={restaurantOptions}
+                      onChange={(ctaPath) =>
+                        setForm((current) => ({ ...current, ctaPath }))
                       }
-                      placeholder="/(tabs)/browse"
                     />
                   </div>
                 ) : null}
@@ -5465,6 +5446,11 @@ export function NotificationsPage() {
                           value: selectedItem.openCount,
                           icon: Eye,
                         },
+                        {
+                          label: "CTA clicks",
+                          value: selectedItem.ctaClickCount,
+                          icon: MousePointerClick,
+                        },
                       ].map((metric) => (
                         <div
                           key={metric.label}
@@ -5484,10 +5470,9 @@ export function NotificationsPage() {
                     </div>
                     {selectedItem.source === "scheduled" ? (
                       <div className="mt-3 rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
-                        Open count means the recipient opened or marked this
-                        scheduled notification as read inside their app. Push
-                        provider delivery receipt is separate; this view focuses
-                        on real app engagement.
+                        Open = the customer tapped the push or tapped this
+                        notification in their inbox. "Mark all as read" is not
+                        counted. Push provider delivery receipt is separate.
                       </div>
                     ) : null}
                     {selectedItem.failureReason ? (

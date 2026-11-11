@@ -16,6 +16,7 @@ import {
   Palette,
   Plus,
   RefreshCcw,
+  BellRing,
   Save,
   ShoppingCart,
   Trash2,
@@ -35,6 +36,8 @@ import {
   type PlatformContent,
 } from "@/lib/admin-cms-api"
 import { PollManagerSection } from "@/components/poll-manager-section"
+import { HomeHeroCarouselEditor } from "@/components/home-hero-carousel-editor"
+import { DEFAULT_HERO_CAROUSEL } from "@/lib/admin-api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -508,10 +511,23 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
     enabled: true,
     activeFrom: "",
   },
+  heroCarousel: DEFAULT_HERO_CAROUSEL,
   dealsSection: {
     enabled: false,
     title: "Deals for you",
     offerIds: [],
+  },
+  closedNotice: {
+    enabled: true,
+    notifyButton: true,
+  },
+  orderAgainSection: {
+    enabled: true,
+    title: "Order again",
+    subtitle: "Your favourites, one tap away",
+    maxItems: 6,
+    maxAgeDays: 60,
+    placement: "before_top_sections",
   },
   homeCategories: {
     isActive: true,
@@ -1058,6 +1074,13 @@ function normalizeContentForCms(content: PlatformContent | null) {
             myOfferSection.activeFrom ||
             (myOfferSection.enabled === false ? "" : new Date().toISOString()),
         },
+        heroCarousel: {
+          ...DEFAULT_HERO_CAROUSEL,
+          ...(homeCms.heroCarousel ?? {}),
+          slides: Array.isArray(homeCms.heroCarousel?.slides)
+            ? homeCms.heroCarousel.slides
+            : [],
+        },
         dealsSection: {
           ...DEFAULT_HOME_CMS.dealsSection,
           ...dealsSection,
@@ -1070,6 +1093,14 @@ function normalizeContentForCms(content: PlatformContent | null) {
             dealsSection.offerIds,
             DEFAULT_HOME_CMS.dealsSection?.offerIds ?? []
           ),
+        },
+        orderAgainSection: {
+          ...DEFAULT_HOME_CMS.orderAgainSection!,
+          ...(homeCms.orderAgainSection ?? {}),
+        },
+        closedNotice: {
+          ...DEFAULT_HOME_CMS.closedNotice!,
+          ...(homeCms.closedNotice ?? {}),
         },
         homeCategories: {
           ...DEFAULT_HOME_CMS.homeCategories,
@@ -1378,6 +1409,30 @@ export function CustomerHomeCmsSection({
       myOfferSection: {
         enabled: currentSection.enabled ?? true,
         activeFrom: currentSection.activeFrom ?? "",
+        [key]: value,
+      },
+    })
+  }
+
+  function updateClosedNotice(key: "enabled" | "notifyButton", value: boolean) {
+    updateCms({
+      ...currentCms,
+      closedNotice: {
+        ...DEFAULT_HOME_CMS.closedNotice!,
+        ...(currentCms.closedNotice ?? {}),
+        [key]: value,
+      },
+    })
+  }
+
+  function updateOrderAgainSection<
+    K extends keyof NonNullable<typeof currentCms.orderAgainSection>
+  >(key: K, value: NonNullable<typeof currentCms.orderAgainSection>[K]) {
+    updateCms({
+      ...currentCms,
+      orderAgainSection: {
+        ...DEFAULT_HOME_CMS.orderAgainSection!,
+        ...(currentCms.orderAgainSection ?? {}),
         [key]: value,
       },
     })
@@ -3290,6 +3345,27 @@ export function CustomerHomeCmsSection({
           </div>
 
           <CmsDetailsCard
+            title="Hero carousel"
+            description="The animated banner at the very top of the customer home. Upload GIF, animated WebP or images, schedule each slide and link it to any screen. Per district/zone via the scope selector above."
+            icon={<Image className="size-5" />}
+            summary={
+              <div className="hidden items-center gap-2 sm:flex">
+                <Badge variant={cms.heroCarousel?.enabled ? "default" : "outline"}>
+                  {cms.heroCarousel?.enabled ? "Shown" : "Hidden"}
+                </Badge>
+                <Badge variant="secondary">
+                  {(cms.heroCarousel?.slides ?? []).length} slides
+                </Badge>
+              </div>
+            }
+          >
+            <HomeHeroCarouselEditor
+              value={currentCms.heroCarousel}
+              onChange={(next) => updateCms({ ...currentCms, heroCarousel: next })}
+            />
+          </CmsDetailsCard>
+
+          <CmsDetailsCard
             title="Deals for you"
             description="A curated home showcase of up to 6 offers (auto-applied or coupon), high on the home screen so customers notice and order more. Only offers valid in a customer's area appear; use the scope selector above to control it per district/zone."
             icon={<Gift className="size-5" />}
@@ -3407,6 +3483,150 @@ export function CustomerHomeCmsSection({
                   })}
                 </div>
               )}
+            </div>
+          </CmsDetailsCard>
+
+          <CmsDetailsCard
+            title="Closed notice"
+            description="The dark “Foodbela is closed · Opens at …” card on home outside service hours, with the “Notify me when open” button. After a customer sets the reminder it shrinks to a slim one-line strip. Use the scope selector above to change it per district/zone."
+            icon={<BellRing className="size-5" />}
+            summary={
+              <div className="hidden items-center gap-2 sm:flex">
+                <Badge variant={cms.closedNotice?.enabled !== false ? "default" : "outline"}>
+                  {cms.closedNotice?.enabled !== false ? "Shown" : "Hidden"}
+                </Badge>
+              </div>
+            }
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <Label>Show the closed card on home</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Turn off to hide it completely (restaurant cards still show “Closed”).
+                  </p>
+                </div>
+                <Switch
+                  checked={cms.closedNotice?.enabled !== false}
+                  onCheckedChange={(checked) => updateClosedNotice("enabled", checked)}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <Label>“Notify me when open” button</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Push at reopen time + demand stats. Off = the card only shows the opening time.
+                  </p>
+                </div>
+                <Switch
+                  checked={cms.closedNotice?.notifyButton !== false}
+                  disabled={cms.closedNotice?.enabled === false}
+                  onCheckedChange={(checked) => updateClosedNotice("notifyButton", checked)}
+                />
+              </div>
+            </div>
+          </CmsDetailsCard>
+
+          <CmsDetailsCard
+            title="Order again"
+            description="One-tap reorder rail for signed-in customers: their last delivered order per restaurant. Hidden automatically for guests and customers with no delivered orders. Use the scope selector above to change it per district/zone."
+            icon={<RefreshCcw className="size-5" />}
+            summary={
+              <div className="hidden items-center gap-2 sm:flex">
+                <Badge variant={cms.orderAgainSection?.enabled !== false ? "default" : "outline"}>
+                  {cms.orderAgainSection?.enabled !== false ? "Shown" : "Hidden"}
+                </Badge>
+                <Badge variant="secondary">
+                  {cms.orderAgainSection?.maxItems ?? 6} cards
+                </Badge>
+              </div>
+            }
+          >
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <Label>Show &quot;Order again&quot; on home</Label>
+                <p className="text-xs text-muted-foreground">
+                  Turn off to give the space to campaigns or offers.
+                </p>
+              </div>
+              <Switch
+                checked={cms.orderAgainSection?.enabled !== false}
+                onCheckedChange={(checked) => updateOrderAgainSection("enabled", checked)}
+              />
+            </div>
+            <div className="mt-3 grid gap-3 rounded-lg border p-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Title</Label>
+                <Input
+                  value={cms.orderAgainSection?.title ?? "Order again"}
+                  maxLength={60}
+                  onChange={(event) => updateOrderAgainSection("title", event.target.value)}
+                  placeholder="Order again"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Subtitle</Label>
+                <Input
+                  value={cms.orderAgainSection?.subtitle ?? "Your favourites, one tap away"}
+                  maxLength={90}
+                  onChange={(event) => updateOrderAgainSection("subtitle", event.target.value)}
+                  placeholder="Your favourites, one tap away"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Cards to show (3–10)</Label>
+                <Input
+                  type="number"
+                  min={3}
+                  max={10}
+                  value={cms.orderAgainSection?.maxItems ?? 6}
+                  onChange={(event) =>
+                    updateOrderAgainSection(
+                      "maxItems",
+                      Math.min(10, Math.max(3, Number(event.target.value) || 6))
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Only orders from the last … days (7–365)</Label>
+                <Input
+                  type="number"
+                  min={7}
+                  max={365}
+                  value={cms.orderAgainSection?.maxAgeDays ?? 60}
+                  onChange={(event) =>
+                    updateOrderAgainSection(
+                      "maxAgeDays",
+                      Math.min(365, Math.max(7, Number(event.target.value) || 60))
+                    )
+                  }
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-2">
+                <Label>Position on home</Label>
+                <Select
+                  value={cms.orderAgainSection?.placement ?? "before_top_sections"}
+                  onValueChange={(next) =>
+                    updateOrderAgainSection(
+                      "placement",
+                      next as "before_top_sections" | "after_top_sections"
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="before_top_sections">
+                      Before Featured / Live / Offers (higher)
+                    </SelectItem>
+                    <SelectItem value="after_top_sections">
+                      After Featured / Live / Offers (lower)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CmsDetailsCard>
 

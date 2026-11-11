@@ -18,3 +18,19 @@ export function isTrustedYoutubeUrl(value?: string | null) {
     return false;
   }
 }
+
+/** 11-char YouTube id from any common link (watch, youtu.be, shorts, embed), or "". */
+export function parseYoutubeId(input?: string | null) {
+  const value = String(input ?? "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(value)) return value;
+  const patterns = [
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtube(?:-nocookie)?\.com\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/,
+  ];
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (match) return match[1];
+  }
+  return "";
+}

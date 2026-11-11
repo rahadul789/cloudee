@@ -21,6 +21,7 @@ import {
 } from "../customer/push.service";
 import * as customerReadCacheModule from "../customer/customer.service";
 import { handleCustomerCustomOfferDeliveredOrder } from "../customer/custom-offer.service";
+import { issueScratchCardForDeliveredOrder } from "../rewards/rewards.service";
 import { releaseVoucherRedemptionsForOrder } from "../customer/customer-voucher.service";
 import { releaseFirstOrderDiscountForOrder } from "../customer/first-order-discount.service";
 import { grantReferralRewardForDeliveredOrder } from "../customer/referral.service";
@@ -712,18 +713,10 @@ async function getMaxActiveOrdersPerRider() {
   return typeof value === "number" && Number.isFinite(value) ? value : 3;
 }
 
-// Push only for the moments a customer actually cares about or can act on: order
-// accepted, rider on the way, delivered, and problem states. The in-between steps
-// (preparing, ready for pickup) update live on the tracking screen via socket, so we
-// skip pushing them — fewer, meaningful pushes avoid notification fatigue (which would
-// otherwise make users mute the app and miss the important ones).
-const CUSTOMER_PUSH_WORTHY_STATUSES = new Set([
-  "Accepted",
-  "PickedUp",
-  "Delivered",
-  "Rejected",
-  "Cancelled",
-]);
+// Which status changes actually buzz the customer is decided in ONE place —
+// claimLiveOrderPush (customer/live-order-notification.ts) inside sendPushToCustomer — so
+// the customer gets exactly the same pushes whether the owner, a rider, the system or an
+// admin moved the order. Don't add a per-actor filter here.
 
 async function safeSendCustomerOrderStatusPush(params: {
   customerId: string;
@@ -731,10 +724,6 @@ async function safeSendCustomerOrderStatusPush(params: {
   orderNumber: string;
   nextStatus: string;
 }) {
-  if (!CUSTOMER_PUSH_WORTHY_STATUSES.has(params.nextStatus)) {
-    return;
-  }
-
   const customerMessage = getCustomerOrderStatusMessage(params.nextStatus);
 
   enqueueBackgroundTask("owner.order_status.customer_push", async () => {
@@ -2728,6 +2717,8 @@ export async function transitionOrderBySystem(params: {
       customerId: updatedOrder.customerId,
       orderId: updatedOrder.id,
     }).catch(() => undefined);
+    // Stamp card: one scratch card per qualifying delivered order (idempotent).
+    await issueScratchCardForDeliveredOrder(updatedOrder.toObject()).catch(() => undefined);
   }
 
   const restaurantOwner = await OwnerModel.findOne({

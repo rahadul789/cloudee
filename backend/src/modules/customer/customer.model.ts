@@ -145,6 +145,10 @@ const customerCustomOfferRequestSchema = new Schema(
     cycleNumber: { type: Number, default: 1 },
     qualifiedAt: { type: Date, default: null },
     qualificationNotifiedAt: { type: Date, default: null },
+    // Stamp card: when the optional "claim your reward" reminder push went out this cycle.
+    claimReminderSentAt: { type: Date, default: null },
+    // Stamp ledger: stamps already turned into mystery boxes (null = derive from the old cycle).
+    stampsConsumed: { type: Number, default: null },
     requestedAt: { type: Date, default: null },
     expectedReadyAt: { type: Date, default: null },
     fulfilledAt: { type: Date, default: null },

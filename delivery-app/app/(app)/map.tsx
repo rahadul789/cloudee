@@ -24,7 +24,6 @@ import {
   useRiderDeliveryThresholdsQuery,
   useRiderLiveMapQuery,
   useRiderNotificationsQuery,
-  useRiderOrderDetailsQuery,
   useRiderOrdersQuery,
   useRiderProfileQuery,
   useUpdateRiderAvailabilityMutation,
@@ -34,7 +33,6 @@ import {
   type RiderOrder,
 } from "@/src/hooks/use-rider-api";
 import { DeliveryMap, type DeliveryMapHandle, type MapRoute, type MapStop } from "@/src/components/delivery-map";
-import { decodePolyline } from "@/src/lib/polyline";
 import { HomeOrdersSheet, type SheetContextOrder } from "@/src/components/home-orders-sheet";
 import { RiderSidebar } from "@/src/components/rider-sidebar";
 import { useDeliveryCopy } from "@/src/lib/copy";
@@ -429,6 +427,21 @@ function RestaurantMapSheet({
 
 export default function RiderMapScreen() {
   const isFocused = useIsFocused();
+  // Native Google GPS dot (smooth, real-time, independent of the server echo) — also after
+  // pickup. Only a permission CHECK here; the tracking flow owns requesting it.
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  useEffect(() => {
+    if (!isFocused) return;
+    let alive = true;
+    Location.getForegroundPermissionsAsync()
+      .then((result) => {
+        if (alive) setHasLocationPermission(result.granted);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [isFocused]);
   const insets = useSafeAreaInsets();
   const { copy } = useDeliveryCopy();
   const mapCopy = copy.map;
@@ -436,10 +449,6 @@ export default function RiderMapScreen() {
   const liveMapQuery = useRiderLiveMapQuery(isFocused);
   const thresholdsQuery = useRiderDeliveryThresholdsQuery();
   const activeOrdersQuery = useRiderOrdersQuery("active");
-  // The real road route (polyline) is only computed by the order-DETAILS endpoint, not the
-  // list — so to draw the live order's road path on the home map we fetch its details.
-  const liveOrderId = liveMapQuery.data?.rider.activeTrackingOrderId ?? "";
-  const liveOrderDetailsQuery = useRiderOrderDetailsQuery(liveOrderId || undefined);
   const notificationsSummary = useRiderNotificationsQuery(isFocused);
   const hasUnreadNotifications = (notificationsSummary.data?.unreadCount ?? 0) > 0;
   // Assigned orders keyed by id, so a map pin can look up its order's timestamps to detect
@@ -668,45 +677,8 @@ export default function RiderMapScreen() {
     return lines;
   }, [showCustomers, sortedRestaurants]);
 
-  // Every active leg drawn at once so the rider sees all their orders on the home map (no
-  // need to open the details screen): the order sharing live location is a SOLID full-colour
-  // road route, the rest are DASHED + faded. A leg with no real road polyline falls back to
-  // a dashed straight line rider → destination (always dashed, since it's only an estimate).
-  // ONLY the live-tracking order's path is drawn (solid road route). Other active orders are
-  // intentionally left off the map so the live leg is unambiguous.
-  const liveOrderDetails = liveOrderDetailsQuery.data;
-  const mapRoutes = useMemo<MapRoute[]>(() => {
-    if (!liveOrderId) return [];
-    const decoded = decodePolyline(liveOrderDetails?.routeToNext?.polyline);
-    if (decoded.length > 1) {
-      return [{ key: liveOrderId, coords: decoded, dashed: false }];
-    }
-    // No road polyline yet → a solid straight line rider → destination as a stand-in.
-    const riderLoc = liveMapQuery.data?.rider.location ?? riderLocation;
-    const pickedUp = liveOrderDetails?.status === "PickedUp";
-    const dest = pickedUp
-      ? liveOrderDetails?.customer?.deliveryAddress
-      : liveOrderDetails?.restaurant;
-    if (
-      dest &&
-      typeof dest.latitude === "number" &&
-      typeof dest.longitude === "number" &&
-      riderLoc &&
-      isCoordinate(riderLoc)
-    ) {
-      return [
-        {
-          key: liveOrderId,
-          coords: [
-            { latitude: riderLoc.latitude, longitude: riderLoc.longitude },
-            { latitude: dest.latitude, longitude: dest.longitude },
-          ],
-          dashed: false,
-        },
-      ];
-    }
-    return [];
-  }, [liveOrderId, liveOrderDetails, liveMapQuery.data?.rider.location, riderLocation]);
+  // No route/path line is drawn for the live order any more (rider request): the native
+  // GPS dot + destination pins are enough, and turn-by-turn lives in Google Maps (Navigate).
 
   // Live-map orders as sheet "context" — so tapping a pin whose order isn't an actionable
   // task yet (e.g. still cooking) still shows useful info (prep countdown, amount).
@@ -907,12 +879,8 @@ export default function RiderMapScreen() {
           style={StyleSheet.absoluteFill}
           stops={mapStops}
           rider={riderForMap}
-          routes={[...mapRoutes, ...customerLines]}
-          showUserLocation={
-            activeOrdersQuery.isSuccess &&
-            !activeOrdersQuery.data?.some((order) => order.status === "PickedUp") &&
-            !activeTrackingOrderId
-          }
+          routes={customerLines}
+          showUserLocation={hasLocationPermission}
           fitPadding={{
             top: insets.top + 130,
             right: 60,

@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import {
   useCallback,
   useDeferredValue,
@@ -16,13 +17,13 @@ import {
   FlatList,
   InteractionManager,
   Keyboard,
-  Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
+  Share,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ViewToken,
@@ -30,6 +31,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import {
@@ -41,22 +43,26 @@ import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
 import { styles } from "@/src/components/restaurant-details/restaurant-details.styles";
 import { RestaurantClosedBanner } from "@/src/components/restaurant-details/restaurant-closed-banner";
+import {
+  OfferDetailsModal,
+  type OfferPreview,
+} from "@/src/components/restaurant-details/offer-details-modal";
 import { ClosingSoonBanner } from "@/src/components/service-closed-banner";
 import {
   getClosedCopy,
   useHasPassed,
 } from "@/src/lib/restaurant-availability";
 import {
-  CategoryRail,
+  CategoryTabsBar,
   ConnectedPopularItemCard,
   ConnectedRestaurantCartFooter,
   FactChip,
   InfoSheetRow,
   MenuCard,
-  MenuSearchBar,
   SearchResultsOverlay,
 } from "@/src/components/restaurant-details/restaurant-menu-components";
 import { Screen } from "@/src/components/screen";
+import { AppDialog, appDialogText } from "@/src/components/ui";
 import { DELIVERY_RADIUS_KM } from "@/src/config/service-area";
 import {
   useCustomerFavoriteRestaurantIdsQuery,
@@ -67,7 +73,7 @@ import { useSafeTimeout } from "@/src/hooks/use-safe-timeout";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { applyCurrentLocation } from "@/src/lib/current-location";
 import { formatCurrency } from "@/src/lib/currency";
-import { formatDurationMinutes } from "@/src/lib/date-time";
+import { formatPrepTimeRange } from "@/src/lib/date-time";
 import { formatCustomerAddressLine } from "@/src/lib/location-address";
 import {
   buildDefaultSelections,
@@ -81,6 +87,7 @@ import { useCartStore, type CartItem } from "@/src/store/cart-store";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
 import type {
+  CustomerMenuDeal,
   CustomerMenuAddOnGroup,
   CustomerMenuVariantGroup,
   CustomerVoucherOffer,
@@ -144,29 +151,105 @@ function formatOfferValue(offer: CustomerVoucherOffer) {
   return offer.name;
 }
 
-function formatOfferLabel(offer: CustomerVoucherOffer) {
+// Compact two-line copy for the offer cards under the info card.
+function buildOfferCardCopy(offer: CustomerVoucherOffer) {
   const value = formatOfferValue(offer);
-  return offer.mode === "coupon" && offer.code
-    ? `${offer.code} - ${value}`
-    : value;
+  const minimum =
+    typeof offer.minimumOrderAmount === "number" && offer.minimumOrderAmount > 0
+      ? formatCurrency(offer.minimumOrderAmount)
+      : null;
+  if (offer.mode === "coupon" && offer.code) {
+    return {
+      title: offer.code,
+      subtitle: minimum
+        ? `${value} on orders above ${minimum}`
+        : `Use this code for ${value.toLowerCase()}`,
+    };
+  }
+  return {
+    title: value,
+    subtitle: minimum
+      ? `Auto-applied · min. order ${minimum}`
+      : "Auto-applied at checkout",
+  };
 }
 
-function buildOfferExplanation(offer: CustomerVoucherOffer) {
-  const minimumText =
-    typeof offer.minimumOrderAmount === "number" && offer.minimumOrderAmount > 0
-      ? ` Your food subtotal needs to be at least ${formatCurrency(offer.minimumOrderAmount)}.`
-      : "";
-  const maxText =
-    typeof offer.maximumDiscountAmount === "number" &&
-    offer.maximumDiscountAmount > 0
-      ? ` The maximum discount is ${formatCurrency(offer.maximumDiscountAmount)}.`
-      : "";
+function voucherPreview(offer: CustomerVoucherOffer): OfferPreview {
+  return {
+    kind: "voucher",
+    valueLabel: formatOfferValue(offer),
+    name: offer.name,
+    mode: offer.mode === "coupon" ? "coupon" : "auto",
+    code: offer.code ?? null,
+    minimumOrderAmount: offer.minimumOrderAmount ?? null,
+    maximumDiscountAmount: offer.maximumDiscountAmount ?? null,
+  };
+}
 
-  if (offer.mode === "coupon") {
-    return `Use code ${offer.code ?? "shown here"} at checkout. Foodbela will check the rules and apply ${formatOfferValue(offer).toLowerCase()} if your cart is eligible.${minimumText}${maxText}`;
+function menuDealValue(deal: CustomerMenuDeal) {
+  return deal.type === "percentage"
+    ? `${deal.discountValue}% off`
+    : `${formatCurrency(deal.discountValue)} off`;
+}
+
+function menuDealPreview(deal: CustomerMenuDeal): OfferPreview {
+  return {
+    kind: "menu_deal",
+    valueLabel: menuDealValue(deal),
+    name: deal.name,
+    mode: "auto",
+    maximumDiscountAmount: deal.maxDiscountAmount,
+    scopeLabel: deal.applicability === "all" ? "All menu items" : "Selected menu items",
+  };
+}
+
+// Sticky header geometry (top bar + category tabs). Scroll-to-category lands the section
+// right under it, and the sticky header appears exactly when the in-list tabs reach it.
+const HERO_HEIGHT = 250;
+const STICKY_BAR_HEIGHT = 56;
+const CATEGORY_TABS_HEIGHT = 56;
+const STICKY_HEADER_HEIGHT = STICKY_BAR_HEIGHT + CATEGORY_TABS_HEIGHT;
+
+// One cell of the stats card under the cover (value on top, caption below).
+function StatTile({
+  icon,
+  iconColor,
+  value,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  value: string;
+  label: string;
+  onPress?: () => void;
+}) {
+  const content = (
+    <>
+      <View style={styles.statValueRow}>
+        <Ionicons name={icon} size={14} color={iconColor} />
+        <Text style={styles.statValue} numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
+      <Text style={styles.statLabel} numberOfLines={1}>
+        {label}
+      </Text>
+    </>
+  );
+  if (onPress) {
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.statTile, pressed ? styles.statTilePressed : null]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${value} ${label}`}
+      >
+        {content}
+      </Pressable>
+    );
   }
-
-  return `This offer applies automatically at checkout when your cart is eligible. You do not need to enter a code.${minimumText}${maxText}`;
+  return <View style={styles.statTile}>{content}</View>;
 }
 
 export default function RestaurantDetailsScreen() {
@@ -197,6 +280,10 @@ export default function RestaurantDetailsScreen() {
     ),
   );
   const addItem = useCartStore((state) => state.addItem);
+  const setActiveCart = useCartStore((state) => state.setActiveCart);
+  useEffect(() => {
+    if (restaurantId && isDetailsFocused) setActiveCart(restaurantId);
+  }, [isDetailsFocused, restaurantId, setActiveCart]);
   const replaceCart = useCartStore((state) => state.replaceCart);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const conflictingRestaurantName = useCartStore(
@@ -223,12 +310,13 @@ export default function RestaurantDetailsScreen() {
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [showStickyControls, setShowStickyControls] = useState(false);
   const [isInfoSheetVisible, setInfoSheetVisible] = useState(false);
+  const [isCategorySheetVisible, setCategorySheetVisible] = useState(false);
+  const { width: screenWidth } = useWindowDimensions();
   // Drives the pull-to-refresh spinner. Bound to an explicit user-pull only — NOT to
   // detailsQuery.isFetching, which is also true for background refetches (on focus / when
   // re-opening a cached restaurant), and that made the spinner appear without the user pulling.
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
-  const [selectedOffer, setSelectedOffer] =
-    useState<CustomerVoucherOffer | null>(null);
+  const [offerPreview, setOfferPreview] = useState<OfferPreview | null>(null);
   const [cartConflictItem, setCartConflictItem] =
     useState<PendingCartAdd | null>(null);
 
@@ -253,6 +341,24 @@ export default function RestaurantDetailsScreen() {
     // Optimistic + rollback + silent 429 all live in the mutation; ignore the rejection here.
     toggleFavoriteMutation.mutateAsync(restaurantId).catch(() => {});
   }, [restaurantId, router, toggleFavoriteMutation]);
+  const shareName = detailsQuery.data?.restaurant?.name;
+  const handleShare = useCallback(() => {
+    if (!restaurantId) return;
+    void Haptics.selectionAsync();
+    const url = `https://foodbela.com/restaurants/${restaurantId}`;
+    void Share.share({
+      message: `${shareName ? `${shareName} on Foodbela` : "Order on Foodbela"}\n${url}`,
+      url,
+    }).catch(() => undefined);
+    void trackCustomerEvent({
+      eventType: "custom",
+      path: `/restaurants/${restaurantId}`,
+      screenName: "restaurant-details",
+      entityType: "restaurant",
+      entityId: restaurantId,
+      metadata: { action: "restaurant_share" },
+    });
+  }, [restaurantId, shareName]);
   const [customQuantityBurstKey, setCustomQuantityBurstKey] = useState(0);
   const handleCustomQuantityBurstComplete = useCallback(
     (finishedKey: number) => {
@@ -493,7 +599,7 @@ export default function RestaurantDetailsScreen() {
         label: "Prep time",
         value:
           typeof restaurant?.preparationTimeMinutes === "number"
-            ? formatDurationMinutes(restaurant.preparationTimeMinutes)
+            ? formatPrepTimeRange(restaurant.preparationTimeMinutes)
             : "Kitchen updates soon",
       },
       {
@@ -787,21 +893,13 @@ export default function RestaurantDetailsScreen() {
         return "blocked";
       }
 
+      // Multi-cart: an item from another restaurant goes into that restaurant's own cart
+      // (which becomes active) — no "replace cart?" conflict any more.
       const restaurantIdentity = {
         restaurantId: restaurant._id,
         restaurantName: restaurant.name,
+        logoUrl: restaurant.logo?.url || restaurant.coverImage?.url || null,
       };
-      const currentCart = useCartStore.getState();
-
-      if (
-        currentCart.restaurant &&
-        currentCart.restaurant.restaurantId !==
-          restaurantIdentity.restaurantId &&
-        currentCart.items.length > 0
-      ) {
-        setCartConflictItem(payload);
-        return "conflict";
-      }
 
       addItem({
         restaurant: restaurantIdentity,
@@ -994,7 +1092,7 @@ export default function RestaurantDetailsScreen() {
     listRef.current?.scrollToIndex({
       index,
       animated: true,
-      viewOffset: insets.top + controlsHeightRef.current + 2,
+      viewOffset: insets.top + STICKY_HEADER_HEIGHT,
     });
   }
 
@@ -1082,6 +1180,16 @@ export default function RestaurantDetailsScreen() {
     !contentReady ||
     (detailsQuery.dataUpdatedAt === 0 && !hasMenuData)
   ) {
+    // Skeleton is full-bleed (cover runs under the status bar) like the real header;
+    // only the error state keeps the safe-area Screen wrapper.
+    if (!(detailsQuery.isError && !hasMenuData)) {
+      return (
+        <>
+          {isDetailsFocused ? <StatusBar style="light" /> : null}
+          <RestaurantDetailsSkeleton />
+        </>
+      );
+    }
     return (
       <Screen>
         {detailsQuery.isError && !hasMenuData ? (
@@ -1100,8 +1208,55 @@ export default function RestaurantDetailsScreen() {
     );
   }
 
+  const statusLabel = isRestaurantOpenNow
+    ? "Open now"
+    : restaurant.isOpen === false
+      ? getClosedCopy(restaurant.availability).title
+      : "Closed now";
+  const hasRating =
+    typeof restaurant.avgRating === "number" && (restaurant.reviewCount ?? 0) > 0;
+  const cuisineLine = (restaurant.cuisineTypes ?? []).slice(0, 4).join(", ");
+  const prepLabel =
+    typeof restaurant.preparationTimeMinutes === "number"
+      ? formatPrepTimeRange(restaurant.preparationTimeMinutes)
+      : "—";
+  const distanceLabel =
+    typeof restaurant.distanceKm === "number"
+      ? `${restaurant.distanceKm.toFixed(1)} km`
+      : "—";
+  const activeOffers = detailsData?.activeOffers ?? [];
+  const menuDeals = detailsData?.menuDeals ?? [];
+  const offerCardCount = activeOffers.length + menuDeals.length;
+  const openInfoSheet = () => {
+    void Haptics.selectionAsync();
+    setInfoSheetVisible(true);
+  };
+  const openCategorySheet = () => {
+    void Haptics.selectionAsync();
+    setCategorySheetVisible(true);
+  };
+
   return (
-    <Screen>
+    <View style={styles.screen}>
+      {isDetailsFocused ? (
+        <StatusBar
+          style={showStickyControls || isSearchMode ? "dark" : "light"}
+        />
+      ) : null}
+      <BelaPullToRefresh
+        refreshing={isManualRefreshing}
+        onRefresh={async () => {
+          setIsManualRefreshing(true);
+          try {
+            await detailsQuery.refetch();
+          } finally {
+            setIsManualRefreshing(false);
+          }
+        }}
+        // Animated.event onScroll can't be wrapped — reuse the offset its listener keeps.
+        scrollYRef={scrollOffsetYRef}
+        topOffset={insets.top + 4}
+      >
       <AnimatedFlatList
         ref={listRef}
         data={rows.length ? rows : []}
@@ -1116,21 +1271,6 @@ export default function RestaurantDetailsScreen() {
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isManualRefreshing}
-            onRefresh={async () => {
-              setIsManualRefreshing(true);
-              try {
-                await detailsQuery.refetch();
-              } finally {
-                setIsManualRefreshing(false);
-              }
-            }}
-            tintColor={palette.secondary}
-            colors={[palette.secondary]}
-          />
-        }
         viewabilityConfig={{ itemVisiblePercentThreshold: 40 }}
         onViewableItemsChanged={onViewableItemsChanged.current}
         scrollEventThrottle={16}
@@ -1141,12 +1281,11 @@ export default function RestaurantDetailsScreen() {
             listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
               const offsetY = event.nativeEvent.contentOffset.y;
               scrollOffsetYRef.current = offsetY;
+              // Sticky header takes over once the in-list category tabs slide up
+              // under the sticky top bar.
               const threshold = Math.max(
                 0,
-                controlsYRef.current +
-                  controlsHeightRef.current -
-                  insets.top -
-                  12,
+                controlsYRef.current - insets.top - STICKY_BAR_HEIGHT,
               );
               const shouldShowControls = offsetY >= threshold;
               if (showStickyControlsRef.current !== shouldShowControls) {
@@ -1164,7 +1303,7 @@ export default function RestaurantDetailsScreen() {
             offset: Math.max(
               0,
               info.averageItemLength * info.index -
-                (insets.top + controlsHeightRef.current),
+                (insets.top + STICKY_HEADER_HEIGHT),
             ),
             animated: true,
           });
@@ -1172,13 +1311,13 @@ export default function RestaurantDetailsScreen() {
             listRef.current?.scrollToIndex({
               index: info.index,
               animated: true,
-              viewOffset: insets.top + controlsHeightRef.current + 2,
+              viewOffset: insets.top + STICKY_HEADER_HEIGHT,
             });
           }, 140);
         }}
         ListHeaderComponent={
           <View>
-            <View style={styles.hero}>
+            <View style={[styles.hero, { height: HERO_HEIGHT + insets.top }]}>
               <Animated.View
                 style={[
                   styles.heroImageWrap,
@@ -1208,23 +1347,55 @@ export default function RestaurantDetailsScreen() {
                   style={styles.heroImage}
                   fallbackIcon="restaurant-outline"
                   fallbackIconSize={28}
-                  fallbackTint={palette.primary}
+                  fallbackTint={palette.secondary}
                   accessibilityLabel={`${restaurant.name} cover image`}
                 />
               </Animated.View>
-              <View style={styles.heroShade} />
-              <View style={styles.heroTopRow}>
+              {/* Stacked translucent bands = a soft bottom fade (no gradient lib needed), so
+                  the white name on the cover stays readable on any photo. */}
+              <View style={styles.heroTopShade} />
+              <View style={[styles.heroFade, styles.heroFade1]} />
+              <View style={[styles.heroFade, styles.heroFade2]} />
+              <View style={[styles.heroFade, styles.heroFade3]} />
+
+              <View style={[styles.heroTopRow, { top: insets.top + 8 }]}>
                 <Pressable
-                  style={styles.heroButton}
+                  style={({ pressed }) => [
+                    styles.heroButton,
+                    pressed ? styles.heroButtonPressed : null,
+                  ]}
                   onPress={() => router.back()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                  hitSlop={8}
                 >
-                  <Ionicons
-                    name="chevron-back"
-                    size={20}
-                    color={palette.foreground}
-                  />
+                  <Ionicons name="chevron-back" size={21} color={palette.foreground} />
                 </Pressable>
                 <View style={styles.heroActionGroup}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.heroButton,
+                      pressed ? styles.heroButtonPressed : null,
+                    ]}
+                    onPress={openSearchMode}
+                    accessibilityRole="button"
+                    accessibilityLabel="Search this menu"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="search" size={18} color={palette.foreground} />
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.heroButton,
+                      pressed ? styles.heroButtonPressed : null,
+                    ]}
+                    onPress={handleShare}
+                    accessibilityRole="button"
+                    accessibilityLabel="Share restaurant"
+                    hitSlop={8}
+                  >
+                    <Ionicons name="paper-plane-outline" size={18} color={palette.foreground} />
+                  </Pressable>
                   <Pressable
                     style={({ pressed }) => [
                       styles.heroButton,
@@ -1233,82 +1404,60 @@ export default function RestaurantDetailsScreen() {
                     onPress={handleToggleFavorite}
                     accessibilityRole="button"
                     accessibilityLabel={
-                      isFavorite
-                        ? "Remove from favourites"
-                        : "Add to favourites"
+                      isFavorite ? "Remove from favourites" : "Add to favourites"
                     }
                     hitSlop={8}
                   >
                     <Ionicons
                       name={isFavorite ? "heart" : "heart-outline"}
                       size={18}
-                      color={
-                        isFavorite ? palette.secondary : palette.foreground
-                      }
-                    />
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.heroButton,
-                      pressed ? styles.heroButtonPressed : null,
-                    ]}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setInfoSheetVisible(true);
-                    }}
-                  >
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={18}
-                      color={palette.foreground}
+                      color={isFavorite ? "#E5484D" : palette.foreground}
                     />
                   </Pressable>
                 </View>
               </View>
-              <View style={styles.heroBottomRow}>
-                <View
-                  style={[
-                    styles.statePill,
-                    !isRestaurantOpenNow ? styles.statePillClosed : null,
-                  ]}
-                >
-                  <Text
+
+              <View style={styles.heroIdentity}>
+                <RemoteImage
+                  uri={restaurant.logo?.url}
+                  style={styles.heroLogo}
+                  fallbackIcon="restaurant-outline"
+                  fallbackIconSize={20}
+                  fallbackTint={palette.secondary}
+                  accessibilityLabel={`${restaurant.name} logo`}
+                />
+                <View style={styles.heroIdentityCopy}>
+                  <View
                     style={[
-                      styles.statePillText,
-                      !isRestaurantOpenNow ? styles.statePillTextClosed : null,
+                      styles.heroStatusPill,
+                      !isRestaurantOpenNow ? styles.heroStatusPillClosed : null,
                     ]}
                   >
-                    {isRestaurantOpenNow
-                      ? "Open now"
-                      : restaurant.isOpen === false
-                        ? getClosedCopy(restaurant.availability).title
-                        : "Closed now"}
-                  </Text>
-                </View>
-                {detailsData?.activeOffers[0] ? (
-                  <PressableScale
-                    scaleTo={0.94}
-                    style={styles.offerPillButton}
-                    onPress={() =>
-                      setSelectedOffer(detailsData.activeOffers[0])
-                    }
-                  >
-                    <Ionicons
-                      name="pricetag"
-                      size={11}
-                      color={palette.surface}
+                    <View
+                      style={[
+                        styles.heroStatusDot,
+                        !isRestaurantOpenNow ? styles.heroStatusDotClosed : null,
+                      ]}
                     />
-                    <Text style={styles.offerPillText} numberOfLines={1}>
-                      {formatOfferLabel(detailsData.activeOffers[0])}
+                    <Text style={styles.heroStatusText} numberOfLines={1}>
+                      {statusLabel}
                     </Text>
-                  </PressableScale>
-                ) : null}
+                  </View>
+                  <Text style={styles.heroName} numberOfLines={2}>
+                    {restaurant.name}
+                  </Text>
+                  {cuisineLine ? (
+                    <Text style={styles.heroCuisine} numberOfLines={1}>
+                      {cuisineLine}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
             </View>
 
             <Animated.View
               style={[
-                styles.infoCard,
+                styles.statsCard,
                 {
                   transform: [
                     {
@@ -1322,89 +1471,161 @@ export default function RestaurantDetailsScreen() {
                 },
               ]}
             >
-              <View style={styles.infoTopRow}>
-                <RemoteImage
-                  uri={restaurant.logo?.url}
-                  style={styles.restaurantLogo}
-                  fallbackIcon="restaurant-outline"
-                  fallbackIconSize={18}
-                  fallbackTint={palette.primary}
-                  accessibilityLabel={`${restaurant.name} logo`}
+              <View style={styles.statsRow}>
+                <StatTile
+                  icon="star"
+                  iconColor="#F5A524"
+                  value={hasRating ? String(restaurant.avgRating) : "New"}
+                  label={
+                    hasRating ? `${restaurant.reviewCount} reviews` : "No reviews yet"
+                  }
                 />
-                <View style={styles.infoCopy}>
-                  <Text style={styles.title}>{restaurant.name}</Text>
-                  {detailsData?.activeOffers.length ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.inlineOfferRow}
-                    >
-                      {detailsData.activeOffers.map((offer) => (
-                        <PressableScale
-                          key={offer._id}
-                          scaleTo={0.94}
-                          style={styles.inlineOfferChip}
-                          onPress={() => setSelectedOffer(offer)}
-                        >
-                          <Ionicons
-                            name={
-                              offer.mode === "auto"
-                                ? "flash-outline"
-                                : "pricetag-outline"
-                            }
-                            size={12}
-                            color={palette.secondary}
-                          />
-                          <Text style={styles.inlineOfferText}>
-                            {formatOfferLabel(offer)}
-                          </Text>
-                          <Ionicons
-                            name="chevron-forward"
-                            size={11}
-                            color={palette.secondary}
-                          />
-                        </PressableScale>
-                      ))}
-                    </ScrollView>
-                  ) : null}
-                </View>
+                <View style={styles.statDivider} />
+                <StatTile
+                  icon="time-outline"
+                  iconColor={palette.secondary}
+                  value={prepLabel}
+                  label="Prep time"
+                />
+                <View style={styles.statDivider} />
+                <StatTile
+                  icon="navigate-outline"
+                  iconColor={palette.sky}
+                  value={distanceLabel}
+                  label="Distance"
+                />
+                <View style={styles.statDivider} />
+                <StatTile
+                  icon="wallet-outline"
+                  iconColor={palette.successText}
+                  value={
+                    typeof restaurant.lowestMenuPrice === "number"
+                      ? formatCurrency(restaurant.lowestMenuPrice)
+                      : "—"
+                  }
+                  label="Starts from"
+                />
               </View>
 
+              <Pressable
+                style={({ pressed }) => [
+                  styles.infoLinkRow,
+                  pressed ? styles.infoLinkRowPressed : null,
+                ]}
+                onPress={openInfoSheet}
+                accessibilityRole="button"
+                accessibilityLabel="Restaurant info, hours and location"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={17}
+                  color={palette.secondary}
+                />
+                <Text style={styles.infoLinkText} numberOfLines={1}>
+                  Info, opening hours & location
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={palette.mutedForeground}
+                />
+              </Pressable>
+
               {restaurant.isOpen === false ? (
-                <View style={{ marginTop: 12 }}>
-                  <RestaurantClosedBanner
-                    availability={restaurant.availability}
-                  />
-                </View>
+                <RestaurantClosedBanner availability={restaurant.availability} />
               ) : (
                 <ClosingSoonBanner
                   closesAtEpochMs={restaurant.availability?.closesAtEpochMs}
                   active={isDetailsFocused}
-                  style={{ marginTop: 12, marginBottom: 0 }}
+                  style={{ marginTop: 0, marginBottom: 0 }}
                 />
               )}
-
-              <View style={styles.infoBadgeRow}>
-                {importantFacts.map((fact) => (
-                  <FactChip
-                    key={fact.key}
-                    icon={fact.icon}
-                    label={fact.label}
-                    value={fact.value}
-                    onPress={
-                      fact.key === "rating"
-                        ? () =>
-                            router.push({
-                              pathname: "/restaurants/[restaurantId]/reviews",
-                              params: { restaurantId: restaurant._id },
-                            })
-                        : undefined
-                    }
-                  />
-                ))}
-              </View>
             </Animated.View>
 
+            {offerCardCount ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.offerCardRow}
+              >
+                {activeOffers.map((offer) => {
+                  const copy = buildOfferCardCopy(offer);
+                  return (
+                    <PressableScale
+                      key={offer._id}
+                      scaleTo={0.97}
+                      style={[
+                        styles.offerCard,
+                        offerCardCount === 1
+                          ? { width: screenWidth - 32 }
+                          : null,
+                      ]}
+                      onPress={() => setOfferPreview(voucherPreview(offer))}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Offer ${copy.title}. ${copy.subtitle}`}
+                    >
+                      <View style={styles.offerCardIcon}>
+                        <Ionicons
+                          name={offer.mode === "auto" ? "flash" : "ticket"}
+                          size={16}
+                          color={palette.onPrimary}
+                        />
+                      </View>
+                      <View style={styles.offerCardPerforation} />
+                      <View style={styles.offerCardCopy}>
+                        <Text style={styles.offerCardTitle} numberOfLines={1}>
+                          {copy.title}
+                        </Text>
+                        <Text
+                          style={styles.offerCardSubtitle}
+                          numberOfLines={1}
+                        >
+                          {copy.subtitle}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={16}
+                        color={palette.mutedForeground}
+                      />
+                    </PressableScale>
+                  );
+                })}
+                {menuDeals.map((deal) => (
+                  <PressableScale
+                    key={deal._id}
+                    scaleTo={0.97}
+                    style={[
+                      styles.offerCard,
+                      offerCardCount === 1 ? { width: screenWidth - 32 } : null,
+                    ]}
+                    onPress={() => setOfferPreview(menuDealPreview(deal))}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Menu deal ${menuDealValue(deal)}`}
+                  >
+                    <View style={styles.offerCardIcon}>
+                      <Ionicons name="pricetags" size={16} color={palette.onPrimary} />
+                    </View>
+                    <View style={styles.offerCardPerforation} />
+                    <View style={styles.offerCardCopy}>
+                      <Text style={styles.offerCardTitle} numberOfLines={1}>
+                        {menuDealValue(deal)}
+                      </Text>
+                      <Text style={styles.offerCardSubtitle} numberOfLines={1}>
+                        {deal.applicability === "all"
+                          ? "On the whole menu · already in prices"
+                          : "On selected items · already in prices"}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color={palette.mutedForeground}
+                    />
+                  </PressableScale>
+                ))}
+              </ScrollView>
+            ) : null}
             {serviceabilityNotice ? (
               <View style={styles.serviceabilityCard}>
                 <View style={styles.serviceabilityIconWrap}>
@@ -1455,37 +1676,33 @@ export default function RestaurantDetailsScreen() {
                 controlsHeightRef.current = event.nativeEvent.layout.height;
               }}
             >
-              <View style={styles.controlsStack}>
-                <MenuSearchBar
-                  value={menuSearch}
-                  onChangeText={handleMenuSearchChange}
-                  onFocus={openSearchMode}
-                  showSoftInputOnFocus={false}
+              {isMenuLoading ? (
+                <MenuCategoryChipsSkeleton />
+              ) : (
+                <CategoryTabsBar
+                  categories={tabItems}
+                  activeCategoryId={activeCategoryId}
+                  onPressCategory={handlePressCategory}
+                  onPressMenu={openCategorySheet}
                 />
-                {isMenuLoading ? (
-                  <MenuCategoryChipsSkeleton />
-                ) : (
-                  <CategoryRail
-                    categories={tabItems}
-                    activeCategoryId={activeCategoryId}
-                    onPressCategory={handlePressCategory}
-                  />
-                )}
-              </View>
+              )}
             </View>
           </View>
         }
-        renderItem={({ item }: { item: Row }) => {
+        renderItem={({ item, index }: { item: Row; index: number }) => {
           if (item.kind === "popular") {
             return (
               <View style={styles.sectionWrap}>
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionTitleRow}>
-                    <Ionicons name="flame" size={15} color={palette.primary} />
-                    <Text style={styles.sectionHeaderTitle}>Popular</Text>
+                    <View style={styles.sectionTitleIcon}>
+                      <Ionicons name="trending-up" size={15} color={palette.onPrimary} />
+                    </View>
+                    <Text style={styles.sectionHeaderTitle}>Crowd favourites</Text>
+                    <Text style={styles.sectionCount}>{item.items.length}</Text>
                   </View>
                   <Text style={styles.sectionHeaderSubtitle}>
-                    Most ordered right now
+                    What people order most here
                   </Text>
                 </View>
                 <FlatList
@@ -1530,13 +1747,21 @@ export default function RestaurantDetailsScreen() {
 
           if (item.kind === "section") {
             return (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionHeaderTitle}>{item.title}</Text>
-                {item.description ? (
-                  <Text style={styles.sectionHeaderSubtitle}>
-                    {item.description}
-                  </Text>
-                ) : null}
+              <View>
+                {index > 0 ? <View style={styles.sectionDivider} /> : null}
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.sectionHeaderTitle}>{item.title}</Text>
+                    <Text style={styles.sectionCount}>
+                      {menuItemsByCategory[item.categoryId]?.length ?? 0}
+                    </Text>
+                  </View>
+                  {item.description ? (
+                    <Text style={styles.sectionHeaderSubtitle}>
+                      {item.description}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
             );
           }
@@ -1576,6 +1801,7 @@ export default function RestaurantDetailsScreen() {
           )
         }
       />
+      </BelaPullToRefresh>
 
       {isSearchMode ? (
         <SearchResultsOverlay
@@ -1594,23 +1820,88 @@ export default function RestaurantDetailsScreen() {
           cartQuantities={cartQuantitiesByItemId}
         />
       ) : showStickyControls ? (
-        <View style={[styles.overlayWrap, { top: insets.top }]}>
-          <View style={styles.overlayBar}>
-            <View style={styles.controlsStack}>
-              <MenuSearchBar
-                value={menuSearch}
-                onChangeText={handleMenuSearchChange}
-                onFocus={openSearchMode}
-                showSoftInputOnFocus={false}
+        <View style={[styles.overlayWrap, { top: 0, paddingTop: insets.top }]}>
+          <View style={styles.stickyTopBar}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stickyIconButton,
+                pressed ? styles.heroButtonPressed : null,
+              ]}
+              onPress={() => router.back()}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              hitSlop={6}
+            >
+              <Ionicons name="arrow-back" size={20} color={palette.foreground} />
+            </Pressable>
+            <Text style={styles.stickyTitle} numberOfLines={1}>
+              {restaurant.name}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stickyIconButton,
+                pressed ? styles.heroButtonPressed : null,
+              ]}
+              onPress={handleShare}
+              accessibilityRole="button"
+              accessibilityLabel="Share restaurant"
+              hitSlop={6}
+            >
+              <Ionicons
+                name="paper-plane-outline"
+                size={18}
+                color={palette.foreground}
               />
-              <CategoryRail
-                categories={tabItems}
-                activeCategoryId={activeCategoryId}
-                onPressCategory={handlePressCategory}
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stickyIconButton,
+                pressed ? styles.heroButtonPressed : null,
+              ]}
+              onPress={handleToggleFavorite}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isFavorite ? "Remove from favourites" : "Add to favourites"
+              }
+              hitSlop={6}
+            >
+              <Ionicons
+                name={isFavorite ? "heart" : "heart-outline"}
+                size={18}
+                color={isFavorite ? palette.secondary : palette.foreground}
               />
-            </View>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.stickyIconButton,
+                pressed ? styles.heroButtonPressed : null,
+              ]}
+              onPress={openSearchMode}
+              accessibilityRole="button"
+              accessibilityLabel="Search this menu"
+              hitSlop={6}
+            >
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={palette.foreground}
+              />
+            </Pressable>
           </View>
+          <CategoryTabsBar
+            categories={tabItems}
+            activeCategoryId={activeCategoryId}
+            onPressCategory={handlePressCategory}
+            onPressMenu={openCategorySheet}
+          />
         </View>
+      ) : null}
+
+      {isSearchMode ? (
+        <View
+          pointerEvents="none"
+          style={[styles.statusStrip, { height: insets.top }]}
+        />
       ) : null}
 
       {/*
@@ -1679,7 +1970,7 @@ export default function RestaurantDetailsScreen() {
             </View>
             <View style={styles.cartBarAction}>
               <Text style={styles.cartBarActionText}>View cart</Text>
-              <Ionicons name="arrow-forward" size={16} color={palette.surface} />
+              <Ionicons name="arrow-forward" size={16} color={palette.onPrimary} />
             </View>
           </Pressable>
         </View>
@@ -1697,84 +1988,46 @@ export default function RestaurantDetailsScreen() {
               }
             : null
         }
-        bottomInset={Math.max(insets.bottom, 12)}
+        // Float a little higher above the gesture bar so the bar reads as a button, not a footer.
+        bottomInset={Math.max(insets.bottom, 12) + 14}
       />
 
-      <Modal
+      <AppDialog
         visible={Boolean(cartConflictItem)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCartConflictItem(null)}
+        onClose={() => setCartConflictItem(null)}
+        icon="bag-handle-outline"
+        title="Start a fresh cart?"
+        message={
+          <Text style={appDialogText.message}>
+            Replace items from{" "}
+            <Text style={appDialogText.strong}>{conflictingRestaurantName}</Text> with{" "}
+            <Text style={appDialogText.strong}>{restaurant.name}</Text>?
+          </Text>
+        }
+        actions={[
+          { label: "Keep cart", variant: "secondary", onPress: () => setCartConflictItem(null) },
+          { label: "Replace & add", onPress: handleConfirmReplaceCart },
+        ]}
       >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setCartConflictItem(null)}
-        >
-          <Pressable
-            style={styles.modalCard}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <View style={styles.modalGlow} />
-            {cartConflictItem ? (
-              <>
-                <View style={styles.modalBadge}>
-                  <Ionicons
-                    name="bag-handle-outline"
-                    size={14}
-                    color={palette.secondary}
-                  />
-                  <Text style={styles.modalBadgeText}>Cart switch</Text>
-                </View>
-                <Text style={styles.modalTitle}>Start a fresh cart?</Text>
-                <Text style={styles.modalText}>
-                  Replace items from{" "}
-                  <Text style={styles.modalTextStrong}>
-                    {conflictingRestaurantName}
-                  </Text>{" "}
-                  with{" "}
-                  <Text style={styles.modalTextStrong}>{restaurant.name}</Text>?
-                </Text>
-                <View style={styles.modalPreviewRow}>
-                  <RemoteImage
-                    uri={cartConflictItem.item.images?.[0]?.url}
-                    style={styles.modalPreviewImage}
-                    fallbackIcon="fast-food-outline"
-                    accessibilityLabel={`${cartConflictItem.item.name} food photo`}
-                  />
-                  <View style={styles.modalPreviewCopy}>
-                    <Text style={styles.modalPreviewTitle} numberOfLines={2}>
-                      {cartConflictItem.item.name}
-                    </Text>
-                    <Text style={styles.modalPreviewSubtitle}>
-                      {formatCurrency(cartConflictItem.unitPrice)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.modalActions}>
-                  <PressableScale
-                    scaleTo={0.96}
-                    style={styles.modalSecondaryButton}
-                    onPress={() => setCartConflictItem(null)}
-                  >
-                    <Text style={styles.modalSecondaryButtonText}>
-                      Keep current cart
-                    </Text>
-                  </PressableScale>
-                  <PressableScale
-                    scaleTo={0.96}
-                    style={styles.modalPrimaryButton}
-                    onPress={handleConfirmReplaceCart}
-                  >
-                    <Text style={styles.modalPrimaryButtonText}>
-                      Replace and add
-                    </Text>
-                  </PressableScale>
-                </View>
-              </>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        {cartConflictItem ? (
+          <View style={styles.modalPreviewRow}>
+            <RemoteImage
+              uri={cartConflictItem.item.images?.[0]?.url}
+              style={styles.modalPreviewImage}
+              fallbackIcon="fast-food-outline"
+              accessibilityLabel={`${cartConflictItem.item.name} food photo`}
+            />
+            <View style={styles.modalPreviewCopy}>
+              <Text style={styles.modalPreviewTitle} numberOfLines={2}>
+                {cartConflictItem.item.name}
+              </Text>
+              <Text style={styles.modalPreviewSubtitle}>
+                {formatCurrency(cartConflictItem.unitPrice)}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+      </AppDialog>
 
       <AppBottomSheet
         visible={isInfoSheetVisible}
@@ -1856,23 +2109,6 @@ export default function RestaurantDetailsScreen() {
           <View style={styles.infoSheetCard}>
             <View style={styles.infoSheetReviewHeader}>
               <Text style={styles.infoSheetSectionTitle}>Guest reviews</Text>
-              <Pressable
-                style={styles.infoSheetReviewLink}
-                onPress={() => {
-                  setInfoSheetVisible(false);
-                  router.push({
-                    pathname: "/restaurants/[restaurantId]/reviews",
-                    params: { restaurantId: restaurant._id },
-                  });
-                }}
-              >
-                <Text style={styles.infoSheetReviewLinkText}>Open all</Text>
-                <Ionicons
-                  name="chevron-forward"
-                  size={14}
-                  color={palette.secondary}
-                />
-              </Pressable>
             </View>
             <InfoSheetRow
               icon="chatbubbles-outline"
@@ -1881,94 +2117,17 @@ export default function RestaurantDetailsScreen() {
                 typeof restaurant.avgRating === "number" &&
                 (restaurant.reviewCount ?? 0) > 0
                   ? `${restaurant.avgRating} average from ${restaurant.reviewCount} reviews`
-                  : "Open the dedicated review screen for customer feedback"
+                  : "No reviews yet"
               }
             />
           </View>
         ) : null}
       </AppBottomSheet>
 
-      <AppBottomSheet
-        visible={Boolean(selectedOffer)}
-        onClose={() => setSelectedOffer(null)}
-        title={
-          selectedOffer ? formatOfferLabel(selectedOffer) : "Offer details"
-        }
-        subtitle={selectedOffer?.name ?? "How this offer works"}
-        leadingIcon={
-          selectedOffer?.mode === "auto" ? "flash-outline" : "pricetag-outline"
-        }
-        snapPoints={[0.7, 0.9]}
-        initialSnapPoint={0.7}
-      >
-        {selectedOffer ? (
-          <>
-            <View style={styles.offerSheetHeroShadow}>
-              <View style={styles.offerSheetHero}>
-                <View style={styles.offerSheetHeroOrb} />
-                <View style={styles.offerSheetHeroOrbSmall} />
-                <View style={styles.offerSheetIcon}>
-                  <Ionicons
-                    name={
-                      selectedOffer.mode === "auto" ? "flash" : "ticket-outline"
-                    }
-                    size={22}
-                    color={palette.secondary}
-                  />
-                </View>
-                <View style={styles.offerSheetCopy}>
-                  <Text style={styles.offerSheetTitle}>
-                    {selectedOffer.name}
-                  </Text>
-                  <Text style={styles.offerSheetSubtitle}>
-                    {buildOfferExplanation(selectedOffer)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.infoSheetCard}>
-              <Text style={styles.infoSheetSectionTitle}>Offer rules</Text>
-              <InfoSheetRow
-                icon={
-                  selectedOffer.mode === "auto"
-                    ? "flash-outline"
-                    : "keypad-outline"
-                }
-                label="Apply method"
-                value={
-                  selectedOffer.mode === "coupon" && selectedOffer.code
-                    ? `Enter code ${selectedOffer.code} at checkout`
-                    : "Applied automatically at checkout"
-                }
-              />
-              <InfoSheetRow
-                icon="wallet-outline"
-                label="Discount"
-                value={formatOfferValue(selectedOffer)}
-              />
-              <InfoSheetRow
-                icon="basket-outline"
-                label="Minimum order"
-                value={
-                  typeof selectedOffer.minimumOrderAmount === "number" &&
-                  selectedOffer.minimumOrderAmount > 0
-                    ? formatCurrency(selectedOffer.minimumOrderAmount)
-                    : "No minimum order"
-                }
-              />
-              {typeof selectedOffer.maximumDiscountAmount === "number" &&
-              selectedOffer.maximumDiscountAmount > 0 ? (
-                <InfoSheetRow
-                  icon="shield-checkmark-outline"
-                  label="Maximum discount"
-                  value={formatCurrency(selectedOffer.maximumDiscountAmount)}
-                />
-              ) : null}
-            </View>
-          </>
-        ) : null}
-      </AppBottomSheet>
+      <OfferDetailsModal
+        offer={offerPreview}
+        onClose={() => setOfferPreview(null)}
+      />
 
       <AppBottomSheet
         visible={Boolean(selectedItem)}
@@ -2104,7 +2263,7 @@ export default function RestaurantDetailsScreen() {
                                 size={13}
                                 color={
                                   isSelected
-                                    ? palette.surface
+                                    ? palette.onPrimary
                                     : palette.mutedForeground
                                 }
                               />
@@ -2183,7 +2342,7 @@ export default function RestaurantDetailsScreen() {
                                 size={13}
                                 color={
                                   isSelected
-                                    ? palette.surface
+                                    ? palette.onPrimary
                                     : palette.mutedForeground
                                 }
                               />
@@ -2248,7 +2407,7 @@ export default function RestaurantDetailsScreen() {
                     void Haptics.selectionAsync().catch(() => undefined);
                   }}
                 >
-                  <Ionicons name="add" size={16} color={palette.surface} />
+                  <Ionicons name="add" size={16} color={palette.onPrimary} />
                   {customQuantityBurstKey > 0 ? (
                     <ButtonParticleBurst
                       triggerKey={customQuantityBurstKey}
@@ -2311,6 +2470,60 @@ export default function RestaurantDetailsScreen() {
           </>
         ) : null}
       </AppBottomSheet>
-    </Screen>
+      <AppBottomSheet
+        visible={isCategorySheetVisible}
+        onClose={() => setCategorySheetVisible(false)}
+        title="Menu"
+        subtitle={`${tabItems.length} categories`}
+        leadingIcon="list-outline"
+        snapPoints={[0.6, 0.9]}
+        initialSnapPoint={0.6}
+      >
+        <View style={styles.categorySheetList}>
+          {tabItems.map((tab) => {
+            const count =
+              tab.id === "popular"
+                ? popularItems.length
+                : (menuItemsByCategory[tab.id]?.length ?? 0);
+            const isActive = tab.id === activeCategoryId;
+            return (
+              <Pressable
+                key={tab.id}
+                style={({ pressed }) => [
+                  styles.categorySheetRow,
+                  pressed ? styles.categorySheetRowPressed : null,
+                ]}
+                onPress={() => {
+                  setCategorySheetVisible(false);
+                  scheduleTimeout(() => handlePressCategory(tab.id), 240);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+              >
+                <Text
+                  style={[
+                    styles.categorySheetLabel,
+                    isActive ? styles.categorySheetLabelActive : null,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {tab.label}
+                </Text>
+                <Text style={styles.categorySheetCount}>{count}</Text>
+                {isActive ? (
+                  <Ionicons
+                    name="checkmark"
+                    size={18}
+                    color={palette.secondary}
+                  />
+                ) : (
+                  <View style={styles.categorySheetCheckSpacer} />
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </AppBottomSheet>
+    </View>
   );
 }

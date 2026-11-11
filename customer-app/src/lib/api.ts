@@ -397,6 +397,14 @@ export async function apiPostWithOptionalAuth<T>(
   return apiPost<T>(path, body, { ...init, headers });
 }
 
+// GET that sends the auth token when signed in but still works for guests (no refresh, no 401).
+export async function apiGetWithOptionalAuth<T>(path: string) {
+  const { accessToken } = useCustomerAuthStore.getState();
+  const headers = new Headers();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  return apiRequest<T>(path, { method: "GET", headers }, { auth: "none" });
+}
+
 export async function apiProtectedGet<T>(path: string) {
   return apiRequest<T>(path, { method: "GET" }, { auth: "required" });
 }

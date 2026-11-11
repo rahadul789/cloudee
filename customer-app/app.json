@@ -2,7 +2,7 @@
   "expo": {
     "name": "Foodbela",
     "slug": "foodbela",
-    "version": "1.0.5",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "foodbela",
@@ -47,11 +47,26 @@
         {
           "action": "VIEW",
           "autoVerify": true,
-          "category": ["BROWSABLE", "DEFAULT"],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
           "data": [
-            { "scheme": "https", "host": "foodbela.com", "path": "/" },
-            { "scheme": "https", "host": "foodbela.com", "pathPrefix": "/restaurants/" },
-            { "scheme": "https", "host": "foodbela.com", "pathPrefix": "/orders/" }
+            {
+              "scheme": "https",
+              "host": "foodbela.com",
+              "path": "/"
+            },
+            {
+              "scheme": "https",
+              "host": "foodbela.com",
+              "pathPrefix": "/restaurants/"
+            },
+            {
+              "scheme": "https",
+              "host": "foodbela.com",
+              "pathPrefix": "/orders/"
+            }
           ]
         }
       ]
@@ -84,7 +99,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/android-icon-monochrome.png",
-          "color": "#FF6392"
+          "color": "#FFB84C"
         }
       ],
       [
@@ -103,7 +118,9 @@
           "organization": "bela-5w",
           "project": "react-native"
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

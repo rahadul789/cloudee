@@ -7,6 +7,9 @@ import { OrderModel } from "../owner/operational.model";
 import { getPlatformContent, type PlatformContentScope } from "../public/content.service";
 import { CustomerModel, VoucherModel, VoucherRedemptionModel } from "./customer.model";
 import { sendPushToCustomer } from "./push.service";
+import { computeStampLedger, getRewardSettings, isRewardsTester } from "../rewards/rewards.settings";
+import { MysteryBoxModel } from "../rewards/rewards.model";
+import { renderTemplate as renderRewardTemplate } from "../rewards/rewards.rules";
 
 const DEFAULT_CUSTOM_OFFER_TARGET_ORDER_COUNT = 10;
 const DEFAULT_CUSTOM_OFFER_ADMIN_RESPONSE_HOURS = 72;
@@ -192,31 +195,15 @@ async function getActiveCustomerPersonalOffer(customer: Record<string, any>, cus
   );
 }
 
+// Stamps on the card right now = the ledger's AVAILABLE stamps (delivered orders + spin bonus
+// + coin-bought − already turned into boxes). Extras carry over to the next card.
 async function countDeliveredOrdersInCurrentCycle(
   customerId: string,
-  cycleStartedAt?: Date | null,
+  request?: Record<string, any> | null,
   countStartsAt?: Date | null,
 ) {
-  const effectiveStartAt = latestDateOrNull(cycleStartedAt, countStartsAt);
-  const deliveredAtFilter = effectiveStartAt
-    ? {
-        $or: [
-          { "timestamps.Delivered": { $gt: effectiveStartAt } },
-          { "timestamps.deliveredAt": { $gt: effectiveStartAt } },
-          {
-            "timestamps.Delivered": { $exists: false },
-            "timestamps.deliveredAt": { $exists: false },
-            updatedAt: { $gt: effectiveStartAt },
-          },
-        ],
-      }
-    : {};
-
-  return OrderModel.countDocuments({
-    customerId,
-    status: "Delivered",
-    ...deliveredAtFilter,
-  });
+  const ledger = await computeStampLedger({ customerId, request, countStartsAt });
+  return ledger.available;
 }
 
 function buildCustomerCustomOfferSummary(params: {
@@ -289,10 +276,9 @@ export async function getCustomerCustomOfferSummary(customerId: string) {
   const settings = await getCustomerCustomOfferSettings(
     getCustomerPlatformContentScope(customer as Record<string, any>),
   );
-  const cycleStartedAt = dateOrNull(customer.customOfferRequest?.cycleStartedAt);
   const completedOrderCount = await countDeliveredOrdersInCurrentCycle(
     customerId,
-    cycleStartedAt,
+    customer.customOfferRequest,
     settings.countStartsAt,
   );
   const activeOffer = await getActiveCustomerPersonalOffer(customer, customerId);
@@ -345,10 +331,9 @@ export async function requestCustomerCustomOffer(params: {
     );
   }
   const currentRequest = customerObject.customOfferRequest ?? {};
-  const cycleStartedAt = dateOrNull(currentRequest.cycleStartedAt);
   const completedOrderCount = await countDeliveredOrdersInCurrentCycle(
     params.customerId,
-    cycleStartedAt,
+    currentRequest,
     settings.countStartsAt,
   );
 
@@ -406,6 +391,26 @@ export async function requestCustomerCustomOffer(params: {
     });
     await customer.save();
 
+    // The claim becomes a mystery box. In auto mode rewards.service opens it right after
+    // (processMysteryBoxClaim); in approval mode it waits in the admin Rewards queue.
+    const openBox = await MysteryBoxModel.exists({
+      customerId: params.customerId,
+      status: { $in: ["requested", "ready"] },
+    });
+    const rewardSettings = await getRewardSettings();
+    if (!openBox) {
+      await MysteryBoxModel.create({
+        customerId: params.customerId,
+        status: "requested",
+        stampsUsed: settings.thresholdDeliveredOrders,
+        requestedCode,
+        isTest: isRewardsTester(rewardSettings, params.customerId),
+      });
+    }
+    if (rewardSettings.claimMode === "auto") {
+      return getCustomerCustomOfferSummary(params.customerId);
+    }
+
     await createAdminOperationalAlert({
       alertType: "customer_custom_offer_request",
       severity: "info",
@@ -420,7 +425,7 @@ export async function requestCustomerCustomOffer(params: {
       source: "Customer offers",
       entityType: "customer",
       entityId: params.customerId,
-      path: `/users?customerId=${params.customerId}&tab=offers`,
+      path: "/rewards",
       iconKey: "gift",
       dedupeKey: `customer-custom-offer-request:${params.customerId}:${cycleNumber}`,
       metadata: {
@@ -455,6 +460,44 @@ export async function requestCustomerCustomOffer(params: {
   return getCustomerCustomOfferSummary(params.customerId);
 }
 
+/** Optional (admin) nudge for customers who reached the target but haven't claimed. */
+export async function sendCustomOfferClaimReminders(limit = 200) {
+  const rewardSettings = await getRewardSettings();
+  if (!rewardSettings.claimReminderEnabled) return { sent: 0 };
+  const cutoff = new Date(Date.now() - rewardSettings.claimReminderAfterDays * 24 * 3_600_000);
+  const customers = await CustomerModel.find({
+    status: "active",
+    "customOfferRequest.qualificationNotifiedAt": { $lte: cutoff },
+    "customOfferRequest.status": { $nin: ["requested", "fulfilled"] },
+    "customOfferRequest.claimReminderSentAt": null,
+  })
+    .select({ _id: 1 })
+    .limit(limit)
+    .lean();
+  let sent = 0;
+  for (const customer of customers) {
+    const customerId = String(customer._id);
+    // Claim the reminder slot first so overlapping runs never double-send.
+    const claimed = await CustomerModel.updateOne(
+      { _id: customer._id, "customOfferRequest.claimReminderSentAt": null },
+      { $set: { "customOfferRequest.claimReminderSentAt": new Date() } },
+    );
+    if (!claimed.modifiedCount) continue;
+    const settings = await getCustomerCustomOfferSettings();
+    const values = { threshold: settings.thresholdDeliveredOrders, amount: rewardSettings.claimAmount };
+    await sendPushToCustomer({
+      customerId,
+      payload: {
+        title: renderRewardTemplate(rewardSettings.claimReminderTitle, values),
+        body: renderRewardTemplate(rewardSettings.claimReminderBody, values),
+        data: { type: "custom_offer_qualified", path: "/offers" },
+      },
+    }).catch(() => undefined);
+    sent += 1;
+  }
+  return { sent };
+}
+
 export async function handleCustomerCustomOfferDeliveredOrder(params: {
   customerId: string;
   orderId: string;
@@ -478,10 +521,9 @@ export async function handleCustomerCustomOfferDeliveredOrder(params: {
     return { qualified: false };
   }
 
-  const cycleStartedAt = dateOrNull(currentRequest.cycleStartedAt);
   const completedOrderCount = await countDeliveredOrdersInCurrentCycle(
     params.customerId,
-    cycleStartedAt,
+    currentRequest,
     settings.countStartsAt,
   );
   if (completedOrderCount < settings.thresholdDeliveredOrders) {
@@ -591,14 +633,38 @@ export async function markCustomerCustomOfferFulfilled(params: {
   const history = Array.isArray(currentRequest.history) ? currentRequest.history : [];
   const analytics = currentRequest.analytics ?? {};
   const now = new Date();
+  const offerSettings = await getCustomerCustomOfferSettings(
+    getCustomerPlatformContentScope(customer.toObject() as Record<string, any>),
+  );
+  const ledger = await computeStampLedger({
+    customerId: params.customerId,
+    request: currentRequest,
+    countStartsAt: offerSettings.countStartsAt,
+  });
+  // Manual path (admin Coupons) also completes the open mystery box.
+  await MysteryBoxModel.updateMany(
+    { customerId: params.customerId, status: "requested" },
+    {
+      $set: {
+        status: "ready",
+        readyAt: now,
+        voucherId: mongoose.Types.ObjectId.isValid(params.voucherId) ? params.voucherId : null,
+        voucherCode: normalizeRequestedCode(params.voucherCode),
+        decidedBy: params.adminId ?? "manual",
+      },
+    },
+  );
   customer.set("customOfferRequest", {
     ...currentRequest,
+    // One full card used; any extra stamps carry over to the next card.
+    stampsConsumed: ledger.consumed + offerSettings.thresholdDeliveredOrders,
     status: "fulfilled",
     fulfilledAt: now,
     cycleStartedAt: now,
     cycleNumber: (currentRequest.cycleNumber ?? 1) + 1,
     qualifiedAt: null,
     qualificationNotifiedAt: null,
+    claimReminderSentAt: null,
     requestedAt: null,
     expectedReadyAt: null,
     requestedCode: "",

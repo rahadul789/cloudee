@@ -20,6 +20,7 @@ import {
 } from "@/src/hooks/use-customer-api";
 import { appStateStorage } from "@/src/lib/app-storage";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 // One deletion request per device — once submitted we remember it so the form never
 // reappears (the backend also de-dupes per phone/account, so it's enforced both ends).
@@ -120,28 +121,7 @@ export default function PrivacyPolicyScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topBar}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={() => router.back()}
-          >
-            <Ionicons
-              name="chevron-back"
-              size={20}
-              color={palette.foreground}
-            />
-          </Pressable>
-          <Text style={styles.topTitle}>Privacy policy</Text>
-          <View style={styles.iconButtonGhost} />
-        </View>
+        <AppHeader inline title="Privacy policy" />
 
         <View style={styles.headerPanel}>
           <View style={styles.headerIcon}>
@@ -326,7 +306,7 @@ const styles = StyleSheet.create({
   topTitle: {
     fontSize: 16,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   iconButton: {
@@ -350,11 +330,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     padding: 20,
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
   },
   headerIcon: {
     width: 52,
@@ -362,12 +337,12 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFE7F1",
+    backgroundColor: "#FFF1DC",
   },
   title: {
     fontSize: 26,
     lineHeight: 32,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
@@ -382,7 +357,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   list: {
@@ -416,7 +391,7 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   rowBody: {
@@ -451,7 +426,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.foreground,
   },
   deletionPanel: {
@@ -474,7 +449,7 @@ const styles = StyleSheet.create({
   deletionLabel: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   deletionInput: {
@@ -486,7 +461,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.foreground,
   },
   deletionInputMultiline: {
@@ -497,12 +472,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "700",
-    color: "#D6336C",
+    color: "#A86300",
   },
   deletionButton: {
     minHeight: 50,
     borderRadius: 16,
-    backgroundColor: "#D6336C",
+    backgroundColor: "#A86300",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
@@ -513,7 +488,7 @@ const styles = StyleSheet.create({
   deletionButtonText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   deletionSuccessCard: {
@@ -535,7 +510,7 @@ const styles = StyleSheet.create({
   deletionSuccessTitle: {
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   deletionSuccessText: {
@@ -558,7 +533,7 @@ const styles = StyleSheet.create({
   actionTitle: {
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   actionText: {
@@ -584,21 +559,21 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   primaryButton: {
     flex: 1,
     minHeight: 48,
     borderRadius: 18,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryButtonText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

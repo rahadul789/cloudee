@@ -359,6 +359,47 @@ function resolveDeliveryPricingConfig(params: {
   };
 }
 
+// Card-level delivery fee estimate for discovery lists ("৳20 delivery" on restaurant
+// cards). Same pricing chain as the cart quote — restaurant override → zone pricing →
+// straight-line distance surcharge — so the card agrees with what checkout charges.
+// Returns null when there is no customer location or restaurant coordinates.
+export function estimateRestaurantDeliveryFee(params: {
+  platformContent: Awaited<ReturnType<typeof getPlatformContent>>;
+  restaurant: Record<string, any>;
+  latitude?: number;
+  longitude?: number;
+  serviceArea?: Record<string, any> | null;
+}): number | null {
+  if (
+    typeof params.latitude !== "number" ||
+    typeof params.longitude !== "number" ||
+    typeof params.restaurant.location?.latitude !== "number" ||
+    typeof params.restaurant.location?.longitude !== "number"
+  ) {
+    return null;
+  }
+  const pricing = applyServiceAreaDeliveryPricing(
+    resolveDeliveryPricingConfig({
+      platformContent: params.platformContent,
+      restaurant: params.restaurant,
+    }),
+    (params.serviceArea ?? null) as Parameters<typeof applyServiceAreaDeliveryPricing>[1],
+  );
+  return calculateConfiguredDeliveryFee({
+    baseFeeTaka: pricing.baseFeeTaka,
+    distanceSurchargeEnabled: pricing.distanceSurchargeEnabled,
+    surchargeStartsAfterKm: pricing.surchargeStartsAfterKm,
+    surchargeStepMeters: pricing.surchargeStepMeters,
+    surchargeAmountTaka: pricing.surchargeAmountTaka,
+    distanceKm: calculateDistanceKm(
+      params.latitude,
+      params.longitude,
+      params.restaurant.location.latitude,
+      params.restaurant.location.longitude,
+    ),
+  });
+}
+
 function assertRestaurantServiceableForDelivery(params: {
   platformContent: Awaited<ReturnType<typeof getPlatformContent>>;
   restaurant: Record<string, any>;

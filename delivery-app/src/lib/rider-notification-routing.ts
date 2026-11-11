@@ -37,6 +37,11 @@ export function resolveRiderNotificationPath(path?: unknown) {
 }
 
 export function resolveRiderNotificationTarget(data?: Record<string, unknown> | null) {
+  // Customer chat message → open that order's chat directly.
+  if (stringValue(data?.type) === "order_chat") {
+    const chatOrderId = routeSegment(data?.orderId ?? data?.order_id);
+    if (chatOrderId) return `/orders/${chatOrderId}/chat`;
+  }
   const directOrderId =
     routeSegment(data?.orderId ?? data?.order_id) ||
     (stringValue(data?.entityType).toLowerCase() === "order"

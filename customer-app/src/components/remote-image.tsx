@@ -18,8 +18,8 @@ import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { optimizeCloudinaryImage } from "@/src/lib/image";
 import { palette } from "@/src/theme/palette";
 
-const IMAGE_SKELETON_COLOR = "#FFF0F6";
-const HOME_IMAGE_SKELETON_COLOR = "#FFF0F6";
+const IMAGE_SKELETON_COLOR = "#FFF6E8";
+const HOME_IMAGE_SKELETON_COLOR = "#FFF6E8";
 
 type IoniconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -28,6 +28,8 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
   contentFit?: ImageContentFit;
+  /** Gaussian blur (expo-image) — used for ambient photo backdrops. */
+  blurRadius?: number;
   fallbackIcon?: IoniconName;
   fallbackIconSize?: number;
   fallbackTint?: string;
@@ -40,6 +42,8 @@ type Props = {
   accessibilityLabel?: string;
   /** Target display width (px). When set, the Cloudinary image is resized to it. */
   targetWidth?: number;
+  /** Intrinsic media size once loaded (lets callers size a box to the media, no crop). */
+  onLoadSize?: (size: { width: number; height: number }) => void;
   children?: ReactNode;
 };
 
@@ -53,6 +57,7 @@ export function RemoteImage({
   style,
   imageStyle,
   contentFit = "cover",
+  blurRadius,
   fallbackIcon = "image-outline",
   fallbackIconSize = 24,
   fallbackTint = palette.secondary,
@@ -63,6 +68,7 @@ export function RemoteImage({
   recyclingKey,
   accessibilityLabel,
   targetWidth,
+  onLoadSize,
   children,
 }: Props) {
   const normalizedUri =
@@ -112,10 +118,16 @@ export function RemoteImage({
           source={{ uri: sourceUri ?? normalizedUri }}
           style={[StyleSheet.absoluteFill, imageStyle]}
           contentFit={contentFit}
+          blurRadius={blurRadius}
           cachePolicy="memory-disk"
           recyclingKey={recyclingKey === undefined ? normalizedUri : recyclingKey}
           transition={transition}
-          onLoad={() => setLoadedUri(normalizedUri)}
+          onLoad={(event) => {
+            setLoadedUri(normalizedUri);
+            if (onLoadSize && event?.source?.width && event.source.height) {
+              onLoadSize({ width: event.source.width, height: event.source.height });
+            }
+          }}
           onError={() => {
             // Only fall back if this URL never displayed; ignore a stray error
             // after a successful load (a recycled cell mid-swap).

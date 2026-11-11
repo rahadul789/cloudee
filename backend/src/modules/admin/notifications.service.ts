@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
+import { countPromoCtaClicks } from "../customer/promo-cta-click";
 import { CustomerModel, VoucherModel } from "../customer/customer.model";
 import {
   createCustomerNotification,
@@ -1160,6 +1161,9 @@ async function getCampaignItems(params: ListParams = {}) {
     districtId: params.districtId,
   });
   const campaigns = (content.customerApp.homeCms.pushCampaign.campaignHistory ?? []).slice(-200);
+  const ctaClicks = await countPromoCtaClicks(
+    campaigns.map((campaign: Record<string, any>) => stringValue(campaign.campaignId)),
+  );
 
   return campaigns.map((campaign: Record<string, any>) => ({
     id: stringValue(campaign.campaignId),
@@ -1184,6 +1188,7 @@ async function getCampaignItems(params: ListParams = {}) {
     sentCount: Number(campaign.sentCount ?? 0),
     disabledCount: Number(campaign.disabledCount ?? 0),
     openCount: Number(campaign.openCount ?? 0),
+    ctaClickCount: ctaClicks.get(stringValue(campaign.campaignId)) ?? 0,
   }));
 }
 
@@ -1255,6 +1260,9 @@ async function getScheduledItems(params: ListParams) {
     .limit(200)
     .lean();
 
+  const scheduleCtaClicks = await countPromoCtaClicks(
+    rows.map((schedule: Record<string, any>) => objectIdString(schedule._id)),
+  );
   return Promise.all(
     rows.map(async (schedule: Record<string, any>) => {
       const scheduleId = objectIdString(schedule._id);
@@ -1267,9 +1275,11 @@ async function getScheduledItems(params: ListParams) {
       let openCount = 0;
 
       if (schedule.recipientType === "customers") {
+        // A real open = readAt set by a push tap or an inbox tap ("mark all read" sets
+        // bulkReadAt instead), so the count is no longer inflated by bulk clearing.
         openCount = await CustomerModel.countDocuments({
           notifications: {
-            $elemMatch: { campaignId: scheduleId, isRead: true },
+            $elemMatch: { campaignId: scheduleId, readAt: { $ne: null } },
           },
         });
       } else if (schedule.recipientType === "riders") {
@@ -1334,6 +1344,7 @@ async function getScheduledItems(params: ListParams) {
         inAppCount: Number(schedule.result?.inAppCount ?? 0),
         skippedCount: Number(schedule.result?.skippedCount ?? 0),
         openCount,
+        ctaClickCount: scheduleCtaClicks.get(scheduleId) ?? 0,
         failureReason: stringValue(schedule.failureReason),
       };
     }),
@@ -1658,7 +1669,8 @@ async function buildCustomerCampaignRecipients(
       $addFields: {
         reportStatus: {
           $cond: [
-            { $eq: ["$notification.isRead", true] },
+            // Opened = a real open (push tap / inbox tap → readAt), not a bulk "mark all read".
+            { $ne: [{ $ifNull: ["$notification.readAt", null] }, null] },
             "opened",
             {
               $cond: [

@@ -69,7 +69,7 @@ export const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -97,7 +97,7 @@ export const styles = StyleSheet.create({
   filterBadgeText: {
     fontSize: 9,
     lineHeight: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
   searchBar: {
@@ -110,7 +110,7 @@ export const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: palette.surface,
     borderWidth: 1,
-    borderColor: "#F2E0EA",
+    borderColor: "#ECECEC",
   },
   searchIconWrap: {
     width: 32,
@@ -118,14 +118,14 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   searchInput: {
     flex: 1,
     minHeight: 20,
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
     paddingVertical: 0,
     textAlignVertical: "center",
@@ -204,7 +204,7 @@ export const styles = StyleSheet.create({
   clearFiltersBadgeText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   historyBlock: {
@@ -213,7 +213,7 @@ export const styles = StyleSheet.create({
   historyLabel: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   recentSearchRow: {
@@ -267,7 +267,7 @@ export const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     padding: 10,
     borderWidth: 1,
-    borderColor: "#F1E2EA",
+    borderColor: "#ECECEC",
     shadowColor: "transparent",
     shadowOpacity: 0,
     shadowRadius: 0,
@@ -298,20 +298,20 @@ export const styles = StyleSheet.create({
   recentVisitedTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   recentVisitedSubtitle: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   recentVisitedMeta: {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: "700",
-    color: "#AA6A87",
+    color: "#7A6A55",
   },
   recentVisitedHeart: {
     width: 30,
@@ -322,7 +322,7 @@ export const styles = StyleSheet.create({
     backgroundColor: "#F6F1F5",
   },
   recentVisitedHeartActive: {
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   feedbackCard: {
     minHeight: 56,
@@ -336,7 +336,7 @@ export const styles = StyleSheet.create({
   feedbackText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.foreground,
   },
   filterModalBackdrop: {
@@ -365,7 +365,7 @@ export const styles = StyleSheet.create({
     width: 132,
     height: 132,
     borderRadius: 66,
-    backgroundColor: "#FCE2EC",
+    backgroundColor: "#FFF1DC",
     top: -34,
     right: -26,
   },
@@ -384,19 +384,19 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
     marginBottom: 12,
   },
   filterPillText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
-    color: "#D85A8A",
+    fontWeight: "700",
+    color: "#A86300",
   },
   filterModalTitle: {
     fontSize: 22,
     lineHeight: 26,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   filterModalSubtitle: {
@@ -439,12 +439,12 @@ export const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   filterSectionLabel: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   filterOptionsRow: {
@@ -462,16 +462,16 @@ export const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: "#FFF7FB",
+    backgroundColor: "#FFFAF2",
     borderWidth: 1,
-    borderColor: "#F1E2EA",
+    borderColor: "#ECECEC",
     justifyContent: "center",
     gap: 2,
   },
   filterInsightValue: {
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   filterInsightLabel: {
@@ -497,14 +497,14 @@ export const styles = StyleSheet.create({
   filterResetText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   filterApplyButton: {
     flex: 1,
     minHeight: 46,
     borderRadius: 20,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
@@ -513,7 +513,7 @@ export const styles = StyleSheet.create({
   filterApplyText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
 });

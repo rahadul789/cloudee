@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
@@ -123,356 +123,241 @@ export function RestaurantFilterSheet({
     ? SHOW_OPTIONS
     : SHOW_OPTIONS.filter((option) => option.key === "all" || option.key === "open");
 
+  const countLabel =
+    matchingQuery.isLoading || matchingCount === undefined
+      ? "Show restaurants"
+      : matchingCount === 0
+        ? "No matches"
+        : `Show ${matchingCount} restaurant${matchingCount === 1 ? "" : "s"}`;
+
   return (
     <AppBottomSheet
       visible={visible}
       onClose={onClose}
       title="Filters"
-      subtitle="Choose what you want to see"
+      subtitle={activeCount ? `${activeCount} active` : "Choose what you want to see"}
       leadingIcon="options-outline"
-      snapPoints={[0.7, 0.92]}
-      initialSnapPoint={0.7}
+      snapPoints={[0.72, 0.92]}
+      initialSnapPoint={0.72}
       footer={
-        <View style={styles.filterFooter}>
+        <View style={styles.footer}>
           <PressableScale
             scaleTo={0.96}
-            containerStyle={styles.filterFooterButtonSlot}
-            style={styles.filterResetButton}
+            style={[styles.resetButton, !activeCount ? styles.resetDisabled : null]}
+            disabled={!activeCount}
             onPress={() => setDraft(DEFAULT_RESTAURANT_FILTER_VALUES)}
+            accessibilityRole="button"
           >
-            <Ionicons name="refresh-outline" size={15} color={palette.foreground} />
-            <Text style={styles.filterResetText}>Reset</Text>
+            <Text style={styles.resetText}>Reset</Text>
           </PressableScale>
           <PressableScale
-            scaleTo={0.96}
-            containerStyle={styles.filterFooterButtonSlot}
-            style={styles.filterApplyButton}
+            scaleTo={0.97}
+            containerStyle={styles.applySlot}
+            style={styles.applyButton}
             onPress={() => {
               onApply(draft);
               onClose();
             }}
+            accessibilityRole="button"
           >
-            <Text style={styles.filterApplyText}>Apply filters</Text>
-            <Ionicons name="checkmark" size={16} color={palette.surface} />
+            <Text style={styles.applyText} numberOfLines={1}>
+              {countLabel}
+            </Text>
           </PressableScale>
         </View>
       }
     >
-      <View style={styles.filterPill}>
-        <Ionicons name="sparkles" size={12} color={palette.primary} />
-        <Text style={styles.filterPillText}>Filter restaurants</Text>
-      </View>
+      <FilterSection title="Show">
+        <View style={styles.chipRow}>
+          {showOptions.map((option) => (
+            <FilterChip
+              key={option.key}
+              label={option.label}
+              icon={option.icon}
+              active={draft.filter === option.key}
+              onPress={() => setDraft((prev) => ({ ...prev, filter: option.key }))}
+            />
+          ))}
+        </View>
+      </FilterSection>
 
-      <View style={styles.filterInsightRow}>
-        <View style={styles.filterInsightCard}>
-          <Text style={styles.filterInsightValue}>
-            {matchingQuery.isLoading || matchingCount === undefined ? "…" : matchingCount}
-          </Text>
-          <Text style={styles.filterInsightLabel}>Matching restaurants</Text>
-        </View>
-        <View style={styles.filterInsightCard}>
-          <Text style={styles.filterInsightValue}>{activeCount}</Text>
-          <Text style={styles.filterInsightLabel}>Active filters</Text>
-        </View>
-      </View>
-
-      <View style={styles.filterSection}>
-        <View style={styles.filterSectionHeader}>
-          <View style={styles.filterSectionIconWrap}>
-            <Ionicons name="grid-outline" size={14} color="#A14A74" />
-          </View>
-          <Text style={styles.filterSectionLabel}>Show</Text>
-        </View>
-        <View style={styles.filterOptionsRow}>
-          {showOptions.map((option) => {
-            const isActive = draft.filter === option.key;
+      <FilterSection title="Sort by">
+        <View style={styles.radioList}>
+          {SORT_OPTIONS.map((option, index) => {
+            const active = draft.sortBy === option.key;
             return (
               <PressableScale
-                scaleTo={0.95}
                 key={option.key}
-                style={[
-                  styles.filterChip,
-                  isActive ? styles.filterChipActive : null,
-                ]}
-                onPress={() => setDraft((prev) => ({ ...prev, filter: option.key }))}
-              >
-                <Ionicons
-                  name={option.icon}
-                  size={13}
-                  color={isActive ? palette.surface : palette.secondary}
-                />
-                <Text
-                  style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}
-                >
-                  {option.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.filterSection}>
-        <View style={styles.filterSectionHeader}>
-          <View style={styles.filterSectionIconWrap}>
-            <Ionicons name="swap-vertical-outline" size={14} color="#A14A74" />
-          </View>
-          <Text style={styles.filterSectionLabel}>Sort by</Text>
-        </View>
-        <View style={styles.filterOptionsRow}>
-          {SORT_OPTIONS.map((option) => {
-            const isActive = draft.sortBy === option.key;
-            return (
-              <PressableScale
-                scaleTo={0.95}
-                key={option.key}
-                style={[
-                  styles.filterChip,
-                  isActive ? styles.filterChipActive : null,
-                ]}
+                scaleTo={0.98}
                 onPress={() => setDraft((prev) => ({ ...prev, sortBy: option.key }))}
+                style={[styles.radioRow, index > 0 ? styles.radioDivider : null]}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
               >
-                <Ionicons
-                  name={option.icon}
-                  size={13}
-                  color={isActive ? palette.surface : palette.secondary}
-                />
-                <Text
-                  style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}
-                >
+                <View style={[styles.radioIcon, active ? styles.radioIconActive : null]}>
+                  <Ionicons
+                    name={option.icon}
+                    size={15}
+                    color={active ? palette.onPrimary : palette.mutedForeground}
+                  />
+                </View>
+                <Text style={[styles.radioLabel, active ? styles.radioLabelActive : null]}>
                   {option.label}
                 </Text>
+                <View style={[styles.radioDot, active ? styles.radioDotActive : null]}>
+                  {active ? <View style={styles.radioDotInner} /> : null}
+                </View>
               </PressableScale>
             );
           })}
         </View>
-      </View>
+      </FilterSection>
 
-      <View style={styles.filterSection}>
-        <View style={styles.filterSectionHeader}>
-          <View style={styles.filterSectionIconWrap}>
-            <Ionicons name="star-outline" size={14} color="#A14A74" />
-          </View>
-          <Text style={styles.filterSectionLabel}>Ratings</Text>
+      <FilterSection title="Rating">
+        <View style={styles.chipRow}>
+          {RATING_OPTIONS.map((option) => (
+            <FilterChip
+              key={option.label}
+              label={option.label}
+              icon={option.key ? "star" : undefined}
+              active={draft.minimumRating === option.key}
+              onPress={() => setDraft((prev) => ({ ...prev, minimumRating: option.key }))}
+            />
+          ))}
         </View>
-        <View style={styles.filterOptionsRow}>
-          {RATING_OPTIONS.map((option) => {
-            const isActive = draft.minimumRating === option.key;
-            return (
-              <PressableScale
-                scaleTo={0.95}
-                key={option.label}
-                style={[
-                  styles.filterChip,
-                  isActive ? styles.filterChipActive : null,
-                ]}
-                onPress={() => setDraft((prev) => ({ ...prev, minimumRating: option.key }))}
-              >
-                <Ionicons
-                  name={isActive ? "star" : "star-outline"}
-                  size={13}
-                  color={isActive ? palette.surface : palette.secondary}
-                />
-                <Text
-                  style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}
-                >
-                  {option.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-      </View>
+      </FilterSection>
 
-      <View style={styles.filterSection}>
-        <View style={styles.filterSectionHeader}>
-          <View style={styles.filterSectionIconWrap}>
-            <Ionicons name="cash-outline" size={14} color="#A14A74" />
-          </View>
-          <Text style={styles.filterSectionLabel}>Starting price</Text>
+      <FilterSection title="Starting price">
+        <View style={styles.chipRow}>
+          {PRICE_OPTIONS.map((option) => (
+            <FilterChip
+              key={option.label}
+              label={option.label}
+              active={draft.maximumLowestPrice === option.key}
+              onPress={() => setDraft((prev) => ({ ...prev, maximumLowestPrice: option.key }))}
+            />
+          ))}
         </View>
-        <View style={styles.filterOptionsRow}>
-          {PRICE_OPTIONS.map((option) => {
-            const isActive = draft.maximumLowestPrice === option.key;
-            return (
-              <PressableScale
-                scaleTo={0.95}
-                key={option.label}
-                style={[
-                  styles.filterChip,
-                  isActive ? styles.filterChipActive : null,
-                ]}
-                onPress={() =>
-                  setDraft((prev) => ({ ...prev, maximumLowestPrice: option.key }))
-                }
-              >
-                <Ionicons
-                  name={isActive ? "cash" : "cash-outline"}
-                  size={13}
-                  color={isActive ? palette.surface : palette.secondary}
-                />
-                <Text
-                  style={[styles.filterChipText, isActive ? styles.filterChipTextActive : null]}
-                >
-                  {option.label}
-                </Text>
-              </PressableScale>
-            );
-          })}
-        </View>
-      </View>
+      </FilterSection>
     </AppBottomSheet>
   );
 }
 
+function FilterSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+// Pill chip: soft grey when idle, amber fill + dark text/check when selected (theme rule:
+// never white on amber).
+function FilterChip({
+  label,
+  icon,
+  active,
+  onPress,
+}: {
+  label: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressableScale
+      scaleTo={0.95}
+      onPress={onPress}
+      style={[styles.chip, active ? styles.chipActive : null]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+    >
+      {active ? (
+        <Ionicons name="checkmark" size={14} color={palette.onPrimary} />
+      ) : icon ? (
+        <Ionicons name={icon} size={13} color={palette.secondary} />
+      ) : null}
+      <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{label}</Text>
+    </PressableScale>
+  );
+}
+
 const styles = StyleSheet.create({
-  pressablePressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.97 }],
-  },
-  chipPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.985 }],
-  },
-  filterPill: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#FFF1F6",
-    marginBottom: 12,
-  },
-  filterPillText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    color: "#D85A8A",
-  },
-  filterInsightRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  filterInsightCard: {
-    flex: 1,
-    minHeight: 70,
-    borderRadius: 22,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: "#FFF7FB",
-    borderWidth: 1,
-    borderColor: "#F1E2EA",
-    justifyContent: "center",
-    gap: 2,
-  },
-  filterInsightValue: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  filterInsightLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    color: palette.mutedForeground,
-  },
-  filterSection: {
+  section: {
     gap: 12,
-    padding: 15,
-    borderRadius: 24,
-    backgroundColor: "#FFFBFD",
-    borderWidth: 1,
-    borderColor: "#F4E7EE",
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E8E8E8",
   },
-  filterSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  filterSectionIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFF1F6",
-  },
-  filterSectionLabel: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  filterOptionsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  filterChip: {
-    minHeight: 40,
+  sectionTitle: { fontSize: 15, lineHeight: 20, fontWeight: "700", color: palette.foreground },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    minHeight: 38,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
-    borderRadius: 15,
-    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: palette.surfaceMuted,
     borderWidth: 1,
-    borderColor: "#F0E6EE",
+    borderColor: palette.surfaceMuted,
   },
-  filterChipActive: {
-    backgroundColor: palette.foreground,
-    borderColor: palette.foreground,
+  chipActive: { backgroundColor: palette.primary, borderColor: palette.primary },
+  chipText: { fontSize: 13, lineHeight: 17, fontWeight: "500", color: palette.foreground },
+  chipTextActive: { fontWeight: "700", color: palette.onPrimary },
+  radioList: { marginTop: -4 },
+  radioRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
+  radioDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ECECEC" },
+  radioIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
   },
-  filterChipText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  filterChipTextActive: {
-    color: palette.surface,
-  },
-  filterFooter: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  // flex:1 lives on the PressableScale wrapper so the two footer buttons still split the
-  // row evenly; the inner Pressable keeps the button visual.
-  filterFooterButtonSlot: {
+  radioIconActive: { backgroundColor: palette.primary },
+  radioLabel: {
     flex: 1,
-  },
-  filterResetButton: {
-    minHeight: 46,
-    borderRadius: 18,
-    backgroundColor: "#FFF5EF",
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 7,
-  },
-  filterResetText: {
     fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
+    lineHeight: 19,
+    fontWeight: "500",
     color: palette.foreground,
   },
-  filterApplyButton: {
-    minHeight: 46,
-    borderRadius: 20,
-    backgroundColor: palette.secondary,
+  radioLabelActive: { fontWeight: "700" },
+  radioDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#C9CCD1",
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    gap: 7,
   },
-  filterApplyText: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.surface,
+  radioDotActive: { borderColor: palette.secondary },
+  radioDotInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.secondary },
+  footer: { flexDirection: "row", alignItems: "center", gap: 10 },
+  resetButton: {
+    minHeight: 50,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
   },
+  resetDisabled: { opacity: 0.5 },
+  resetText: { fontSize: 14.5, lineHeight: 19, fontWeight: "700", color: palette.foreground },
+  applySlot: { flex: 1 },
+  applyButton: {
+    minHeight: 50,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    backgroundColor: palette.primary,
+  },
+  applyText: { fontSize: 15, lineHeight: 20, fontWeight: "700", color: palette.onPrimary },
 });

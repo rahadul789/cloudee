@@ -18,10 +18,6 @@ import {
 
 import { styles } from "@/src/components/checkout/checkout.styles";
 import {
-  buildDeliveryWhyText,
-  hasDeliveryDistanceSurcharge,
-} from "@/src/lib/delivery-breakdown";
-import {
   canOptIntoPlatformFee,
   platformFeeLabel,
 } from "@/src/lib/platform-fee";
@@ -32,6 +28,13 @@ import {
 import { NeonStickerCard } from "@/src/components/neon-sticker-card";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { PressableScale } from "@/src/components/pressable-scale";
+import {
+  EMPTY_GIFT,
+  GiftOrderCard,
+  giftError,
+  giftPayload,
+  type GiftDraft,
+} from "@/src/components/checkout/gift-order-card";
 import {
   useBkashInitiateMutation,
   type CartQuoteResponse,
@@ -50,6 +53,7 @@ import { getStableCustomerInstallId } from "@/src/lib/customer-install-id";
 import {
   formatCustomerAddressLine,
   formatDeliveryAddress,
+  formatDeliverToLine,
 } from "@/src/lib/location-address";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
 import {
@@ -66,6 +70,7 @@ import {
 import { useLocationStore } from "@/src/store/location-store";
 import { usePaymentPreferencesStore } from "@/src/store/payment-preferences-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 type PaymentMethod = "Cash" | "Bkash";
 const bkashLogo = require("../assets/images/bkash.png");
@@ -90,7 +95,7 @@ const paymentOptions: {
     title: "Cash on delivery",
     subtitle: "Pay when the rider reaches your door.",
     icon: "cash-outline",
-    accentColor: "#FFEAF3",
+    accentColor: "#FFF1DC",
   },
   {
     id: "Bkash",
@@ -98,7 +103,7 @@ const paymentOptions: {
     subtitle: "Continue to the official hosted payment page.",
     icon: "phone-portrait-outline",
     imageSource: bkashLogo,
-    accentColor: "#FFE4EF",
+    accentColor: "#FFF1DC",
   },
 ];
 
@@ -116,6 +121,8 @@ export default function CheckoutScreen() {
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
+  // "Send as a gift": receiver gets the food + the rider's call; sender pays online.
+  const [giftDraft, setGiftDraft] = useState<GiftDraft>(EMPTY_GIFT);
   const [voucherCodeInput, setVoucherCodeInput] = useState("");
   const [appliedVoucherCode, setAppliedVoucherCode] = useState("");
   const [appliedReferralCode, setAppliedReferralCode] = useState("");
@@ -176,9 +183,8 @@ export default function CheckoutScreen() {
     selectedLocation?.addressDetails?.trim() || undefined;
   const selectedDeliveryAddressPrimaryText =
     selectedDeliveryAddressDetails ||
-    selectedLocation?.label ||
-    selectedDeliveryAddress ||
-    "Choose delivery point";
+    // "Area, District" — never a raw Plus code label.
+    formatDeliverToLine(selectedLocation, "Choose delivery point");
   const shouldShowMapAddressUnderManual =
     Boolean(selectedDeliveryAddressDetails) &&
     Boolean(selectedDeliveryAddressLine) &&
@@ -254,8 +260,9 @@ export default function CheckoutScreen() {
       paymentOptions
         .filter((option) =>
           option.id === "Cash"
-            ? paymentSettings.cashOnDeliveryEnabled ||
-              !paymentSettings.bkashEnabled
+            ? !(giftDraft.enabled && paymentSettings.bkashEnabled) &&
+              (paymentSettings.cashOnDeliveryEnabled ||
+                !paymentSettings.bkashEnabled)
             : paymentSettings.bkashEnabled,
         )
         .map((option) =>
@@ -268,12 +275,24 @@ export default function CheckoutScreen() {
             : option,
         ),
     [
+      giftDraft.enabled,
       paymentSettings.cashOnDeliveryEnabled,
       paymentSettings.bkashEnabled,
       paymentSettings.bkashLabel,
       paymentSettings.bkashSubtitle,
     ],
   );
+
+  // Turning the gift on switches payment to bKash (the receiver never pays cash).
+  useEffect(() => {
+    if (giftDraft.enabled && paymentSettings.bkashEnabled && paymentMethod !== "Bkash") {
+      setPaymentMethod("Bkash");
+      setPaymentError("");
+    }
+    if (giftDraft.enabled && !paymentSettings.bkashEnabled) {
+      setGiftDraft(EMPTY_GIFT);
+    }
+  }, [giftDraft.enabled, paymentMethod, paymentSettings.bkashEnabled]);
 
   useEffect(() => {
     if (
@@ -338,12 +357,6 @@ export default function CheckoutScreen() {
 
   const localSubtotal = getCartSubtotal(items);
   const pricing = quoteQuery.data?.pricing;
-  // "Why this delivery fee" split from the live quote, shown the same way as the cart.
-  const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
-  const deliveryWhyText = useMemo(
-    () => buildDeliveryWhyText(deliveryBreakdown),
-    [deliveryBreakdown],
-  );
   // Admin-set platform fee. Charged amount (flat/percentage or opted-in optional) lands in
   // pricing.platformFee; the opt-in control shows only for the optional mode.
   const platformFeeInfo = quoteQuery.data?.platformFeeInfo;
@@ -788,6 +801,11 @@ export default function CheckoutScreen() {
           voucherApplied: Boolean(appliedVoucherCode),
         },
       });
+      const giftProblem = giftError(giftDraft);
+      if (giftProblem) {
+        setPaymentError(giftProblem);
+        return;
+      }
       const response = await bkashInitiateMutation.mutateAsync({
         restaurantId: restaurant.restaurantId,
         clientOrderId: clientOrderIdRef.current,
@@ -797,6 +815,7 @@ export default function CheckoutScreen() {
         walletNumber: bkashWalletNumber,
         platformFeeOptedIn,
         urgentDeliveryOptedIn,
+        gift: giftPayload(giftDraft),
         deliveryAddress: {
           label: selectedLocation.label,
           addressLine: selectedDeliveryAddressLine,
@@ -929,6 +948,7 @@ export default function CheckoutScreen() {
         note: sanitizedRestaurantOrderNote || undefined,
         platformFeeOptedIn,
         urgentDeliveryOptedIn,
+        gift: giftPayload(giftDraft),
         paymentReference:
           paymentMethod === "Bkash"
             ? {
@@ -1018,21 +1038,13 @@ export default function CheckoutScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons
-              name="chevron-back"
-              size={20}
-              color={palette.foreground}
-            />
-          </Pressable>
-          <View style={styles.headerCopy}>
-            <Text style={styles.title}>Checkout</Text>
-            <Text style={styles.subtitle}>
-              Choose address and payment to place your order.
-            </Text>
-          </View>
-        </View>
+        <AppHeader
+          inline
+          // inline headers have no side padding; this scroll content isn't padded either
+          style={{ paddingHorizontal: 16 }}
+          title="Checkout"
+          subtitle="Confirm address & payment"
+        />
 
         {!isOnline ? (
           <View style={styles.offlineWrap}>
@@ -1057,7 +1069,7 @@ export default function CheckoutScreen() {
             <Ionicons
               name="alert-circle-outline"
               size={18}
-              color={palette.primary}
+              color={palette.secondary}
             />
             <View style={styles.networkCopy}>
               <Text style={styles.networkTitle}>
@@ -1087,7 +1099,7 @@ export default function CheckoutScreen() {
                     <Ionicons
                       name="location-outline"
                       size={14}
-                      color={palette.surface}
+                      color={palette.onPrimary}
                     />
                     <Text style={styles.networkActionPrimaryText}>
                       Change location
@@ -1219,6 +1231,14 @@ export default function CheckoutScreen() {
               ) : null}
             </View>
           </Pressable>
+          <GiftOrderCard
+            draft={giftDraft}
+            onChange={(next) => {
+              setGiftDraft(next);
+              setPaymentError("");
+            }}
+            available={paymentSettings.bkashEnabled}
+          />
         </View>
 
         <View style={styles.section}>
@@ -1260,7 +1280,7 @@ export default function CheckoutScreen() {
                   disabled={isApplyingCode}
                 >
                   {isApplyingCode ? (
-                    <ActivityIndicator size="small" color={palette.surface} />
+                    <ActivityIndicator size="small" color={palette.onPrimary} />
                   ) : (
                     <Text style={styles.voucherButtonText}>Apply</Text>
                   )}
@@ -1434,7 +1454,7 @@ export default function CheckoutScreen() {
               </View>
               <Pressable
                 style={styles.changeButton}
-                onPress={() => router.push("/(tabs)/cart")}
+                onPress={() => router.push({ pathname: "/(tabs)/cart", params: { view: "active" } })}
               >
                 <Text style={styles.changeButtonText}>Edit cart</Text>
               </Pressable>
@@ -1558,26 +1578,10 @@ export default function CheckoutScreen() {
               <View style={styles.summaryDeliveryGroup}>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryRowLabel}>Delivery fee</Text>
-                  {hasDeliveryDistanceSurcharge(deliveryBreakdown) ? (
-                    <View style={styles.summaryDeliveryValueStack}>
-                      <Text style={styles.summaryRowValue}>
-                        {formatCurrency(deliveryBreakdown.baseFee)}
-                      </Text>
-                      <Text style={styles.summaryDeliveryExtra}>
-                        +{formatCurrency(deliveryBreakdown.extraDistanceFee)}
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.summaryRowValue}>
-                      {formatCurrency(pricing?.deliveryFee ?? 0)}
-                    </Text>
-                  )}
-                </View>
-                {deliveryWhyText ? (
-                  <Text style={styles.summaryDeliveryNote}>
-                    {deliveryWhyText}
+                  <Text style={styles.summaryRowValue}>
+                    {formatCurrency(pricing?.deliveryFee ?? 0)}
                   </Text>
-                ) : null}
+                </View>
               </View>
               {(pricing?.rainSurcharge ?? 0) > 0 ? (
                 <CheckoutSummaryRow
@@ -1628,7 +1632,7 @@ export default function CheckoutScreen() {
                     ]}
                   >
                     {platformFeeOptedIn ? (
-                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                      <Ionicons name="checkmark" size={13} color={palette.onPrimary} />
                     ) : null}
                   </View>
                 </Pressable>
@@ -1662,7 +1666,7 @@ export default function CheckoutScreen() {
                     ]}
                   >
                     {urgentDeliveryOptedIn ? (
-                      <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                      <Ionicons name="checkmark" size={13} color={palette.onPrimary} />
                     ) : null}
                   </View>
                 </Pressable>

@@ -1,3 +1,8 @@
+
+/** Platform support number used everywhere unless admin changes it. */
+export const DEFAULT_SUPPORT_PHONE = "+8809658806633"
+/** Old built-in default — treated as "never customised" and upgraded. */
+export const LEGACY_SUPPORT_PHONES = new Set(["01883552285"])
 export const platformContent = {
   branding: {
     platformName: "Foodbela",
@@ -42,10 +47,60 @@ export const platformContent = {
       // Home "Deals for you" section: a curated, admin-controlled showcase of up to 3
       // platform offers (auto-applied or coupon) so customers notice them and order more.
       // Area-based comes from each offer's own area scope (only area-valid ones render).
+      // Home hero carousel at the very top of the customer home (under "Deliver to").
+      // Slides are images, GIFs or animated WebP (Cloudinary uploads from admin). Each slide
+      // can be scheduled (startsAt/endsAt, ISO) and deep-link somewhere on tap.
+      heroCarousel: {
+        enabled: true,
+        autoPlay: true,
+        intervalSeconds: 4,
+        aspectRatio: "16:9" as "16:9" | "2:1" | "4:3" | "1:1",
+        showDots: false,
+        slides: [
+          {
+            id: "starter-delivery",
+            mediaUrl: "https://media.giphy.com/media/cCakkzdotOdOxUVVfP/giphy.gif",
+            mediaPublicId: "",
+            title: "Fast delivery to your door",
+            linkEnabled: false,
+            ctaPath: "",
+            overlayTextColor: "",
+            isActive: true,
+            startsAt: "",
+            endsAt: "",
+          },
+          {
+            id: "starter-order",
+            mediaUrl: "https://media.giphy.com/media/hqg3HsMBLd8H0rsp5i/giphy.gif",
+            mediaPublicId: "",
+            title: "Let's order delivery",
+            linkEnabled: false,
+            ctaPath: "",
+            overlayTextColor: "",
+            isActive: true,
+            startsAt: "",
+            endsAt: "",
+          },
+        ],
+      },
+      // Home "Foodbela is closed" card + "Notify me when open" button (both ON by default).
+      closedNotice: {
+        enabled: true,
+        notifyButton: true,
+      },
       dealsSection: {
         enabled: false,
         title: "Deals for you",
         offerIds: [] as string[],
+      },
+      // Home "Order again" rail (signed-in customers' last delivered orders). ON by default.
+      orderAgainSection: {
+        enabled: true,
+        title: "Order again",
+        subtitle: "Your favourites, one tap away",
+        maxItems: 6,
+        maxAgeDays: 60,
+        placement: "before_top_sections" as "before_top_sections" | "after_top_sections",
       },
       homeCategories: {
         isActive: true,
@@ -518,6 +573,20 @@ export const platformContent = {
       enabled: true,
       reviewDays: 7,
     },
+    // Customer-app live-tracking timings (seconds) — see content.service schema.
+    customerTracking: {
+      fallbackPollSeconds: 25,
+      staleAfterSeconds: 120,
+      refetchIfQuietSeconds: 45,
+    },
+    // Customer-app "update required" prompt. Empty versions = no prompt (safe default).
+    appUpdate: {
+      enabled: true,
+      latestVersion: "",
+      minimumVersion: "",
+      message: "",
+      storeUrl: "",
+    },
     // Platform-wide minimum order amount (Taka) on the customer's item subtotal. 0 = no
     // minimum. Per-restaurant overrides live on restaurant.commercial.minimumOrderAmount.
     minimumOrderAmount: 0,
@@ -818,7 +887,8 @@ export const platformContent = {
       // app after this many resends. All admin-controlled; off by default.
       telegramFallbackEnabled: true,
       callButtonAfterResends: 2,
-      supportCallNumber: "01883552285",
+      // Empty = dial the platform support number (supportContact.phone).
+      supportCallNumber: "",
       // WhatsApp OTP alternative — shown one step before the call button. Off until the
       // WhatsApp Business API (credentials + approved template) is wired on the server.
       whatsappOtpEnabled: false,
@@ -854,7 +924,9 @@ export const platformContent = {
   },
   supportContact: {
     email: "support@foodbela.com",
-    phone: "01883552285",
+    // THE support number — app Help center, OTP "Instant OTP" call, website, owner/rider help
+    // all read this. Change it in admin Settings → Support contact.
+    phone: DEFAULT_SUPPORT_PHONE,
     supportHours: "Daily, 9:00 AM - 11:00 PM",
     reportLabel: "Report Issue",
     directHelpNote:

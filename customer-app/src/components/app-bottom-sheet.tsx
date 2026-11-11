@@ -35,6 +35,8 @@ type AppBottomSheetProps = {
   closeOnBackdropPress?: boolean;
   contentContainerStyle?: StyleProp<ViewStyle>;
   sheetStyle?: StyleProp<ViewStyle>;
+  /** Round "×" at the header's right (default true when there is a header). */
+  showCloseButton?: boolean;
 };
 
 function normalizeSnapPoint(value: number, screenHeight: number) {
@@ -69,6 +71,7 @@ export function AppBottomSheet({
   closeOnBackdropPress = true,
   contentContainerStyle,
   sheetStyle,
+  showCloseButton = true,
 }: AppBottomSheetProps) {
   const insets = useSafeAreaInsets();
   const dimensions = useWindowDimensions();
@@ -103,8 +106,13 @@ export function AppBottomSheet({
 
   const activeSnapPoint = normalizedSnapPoints[Math.min(activeSnapIndex, normalizedSnapPoints.length - 1)] ?? 0.72;
   const topGap = Math.max(insets.top + 28, 56);
-  const sheetHeight = Math.min(screenHeight * activeSnapPoint, screenHeight - topGap);
-  const keyboardLift = keyboardHeight ? Math.min(keyboardHeight, screenHeight * 0.32) : 0;
+  // Lift the sheet by the FULL keyboard height (the old 32% cap left a footer input — e.g.
+  // the poll comment box — under taller keyboards) and shrink it so it still fits on screen.
+  const keyboardLift = keyboardHeight > 0 ? keyboardHeight : 0;
+  const sheetHeight = Math.min(
+    screenHeight * activeSnapPoint,
+    screenHeight - topGap - keyboardLift,
+  );
   const surfaceColor = palette.background;
   const textColor = palette.foreground;
   const mutedTextColor = palette.mutedForeground;
@@ -285,7 +293,6 @@ export function AppBottomSheet({
               height: sheetHeight,
               marginBottom: keyboardLift,
               backgroundColor: surfaceColor,
-              borderColor,
               transform: [{ translateY }],
             },
             sheetStyle,
@@ -312,6 +319,22 @@ export function AppBottomSheet({
                     </Text>
                   ) : null}
                 </View>
+                {showCloseButton ? (
+                  <Pressable
+                    onPress={() =>
+                      animateClosed(() => {
+                        setRendered(false);
+                        onClose();
+                      })
+                    }
+                    hitSlop={10}
+                    style={({ pressed }) => [styles.closeButton, pressed ? styles.closePressed : null]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close"
+                  >
+                    <Ionicons name="close" size={18} color={palette.foreground} />
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
           </View>
@@ -324,7 +347,7 @@ export function AppBottomSheet({
                 styles.footer,
                 {
                   borderTopColor: borderColor,
-                  paddingBottom: Math.max(insets.bottom, 12),
+                  paddingBottom: keyboardLift > 0 ? 10 : Math.max(insets.bottom, 12),
                 },
               ]}
             >
@@ -344,33 +367,33 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(17, 13, 16, 0.34)",
+    backgroundColor: "rgba(17, 17, 17, 0.48)",
   },
+  // Modern sheet: big 28px top radius, no outline, soft upward shadow.
   sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderWidth: 1,
-    borderBottomWidth: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 0,
     overflow: "hidden",
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
+    shadowColor: "#000000",
+    shadowOpacity: 0.14,
     shadowRadius: 24,
-    shadowOffset: { width: 0, height: -10 },
+    shadowOffset: { width: 0, height: -8 },
     elevation: 18,
   },
   dragArea: {
     paddingTop: 0,
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingBottom: 10,
   },
   handle: {
     alignSelf: "center",
-    width: 44,
-    height: 5,
+    width: 40,
+    height: 4.5,
     borderRadius: 999,
-    marginTop: 12,
-    marginBottom: 13,
-    backgroundColor: "#D8CDD3",
+    marginTop: 10,
+    marginBottom: 12,
+    backgroundColor: "#D5D7DB",
   },
   header: {
     flexDirection: "row",
@@ -380,24 +403,35 @@ const styles = StyleSheet.create({
   leadingIcon: {
     width: 42,
     height: 42,
-    borderRadius: 15,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFEAF2",
+    backgroundColor: palette.primarySoft,
   },
+  closeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
+  },
+  closePressed: { opacity: 0.7 },
   headerCopy: {
     flex: 1,
     gap: 2,
   },
   title: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
+    fontSize: 19,
+    lineHeight: 25,
+    fontWeight: "700",
   },
   subtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "600",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "400",
   },
   body: {
     flex: 1,
@@ -409,7 +443,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   footer: {
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 16,
     paddingTop: 12,
     backgroundColor: palette.surface,

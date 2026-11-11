@@ -1,12 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import {
   ActivityIndicator,
   Animated,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   View,
@@ -14,6 +13,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ButtonParticleBurst } from "@/src/components/button-particle-burst";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
+import { AllCartsList } from "@/src/components/cart/all-carts-list";
 import { PressableScale } from "@/src/components/pressable-scale";
 import { styles } from "@/src/components/cart/cart-screen.styles";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -26,9 +27,9 @@ import {
 } from "@/src/hooks/use-customer-api";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { applyCurrentLocation } from "@/src/lib/current-location";
+import { formatDeliverToLine } from "@/src/lib/location-address";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { formatCurrency } from "@/src/lib/currency";
-import { buildDeliveryWhyText } from "@/src/lib/delivery-breakdown";
 import { platformFeeLabel } from "@/src/lib/platform-fee";
 import { computeOfferProgress, type OfferTier } from "@/src/lib/offer-progress";
 import { formatShortOrderIdLabel } from "@/src/lib/order-id";
@@ -43,11 +44,13 @@ import {
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import {
   buildCartItemKey,
+  getAllCarts,
   getCartItemCount,
   getCartSubtotal,
   useCartStore,
 } from "@/src/store/cart-store";
 import { useLocationStore } from "@/src/store/location-store";
+import { AppHeader } from "@/src/components/ui";
 import { palette } from "@/src/theme/palette";
 import type {
   CustomerRestaurantMenuItem,
@@ -150,7 +153,7 @@ function CartQuantityPlusButton({ onPress }: { onPress: () => void }) {
         pressed ? styles.quantityButtonPressed : null,
       ]}
     >
-      <Ionicons name="add" size={15} color="#fff" />
+      <Ionicons name="add" size={15} color={palette.onPrimary} />
       {burstKey > 0 ? (
         <ButtonParticleBurst
           triggerKey={burstKey}
@@ -180,6 +183,34 @@ export default function CartScreen() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const syncPricing = useCartStore((state) => state.syncPricing);
+  // Multi-cart: with 2+ carts the tab opens on the "Your carts" list; "View cart" (or a
+  // navigation with ?view=active, e.g. from a restaurant's cart bar) opens one cart.
+  const allCartsMap = useCartStore((state) => state.carts);
+  const allCarts = useMemo(() => getAllCarts({ carts: allCartsMap }), [allCartsMap]);
+  const setActiveCart = useCartStore((state) => state.setActiveCart);
+  const removeCart = useCartStore((state) => state.removeCart);
+  const cartParams = useLocalSearchParams<{ view?: string }>();
+  const [cartDetailOpen, setCartDetailOpen] = useState(cartParams.view === "active");
+  useEffect(() => {
+    if (cartParams.view === "active") setCartDetailOpen(true);
+  }, [cartParams.view]);
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        // Leaving the tab: next visit starts from the list again (if several carts).
+        setCartDetailOpen(false);
+        router.setParams({ view: undefined });
+      },
+      [router],
+    ),
+  );
+  // Active cart was checked out / removed and exactly one other cart remains → open it.
+  useEffect(() => {
+    if (items.length === 0 && allCarts.length === 1) {
+      setActiveCart(allCarts[0].restaurant.restaurantId);
+    }
+  }, [allCarts, items.length, setActiveCart]);
+  const showAllCarts = allCarts.length > 1 && (!cartDetailOpen || items.length === 0);
   const selectedLocation = useLocationStore((state) => state.selectedLocation);
   const customer = useCustomerAuthStore((state) => state.customer);
   const isOnline = useIsOnline();
@@ -437,21 +468,24 @@ export default function CartScreen() {
       ),
     };
   }, [bestApplicableOffer, localSubtotal, pricing, shouldUseQuotedPricing]);
+  // Platform-funded item discounts (menu markdowns): the quote's subtotal is the full item
+  // price, so show the markdown as its own line (the total already has it taken off).
+  const itemDiscountAmount =
+    shouldUseQuotedPricing && pricing ? Math.max(0, pricing.menuMarkdownAmount ?? 0) : 0;
+  // Everything the customer saves on this cart: voucher/auto discount + item discounts +
+  // first-order welcome discount.
+  const cartSavings =
+    Math.max(0, displayPricing.discountAmount ?? 0) +
+    itemDiscountAmount +
+    Math.max(0, displayPricing.firstOrderDiscountAmount ?? 0);
   const displayDiscountLabel =
     displayPricing.discountAmount > 0
       ? (appliedAutoVoucher?.name ?? bestApplicableOffer?.name ?? "Discount")
       : "";
-  // Backend-supplied "why this delivery fee" breakdown (base + distance surcharge + km).
-  // Only present with a real quote, so the note appears once pricing is verified.
-  const deliveryBreakdown = quoteQuery.data?.deliveryBreakdown;
   // Admin-set platform fee display info (label/note). Only the MANDATORY modes
   // (flat/percentage) land in pricing.platformFee here — the optional mode's opt-in lives
   // on the checkout screen, so the cart stays clean.
   const platformFeeInfo = quoteQuery.data?.platformFeeInfo;
-  const deliveryWhyText = useMemo(
-    () => buildDeliveryWhyText(deliveryBreakdown),
-    [deliveryBreakdown],
-  );
   const firstOrderMeta = quoteQuery.data?.firstOrderDiscount;
   const offerProgress = useMemo(() => {
     const subtotal = displayPricing.subtotal;
@@ -657,6 +691,29 @@ export default function CartScreen() {
     [addItem, openRestaurantForItem, restaurant],
   );
 
+  if (showAllCarts) {
+    return (
+      <Screen>
+        <AllCartsList
+          carts={allCarts}
+          deliverTo={formatDeliverToLine(selectedLocation, "your selected location")}
+          bottomInset={0}
+          onOpen={(restaurantId) => {
+            setActiveCart(restaurantId);
+            setCartDetailOpen(true);
+          }}
+          onRemove={removeCart}
+          onAddMore={(restaurantId) =>
+            router.push({
+              pathname: "/restaurants/[restaurantId]",
+              params: { restaurantId, source: "cart" },
+            })
+          }
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <View style={styles.container}>
@@ -666,26 +723,27 @@ export default function CartScreen() {
               title="Your cart is empty"
               description="Add something you would like to order, and it will appear here for checkout."
               actionLabel="Browse restaurants"
-              onPress={() => router.push("/(tabs)/browse")}
+              onPress={() => router.push("/(tabs)")}
             />
           </View>
         ) : (
           <>
+            <BelaPullToRefresh
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+            >
             <ScrollView
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
-              refreshControl={
-                <RefreshControl
-                  refreshing={isRefreshing}
-                  onRefresh={handleRefresh}
-                  tintColor={palette.secondary}
-                  colors={[palette.secondary]}
-                />
-              }
             >
               <View style={styles.header}>
-                <Text style={styles.kicker}>Cart</Text>
-                <Text style={styles.title}>Your cart</Text>
+                <AppHeader
+                  inline
+                  showBack={allCarts.length > 1}
+                  onBack={() => setCartDetailOpen(false)}
+                  eyebrow={allCarts.length > 1 ? `Cart · ${allCarts.length} carts` : "Cart"}
+                  title={restaurant?.restaurantName || "Your cart"}
+                />
                 {/* <Text style={styles.subtitle}>
                   Review your items, pricing, and checkout details before
                   placing the order.
@@ -693,52 +751,46 @@ export default function CartScreen() {
                 {!isOnline ? (
                   <OfflineNoticeCard description="Your cart is saved on this device. Reconnect to verify availability and continue to checkout." />
                 ) : null}
-                <View style={styles.headerStatRow}>
-                  <View
-                    style={[styles.infoPill, { backgroundColor: "#FFE9F1" }]}
-                  >
-                    <View style={styles.infoPillTopRow}>
-                      <Ionicons
-                        name="bag-handle-outline"
-                        size={13}
-                        color={palette.foreground}
-                      />
-                      <Text style={styles.infoPillLabel}>Items</Text>
-                    </View>
-                    <Text style={styles.infoPillValue}>{itemCount}</Text>
+                {/* One slim summary strip (items · savings · delivery point) instead of three tiles. */}
+                <View style={styles.kpiStrip}>
+                  <View style={styles.kpi}>
+                    <Ionicons name="bag-handle-outline" size={15} color={palette.secondary} />
+                    <Text style={styles.kpiValue}>{itemCount}</Text>
+                    <Text style={styles.kpiLabel}>{itemCount === 1 ? "item" : "items"}</Text>
                   </View>
-                  <View
-                    style={[styles.infoPill, { backgroundColor: "#FFEAF3" }]}
+                  <View style={styles.kpiDivider} />
+                  <View style={styles.kpi}>
+                    <Ionicons name="pricetag-outline" size={15} color={palette.successText} />
+                    {cartSavings > 0 ? (
+                      <>
+                        <Text style={[styles.kpiValue, styles.kpiValueGood]}>
+                          {formatCurrency(cartSavings)}
+                        </Text>
+                        <Text style={styles.kpiLabel}>saved</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.kpiLabel}>No savings yet</Text>
+                    )}
+                  </View>
+                  <View style={styles.kpiDivider} />
+                  <Pressable
+                    style={styles.kpi}
+                    onPress={() => router.push("/location-picker")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Change delivery location"
                   >
-                    <View style={styles.infoPillTopRow}>
-                      <Ionicons
-                        name="pricetag-outline"
-                        size={13}
-                        color={palette.foreground}
-                      />
-                      <Text style={styles.infoPillLabel}>Discount</Text>
-                    </View>
-                    <Text style={styles.infoPillValue}>
-                      {(pricing?.discountAmount ?? 0) > 0
-                        ? `-${formatCurrency(pricing?.discountAmount ?? 0)}`
-                        : "No deal yet"}
+                    <Ionicons
+                      name={selectedLocation ? "location" : "location-outline"}
+                      size={15}
+                      color={selectedLocation ? palette.successText : palette.warningText}
+                    />
+                    <Text
+                      style={[styles.kpiLabel, !selectedLocation ? styles.kpiLabelWarn : null]}
+                      numberOfLines={1}
+                    >
+                      {selectedLocation ? "Location set" : "Set location"}
                     </Text>
-                  </View>
-                  <View
-                    style={[styles.infoPill, { backgroundColor: "#EAF2FF" }]}
-                  >
-                    <View style={styles.infoPillTopRow}>
-                      <Ionicons
-                        name="navigate-outline"
-                        size={13}
-                        color={palette.foreground}
-                      />
-                      <Text style={styles.infoPillLabel}>Location</Text>
-                    </View>
-                    <Text style={styles.infoPillValue}>
-                      {selectedLocation ? "Ready" : "Missing"}
-                    </Text>
-                  </View>
+                  </Pressable>
                 </View>
               </View>
 
@@ -801,7 +853,7 @@ export default function CartScreen() {
                           <Ionicons
                             name="location-outline"
                             size={14}
-                            color={palette.surface}
+                            color={palette.onPrimary}
                           />
                           <Text style={styles.validationActionPrimaryText}>
                             Change location
@@ -969,7 +1021,7 @@ export default function CartScreen() {
                               style={styles.itemImage}
                               fallbackIcon="fast-food-outline"
                               fallbackIconSize={20}
-                              fallbackTint={palette.primary}
+                              fallbackTint={palette.secondary}
                               accessibilityLabel={`${item.name} cart item photo`}
                             />
 
@@ -1162,7 +1214,7 @@ export default function CartScreen() {
                                 style={styles.recommendationImage}
                                 fallbackIcon="fast-food-outline"
                                 fallbackIconSize={18}
-                                fallbackTint={palette.primary}
+                                fallbackTint={palette.secondary}
                                 targetWidth={200}
                                 accessibilityLabel={`${item.name} recommended food photo`}
                               />
@@ -1180,8 +1232,8 @@ export default function CartScreen() {
                                   name={
                                     customizable ? "options-outline" : "add"
                                   }
-                                  size={13}
-                                  color="#fff"
+                                  size={14}
+                                  color={palette.onPrimary}
                                 />
                               </View>
                             </View>
@@ -1320,6 +1372,16 @@ export default function CartScreen() {
                     {formatCurrency(displayPricing.subtotal)}
                   </Text>
                 </View>
+                {itemDiscountAmount > 0 ? (
+                  <View style={styles.summaryRow}>
+                    <Text style={[styles.summaryLabel, styles.summaryHighlight]}>
+                      Item discount
+                    </Text>
+                    <Text style={[styles.summaryValue, styles.summaryHighlight]}>
+                      -{formatCurrency(itemDiscountAmount)}
+                    </Text>
+                  </View>
+                ) : null}
                 {displayPricing.discountAmount > 0 ? (
                   <View style={styles.summaryRow}>
                     <Text
@@ -1355,27 +1417,10 @@ export default function CartScreen() {
                 ) : null}
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Delivery fee</Text>
-                  {deliveryBreakdown &&
-                  deliveryBreakdown.extraDistanceFee > 0 ? (
-                    <View style={styles.summaryDeliveryValueStack}>
-                      <Text style={styles.summaryValue}>
-                        {formatCurrency(deliveryBreakdown.baseFee)}
-                      </Text>
-                      <Text style={styles.summaryDeliveryExtra}>
-                        +{formatCurrency(deliveryBreakdown.extraDistanceFee)}
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.summaryValue}>
-                      {formatCurrency(displayPricing.deliveryFee)}
-                    </Text>
-                  )}
-                </View>
-                {deliveryWhyText ? (
-                  <Text style={styles.summaryDeliveryNote}>
-                    {deliveryWhyText}
+                  <Text style={styles.summaryValue}>
+                    {formatCurrency(displayPricing.deliveryFee)}
                   </Text>
-                ) : null}
+                </View>
                 {(displayPricing.rainSurcharge ?? 0) > 0 ? (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Rain surcharge</Text>
@@ -1410,6 +1455,7 @@ export default function CartScreen() {
                 </View>
               </View>
             </ScrollView>
+            </BelaPullToRefresh>
 
             <View style={styles.checkoutWrap}>
               {minimumOrderMessage ? (

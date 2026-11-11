@@ -52,6 +52,8 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 import type { SavedLocation } from "@/src/types/location";
+import { HeaderIconButton } from "@/src/components/ui";
+import { AuthHero } from "@/src/components/auth/auth-hero";
 
 const CUSTOMER_AUTH_OTP_CODE_LENGTH = 4;
 
@@ -549,44 +551,23 @@ export default function VerifyScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Pressable
-              onPress={() => {
-                if (!isOtpStep) {
-                  return;
-                }
-
-                router.back();
-              }}
-              style={[
-                styles.backButton,
-                !isOtpStep ? styles.backButtonDisabled : null,
-              ]}
+            <HeaderIconButton
+              icon="arrow-back"
+              accessibilityLabel="Go back"
               disabled={!isOtpStep}
-              android_ripple={{ color: "#F7E1EA" }}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={21}
-                color={palette.foreground}
-              />
-            </Pressable>
+              onPress={() => router.back()}
+            />
           </View>
 
-          <View style={styles.hero}>
-            <View style={styles.heroIconWrap}>
-              <View style={styles.heroAccent} />
-              <View style={styles.heroIcon}>
-                <Ionicons
-                  name={isOtpStep ? "keypad-outline" : "person-circle-outline"}
-                  size={27}
-                  color="#FFFFFF"
-                />
-              </View>
-            </View>
-            <Text style={styles.title}>
-              {isOtpStep ? "Verify your phone" : "Complete your profile"}
-            </Text>
-          </View>
+          <AuthHero
+            title={isOtpStep ? "Verify your phone" : "Complete your profile"}
+            subtitle={
+              isOtpStep
+                ? `Enter the ${CUSTOMER_AUTH_OTP_CODE_LENGTH}-digit code we sent by SMS.`
+                : "Add your name and a password to finish."
+            }
+            icon={isOtpStep ? "keypad" : "person"}
+          />
 
           <View style={styles.card}>
             {isOtpStep ? (
@@ -663,7 +644,7 @@ export default function VerifyScreen() {
                   {isAuthSubmitting ||
                   verifyOtpMutation.isPending ||
                   registerMutation.isPending ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={palette.onPrimary} />
                   ) : (
                     <View style={styles.primaryButtonContent}>
                       {otpIsLocked ? (
@@ -673,7 +654,7 @@ export default function VerifyScreen() {
                       ) : (
                         <Text style={styles.primaryButtonText}>Verify OTP</Text>
                       )}
-                      <Ionicons name="arrow-forward" size={17} color="#fff" />
+                      <Ionicons name="arrow-forward" size={17} color={palette.onPrimary} />
                     </View>
                   )}
                 </Pressable>
@@ -724,7 +705,7 @@ export default function VerifyScreen() {
                       gap: 8,
                       paddingVertical: 14,
                       marginTop: 8,
-                      borderRadius: 14,
+                      borderRadius: 16,
                       backgroundColor: "#25D366",
                       opacity: pressed || whatsappMutation.isPending ? 0.85 : 1,
                     })}
@@ -737,7 +718,7 @@ export default function VerifyScreen() {
                         <Text
                           style={{
                             color: "#fff",
-                            fontWeight: "800",
+                            fontWeight: "700",
                             fontSize: 15,
                           }}
                         >
@@ -758,7 +739,7 @@ export default function VerifyScreen() {
                       gap: 8,
                       paddingVertical: 14,
                       marginTop: 8,
-                      borderRadius: 14,
+                      borderRadius: 16,
                       borderWidth: 1.5,
                       borderColor: palette.secondary,
                       backgroundColor: `${palette.secondary}14`,
@@ -769,7 +750,7 @@ export default function VerifyScreen() {
                     <Text
                       style={{
                         color: palette.secondary,
-                        fontWeight: "800",
+                        fontWeight: "700",
                         fontSize: 15,
                       }}
                     >
@@ -1020,13 +1001,13 @@ export default function VerifyScreen() {
                   disabled={createAccountDisabled}
                 >
                   {isAuthSubmitting || registerMutation.isPending ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={palette.onPrimary} />
                   ) : (
                     <View style={styles.primaryButtonContent}>
                       <Text style={styles.primaryButtonText}>
                         Create account
                       </Text>
-                      <Ionicons name="arrow-forward" size={17} color="#fff" />
+                      <Ionicons name="arrow-forward" size={17} color={palette.onPrimary} />
                     </View>
                   )}
                 </Pressable>
@@ -1045,73 +1026,19 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    paddingHorizontal: 22,
-    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingTop: 8,
     paddingBottom: 28,
     justifyContent: "flex-start",
-    gap: 24,
+    gap: 22,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-start",
   },
-  backButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    elevation: 2,
-  },
   backButtonDisabled: {
     opacity: 0.35,
-  },
-  hero: {
-    alignItems: "center",
-    gap: 14,
-  },
-  heroIconWrap: {
-    width: 92,
-    height: 92,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroAccent: {
-    position: "absolute",
-    width: 74,
-    height: 74,
-    borderRadius: 26,
-    backgroundColor: "#D7F7EC",
-    transform: [{ rotate: "10deg" }],
-  },
-  heroIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 24,
-    backgroundColor: palette.foreground,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.24,
-    shadowRadius: 22,
-    elevation: 5,
-  },
-  title: {
-    maxWidth: 280,
-    fontSize: 32,
-    fontWeight: "800",
-    lineHeight: 38,
-    color: palette.foreground,
-    textAlign: "center",
   },
   transitionContainer: {
     flex: 1,
@@ -1123,21 +1050,16 @@ const styles = StyleSheet.create({
   transitionIcon: {
     width: 66,
     height: 66,
-    borderRadius: 26,
+    borderRadius: 33,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
-    shadowColor: "rgba(255, 99, 146, 0.34)",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 1,
-    shadowRadius: 20,
-    elevation: 5,
+    backgroundColor: palette.primary,
   },
   transitionTitle: {
     maxWidth: 260,
     fontSize: 24,
     lineHeight: 30,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },
@@ -1148,45 +1070,38 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#FFE3EE",
-    backgroundColor: "#FFF4F8",
+    borderColor: "#FFF1DC",
+    backgroundColor: "#FFFAF2",
     paddingHorizontal: 14,
     paddingVertical: 9,
   },
   transitionText: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   card: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
     backgroundColor: palette.surface,
     padding: 18,
     gap: 16,
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.14,
-    shadowRadius: 22,
-    elevation: 3,
   },
   phoneCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#F0E8E3",
-    backgroundColor: "#FFFDFB",
-    padding: 13,
+    borderRadius: 16,
+    backgroundColor: palette.surfaceMuted,
+    padding: 12,
   },
   phoneIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    backgroundColor: "#FFF0E9",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1195,23 +1110,22 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   phoneLabel: {
-    fontSize: 11,
-    fontWeight: "800",
+    fontSize: 12,
+    fontWeight: "500",
     color: palette.mutedForeground,
-    textTransform: "uppercase",
   },
   phoneValue: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   phoneEditButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
+    borderColor: "#DADCE0",
+    backgroundColor: palette.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1219,16 +1133,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#D9F5EA",
-    backgroundColor: "#F5FFFB",
-    padding: 13,
+    borderRadius: 16,
+    backgroundColor: palette.successSurface,
+    padding: 12,
   },
   profileIntroIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: palette.successText,
     alignItems: "center",
     justifyContent: "center",
@@ -1239,44 +1151,37 @@ const styles = StyleSheet.create({
   },
   profileIntroTitle: {
     fontSize: 12,
-    fontWeight: "800",
-    color: palette.foreground,
-    textTransform: "uppercase",
+    fontWeight: "500",
+    color: palette.mutedForeground,
   },
   profileIntroText: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.successText,
   },
   profileForm: {
     gap: 12,
   },
   profileField: {
-    minHeight: 70,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#EEE3DD",
-    backgroundColor: "#FFFDFB",
-    paddingHorizontal: 13,
-    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#E3E4E7",
+    backgroundColor: palette.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   profileFieldFocused: {
-    borderColor: "#FFD4C3",
-    backgroundColor: "#FFF9F5",
-    shadowColor: "rgba(255, 99, 146, 0.2)",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 2,
+    borderColor: palette.primary,
   },
   profileFieldIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    backgroundColor: "#FFF0E9",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1294,16 +1199,15 @@ const styles = StyleSheet.create({
   },
   profileFieldLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "500",
     color: palette.mutedForeground,
-    textTransform: "uppercase",
   },
   profileInput: {
     minHeight: 26,
     padding: 0,
     paddingRight: 42,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
     color: palette.foreground,
     backgroundColor: "transparent",
   },
@@ -1321,8 +1225,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    borderRadius: 16,
-    backgroundColor: "#FFF1F5",
+    borderRadius: 14,
+    backgroundColor: "#FDECEF",
     paddingHorizontal: 12,
     paddingVertical: 11,
   },
@@ -1339,22 +1243,15 @@ const styles = StyleSheet.create({
     color: palette.warningText,
   },
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: palette.secondary,
-    paddingVertical: 15,
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "rgba(255, 99, 146, 0.42)",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.26,
-    shadowRadius: 18,
-    elevation: 3,
   },
   primaryButtonDisabled: {
-    backgroundColor: "#D8D2D4",
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: "#ECEDEF",
   },
   primaryButtonContent: {
     flexDirection: "row",
@@ -1363,18 +1260,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryButtonText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#fff",
+    fontSize: 15.5,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   secondaryButton: {
-    // Pink so "Resend code" clearly reads as a tappable button (it's the resend action).
-    minHeight: 54,
-    borderRadius: 18,
+    minHeight: 50,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(255, 43, 133, 0.32)",
-    backgroundColor: "#FFF0F6",
-    paddingVertical: 14,
+    borderColor: "#DADCE0",
+    backgroundColor: palette.surface,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1386,7 +1282,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     fontSize: 14,
-    fontWeight: "800",
-    color: palette.secondary,
+    fontWeight: "700",
+    color: palette.foreground,
   },
 });

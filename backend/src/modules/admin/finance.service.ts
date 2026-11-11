@@ -2043,6 +2043,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
               ],
             },
           },
+          // Customer platform fee (admin-set, default off) — 100% platform income.
+          platformFees: { $sum: { $ifNull: ["$pricing.platformFee", 0] } },
           onlineCollected: {
             $sum: {
               $cond: [
@@ -2615,8 +2617,9 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
   // Zero-commission "markup" restaurants: the platform's income is the markup added on top of
   // the customer price (commission is 0 for these), so it's a first-class revenue line here.
   const platformMarkupRevenue = numberValue(delivered.deliveredEligibleMarkup);
+  const platformFeeRevenue = numberValue(delivered.platformFees);
   const platformGrossRevenue =
-    platformCommission + platformMarkupRevenue + deliveryFeeRevenue + manualIncome;
+    platformCommission + platformMarkupRevenue + deliveryFeeRevenue + platformFeeRevenue + manualIncome;
   const platformVoucherCost = numberValue(ledger.platformDiscountCost);
   const riderPayrollExpense = payrollSummary.netPayable;
   const operatingExpense = platformVoucherCost + riderPayrollExpense + manualExpense;
@@ -2757,6 +2760,7 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     revenue: {
       platformCommission,
       platformMarkupRevenue,
+      platformFeeRevenue,
       deliveryFeeRevenue,
       platformGrossRevenue,
       deliveredOrders: numberValue(delivered.deliveredOrders),
@@ -4785,4 +4789,28 @@ export async function listAdminFinanceRefunds(params: RefundListParams) {
     ...buildPagination(total, page, pageSize),
     summary,
   };
+}
+
+// Dashboard "Estimated margin" must equal Finance "Net profit / loss" for the same period and
+// area — so it reads it from here instead of re-deriving (it used to miss markup income,
+// manual income/expense and the platform fee). Short cache: the live dashboard polls.
+const profitLossCache = new Map<string, { at: number; value: Promise<{ netProfit: number; marginPercent: number }> }>();
+const PROFIT_LOSS_CACHE_MS = 30_000;
+
+export function getAdminPlatformProfitLoss(
+  input: Omit<PlatformFinanceParams, "preset"> & { preset?: string } = {},
+) {
+  const params: PlatformFinanceParams = { ...input, preset: input.preset as FinancePreset | undefined };
+  const key = JSON.stringify([params.preset ?? "", params.from ?? "", params.to ?? "", params.zoneId ?? "", params.districtId ?? ""]);
+  const now = Date.now();
+  const cached = profitLossCache.get(key);
+  if (cached && now - cached.at < PROFIT_LOSS_CACHE_MS) return cached.value;
+  const value = getAdminPlatformFinance(params).then((finance) => ({
+    netProfit: numberValue(finance.profitLoss.netProfit),
+    marginPercent: numberValue(finance.profitLoss.marginPercent),
+  }));
+  value.catch(() => profitLossCache.delete(key));
+  profitLossCache.set(key, { at: now, value });
+  if (profitLossCache.size > 50) profitLossCache.delete(profitLossCache.keys().next().value as string);
+  return value;
 }

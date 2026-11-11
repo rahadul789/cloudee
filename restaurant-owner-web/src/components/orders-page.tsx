@@ -292,6 +292,14 @@ function OrdersTable({
                               ⚡ Urgent
                             </Badge>
                           ) : null}
+                          {order.isGift ? (
+                            <Badge
+                              variant="outline"
+                              className="border-pink-200 bg-pink-50 font-semibold text-pink-700"
+                            >
+                              🎁 Gift
+                            </Badge>
+                          ) : null}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {getPaymentMethodLabel(order.paymentMethod)}

@@ -19,6 +19,28 @@ import {
 } from "../../common/middleware/rate-limit"
 
 import { requireAuth, requireRole } from "../../common/middleware/auth"
+import { customerOrderChat } from "../order-chat/order-chat.controller"
+import {
+  deleteCustomerOpenNotify,
+  getCustomerOpenNotify,
+  postCustomerOpenNotify,
+} from "../open-notify/open-notify.controller"
+import {
+  getCustomerHypeFeed,
+  getCustomerHypePollComments,
+  postCustomerHypeEvents,
+  postCustomerHypePollComment,
+  postCustomerHypePollVote,
+  postCustomerHypeVideoReaction,
+  postCustomerHypeVideoView,
+} from "../hype/hype.controller"
+import {
+  getCustomerRewardsController,
+  postCustomerBuyStamp,
+  postCustomerOpenBox,
+  postCustomerSpin,
+  postCustomerUnlockSpin,
+} from "../rewards/rewards.controller"
 import { postCustomerAnalyticsEvent } from "./customer-analytics.controller"
 import {
   getCustomerOrder,
@@ -39,6 +61,7 @@ import {
   postCustomerVoucherDisplayEvent,
   postCustomerPollVote,
   postCustomerPushOpenEvent,
+  postCustomerPromoCtaClick,
   getCustomerFavoriteRestaurantCards,
   getCustomerRestaurant,
   getCustomerSupportCaseController,
@@ -177,7 +200,22 @@ customerRouter.post("/auth/logout", logoutCustomerAuth)
 customerRouter.get("/discovery/home", getCustomerDiscoveryHomePage)
 customerRouter.post("/vouchers/display-event", customerAnalyticsEventLimiter, postCustomerVoucherDisplayEvent)
 customerRouter.post("/home/poll/vote", customerAnalyticsEventLimiter, postCustomerPollVote)
+// Hype tab (admin-curated drops / events / videos). Optional auth: guests react by deviceId.
+customerRouter.get("/hype/feed", getCustomerHypeFeed)
+customerRouter.post("/hype/videos/:videoId/reaction", customerAnalyticsEventLimiter, postCustomerHypeVideoReaction)
+customerRouter.post("/hype/videos/:videoId/view", customerAnalyticsEventLimiter, postCustomerHypeVideoView)
+customerRouter.post("/hype/events", customerAnalyticsEventLimiter, postCustomerHypeEvents)
+// Stamp card + scratch cards (signed-in only — prizes are personal vouchers).
+customerRouter.get("/rewards", requireAuth, requireRole("customer"), getCustomerRewardsController)
+customerRouter.post("/rewards/spins/:spinId/spin", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerSpin)
+customerRouter.post("/rewards/spins/:spinId/unlock", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerUnlockSpin)
+customerRouter.post("/rewards/stamps/buy", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerBuyStamp)
+customerRouter.post("/rewards/boxes/:boxId/open", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerOpenBox)
+customerRouter.post("/hype/polls/:pollId/vote", customerAnalyticsEventLimiter, postCustomerHypePollVote)
+customerRouter.get("/hype/polls/:pollId/comments", getCustomerHypePollComments)
+customerRouter.post("/hype/polls/:pollId/comments", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerHypePollComment)
 customerRouter.post("/push-events/open", requireAuth, requireRole("customer"), postCustomerPushOpenEvent)
+customerRouter.post("/push-events/cta", requireAuth, requireRole("customer"), postCustomerPromoCtaClick)
 customerRouter.get("/restaurants", getCustomerDiscovery)
 customerRouter.get("/restaurants/search", getCustomerDiscoverySearch)
 customerRouter.get("/restaurants/:restaurantId", getCustomerRestaurant)
@@ -295,6 +333,14 @@ customerRouter.post(
   customerOrderActionLimiter,
   postCustomerOrderCancel
 )
+// Rider ↔ customer chat for one order (open while a rider is assigned and the order is live).
+// "Notify me when Foodbela opens" (area closed → push at reopen time).
+customerRouter.get("/open-notify", requireAuth, requireRole("customer"), getCustomerOpenNotify)
+customerRouter.post("/open-notify", requireAuth, requireRole("customer"), postCustomerOpenNotify)
+customerRouter.delete("/open-notify", requireAuth, requireRole("customer"), deleteCustomerOpenNotify)
+customerRouter.get("/orders/:orderId/chat", requireAuth, requireRole("customer"), customerOrderChat.getThread)
+customerRouter.post("/orders/:orderId/chat", requireAuth, requireRole("customer"), customerOrderChat.send)
+customerRouter.post("/orders/:orderId/chat/read", requireAuth, requireRole("customer"), customerOrderChat.markRead)
 customerRouter.post(
   "/orders/:orderId/review",
   requireAuth,

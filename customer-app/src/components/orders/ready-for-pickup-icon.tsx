@@ -71,7 +71,7 @@ export function ReadyForPickupIcon() {
         style={[styles.ring, { transform: [{ scale: ringScale }], opacity: ringOpacity }]}
       />
       <Animated.View style={[styles.badge, { transform: [{ scale: badgeScale }] }]}>
-        <Ionicons name="bag-check" size={48} color={palette.surface} />
+        <Ionicons name="bag-check" size={48} color={palette.onPrimary} />
       </Animated.View>
     </View>
   );
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
     width: RING_SIZE,
     height: RING_SIZE,
     borderRadius: RING_SIZE / 2,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   badge: {
     width: BADGE_SIZE,
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     borderRadius: BADGE_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     shadowColor: palette.secondary,
     shadowOpacity: 0.32,
     shadowRadius: 18,

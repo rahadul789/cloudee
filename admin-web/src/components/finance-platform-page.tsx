@@ -229,6 +229,7 @@ function exportPlatformFinance(data?: AdminPlatformFinanceResponse) {
     ["timeframe", "end", data.timeframe.end],
     ["revenue", "platform_commission", data.revenue.platformCommission],
     ["revenue", "platform_markup_revenue", data.revenue.platformMarkupRevenue],
+    ["revenue", "platform_fee_revenue", data.revenue.platformFeeRevenue ?? 0],
     ["revenue", "delivery_fee_revenue", data.revenue.deliveryFeeRevenue],
     ["revenue", "platform_gross_revenue", data.revenue.platformGrossRevenue],
     ["expense", "platform_voucher_cost", data.expenses.platformVoucherCost],
@@ -623,6 +624,7 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
               <h3 className="font-semibold">Revenue</h3>
               <AmountRow label="Restaurant commission" value={data.revenue.platformCommission} />
               <AmountRow label="Price markup" value={data.revenue.platformMarkupRevenue} />
+              <AmountRow label="Platform fee" value={data.revenue.platformFeeRevenue ?? 0} />
               <AmountRow label="Delivery fees" value={data.revenue.deliveryFeeRevenue} helper="Includes urgent delivery fees" />
               <AmountRow label="Manual income" value={data.wallet.manualIncome} />
               <AmountRow label="Total revenue" value={data.revenue.platformGrossRevenue} valueClassName="font-semibold text-emerald-700" />
@@ -793,6 +795,7 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
             <AmountRow label="Commission revenue" value={data.revenue.platformCommission} helper="Delivered restaurant ledger commission" />
             <AmountRow label="Markup revenue" value={data.revenue.platformMarkupRevenue} helper="Zero-commission restaurants' price markup" valueClassName="text-emerald-700" />
             <AmountRow label="Delivery fee revenue" value={data.revenue.deliveryFeeRevenue} helper="Delivered delivery fees" />
+            <AmountRow label="Platform fee revenue" value={data.revenue.platformFeeRevenue ?? 0} helper="Customer platform fee (when enabled)" />
             <AmountRow label="Manual income" value={data.wallet.manualIncome} helper="Admin recorded income" valueClassName="text-emerald-700" />
             <AmountRow label="Platform-funded vouchers" value={data.expenses.platformVoucherCost} helper="Foodbela funded discounts/referrals" valueClassName="text-rose-700" />
             <AmountRow label="Rider payroll expense" value={data.expenses.riderPayrollExpense} helper="Only salary records marked paid" valueClassName="text-rose-700" />

@@ -41,7 +41,7 @@ export function AppErrorBoundary({ error, retry }: ErrorBoundaryProps) {
           void retry();
         }}
       >
-        <Ionicons name="refresh" size={16} color={palette.surface} />
+        <Ionicons name="refresh" size={16} color={palette.onPrimary} />
         <Text style={styles.buttonText}>Try again</Text>
       </Pressable>
     </View>
@@ -69,14 +69,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 19,
     lineHeight: 24,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 13,
     lineHeight: 19,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
     textAlign: "center",
   },
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 13,
     borderRadius: 999,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   buttonPressed: {
     opacity: 0.88,
@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 14,
-    fontWeight: "800",
-    color: palette.surface,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

@@ -1,5 +1,6 @@
 import { StatusCodes } from "http-status-codes";
 import type { PipelineStage } from "mongoose";
+import { getAdminPlatformProfitLoss } from "./finance.service";
 
 import { AppError } from "../../common/utils/app-error";
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache";
@@ -4483,7 +4484,24 @@ export async function listAdminPayments(params: AdminPaymentListParams = {}) {
     numberValue(settlementSummary.commission) + numberValue(settlementSummary.deliveryCost);
   const platformOperatingExpense =
     numberValue(settlementSummary.platformDiscountCost) + riderPayrollSummary.netPayable;
-  const estimatedPlatformMargin = platformGrossIncome - platformOperatingExpense;
+  // Unfiltered view = the whole period → show exactly Finance's net profit (single source).
+  // With payment/settlement/search filters it stays a filtered estimate.
+  const isUnfilteredPaymentsView =
+    !params.search?.trim() &&
+    (params.paymentMethod ?? "all") === "all" &&
+    (params.paymentStatus ?? "all") === "all" &&
+    (params.settlement ?? "all") === "all";
+  const estimatedPlatformMargin = isUnfilteredPaymentsView
+    ? await getAdminPlatformProfitLoss({
+        preset: params.preset,
+        from: params.from,
+        to: params.to,
+        zoneId: params.zoneId,
+        districtId: params.districtId,
+      })
+        .then((profitLoss) => profitLoss.netProfit)
+        .catch(() => platformGrossIncome - platformOperatingExpense)
+    : platformGrossIncome - platformOperatingExpense;
 
   return {
     items: orders.map((order) =>

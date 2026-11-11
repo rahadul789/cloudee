@@ -273,6 +273,9 @@ const orderSchema = new Schema(
     // Customer paid for urgent/priority delivery. Drives admin/owner/rider badges and
     // (later) dispatch prioritisation. Defaults false so every existing order is normal.
     isUrgent: { type: Boolean, default: false },
+    // "Send food home" gift: { isGift, recipientName, recipientPhone, message, senderName } | null.
+    // The order stays the sender's; the rider/restaurant contact is the recipient.
+    gift: { type: Schema.Types.Mixed, default: null },
     note: { type: String, default: "", trim: true },
     paymentMethod: { type: String, default: "Cash" },
     paymentStatus: { type: String, default: "pending" },

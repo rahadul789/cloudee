@@ -282,6 +282,14 @@ export function OrderDetailsDialog({
                     ⚡ Urgent
                   </Badge>
                 ) : null}
+                {currentOrder.isGift ? (
+                  <Badge
+                    variant="outline"
+                    className="border-pink-200 bg-pink-50 font-semibold text-pink-700"
+                  >
+                    🎁 Gift
+                  </Badge>
+                ) : null}
                 <Badge
                   variant="outline"
                   className={getStatusBadgeClass(currentOrder.currentStatus)}
@@ -310,6 +318,12 @@ export function OrderDetailsDialog({
                   }
                 )}{" "}
                 with {totalItems} item{totalItems === 1 ? "" : "s"}.
+                {currentOrder.isGift ? (
+                  <span className="mt-1 block text-pink-700">
+                    🎁 Gift from {currentOrder.giftFrom || "a customer"} for {currentOrder.customer.name} — please pack it nicely.
+                    {currentOrder.giftMessage ? ` Note: “${currentOrder.giftMessage}”` : ""}
+                  </span>
+                ) : null}
               </SheetDescription>
             </div>
             <Button

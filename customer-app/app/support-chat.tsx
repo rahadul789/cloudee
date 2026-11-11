@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -10,7 +10,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  RefreshControl,
   Text,
   TextInput,
   View,
@@ -20,6 +19,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { styles } from "@/src/components/support/support-chat.styles";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
+import { AppBottomSheet } from "@/src/components/app-bottom-sheet";
 import { Screen } from "@/src/components/screen";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { RemoteImage } from "@/src/components/remote-image";
@@ -41,6 +42,7 @@ import {
 } from "@/src/hooks/use-safe-timeout";
 import { getCustomerSocket } from "@/src/lib/socket-client";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 type DatedSupportMessage = CustomerSupportCase["messages"][number] & {
   dayLabel: string;
@@ -89,7 +91,6 @@ function formatMessageDayLabel(value: string) {
 }
 
 export default function SupportChatScreen() {
-  const router = useRouter();
   const params = useLocalSearchParams<{ caseId?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList<DatedSupportMessage>>(null);
@@ -606,27 +607,7 @@ export default function SupportChatScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.container}>
-          <View style={[styles.header, { paddingTop: 2 }]}>
-            <Pressable style={styles.backButton} onPress={() => router.back()}>
-              <Ionicons
-                name="chevron-back"
-                size={18}
-                color={palette.foreground}
-              />
-            </Pressable>
-            <View style={styles.headerCopy}>
-              <View style={styles.titleRow}>
-                <View style={styles.titleIcon}>
-                  <Ionicons
-                    name="chatbubble-ellipses-outline"
-                    size={18}
-                    color={palette.secondary}
-                  />
-                </View>
-                <Text style={styles.title}>Support chat</Text>
-              </View>
-            </View>
-          </View>
+          <AppHeader inline style={styles.headerInset} title="Support chat" eyebrow="We usually reply in a few minutes" />
 
           {!isOnline ? (
             <View style={styles.offlineNoticeWrap}>
@@ -634,6 +615,12 @@ export default function SupportChatScreen() {
             </View>
           ) : null}
 
+          <BelaPullToRefresh
+            refreshing={isRefreshing}
+            onRefresh={() => {
+                  void handleRefresh();
+                }}
+          >
           <FlatList
             ref={flatListRef}
             data={datedMessages}
@@ -649,16 +636,6 @@ export default function SupportChatScreen() {
                 scrollToLatest(false);
               }
             }}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshing}
-                onRefresh={() => {
-                  void handleRefresh();
-                }}
-                tintColor={palette.secondary}
-                colors={[palette.secondary]}
-              />
-            }
             contentContainerStyle={[
               styles.chatContent,
               messages.length
@@ -710,6 +687,7 @@ export default function SupportChatScreen() {
               )
             }
           />
+          </BelaPullToRefresh>
 
           <View
             style={[
@@ -798,9 +776,9 @@ export default function SupportChatScreen() {
                 onPress={handleSendMessage}
               >
                 {isSending ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={palette.onPrimary} />
                 ) : (
-                  <Ionicons name="send" size={16} color="#fff" />
+                  <Ionicons name="send" size={16} color={palette.onPrimary} />
                 )}
               </Pressable>
             </View>
@@ -827,56 +805,50 @@ export default function SupportChatScreen() {
             </Pressable>
           ) : null}
 
-          <Modal
+          <AppBottomSheet
             visible={showAttachSheet}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setShowAttachSheet(false)}
+            onClose={() => setShowAttachSheet(false)}
+            title="Attach a photo"
+            subtitle="Show us what went wrong — a screenshot helps."
+            leadingIcon="attach-outline"
+            snapPoints={[0.4]}
           >
             <Pressable
-              style={styles.sheetBackdrop}
-              onPress={() => setShowAttachSheet(false)}
+              style={styles.sheetAction}
+              onPress={handleCaptureImage}
             >
-              <Pressable style={styles.sheetCard} onPress={() => undefined}>
-                <Text style={styles.sheetTitle}>Attach a photo</Text>
-                <Pressable
-                  style={styles.sheetAction}
-                  onPress={handleCaptureImage}
-                >
-                  <View style={styles.sheetActionIcon}>
-                    <Ionicons
-                      name="camera-outline"
-                      size={18}
-                      color={palette.secondary}
-                    />
-                  </View>
-                  <View style={styles.sheetActionCopy}>
-                    <Text style={styles.sheetActionTitle}>Take a photo</Text>
-                    <Text style={styles.sheetActionText}>
-                      Open the camera and attach it here.
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable style={styles.sheetAction} onPress={handlePickImage}>
-                  <View style={styles.sheetActionIcon}>
-                    <Ionicons
-                      name="image-outline"
-                      size={18}
-                      color={palette.secondary}
-                    />
-                  </View>
-                  <View style={styles.sheetActionCopy}>
-                    <Text style={styles.sheetActionTitle}>
-                      Choose from gallery
-                    </Text>
-                    <Text style={styles.sheetActionText}>
-                      Pick an existing screenshot or photo.
-                    </Text>
-                  </View>
-                </Pressable>
-              </Pressable>
+              <View style={styles.sheetActionIcon}>
+                <Ionicons
+                  name="camera-outline"
+                  size={18}
+                  color={palette.secondary}
+                />
+              </View>
+              <View style={styles.sheetActionCopy}>
+                <Text style={styles.sheetActionTitle}>Take a photo</Text>
+                <Text style={styles.sheetActionText}>
+                  Open the camera and attach it here.
+                </Text>
+              </View>
             </Pressable>
-          </Modal>
+            <Pressable style={styles.sheetAction} onPress={handlePickImage}>
+              <View style={styles.sheetActionIcon}>
+                <Ionicons
+                  name="image-outline"
+                  size={18}
+                  color={palette.secondary}
+                />
+              </View>
+              <View style={styles.sheetActionCopy}>
+                <Text style={styles.sheetActionTitle}>
+                  Choose from gallery
+                </Text>
+                <Text style={styles.sheetActionText}>
+                  Pick an existing screenshot or photo.
+                </Text>
+              </View>
+            </Pressable>
+          </AppBottomSheet>
 
           <Modal
             visible={Boolean(previewImageUri)}

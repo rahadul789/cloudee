@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -57,13 +56,14 @@ import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
 import type { SavedLocation } from "@/src/types/location";
+import { HeaderBackButton } from "@/src/components/ui";
+import { AuthHero } from "@/src/components/auth/auth-hero";
 
 function sanitizePhone(phone: string) {
   return phone.replace(/\D/g, "").slice(0, 11);
 }
 
 const CUSTOMER_AUTH_OTP_CODE_LENGTH = 4;
-const foodbelaLogo = require("../assets/images/icon.png");
 
 function shouldReplaceAuthStack(redirectTo?: string | null) {
   const target = redirectTo?.trim().toLowerCase() ?? "";
@@ -210,7 +210,22 @@ export default function SignInScreen() {
     (step === "resetOtp" &&
       (resetOtpCode.length !== CUSTOMER_AUTH_OTP_CODE_LENGTH ||
         resetOtpIsLocked));
-  const screenTitle = "Welcome to Foodbela";
+  const screenTitle =
+    step === "password"
+      ? "Welcome back"
+      : step === "resetOtp"
+        ? "Reset password"
+        : step === "resetPassword"
+          ? "Create a new password"
+          : "Welcome to Foodbela";
+  const screenSubtitle =
+    step === "password"
+      ? "Enter your password to continue."
+      : step === "resetOtp"
+        ? "Enter the code we sent to your phone."
+        : step === "resetPassword"
+          ? "Use at least 6 characters you will remember."
+          : "Sign in or create an account with your phone number.";
   const isPasswordRecoveryStep =
     step === "resetOtp" || step === "resetPassword";
   const resetOtpHasError = Boolean(
@@ -747,64 +762,22 @@ export default function SignInScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Pressable
-              onPress={handleBack}
-              style={styles.backButton}
-              android_ripple={{ color: "#F7E1EA" }}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={21}
-                color={palette.foreground}
-              />
-            </Pressable>
+            <HeaderBackButton onPress={handleBack} />
           </View>
 
-          <View style={styles.hero}>
-            <View style={styles.heroVisual}>
-              <View style={styles.heroVisualShadow} />
-              <View style={styles.heroVisualCard}>
-                <View style={styles.heroVisualTop}>
-                  <View style={styles.heroVisualDash} />
-                  <Ionicons name="sparkles" size={16} color={palette.amber} />
-                </View>
-                <View style={styles.heroIcon}>
-                  <Image
-                    source={foodbelaLogo}
-                    style={styles.heroLogo}
-                    resizeMode="contain"
-                    accessibilityIgnoresInvertColors
-                  />
-                </View>
-                <View style={styles.heroMiniBadge}>
-                  <Ionicons
-                    name={
-                      step === "password"
-                        ? "lock-closed-outline"
-                        : "log-in-outline"
-                    }
-                    size={12}
-                    color={palette.foreground}
-                  />
-                </View>
-              </View>
-              <View style={[styles.floatingIcon, styles.floatingIconLeft]}>
-                <Ionicons
-                  name="bag-handle-outline"
-                  size={18}
-                  color={palette.foreground}
-                />
-              </View>
-              <View style={[styles.floatingIcon, styles.floatingIconRight]}>
-                <Ionicons
-                  name="flash-outline"
-                  size={17}
-                  color={palette.foreground}
-                />
-              </View>
-            </View>
-            <Text style={styles.title}>{screenTitle}</Text>
-          </View>
+          <AuthHero
+            title={screenTitle}
+            subtitle={screenSubtitle}
+            icon={
+              step === "password"
+                ? "lock-closed"
+                : step === "resetOtp"
+                  ? "keypad"
+                  : step === "resetPassword"
+                    ? "key"
+                    : "call"
+            }
+          />
 
           <View style={styles.authPanel}>
             {step !== "phone" ? (
@@ -813,7 +786,7 @@ export default function SignInScreen() {
                   <Ionicons
                     name={isPasswordRecoveryStep ? "key-outline" : "person-outline"}
                     size={18}
-                    color={palette.primary}
+                    color={palette.secondary}
                   />
                 </View>
                 <View style={styles.accountPreviewCopy}>
@@ -896,7 +869,7 @@ export default function SignInScreen() {
                     ]}
                   >
                     <View style={styles.dialCodePill}>
-                      <Text style={styles.dialCodeText}>BD</Text>
+                      <Text style={styles.dialCodeText}>+88</Text>
                     </View>
                     <TextInput
                       value={phone}
@@ -1050,13 +1023,13 @@ export default function SignInScreen() {
                   disabled={actionIsDisabled}
                 >
                   {primaryActionBusy ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={palette.onPrimary} />
                   ) : (
                     <View style={styles.primaryButtonContent}>
                       <Text style={styles.primaryButtonText}>
                         {getPrimaryActionLabel()}
                       </Text>
-                      <Ionicons name="arrow-forward" size={17} color="#fff" />
+                      <Ionicons name="arrow-forward" size={17} color={palette.onPrimary} />
                     </View>
                   )}
                 </Pressable>
@@ -1127,7 +1100,7 @@ export default function SignInScreen() {
                       gap: 8,
                       paddingVertical: 14,
                       marginTop: 8,
-                      borderRadius: 14,
+                      borderRadius: 16,
                       backgroundColor: "#25D366",
                       opacity:
                         pressed || resetOtpWhatsappMutation.isPending ? 0.85 : 1,
@@ -1141,7 +1114,7 @@ export default function SignInScreen() {
                         <Text
                           style={{
                             color: "#fff",
-                            fontWeight: "800",
+                            fontWeight: "700",
                             fontSize: 15,
                           }}
                         >
@@ -1162,7 +1135,7 @@ export default function SignInScreen() {
                       gap: 8,
                       paddingVertical: 14,
                       marginTop: 8,
-                      borderRadius: 14,
+                      borderRadius: 16,
                       borderWidth: 1.5,
                       borderColor: palette.secondary,
                       backgroundColor: `${palette.secondary}14`,
@@ -1173,7 +1146,7 @@ export default function SignInScreen() {
                     <Text
                       style={{
                         color: palette.secondary,
-                        fontWeight: "800",
+                        fontWeight: "700",
                         fontSize: 15,
                       }}
                     >
@@ -1393,13 +1366,13 @@ export default function SignInScreen() {
                 disabled={actionIsDisabled}
               >
                 {primaryActionBusy ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={palette.onPrimary} />
                 ) : (
                   <View style={styles.primaryButtonContent}>
                     <Text style={styles.primaryButtonText}>
                       {getPrimaryActionLabel()}
                     </Text>
-                    <Ionicons name="arrow-forward" size={17} color="#fff" />
+                    <Ionicons name="arrow-forward" size={17} color={palette.onPrimary} />
                   </View>
                 )}
               </Pressable>
@@ -1417,170 +1390,38 @@ const styles = StyleSheet.create({
   },
   container: {
     flexGrow: 1,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 28,
     justifyContent: "flex-start",
-    gap: 20,
+    gap: 22,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-start",
   },
-  backButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  hero: {
-    alignItems: "center",
-    gap: 11,
-    paddingTop: 2,
-  },
-  heroVisual: {
-    width: 116,
-    height: 96,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  heroVisualShadow: {
-    position: "absolute",
-    width: 76,
-    height: 76,
-    borderRadius: 24,
-    backgroundColor: "#CFF5E9",
-    right: 10,
-    bottom: 9,
-    transform: [{ rotate: "9deg" }],
-  },
-  heroVisualCard: {
-    width: 82,
-    height: 84,
-    borderRadius: 24,
-    backgroundColor: palette.foreground,
-    padding: 10,
-    justifyContent: "space-between",
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.22,
-    shadowRadius: 20,
-    elevation: 5,
-    transform: [{ rotate: "-6deg" }],
-  },
-  heroVisualTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  heroVisualDash: {
-    width: 23,
-    height: 6,
-    borderRadius: 6,
-    backgroundColor: "rgba(255, 255, 255, 0.28)",
-  },
-  heroIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 17,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.72)",
-  },
-  heroLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-  },
-  heroMiniBadge: {
-    position: "absolute",
-    right: 9,
-    bottom: 9,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: palette.foreground,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  floatingIcon: {
-    position: "absolute",
-    width: 36,
-    height: 36,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 3,
-  },
-  floatingIconLeft: {
-    left: 3,
-    top: 43,
-    transform: [{ rotate: "-10deg" }],
-  },
-  floatingIconRight: {
-    right: 1,
-    top: 17,
-    backgroundColor: "#FFF3D8",
-    transform: [{ rotate: "12deg" }],
-  },
-  title: {
-    maxWidth: 260,
-    fontSize: 31,
-    fontWeight: "800",
-    color: palette.foreground,
-    lineHeight: 36,
-    textAlign: "center",
-  },
   authPanel: {
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
     backgroundColor: palette.surface,
     padding: 18,
     gap: 16,
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.14,
-    shadowRadius: 22,
-    elevation: 3,
   },
   accountPreview: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#FFE2D5",
-    backgroundColor: "#FFF9F5",
-    padding: 14,
+    borderRadius: 16,
+    backgroundColor: palette.surfaceMuted,
+    padding: 12,
   },
   accountPreviewIcon: {
     width: 40,
     height: 40,
-    borderRadius: 14,
-    backgroundColor: "#FFF0E9",
+    borderRadius: 20,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1589,14 +1430,13 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   accountPreviewLabel: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "500",
     color: palette.mutedForeground,
-    textTransform: "uppercase",
   },
   accountPreviewValue: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   accountPreviewMeta: {
@@ -1607,12 +1447,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    borderRadius: 14,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 11,
-    paddingVertical: 9,
+    borderColor: "#DADCE0",
+    backgroundColor: palette.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   changeNumberButtonText: {
     fontSize: 13,
@@ -1624,10 +1464,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 14,
-    backgroundColor: "#F7F5F3",
+    borderRadius: 999,
+    backgroundColor: palette.surfaceMuted,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
   },
   passwordActionRow: {
     flexDirection: "row",
@@ -1637,21 +1477,21 @@ const styles = StyleSheet.create({
   },
   forgotPasswordText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   resetSection: {
     gap: 12,
   },
   resendButton: {
-    minHeight: 48,
+    minHeight: 50,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
-    backgroundColor: "#F7F5F3",
+    borderColor: "#DADCE0",
+    backgroundColor: palette.surface,
+    paddingVertical: 12,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
   },
   resendButtonDisabled: {
     opacity: 0.72,
@@ -1660,49 +1500,36 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   resendButtonText: {
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    fontWeight: "700",
     color: palette.foreground,
   },
   label: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   fieldCard: {
-    gap: 12,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#F0E8E3",
-    backgroundColor: "#FFFDFB",
-    padding: 14,
+    gap: 8,
   },
-  fieldCardFocused: {
-    borderColor: "#FFD4C3",
-    backgroundColor: "#FFF9F5",
-  },
-  fieldCardError: {
-    borderColor: "#F1B8C7",
-    backgroundColor: "#FFFAFC",
-  },
+  fieldCardFocused: {},
+  fieldCardError: {},
   fieldCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
   fieldCardIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 13,
-    backgroundColor: "#FFF0E9",
+    width: 22,
+    height: 22,
     alignItems: "center",
     justifyContent: "center",
   },
   validBadge: {
     marginLeft: "auto",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: palette.successText,
     alignItems: "center",
     justifyContent: "center",
@@ -1717,43 +1544,43 @@ const styles = StyleSheet.create({
   optionalBadgeText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   inputShell: {
-    minHeight: 56,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: "transparent",
-    backgroundColor: "#F7F5F3",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#E3E4E7",
+    backgroundColor: palette.surface,
     paddingHorizontal: 12,
   },
   inputShellFocused: {
-    borderColor: "rgba(255, 122, 89, 0.26)",
-    backgroundColor: "#FFFFFF",
+    borderColor: palette.primary,
   },
   dialCodePill: {
-    minWidth: 38,
-    height: 32,
-    borderRadius: 12,
-    backgroundColor: palette.foreground,
+    minWidth: 44,
+    height: 30,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
   dialCodeText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.foreground,
   },
   input: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 15,
-    fontSize: 15,
-    fontWeight: "700",
+    paddingVertical: 14,
+    fontSize: 16,
+    fontWeight: "500",
     color: palette.foreground,
   },
   visibilityButton: {
@@ -1767,8 +1594,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    borderRadius: 16,
-    backgroundColor: "#FFF1F5",
+    borderRadius: 14,
+    backgroundColor: "#FDECEF",
     paddingHorizontal: 12,
     paddingVertical: 11,
   },
@@ -1779,7 +1606,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    borderRadius: 16,
+    borderRadius: 14,
     backgroundColor: palette.successSurface,
     paddingHorizontal: 12,
     paddingVertical: 11,
@@ -1800,22 +1627,15 @@ const styles = StyleSheet.create({
     color: palette.successText,
   },
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: palette.secondary,
-    paddingVertical: 15,
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "rgba(255, 99, 146, 0.42)",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.26,
-    shadowRadius: 18,
-    elevation: 3,
   },
   primaryButtonDisabled: {
-    backgroundColor: "#D8D2D4",
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: "#ECEDEF",
   },
   primaryButtonContent: {
     flexDirection: "row",
@@ -1824,8 +1644,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryButtonText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#fff",
+    fontSize: 15.5,
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

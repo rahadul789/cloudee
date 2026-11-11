@@ -9,8 +9,17 @@ import {
   getCustomerSocket,
 } from "@/src/lib/socket-client";
 import { getFreshCustomerAccessToken } from "@/src/lib/api";
+import { isSocketAuthError } from "@/src/lib/tracking-freshness";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
+import { orderChatKey } from "@/src/hooks/use-order-chat";
+import {
+  applyChatRead,
+  upsertChatMessage,
+  type ChatRole,
+  type OrderChatMessage,
+  type OrderChatThread,
+} from "@/src/lib/order-chat";
 
 type CustomerOrderPayload = {
   _id: string;
@@ -359,6 +368,8 @@ export function useCustomerSocketBridge() {
   // Socket payloads keep the rider marker moving. A full detail refetch is only
   // needed occasionally to refresh the backend-calculated route and ETA.
   const routeRefreshedAtRef = React.useRef<Map<string, number>>(new Map());
+  // Consecutive auth-rejected reconnects (reset on a successful connect).
+  const authRetryRef = React.useRef(0);
 
   React.useEffect(() => {
     if (!customer?.id || !accessToken) {
@@ -391,7 +402,26 @@ export function useCustomerSocketBridge() {
       void connectIfNeeded();
     }
 
-    const ensureJoined = () => socket.emit("customer:join", customer.id);
+    const ensureJoined = () => {
+      authRetryRef.current = 0;
+      socket.emit("customer:join", customer.id);
+    };
+
+    // The server's auth middleware rejects a reconnect once the 45-min access token has
+    // expired, and socket.io does NOT retry middleware rejections on its own — the live
+    // stream would stay dead until the app is backgrounded. Get a fresh token and reconnect,
+    // with a growing pause (2s → 4s → … max 30s) so a real auth problem can't spin.
+    let authRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleConnectError = (error: unknown) => {
+      if (!isSocketAuthError(error) || appStateRef.current !== "active") return;
+      if (authRetryTimer) return;
+      const attempt = authRetryRef.current++;
+      const delay = Math.min(30_000, 2_000 * 2 ** Math.min(attempt, 4));
+      authRetryTimer = setTimeout(() => {
+        authRetryTimer = null;
+        void connectIfNeeded();
+      }, delay);
+    };
 
     const handleOrderEvent = (payload: CustomerOrderPayload) => {
       queryClient.setQueryData<CustomerOrderPayload | null>(
@@ -582,7 +612,29 @@ export function useCustomerSocketBridge() {
       disconnectCustomerSocket();
     };
 
+    // Rider ↔ customer chat: patch the open thread in place (and its unread badge).
+    const handleChatMessage = (event: { orderId?: string; message?: OrderChatMessage }) => {
+      if (!event?.orderId || !event.message) return;
+      const key = orderChatKey(event.orderId);
+      if (!queryClient.getQueryData(key)) {
+        queryClient.invalidateQueries({ queryKey: key });
+        return;
+      }
+      queryClient.setQueryData<OrderChatThread>(key, (thread) =>
+        thread ? upsertChatMessage(thread, event.message as OrderChatMessage, "customer") : thread,
+      );
+    };
+    const handleChatRead = (event: { orderId?: string; readerRole?: ChatRole; readAt?: string }) => {
+      if (!event?.orderId || !event.readerRole || !event.readAt) return;
+      queryClient.setQueryData<OrderChatThread>(orderChatKey(event.orderId), (thread) =>
+        thread ? applyChatRead(thread, event.readerRole as ChatRole, event.readAt as string) : thread,
+      );
+    };
+
     socket.on("connect", ensureJoined);
+    socket.on("connect_error", handleConnectError);
+    socket.on("order.chat.message", handleChatMessage);
+    socket.on("order.chat.read", handleChatRead);
     socket.on("customer.order.created", handleOrderEvent);
     socket.on("customer.order.updated", handleOrderEvent);
     socket.on("customer.notification.created", handleNotificationCreated);
@@ -595,6 +647,10 @@ export function useCustomerSocketBridge() {
     return () => {
       subscription.remove();
       socket.off("connect", ensureJoined);
+      socket.off("connect_error", handleConnectError);
+      if (authRetryTimer) clearTimeout(authRetryTimer);
+      socket.off("order.chat.message", handleChatMessage);
+      socket.off("order.chat.read", handleChatRead);
       socket.off("customer.order.created", handleOrderEvent);
       socket.off("customer.order.updated", handleOrderEvent);
       socket.off("customer.notification.created", handleNotificationCreated);

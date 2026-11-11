@@ -1,8 +1,10 @@
 import type { Request, Response } from "express"
 import { StatusCodes } from "http-status-codes"
+import { recordPromoCtaClick } from "./promo-cta-click"
 import { z } from "zod"
 
 import { asyncHandler } from "../../common/utils/async-handler"
+import { processMysteryBoxClaim } from "../rewards/rewards.service"
 import { sendSuccess } from "../../common/utils/api-response"
 import {
   appendCustomerSupportCaseMessage,
@@ -183,6 +185,23 @@ const pushOpenEventSchema = z.object({
   variant: z.enum(["A", "B"]).optional(),
 })
 
+const promoCtaClickSchema = z.object({
+  campaignId: z.string().trim().min(1).max(100),
+  ctaPath: z.string().trim().max(300).optional(),
+})
+
+// Promo details: the customer pressed the campaign's CTA button (counted once per person).
+export const postCustomerPromoCtaClick = asyncHandler(async (req: Request, res: Response) => {
+  const body = promoCtaClickSchema.parse(req.body)
+  const data = await recordPromoCtaClick({
+    campaignId: body.campaignId,
+    customerId: req.user?.id ?? "",
+    ctaPath: body.ctaPath,
+  })
+  invalidateAdminNotificationsCache()
+  return sendSuccess(res, { data })
+})
+
 const logoutSchema = z.object({
   refreshToken: z.string().min(1),
   expoPushToken: z.string().min(1).optional()
@@ -262,6 +281,13 @@ const placeOrderSchema = z.object({
   note: z.string().trim().max(240).optional(),
   platformFeeOptedIn: z.boolean().optional(),
   urgentDeliveryOptedIn: z.boolean().optional(),
+  gift: z
+    .object({
+      recipientName: z.string().trim().max(60).optional(),
+      recipientPhone: z.string().trim().max(20).optional(),
+      message: z.string().trim().max(160).optional(),
+    })
+    .optional(),
   deliveryAddress: z.object({
     label: z.string().min(1),
     addressLine: z.string().min(1),
@@ -282,6 +308,13 @@ const bkashInitiateSchema = z.object({
   walletNumber: z.string().regex(/^01\d{9}$/),
   platformFeeOptedIn: z.boolean().optional(),
   urgentDeliveryOptedIn: z.boolean().optional(),
+  gift: z
+    .object({
+      recipientName: z.string().trim().max(60).optional(),
+      recipientPhone: z.string().trim().max(20).optional(),
+      message: z.string().trim().max(160).optional(),
+    })
+    .optional(),
   deliveryAddress: z.object({
     label: z.string().min(1),
     addressLine: z.string().min(1),
@@ -505,10 +538,13 @@ export const getCustomerCustomOfferSummaryController = asyncHandler(async (req: 
 
 export const postCustomerCustomOfferRequestController = asyncHandler(async (req: Request, res: Response) => {
   const payload = customOfferRequestSchema.parse(req.body ?? {})
-  const data = await requestCustomerCustomOffer({
+  await requestCustomerCustomOffer({
     customerId: req.user?.id ?? "",
     requestedCode: payload.requestedCode
   })
+  // Claim = mystery box. Auto mode opens it right away (approval mode waits for admin).
+  await processMysteryBoxClaim(req.user?.id ?? "")
+  const data = await getCustomerCustomOfferSummary(req.user?.id ?? "")
 
   return sendSuccess(res, {
     statusCode: StatusCodes.ACCEPTED,
@@ -1113,8 +1149,8 @@ export const getCustomerNotifications = asyncHandler(async (req: Request, res: R
   const page = Number.parseInt(getStringValue(req.query.page), 10)
   const limit = Number.parseInt(getStringValue(req.query.limit), 10)
   const rawCategory = getStringValue(req.query.category)
-  const category = ["orders", "offers", "personal_offers"].includes(rawCategory)
-    ? (rawCategory as "orders" | "offers" | "personal_offers")
+  const category = ["orders", "offers", "personal_offers", "updates"].includes(rawCategory)
+    ? (rawCategory as "orders" | "offers" | "personal_offers" | "updates")
     : "all"
   const data = await listCustomerNotifications(req.user?.id ?? "", {
     page: Number.isFinite(page) ? page : 1,

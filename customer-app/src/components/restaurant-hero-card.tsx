@@ -12,7 +12,9 @@ import {
 
 import { PressableScale } from "@/src/components/pressable-scale";
 import { RemoteImage } from "@/src/components/remote-image";
-import { formatDurationMinutes } from "@/src/lib/date-time";
+import { formatPrepTimeRange } from "@/src/lib/date-time";
+import { formatCompactCount } from "@/src/lib/format-count";
+import { formatCardDeliveryFee } from "@/src/lib/delivery-fee-display";
 import { formatDistanceValue } from "@/src/lib/distance";
 import { getClosedCopy } from "@/src/lib/restaurant-availability";
 import { palette } from "@/src/theme/palette";
@@ -42,20 +44,24 @@ type Props = {
   avgRating?: number | null;
   reviewCount?: number;
   preparationTimeMinutes?: number | null;
+  /** Kept for caller compatibility; no longer shown (cards show delivery fee instead). */
   lowestMenuPrice?: number | null;
+  /** Estimated delivery fee in ৳ (0 = free). Hidden when unknown. */
+  deliveryFee?: number | null;
   isFavorite?: boolean;
   favoriteDisabled?: boolean;
   onToggleFavorite?: () => void;
   onPress?: () => void;
   compact?: boolean;
   flat?: boolean;
-  variant?: "default" | "featured" | "offer" | "nearby";
+  variant?: "default" | "featured" | "offer" | "nearby" | "list";
   badge?: "featured" | "nearby" | "none";
   sponsored?: boolean;
   /** Admin-set marketing badge label; shown on the card when non-empty. */
   customBadge?: string | null;
 };
 
+// The app's only restaurant card (home rails, All restaurants, Favourites, Search).
 function RestaurantHeroCardComponent({
   name,
   subtitle,
@@ -67,7 +73,7 @@ function RestaurantHeroCardComponent({
   avgRating,
   reviewCount,
   preparationTimeMinutes,
-  lowestMenuPrice,
+  deliveryFee,
   isFavorite = false,
   favoriteDisabled = false,
   onToggleFavorite,
@@ -79,48 +85,27 @@ function RestaurantHeroCardComponent({
   sponsored = false,
   customBadge,
 }: Props) {
+  const isRail = compact || variant === "featured" || variant === "offer";
   const customBadgeLabel = customBadge?.trim() ?? "";
-  const hasCustomBadge = customBadgeLabel.length > 0;
-  const isFeaturedVariant = variant === "featured";
-  const isOfferVariant = variant === "offer";
-  const isNearbyVariant = variant === "nearby";
-  const badgeType =
-    badge === "none"
-      ? null
-      : badge ?? (isFeaturedVariant ? "featured" : isNearbyVariant ? "nearby" : null);
+  const showFeaturedBadge =
+    !customBadgeLabel &&
+    badge !== "none" &&
+    (badge === "featured" || (badge === undefined && variant === "featured"));
   const hasRating =
     typeof avgRating === "number" &&
     Number.isFinite(avgRating) &&
     (reviewCount ?? 0) > 0;
-  const hasPreparationTime =
+  const hasPrep =
     typeof preparationTimeMinutes === "number" && preparationTimeMinutes > 0;
   const hasDistance =
     typeof distanceKm === "number" && Number.isFinite(distanceKm);
-  const distanceLabel = formatDistanceValue(distanceKm);
-  const hasOffer = Boolean(offerLabel?.trim());
-  const hasLowestPrice =
-    typeof lowestMenuPrice === "number" && Number.isFinite(lowestMenuPrice);
-  // Closed overlay copy: "Opens 11:00 AM" when the reopen time is known, else the
-  // generic "Temporarily unavailable". Cards show the static label (no live timer).
+  const delivery = formatCardDeliveryFee(deliveryFee);
+  const offerText = offerLabel?.trim() ?? "";
   const closedCopy = getClosedCopy(availability);
-  const sectionBadge =
-    badgeType === "featured"
-      ? {
-          icon: "sparkles" as const,
-          label: "Featured pick",
-          style: styles.sectionBadgeFeatured,
-          textStyle: styles.sectionBadgeTextFeatured,
-          iconColor: "#7A3E00",
-        }
-      : null;
 
   const handleFavoritePress = (event: GestureResponderEvent) => {
     event.stopPropagation();
-
-    if (favoriteDisabled || !onToggleFavorite) {
-      return;
-    }
-
+    if (favoriteDisabled || !onToggleFavorite) return;
     void Haptics.selectionAsync().catch(() => undefined);
     onToggleFavorite();
   };
@@ -142,231 +127,157 @@ function RestaurantHeroCardComponent({
     wasFavorite.current = isFavorite;
   }, [isFavorite, heartScale]);
 
+  // ONE layout for every section (classic delivery-app card): a rounded photo, then two
+  // quiet lines of text straight on the page — no box, border or shadow. Line 1: name +
+  // rating. Line 2: cuisine · time · delivery fee · distance. Closed = dark photo with
+  // "Closed / Opens at". Rails (featured/offer) just use a slightly taller photo.
+  const cuisine = subtitle?.trim() ?? "";
+  // Narrow rail cards: prep time rides on the photo so the cuisine isn't squeezed out.
+  const timeOnPhoto = hasPrep && isRail;
+  const timeInMeta = hasPrep && !isRail;
+  const opensAt =
+    (availability?.closedReason === "schedule" ||
+      availability?.closedReason === "service_window") &&
+    closedCopy.opensAtLabel
+      ? closedCopy.opensAtLabel
+      : "";
+
   return (
-    <PressableScale
-      scaleTo={0.98}
-      style={[
-        styles.card,
-        compact ? styles.cardCompact : null,
-        isFeaturedVariant ? styles.cardFeatured : null,
-        isOfferVariant ? styles.cardOffer : null,
-        isNearbyVariant ? styles.cardNearby : null,
-        flat ? styles.cardFlat : null,
-        !isOpen ? styles.closedCard : null,
-      ]}
-      onPress={onPress}
-    >
-      <View
-        style={[
-          styles.imageWrap,
-          compact ? styles.imageWrapCompact : null,
-          isFeaturedVariant ? styles.imageWrapFeatured : null,
-          compact && isFeaturedVariant ? styles.imageWrapFeaturedCompact : null,
-          isOfferVariant ? styles.imageWrapOffer : null,
-          isNearbyVariant ? styles.imageWrapNearby : null,
-          compact && isNearbyVariant ? styles.imageWrapNearbyCompact : null,
-        ]}
-      >
+    <PressableScale scaleTo={0.985} style={styles.proCard} onPress={onPress}>
+      <View style={[styles.proPhoto, isRail ? styles.proPhotoRail : null]}>
         <RemoteImage
           uri={imageUrl}
           style={styles.coverImage}
           fallbackIcon="restaurant-outline"
           fallbackIconSize={28}
-          fallbackTint={palette.primary}
+          fallbackTint={palette.secondary}
           transition={flat ? 80 : 180}
-          // Full-width card cover — resize to a phone-safe logical width so the list
-          // decodes small bitmaps (no full-res images = no scroll jank / RAM spikes).
-          targetWidth={420}
+          targetWidth={480}
           accessibilityLabel={`${name} restaurant photo`}
         />
 
-        <View
-          style={[
-            styles.imageOverlay,
-            isFeaturedVariant ? styles.imageOverlayFeatured : null,
-            isOfferVariant ? styles.imageOverlayOffer : null,
-            isNearbyVariant ? styles.imageOverlayNearby : null,
-            !isOpen ? styles.closedImageOverlay : null,
-          ]}
-        />
-
         {!isOpen ? (
-          <View style={styles.closedOverlayContent}>
-            {/* Centered "Closed" chip. For a restaurant closed on its OWN hours we show the
-                reopen time right under it (on the cover), so the customer sees when THIS
-                place opens without cluttering the card body. Platform/zone-wide closures
-                skip the time here — the top "closed" banner already shows it. */}
-            <View style={styles.closedTag}>
-              <Ionicons
-                name="lock-closed"
-                size={13}
-                color={palette.foreground}
-              />
-              <Text style={styles.closedTagText}>Closed</Text>
-            </View>
-            {availability?.closedReason === "schedule" &&
-            closedCopy.opensAtLabel ? (
-              <Text style={styles.closedOpensText}>
-                Opens at {closedCopy.opensAtLabel}
-              </Text>
+          <View style={styles.proClosed} pointerEvents="none">
+            <Text style={styles.proClosedTitle}>Closed</Text>
+            {opensAt ? <Text style={styles.proClosedSub}>Opens at {opensAt}</Text> : null}
+          </View>
+        ) : null}
+
+        {offerText ? (
+          <View style={[styles.proOffer, isRail ? styles.proOfferRail : null]} pointerEvents="none">
+            <Ionicons name="pricetag" size={13} color={palette.onPrimary} />
+            <Text numberOfLines={1} style={styles.proOfferText}>
+              {offerText}
+            </Text>
+          </View>
+          ) : null}
+
+        {customBadgeLabel || showFeaturedBadge || (sponsored && !offerText) ? (
+          <View style={styles.proBadge} pointerEvents="none">
+            {showFeaturedBadge ? (
+              <Ionicons name="sparkles" size={10} color={palette.primary} />
             ) : null}
-          </View>
-        ) : null}
-
-        {sponsored ? (
-          <View style={styles.sponsoredBadge}>
-            <Ionicons name="megaphone" size={9} color="#F4F6FB" />
-            <Text style={styles.sponsoredBadgeText}>Sponsored</Text>
-          </View>
-        ) : null}
-
-        <View style={[styles.topRow, compact ? styles.topRowCompact : null]}>
-          <Pressable
-            style={[
-              styles.favoriteButton,
-              isFavorite ? styles.favoriteButtonActive : null,
-              favoriteDisabled ? styles.favoriteButtonDisabled : null,
-            ]}
-            onPress={handleFavoritePress}
-            onPressIn={(event) => event.stopPropagation()}
-            onPressOut={(event) => event.stopPropagation()}
-            accessibilityRole="button"
-            accessibilityLabel={
-              isFavorite
-                ? `Remove ${name} from favourites`
-                : `Add ${name} to favourites`
-            }
-            accessibilityState={{ disabled: favoriteDisabled, selected: isFavorite }}
-            hitSlop={8}
-          >
-            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-              <Ionicons
-                name={isFavorite ? "heart" : "heart-outline"}
-                size={15}
-                color={isFavorite ? "#fff" : palette.foreground}
-              />
-            </Animated.View>
-          </Pressable>
-        </View>
-
-        {hasCustomBadge ? (
-          <View style={[styles.sectionBadge, styles.customBadge]}>
-            <Text
-              numberOfLines={1}
-              style={[styles.sectionBadgeText, styles.customBadgeText]}
-            >
-              {customBadgeLabel}
+            <Text numberOfLines={1} style={styles.proBadgeText}>
+              {customBadgeLabel || (showFeaturedBadge ? "Featured" : "Sponsored")}
             </Text>
           </View>
-        ) : sectionBadge ? (
-          <View style={[styles.sectionBadge, sectionBadge.style]}>
+        ) : null}
+
+        {timeOnPhoto ? (
+          <View style={styles.proTimeChip} pointerEvents="none">
+            <Ionicons name="time-outline" size={12} color={palette.foreground} />
+            <Text style={styles.proTimeChipText}>
+              {formatPrepTimeRange(preparationTimeMinutes)}
+            </Text>
+          </View>
+        ) : null}
+
+        <Pressable
+          style={[styles.favoriteButton, favoriteDisabled ? styles.favoriteButtonDisabled : null]}
+          onPress={handleFavoritePress}
+          onPressIn={(event) => event.stopPropagation()}
+          onPressOut={(event) => event.stopPropagation()}
+          accessibilityRole="button"
+          accessibilityLabel={
+            isFavorite ? `Remove ${name} from favourites` : `Add ${name} to favourites`
+          }
+          accessibilityState={{ disabled: favoriteDisabled, selected: isFavorite }}
+          hitSlop={8}
+        >
+          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
             <Ionicons
-              name={sectionBadge.icon}
-              size={10}
-              color={sectionBadge.iconColor}
+              name={isFavorite ? "heart" : "heart-outline"}
+              size={16}
+              color={isFavorite ? "#E5484D" : palette.foreground}
             />
-            <Text numberOfLines={1} style={[styles.sectionBadgeText, sectionBadge.textStyle]}>
-              {sectionBadge.label}
-            </Text>
-          </View>
-        ) : null}
-
-        {hasOffer ? (
-          <View style={styles.offerBadge}>
-            <Ionicons name="pricetag" size={10} color="#fff" />
-            <Text numberOfLines={1} style={styles.offerBadgeText}>
-              {offerLabel}
-            </Text>
-          </View>
-        ) : null}
+          </Animated.View>
+        </Pressable>
       </View>
 
-      <View
-        style={[
-          styles.content,
-          compact ? styles.contentCompact : null,
-          isFeaturedVariant ? styles.contentFeatured : null,
-          isNearbyVariant ? styles.contentNearby : null,
-        ]}
-      >
-        <View style={styles.titleRow}>
-          <View style={styles.titleBlock}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.title,
-                compact ? styles.titleCompact : null,
-                isFeaturedVariant ? styles.titleFeatured : null,
-                isNearbyVariant ? styles.titleNearby : null,
-                !isOpen ? styles.titleClosed : null,
-              ]}
-            >
-              {name}
-            </Text>
-            {subtitle ? (
-              <Text
-                numberOfLines={2}
-                style={[
-                  styles.description,
-                  compact ? styles.descriptionCompact : null,
-                  isFeaturedVariant ? styles.descriptionFeatured : null,
-                  !isOpen ? styles.descriptionClosed : null,
-                ]}
-              >
-                {subtitle}
-              </Text>
+      <View style={styles.proBody}>
+        <View style={styles.proTitleRow}>
+          <Text
+            numberOfLines={1}
+            style={[styles.proTitle, !isOpen ? styles.titleClosed : null]}
+          >
+            {name}
+          </Text>
+          <View style={styles.proRating}>
+            <Ionicons
+              name={hasRating ? "star" : "sparkles"}
+              size={12}
+              color={hasRating ? "#E2A100" : "#2F6FDB"}
+            />
+            <Text style={styles.proRatingText}>{hasRating ? avgRating?.toFixed(1) : "New"}</Text>
+            {hasRating ? (
+              <Text style={styles.proRatingCount}>({formatCompactCount(reviewCount)})</Text>
             ) : null}
           </View>
-
-          <View
-            style={[
-              styles.priceBlock,
-              isFeaturedVariant ? styles.priceBlockFeatured : null,
-            ]}
-          >
-            <Text
-              style={[
-                styles.priceLabel,
-                isFeaturedVariant ? styles.priceLabelFeatured : null,
-              ]}
-            >
-              Starts from
-            </Text>
-            <Text
-              style={[
-                styles.priceValue,
-                isFeaturedVariant ? styles.priceValueFeatured : null,
-              ]}
-            >
-              {hasLowestPrice ? `Tk ${lowestMenuPrice?.toFixed(0)}` : "View menu"}
-            </Text>
-          </View>
         </View>
-
-        <View style={[styles.metricsRow, compact ? styles.metricsRowCompact : null]}>
-          {hasRating ? (
-            <Metric icon="star" value={`${avgRating} (${reviewCount})`} compact={compact} />
+        <View style={styles.proMetaRow}>
+          {cuisine ? (
+            <Text numberOfLines={1} style={[styles.proMeta, styles.proMetaCuisine]}>
+              {cuisine}
+            </Text>
           ) : null}
-          {hasPreparationTime ? (
-            <Metric
-              icon="time-outline"
-              value={formatDurationMinutes(preparationTimeMinutes)}
-              compact={compact}
-            />
+          {timeInMeta ? (
+            <View style={styles.proFact}>
+              {cuisine ? <Text style={styles.proDot}>·</Text> : null}
+              <Ionicons name="time-outline" size={13} color={palette.mutedForeground} />
+              <Text style={styles.proMeta}>{formatPrepTimeRange(preparationTimeMinutes)}</Text>
+            </View>
           ) : null}
-          {hasDistance ? <Metric icon="navigate-outline" value={distanceLabel} compact={compact} /> : null}
+          {delivery ? (
+            <View style={styles.proFact}>
+              {cuisine || timeInMeta ? <Text style={styles.proDot}>·</Text> : null}
+              <Ionicons
+                name="bicycle"
+                size={14}
+                color={delivery.isFree ? palette.successText : palette.mutedForeground}
+              />
+              <Text style={[styles.proMeta, delivery.isFree ? styles.proFree : null]}>
+                {delivery.isFree ? "Free" : delivery.label}
+              </Text>
+            </View>
+          ) : null}
+          {hasDistance ? (
+            <View style={styles.proFact}>
+              {cuisine || timeInMeta || delivery ? <Text style={styles.proDot}>·</Text> : null}
+              <Text style={styles.proMeta}>{formatDistanceValue(distanceKm)}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </PressableScale>
   );
 }
 
-// In the home feed ~40 of these render inside one ScrollView. Memoize on the visible
+// In the home feed many of these render inside one ScrollView. Memoize on the visible
 // data props so a favourite toggle (or any parent re-render) only re-renders the one
 // card whose data actually changed — not the whole list. The onPress/onToggleFavorite
-// closures are intentionally NOT compared: the home screen passes inline closures that
-// change identity every render, but they close over stable (memoized) restaurant data
-// and read volatile state (auth) freshly, so the retained closure stays correct.
+// closures are intentionally NOT compared: callers pass inline closures that change
+// identity every render, but they close over stable (memoized) restaurant data and read
+// volatile state (auth) freshly, so the retained closure stays correct.
 function arePropsEqual(prev: Props, next: Props) {
   return (
     prev.name === next.name &&
@@ -380,7 +291,7 @@ function arePropsEqual(prev: Props, next: Props) {
     prev.avgRating === next.avgRating &&
     prev.reviewCount === next.reviewCount &&
     prev.preparationTimeMinutes === next.preparationTimeMinutes &&
-    prev.lowestMenuPrice === next.lowestMenuPrice &&
+    prev.deliveryFee === next.deliveryFee &&
     prev.isFavorite === next.isFavorite &&
     prev.favoriteDisabled === next.favoriteDisabled &&
     prev.compact === next.compact &&
@@ -392,438 +303,107 @@ function arePropsEqual(prev: Props, next: Props) {
   );
 }
 
-export const RestaurantHeroCard = memo(
-  RestaurantHeroCardComponent,
-  arePropsEqual,
-);
-
-function Metric({
-  icon,
-  value,
-  compact = false,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  value: string;
-  compact?: boolean;
-}) {
-  return (
-    <View style={styles.metric}>
-      <Ionicons name={icon} size={14} color={palette.mutedForeground} />
-      <Text style={[styles.metricText, compact ? styles.metricTextCompact : null]}>{value}</Text>
-    </View>
-  );
-}
+export const RestaurantHeroCard = memo(RestaurantHeroCardComponent, arePropsEqual);
 
 const styles = StyleSheet.create({
-  card: {
+  // ── "list" card (classic delivery-app layout) ──
+  proCard: { gap: 9 },
+  proPhoto: {
+    // Wide banner: crops only a sliver top/bottom of a 16:9 cover, keeps the card short.
+    aspectRatio: 2.3,
+    borderRadius: 16,
     overflow: "hidden",
-    borderRadius: 24,
-    backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 1,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 7,
+    backgroundColor: palette.surfaceMuted,
   },
-  // Subtle press feedback (the professional "tap" feel), identical to the menu-item
-  // card in the restaurant-details screen so every tappable card in the app feels the
-  // same. Only applied while the finger is down, so it never affects scroll
-  // performance or the memoized children.
-  cardPressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.99 }],
+  proPhotoRail: { aspectRatio: 1.9 },
+  proClosed: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    backgroundColor: "rgba(17,17,17,0.62)",
   },
-  cardCompact: {
-    borderRadius: 22,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 5,
+  proClosedTitle: { fontSize: 17, lineHeight: 22, fontWeight: "700", color: "#FFFFFF" },
+  proClosedSub: { fontSize: 13, lineHeight: 18, fontWeight: "500", color: "rgba(255,255,255,0.85)" },
+  proOffer: {
+    position: "absolute",
+    left: 10,
+    bottom: 10,
+    maxWidth: "78%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: palette.primary,
+    shadowColor: "#000000",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  cardFlat: {
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-    borderWidth: 1,
-    borderColor: "#F1E2EA",
+  proOfferRail: { maxWidth: "56%" },
+  proTimeChip: {
+    position: "absolute",
+    right: 10,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.95)",
   },
-  cardFeatured: {
-    backgroundColor: "#FFFDF5",
-    shadowColor: "rgba(159, 92, 0, 0.22)",
-    shadowOpacity: 1,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 8,
+  proTimeChipText: { fontSize: 12, lineHeight: 16, fontWeight: "700", color: palette.foreground },
+  proOfferText: { flexShrink: 1, fontSize: 13, lineHeight: 17, fontWeight: "700", color: palette.onPrimary },
+  proMetaRow: { flexDirection: "row", alignItems: "center" },
+  proMetaCuisine: { flexShrink: 1 },
+  proFact: { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 3 },
+  proDot: { marginHorizontal: 6, fontSize: 13, lineHeight: 18, color: palette.mutedForeground },
+  proFree: { color: palette.successText, fontWeight: "700" },
+  proBadge: {
+    position: "absolute",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    top: 10,
+    left: 10,
+    maxWidth: "70%",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: "rgba(17,17,17,0.8)",
   },
-  cardOffer: {
-  },
-  cardNearby: {
-  },
-  closedCard: {
-    backgroundColor: "#FFF9F5",
-  },
-  imageWrap: {
-    position: "relative",
-    height: 148,
-    backgroundColor: "#FFF0F6",
-  },
-  imageWrapCompact: {
-    height: 132,
-  },
-  imageWrapFeatured: {
-    height: 164,
-    backgroundColor: "#FFF0CF",
-  },
-  imageWrapFeaturedCompact: {
-    height: 142,
-  },
-  imageWrapOffer: {
-  },
-  imageWrapNearby: {
-  },
-  imageWrapNearbyCompact: {
-  },
+  proBadgeText: { fontSize: 11.5, lineHeight: 15, fontWeight: "700", color: "#FFFFFF" },
+  proBody: { paddingHorizontal: 2, gap: 2 },
+  proTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  proTitle: { flex: 1, fontSize: 16, lineHeight: 21, fontWeight: "700", color: palette.foreground },
+  proRating: { flexDirection: "row", alignItems: "center", gap: 3 },
+  proRatingText: { fontSize: 13, lineHeight: 18, fontWeight: "700", color: palette.foreground },
+  proRatingCount: { fontSize: 12.5, lineHeight: 18, color: palette.mutedForeground },
+  proMeta: { fontSize: 13, lineHeight: 18, color: palette.mutedForeground },
+
   coverImage: {
     width: "100%",
     height: "100%",
   },
-  coverFallback: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFF0F6",
-  },
-  imageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(31, 36, 48, 0.18)",
-  },
-  imageOverlayFeatured: {
-    backgroundColor: "rgba(34, 24, 10, 0.10)",
-  },
-  imageOverlayOffer: {
-    backgroundColor: "rgba(62, 28, 44, 0.14)",
-  },
-  imageOverlayNearby: {
-    backgroundColor: "rgba(31, 36, 48, 0.10)",
-  },
-  closedImageOverlay: {
-    backgroundColor: "rgba(20, 24, 35, 0.52)",
-  },
-  closedOverlayContent: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    paddingHorizontal: 18,
-  },
-  // Centered "Closed" chip on the dimmed cover — white pill + dark text, same family as the
-  // time-based rail's closed badge but a touch larger so it reads clearly on the cover.
-  closedTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: "rgba(255, 255, 255, 0.96)",
-  },
-  closedTagText: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-    color: palette.foreground,
-  },
-  // Reopen time shown under the "Closed" chip (restaurant's own hours only). White on the
-  // dimmed cover, with a soft shadow so it stays legible over any photo.
-  closedOpensText: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-    color: "#FFFFFF",
-    textShadowColor: "rgba(0, 0, 0, 0.55)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  topRow: {
+  favoriteButton: {
     position: "absolute",
     top: 10,
-    left: 10,
     right: 10,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "center",
-  },
-  topRowCompact: {
-    top: 9,
-    left: 9,
-    right: 9,
-  },
-  statusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.92)",
-  },
-  statusPillCompact: {
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: palette.mint,
-  },
-  statusPillClosed: {
-    backgroundColor: palette.warningText,
-  },
-  statusDotClosed: {
-    backgroundColor: palette.surface,
-  },
-  statusText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  statusTextCompact: {
-    fontSize: 10,
-    lineHeight: 14,
-  },
-  statusTextClosed: {
-    color: palette.surface,
-  },
-  favoriteButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.94)",
-  },
-  favoriteButtonActive: {
-    backgroundColor: palette.secondary,
+    backgroundColor: "rgba(255,255,255,0.95)",
   },
   favoriteButtonDisabled: {
-    opacity: 0.76,
-  },
-  sectionBadge: {
-    position: "absolute",
-    left: 8,
-    bottom: 8,
-    maxWidth: "44%",
-    zIndex: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.74)",
-  },
-  sectionBadgeFeatured: {
-    backgroundColor: "rgba(255, 242, 203, 0.98)",
-    borderColor: "rgba(255,255,255,0.86)",
-  },
-  sectionBadgeNearby: {
-    backgroundColor: "rgba(235, 242, 255, 0.96)",
-  },
-  sectionBadgeText: {
-    flexShrink: 1,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "900",
-  },
-  sectionBadgeTextFeatured: {
-    color: "#7A3E00",
-  },
-  sectionBadgeTextNearby: {
-    color: "#3858A8",
-  },
-  // Admin-set marketing badge — a solid coral pill so it reads as a highlight, distinct
-  // from the gold "Featured pick" and the pink offer badge.
-  customBadge: {
-    maxWidth: "62%",
-    backgroundColor: palette.primary,
-    borderColor: "rgba(255,255,255,0.72)",
-  },
-  customBadgeText: {
-    color: "#fff",
-    fontSize: 9.5,
-    lineHeight: 12,
-    fontWeight: "900",
-  },
-  offerBadge: {
-    position: "absolute",
-    right: 8,
-    bottom: 8,
-    maxWidth: "62%",
-    zIndex: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: "rgba(255, 99, 146, 0.96)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.72)",
-  },
-  offerBadgeText: {
-    flexShrink: 1,
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "800",
-    color: "#fff",
-  },
-  // Neutral "Sponsored" disclosure pill, top-left of the cover. Deliberately
-  // understated (translucent dark, no bright colour) — it's an ad label, not a promo.
-  sponsoredBadge: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    zIndex: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(20, 24, 35, 0.58)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.28)",
-  },
-  sponsoredBadgeText: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-    color: "#F4F6FB",
-  },
-  content: {
-    paddingHorizontal: 14,
-    paddingTop: 11,
-    paddingBottom: 12,
-    gap: 8,
-  },
-  contentCompact: {
-    paddingHorizontal: 13,
-    paddingTop: 10,
-    paddingBottom: 11,
-    gap: 7,
-  },
-  contentFeatured: {
-    backgroundColor: "#FFFDF5",
-  },
-  contentNearby: {
-  },
-  titleRow: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "flex-start",
-  },
-  titleBlock: {
-    flex: 1,
-    gap: 3,
-  },
-  title: {
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  titleCompact: {
-    fontSize: 16,
-    lineHeight: 21,
-  },
-  titleNearby: {
-    fontSize: 16,
-    lineHeight: 21,
-  },
-  titleFeatured: {
-    color: "#20140A",
-    fontWeight: "900",
+    opacity: 0.7,
   },
   titleClosed: {
     color: palette.mutedForeground,
-  },
-  description: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "500",
-    color: palette.mutedForeground,
-  },
-  descriptionCompact: {
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  descriptionFeatured: {
-    color: "#7D6752",
-    fontWeight: "600",
-  },
-  descriptionClosed: {
-    color: palette.mutedForeground,
-  },
-  priceBlock: {
-    minWidth: 86,
-    alignItems: "flex-end",
-    gap: 2,
-  },
-  priceBlockFeatured: {
-    minWidth: 92,
-    borderRadius: 14,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    backgroundColor: "#FFF2CE",
-  },
-  priceLabel: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "700",
-    color: palette.mutedForeground,
-  },
-  priceLabelFeatured: {
-    color: "#8C5A14",
-  },
-  priceValue: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-    textAlign: "right",
-  },
-  priceValueFeatured: {
-    color: "#251407",
-    fontWeight: "900",
-  },
-  metricsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  metricsRowCompact: {
-    gap: 7,
-  },
-  metric: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  metricText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  metricTextCompact: {
-    fontSize: 11,
-    lineHeight: 15,
   },
 });

@@ -11,8 +11,23 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Screen } from "@/src/components/screen";
+import {
+  DEFAULT_SUPPORT_PHONE,
+  useCustomerSupportContactQuery,
+} from "@/src/hooks/use-customer-api";
 import { resolveCustomerRoute } from "@/src/lib/customer-routes";
 import { palette } from "@/src/theme/palette";
+import { AppHeader, HeaderIconButton } from "@/src/components/ui";
+
+/** "+8809658806633" → "+880 9658-806633", "01883552285" → "01883-552285". */
+function formatSupportPhone(raw: string) {
+  const digits = raw.replace(/[^\d+]/g, "");
+  const intl = digits.match(/^\+880(\d{4})(\d+)$/);
+  if (intl) return `+880 ${intl[1]}-${intl[2]}`;
+  const local = digits.match(/^(0\d{4})(\d+)$/);
+  if (local) return `${local[1]}-${local[2]}`;
+  return raw;
+}
 
 const quickTopics = [
   {
@@ -65,6 +80,11 @@ const faqItems = [
 export default function SupportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // One number for the whole platform, set in admin Settings → Support contact.
+  const supportContact = useCustomerSupportContactQuery().data;
+  const SUPPORT_PHONE = (supportContact?.phone ?? DEFAULT_SUPPORT_PHONE).replace(/s+/g, "");
+  const SUPPORT_PHONE_DISPLAY = formatSupportPhone(SUPPORT_PHONE);
+  const supportEmail = supportContact?.email ?? "support@foodbela.com";
 
   const openEmailSupport = () => {
     const subject = encodeURIComponent("Customer support request");
@@ -72,7 +92,7 @@ export default function SupportScreen() {
       "Hi Foodbela support,\n\nI need help with an order / delivery / payment issue.\n\nOrder details:\nIssue summary:\n",
     );
     void Linking.openURL(
-      `mailto:support@foodbela.com?subject=${subject}&body=${body}`,
+      `mailto:${supportEmail}?subject=${subject}&body=${body}`,
     );
   };
 
@@ -85,45 +105,17 @@ export default function SupportScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.topBar}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={() => router.back()}
-          >
-            <Ionicons
-              name="chevron-back"
-              size={20}
-              color={palette.foreground}
+        <AppHeader
+          inline
+          title="Help center"
+          right={
+            <HeaderIconButton
+              icon="chatbubble-ellipses-outline"
+              accessibilityLabel="Open support chat"
+              onPress={() => router.push("/support-chat")}
             />
-          </Pressable>
-          <Text style={styles.topTitle}>Help center</Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={() => router.push("/support-chat")}
-          >
-            <Ionicons
-              name="chatbubble-ellipses-outline"
-              size={18}
-              color={palette.foreground}
-            />
-          </Pressable>
-        </View>
+          }
+        />
 
         <View style={styles.assistPanel}>
           <View style={styles.assistIcon}>
@@ -152,7 +144,7 @@ export default function SupportScreen() {
               ]}
               onPress={() => router.push("/support-chat")}
             >
-              <Ionicons name="chatbubble-outline" size={17} color="#fff" />
+              <Ionicons name="chatbubble-outline" size={17} color={palette.onPrimary} />
               <Text style={styles.primaryContactText}>Chat now</Text>
             </Pressable>
             <Pressable
@@ -175,6 +167,22 @@ export default function SupportScreen() {
               <Text style={styles.secondaryContactText}>Email</Text>
             </Pressable>
           </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.callRow, pressed ? { opacity: 0.85 } : null]}
+            onPress={() => void Linking.openURL(`tel:${SUPPORT_PHONE}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`Call support ${SUPPORT_PHONE_DISPLAY}`}
+          >
+            <View style={styles.callIcon}>
+              <Ionicons name="call" size={17} color={palette.onPrimary} />
+            </View>
+            <View style={styles.callCopy}>
+              <Text style={styles.callLabel}>Call support</Text>
+              <Text style={styles.callNumber}>{SUPPORT_PHONE_DISPLAY}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={palette.mutedForeground} />
+          </Pressable>
         </View>
 
         <View style={styles.section}>
@@ -251,7 +259,7 @@ const styles = StyleSheet.create({
   topTitle: {
     fontSize: 16,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   iconButton: {
@@ -271,11 +279,6 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     padding: 20,
     gap: 12,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
   },
   assistIcon: {
     width: 50,
@@ -283,12 +286,12 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFE7F1",
+    backgroundColor: "#FFF1DC",
   },
   assistTitle: {
     fontSize: 26,
     lineHeight: 32,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   assistText: {
@@ -306,7 +309,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 50,
     borderRadius: 20,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -315,8 +318,8 @@ const styles = StyleSheet.create({
   primaryContactText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   secondaryContact: {
     minWidth: 104,
@@ -331,10 +334,45 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 14,
   },
+  callRow: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minHeight: 58,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.background,
+  },
+  callIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+  },
+  callCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  callLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.mutedForeground,
+  },
+  callNumber: {
+    fontSize: 15.5,
+    lineHeight: 21,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
   secondaryContactText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   section: {
@@ -343,7 +381,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   list: {
@@ -378,13 +416,13 @@ const styles = StyleSheet.create({
   topicTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   topicSubtitle: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   faqList: {
@@ -401,7 +439,7 @@ const styles = StyleSheet.create({
   faqQuestion: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   faqAnswer: {

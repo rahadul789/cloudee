@@ -77,3 +77,16 @@ export function formatDurationRangeMinutes(
     fallback,
   )}`;
 }
+
+// Customer-facing time window for a restaurant's prep/delivery estimate: the base minutes
+// plus a 10-minute buffer, e.g. 20 → "20-30 min". A range sets honest expectations instead
+// of a single exact number the kitchen may not hit.
+export const PREP_TIME_RANGE_SPREAD_MINUTES = 10;
+
+export function formatPrepTimeRange(value?: number | null, fallback = "Not available") {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return fallback;
+  const minMinutes = Math.round(value);
+  const maxMinutes = minMinutes + PREP_TIME_RANGE_SPREAD_MINUTES;
+  if (maxMinutes < 60) return `${minMinutes}-${maxMinutes} min`;
+  return formatDurationRangeMinutes(minMinutes, maxMinutes, fallback);
+}

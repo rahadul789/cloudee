@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   formatDurationMinutes,
   formatDurationRangeMinutes,
+  PREP_TIME_RANGE_SPREAD_MINUTES,
   formatTimeAmPm,
 } from "@/src/lib/date-time";
 
@@ -46,14 +47,9 @@ const PREP_START_PRECISE_WINDOW_SECONDS = 3 * 60;
 // single ticking number ("5 min left"). The lower bound stays honest; the upper bound
 // adds a buffer that scales with how much time is left.
 function buildPreparationRangeMinutes(remainingMinutes: number) {
+  // Same "+10 min" spread as the restaurant cards/details, so the promise never changes.
   const low = Math.max(1, remainingMinutes);
-  const pad =
-    low <= 5
-      ? 2
-      : low <= 20
-        ? 5
-        : Math.min(10, Math.max(5, Math.round(low * 0.25)));
-  return { low, high: low + pad };
+  return { low, high: low + PREP_TIME_RANGE_SPREAD_MINUTES };
 }
 
 function getPreparationAnchor(order: PreparationOrder) {

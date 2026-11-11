@@ -20,10 +20,15 @@ import { dedupeById } from "@/src/lib/dedupe";
 import { RestaurantListSkeleton } from "@/src/components/loading-skeleton";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import { PressableScale } from "@/src/components/pressable-scale";
+import { getRestaurantCustomBadge } from "@/src/components/restaurant-hero-card";
+import { RestaurantFeedRow } from "@/src/components/restaurant-feed-row";
 import {
-  getRestaurantCustomBadge,
-  RestaurantHeroCard,
-} from "@/src/components/restaurant-hero-card";
+  AppHeader,
+  Chip,
+  HeaderIconButton,
+  SearchField,
+  SectionHeading,
+} from "@/src/components/ui";
 import {
   RestaurantFilterSheet,
   DEFAULT_RESTAURANT_FILTER_VALUES,
@@ -274,354 +279,271 @@ export default function CustomerSearchScreen() {
 
   return (
     <Screen>
-      <View style={[styles.container, { paddingTop: Math.max(insets.top - 6, 2) }]}>
-        <View style={styles.topBar}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
-          <View style={styles.searchField}>
-            <Ionicons name="search" size={18} color={palette.secondary} />
-            <TextInput
-              ref={inputRef}
+      <View style={styles.container}>
+        <AppHeader
+          center={
+            <SearchField
+              inputRef={inputRef}
               value={query}
               onChangeText={(text) => setQuery(text.replace(/^\s+/, ""))}
-              placeholder="Search food or restaurant"
-              placeholderTextColor={palette.placeholder}
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              returnKeyType="search"
-              style={styles.input}
-              onSubmitEditing={() => {
+              onSubmit={() => {
                 const next = query.trim();
                 if (next) addRecentSearch(next);
                 setDebouncedQuery(next);
               }}
             />
-            {query.trim() ? (
-              <Pressable style={styles.clearButton} onPress={() => setQuery("")}>
-                <Ionicons name="close" size={15} color={palette.mutedForeground} />
-              </Pressable>
-            ) : null}
-          </View>
-          {searchQuery ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.filterButton,
-                pressed ? styles.filterButtonPressed : null,
-              ]}
-              onPress={() => setIsFilterOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={
-                activeFilterCount
-                  ? `Filters, ${activeFilterCount} active`
-                  : "Filters"
-              }
-              hitSlop={8}
-            >
-              <Ionicons name="options-outline" size={16} color="#fff" />
-              {activeFilterCount ? (
-                <View style={styles.filterBadge}>
-                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          ) : null}
-        </View>
+          }
+          right={
+            searchQuery ? (
+              <HeaderIconButton
+                icon="options-outline"
+                accessibilityLabel={
+                  activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"
+                }
+                active={activeFilterCount > 0}
+                badge={activeFilterCount}
+                onPress={() => setIsFilterOpen(true)}
+              />
+            ) : null
+          }
+        />
 
         {!isOnline ? (
-          <OfflineNoticeCard description="Search may show cached results until your internet connection returns." />
+          <View style={styles.offlineWrap}>
+            <OfflineNoticeCard description="Search may show cached results until your internet connection returns." />
+          </View>
         ) : null}
 
         <View style={styles.listWrap}>
-        <FlashList
-          ref={listRef}
-          data={contentReady ? restaurants : []}
-          keyExtractor={(item) => item._id}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          drawDistance={560}
-          ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
-          onEndReachedThreshold={0.35}
-          onEndReached={() => {
-            if (discoveryQuery.hasNextPage && !discoveryQuery.isFetchingNextPage) {
-              void discoveryQuery.fetchNextPage();
+          <FlashList
+            ref={listRef}
+            data={contentReady ? restaurants : []}
+            keyExtractor={(item) => item._id}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: Math.max(insets.bottom, 16) + 24 },
+            ]}
+            drawDistance={560}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            onEndReachedThreshold={0.35}
+            onEndReached={() => {
+              if (discoveryQuery.hasNextPage && !discoveryQuery.isFetchingNextPage) {
+                void discoveryQuery.fetchNextPage();
+              }
+            }}
+            ListHeaderComponent={
+              searchQuery ? (
+                <SectionHeading
+                  style={styles.resultHeading}
+                  title={`Results for “${searchQuery}”`}
+                  count={total}
+                  subtitle={
+                    activeFilterCount
+                      ? `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} applied`
+                      : "Restaurants and dishes that deliver to you"
+                  }
+                  actionLabel={activeFilterCount ? "Edit" : undefined}
+                  onAction={() => setIsFilterOpen(true)}
+                />
+              ) : null
             }
-          }}
-          ListHeaderComponent={
-            searchQuery ? (
-              <View style={styles.resultHeader}>
-                <Text style={styles.resultTitle}>{total} result{total === 1 ? "" : "s"}</Text>
-                <Text style={styles.resultSubtitle} numberOfLines={1}>
-                  for “{searchQuery}”
-                </Text>
-              </View>
-            ) : null
-          }
-          ListFooterComponent={
-            discoveryQuery.isFetchingNextPage ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={palette.secondary} />
-                <Text style={styles.footerText}>Loading more results</Text>
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            !selectedLocation ? (
-              <EmptyStateCard
-                title="Choose your delivery point first"
-                description="Set your location so search can show restaurants that deliver to you."
-                actionLabel="Choose location"
-                onPress={() => router.push("/location-picker")}
-              />
-            ) : !searchQuery ? (
-              <View style={styles.suggestionPanel}>
-                <View style={styles.suggestionHero}>
-                  <View style={styles.suggestionIcon}>
-                    <Ionicons name="search" size={19} color={palette.secondary} />
-                  </View>
-                  <View style={styles.suggestionHeroCopy}>
-                    <Text style={styles.suggestionTitle}>Find food faster</Text>
-                    <Text style={styles.suggestionText}>
-                      Try biryani, grill chicken, shawarma, or snacks.
-                    </Text>
-                  </View>
+            ListFooterComponent={
+              discoveryQuery.isFetchingNextPage ? (
+                <View style={styles.footerLoader}>
+                  <ActivityIndicator size="small" color={palette.secondary} />
+                  <Text style={styles.footerText}>Loading more results</Text>
                 </View>
-
-                {contentReady && homeCategoryItems.length > 0 ? (
-                  <View style={styles.suggestionBlock}>
-                    <Text style={styles.suggestionBlockTitle}>Popular categories</Text>
-                    <View style={styles.suggestionGrid}>
-                      {homeCategoryItems.map((item, index) => (
-                        <PressableScale
-                          key={item.id || `${item.label}-${index}`}
-                          containerStyle={styles.categorySlot}
-                          style={styles.categoryCard}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${item.label} category`}
-                          onPress={() => runSuggestedSearch(item.searchQuery || item.label)}
-                        >
-                          <View style={styles.categoryImageWrap}>
-                            <RemoteImage
-                              uri={item.imageUrl}
-                              style={styles.categoryImage}
-                              fallbackIcon={(item.icon || "restaurant-outline") as keyof typeof Ionicons.glyphMap}
-                              fallbackIconSize={21}
-                              fallbackTint={palette.primary}
-                              fallbackBackground={item.color || "#FFF0F6"}
-                              targetWidth={120}
-                              accessibilityLabel={`${item.label} category`}
-                            />
-                          </View>
-                          <Text style={styles.categoryName} numberOfLines={2}>
-                            {item.label}
-                          </Text>
-                        </PressableScale>
-                      ))}
-                    </View>
-                  </View>
-                ) : !contentReady || homeDiscoveryQuery.isLoading ? (
-                  <View style={styles.suggestionBlock}>
-                    <Text style={styles.suggestionBlockTitle}>
-                      Popular categories
-                    </Text>
-                    <View style={styles.suggestionGrid}>
-                      {Array.from({ length: 15 }).map((_, placeholder) => (
-                        <View key={placeholder} style={styles.categorySlot}>
-                          <View style={styles.categoryCard}>
-                            <View style={styles.categorySkeletonImage} />
-                            <View style={styles.categorySkeletonName} />
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                {recentSearches.length > 0 ? (
-                  <View style={styles.historyBlock}>
-                    <Text style={styles.historyLabel}>Recent searches</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.recentSearchRow}
-                    >
-                      {recentSearches.map((recentQuery) => (
-                        <View key={recentQuery} style={styles.recentSearchChip}>
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.recentSearchMain,
-                              pressed ? styles.chipPressed : null,
-                            ]}
+              ) : null
+            }
+            ListEmptyComponent={
+              !selectedLocation ? (
+                <EmptyStateCard
+                  title="Choose your delivery point first"
+                  description="Set your location so search can show restaurants that deliver to you."
+                  actionLabel="Choose location"
+                  onPress={() => router.push("/location-picker")}
+                />
+              ) : !searchQuery ? (
+                <View style={styles.discover}>
+                  {recentSearches.length > 0 ? (
+                    <View style={styles.block}>
+                      <SectionHeading icon="time-outline" title="Recent searches" />
+                      <View style={styles.chipWrap}>
+                        {recentSearches.map((recentQuery) => (
+                          <Chip
+                            key={recentQuery}
+                            label={recentQuery}
+                            icon="search"
                             onPress={() => runSuggestedSearch(recentQuery)}
-                          >
-                            <Ionicons
-                              name="time-outline"
-                              size={13}
-                              color={palette.mutedForeground}
-                            />
-                            <Text numberOfLines={1} style={styles.recentSearchText}>
-                              {recentQuery}
-                            </Text>
-                          </Pressable>
-                          <Pressable
-                            onPress={() => removeRecentSearch(recentQuery)}
-                            hitSlop={8}
-                            style={({ pressed }) => [
-                              styles.recentSearchRemove,
-                              pressed ? styles.pressablePressed : null,
-                            ]}
-                          >
-                            <Ionicons
-                              name="close"
-                              size={12}
-                              color={palette.mutedForeground}
-                            />
-                          </Pressable>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                ) : null}
+                            onRemove={() => removeRecentSearch(recentQuery)}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  ) : null}
 
-                {recentViewedRestaurants.length > 0 ? (
-                  <View style={styles.historyBlock}>
-                    <Text style={styles.historyLabel}>Recently viewed</Text>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.recentVisitedRow}
-                    >
-                      {recentViewedRestaurants.map((restaurant) => (
-                        <View
-                          key={restaurant.id}
-                          style={styles.recentVisitedCardWrap}
-                        >
-                          <PressableScale
-                            scaleTo={0.98}
-                            style={styles.recentVisitedCard}
-                            onPress={() =>
-                              router.push({
-                                pathname: "/restaurants/[restaurantId]",
-                                params: {
-                                  restaurantId: restaurant.id,
-                                  source: "recent",
-                                },
-                              })
-                            }
-                          >
-                            <View style={styles.recentVisitedThumb}>
-                              <RemoteImage
-                                uri={restaurant.imageUrl}
-                                style={styles.recentVisitedImage}
-                                fallbackIcon="restaurant-outline"
-                                fallbackIconSize={18}
-                                fallbackTint={palette.secondary}
-                                targetWidth={96}
-                                accessibilityLabel={`${restaurant.name} restaurant photo`}
-                              />
-                            </View>
-                            <View style={styles.recentVisitedCopy}>
-                              <Text
-                                numberOfLines={1}
-                                style={styles.recentVisitedTitle}
-                              >
-                                {restaurant.name}
-                              </Text>
-                              {restaurant.subtitle ? (
-                                <Text
-                                  numberOfLines={1}
-                                  style={styles.recentVisitedSubtitle}
-                                >
-                                  {restaurant.subtitle}
-                                </Text>
-                              ) : null}
-                              <Text style={styles.recentVisitedMeta}>
-                                {formatVisitedTime(restaurant.visitedAt)}
-                              </Text>
-                            </View>
-                            <Pressable
-                              style={({ pressed }) => [
-                                styles.recentVisitedHeart,
-                                favoriteRestaurantIdsSet.has(restaurant.id)
-                                  ? styles.recentVisitedHeartActive
-                                  : null,
-                                pressed ? styles.pressablePressed : null,
-                              ]}
-                              onPress={() => handleToggleFavorite(restaurant.id)}
-                              disabled={
-                                favoritePendingRestaurantId === restaurant.id
-                              }
-                              hitSlop={8}
+                  <View style={styles.block}>
+                    <SectionHeading
+                      icon="grid-outline"
+                      title="Popular categories"
+                      count={contentReady && homeCategoryItems.length ? homeCategoryItems.length : undefined}
+                    />
+                    <View style={styles.categoryGrid}>
+                      {contentReady && homeCategoryItems.length > 0
+                        ? homeCategoryItems.map((item, index) => (
+                            <PressableScale
+                              key={item.id || `${item.label}-${index}`}
+                              containerStyle={styles.categorySlot}
+                              style={styles.categoryTile}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${item.label} category`}
+                              onPress={() => runSuggestedSearch(item.searchQuery || item.label)}
                             >
-                              <Ionicons
-                                name={
-                                  favoriteRestaurantIdsSet.has(restaurant.id)
-                                    ? "heart"
-                                    : "heart-outline"
-                                }
-                                size={14}
-                                color={
-                                  favoriteRestaurantIdsSet.has(restaurant.id)
-                                    ? "#fff"
-                                    : palette.foreground
-                                }
-                              />
-                            </Pressable>
-                          </PressableScale>
-                        </View>
-                      ))}
-                    </ScrollView>
+                              <View style={styles.categoryImageWrap}>
+                                <RemoteImage
+                                  uri={item.imageUrl}
+                                  style={styles.categoryImage}
+                                  fallbackIcon={(item.icon || "restaurant-outline") as keyof typeof Ionicons.glyphMap}
+                                  fallbackIconSize={22}
+                                  fallbackTint={palette.secondary}
+                                  fallbackBackground={item.color || "#FFF6E8"}
+                                  targetWidth={140}
+                                  accessibilityLabel={`${item.label} category`}
+                                />
+                              </View>
+                              <Text style={styles.categoryName} numberOfLines={1}>
+                                {item.label}
+                              </Text>
+                            </PressableScale>
+                          ))
+                        : !contentReady || homeDiscoveryQuery.isLoading
+                          ? Array.from({ length: 8 }).map((_, placeholder) => (
+                              <View key={placeholder} style={styles.categorySlot}>
+                                <View style={styles.categoryTile}>
+                                  <View style={styles.categorySkeletonImage} />
+                                  <View style={styles.categorySkeletonName} />
+                                </View>
+                              </View>
+                            ))
+                          : null}
+                    </View>
                   </View>
-                ) : null}
-              </View>
-            ) : searchQuery.length < 2 ? (
-              <EmptyStateCard
-                title="Type at least 2 letters"
-                description="A slightly longer search helps us match menu items and restaurant names more accurately."
+
+                  {recentViewedRestaurants.length > 0 ? (
+                    <View style={styles.block}>
+                      <SectionHeading icon="eye-outline" title="Recently viewed" />
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.recentRow}
+                      >
+                        {recentViewedRestaurants.map((restaurant) => {
+                          const isFav = favoriteRestaurantIdsSet.has(restaurant.id);
+                          return (
+                            <PressableScale
+                              key={restaurant.id}
+                              scaleTo={0.98}
+                              style={styles.recentCard}
+                              onPress={() =>
+                                router.push({
+                                  pathname: "/restaurants/[restaurantId]",
+                                  params: { restaurantId: restaurant.id, source: "recent" },
+                                })
+                              }
+                            >
+                              <View style={styles.recentImageWrap}>
+                                <RemoteImage
+                                  uri={restaurant.imageUrl}
+                                  style={styles.recentImage}
+                                  fallbackIcon="restaurant-outline"
+                                  fallbackIconSize={20}
+                                  fallbackTint={palette.secondary}
+                                  targetWidth={360}
+                                  accessibilityLabel={`${restaurant.name} restaurant photo`}
+                                />
+                                <Pressable
+                                  style={styles.recentHeart}
+                                  onPress={() => handleToggleFavorite(restaurant.id)}
+                                  disabled={favoritePendingRestaurantId === restaurant.id}
+                                  hitSlop={8}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={
+                                    isFav
+                                      ? `Remove ${restaurant.name} from favourites`
+                                      : `Add ${restaurant.name} to favourites`
+                                  }
+                                >
+                                  <Ionicons
+                                    name={isFav ? "heart" : "heart-outline"}
+                                    size={15}
+                                    color={isFav ? "#E5484D" : palette.foreground}
+                                  />
+                                </Pressable>
+                              </View>
+                              <View style={styles.recentBody}>
+                                <Text numberOfLines={1} style={styles.recentTitle}>
+                                  {restaurant.name}
+                                </Text>
+                                <Text numberOfLines={1} style={styles.recentMeta}>
+                                  {[restaurant.subtitle, formatVisitedTime(restaurant.visitedAt)]
+                                    .filter(Boolean)
+                                    .join("  ·  ")}
+                                </Text>
+                              </View>
+                            </PressableScale>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </View>
+              ) : searchQuery.length < 2 ? (
+                <EmptyStateCard
+                  title="Type at least 2 letters"
+                  description="A slightly longer search helps us match menu items and restaurant names more accurately."
+                />
+              ) : discoveryQuery.isLoading || !contentReady ? (
+                <RestaurantListSkeleton count={4} compact variant="nearby" />
+              ) : discoveryQuery.isError ? (
+                <ErrorRetryCard
+                  title="Couldn't load results"
+                  description="We couldn't run your search right now. Check your connection and try again."
+                  onRetry={() => {
+                    void discoveryQuery.refetch();
+                  }}
+                  retrying={discoveryQuery.isFetching}
+                />
+              ) : (
+                <EmptyStateCard
+                  title="No food or restaurant found"
+                  description="Try another spelling, food name, cuisine, or restaurant. Example: chicken, biryani, burger."
+                />
+              )
+            }
+            renderItem={({ item }) => (
+              <RestaurantFeedRow
+                name={item.name}
+                subtitle={restaurantSubtitle(item)}
+                imageUrl={item.coverImage?.url || item.logo?.url || null}
+                isOpen={item.isOpen !== false}
+                availability={item.availability}
+                offerLabel={offerLabelByRestaurantId.get(item._id)}
+                distanceKm={item.distanceKm}
+                avgRating={item.avgRating}
+                reviewCount={item.reviewCount}
+                deliveryFee={item.deliveryFee}
+                preparationTimeMinutes={item.preparationTimeMinutes}
+                isFavorite={favoriteRestaurantIdsSet.has(item._id)}
+                favoriteDisabled={favoritePendingRestaurantId === item._id}
+                onToggleFavorite={() => handleToggleFavorite(item._id)}
+                customBadge={getRestaurantCustomBadge(item)}
+                onPress={() => openRestaurant(item)}
               />
-            ) : discoveryQuery.isLoading || !contentReady ? (
-              <RestaurantListSkeleton count={4} compact variant="nearby" />
-            ) : discoveryQuery.isError ? (
-              <ErrorRetryCard
-                title="Couldn't load results"
-                description="We couldn't run your search right now. Check your connection and try again."
-                onRetry={() => {
-                  void discoveryQuery.refetch();
-                }}
-                retrying={discoveryQuery.isFetching}
-              />
-            ) : (
-              <EmptyStateCard
-                title="No food or restaurant found"
-                description="Try another spelling, food name, cuisine, or restaurant. Example: chicken, biryani, burger."
-              />
-            )
-          }
-          renderItem={({ item }) => (
-            <RestaurantHeroCard
-              name={item.name}
-              subtitle={restaurantSubtitle(item)}
-              imageUrl={item.coverImage?.url || item.logo?.url || null}
-              isOpen={item.isOpen !== false}
-              availability={item.availability}
-              offerLabel={offerLabelByRestaurantId.get(item._id)}
-              distanceKm={item.distanceKm}
-              avgRating={item.avgRating}
-              reviewCount={item.reviewCount}
-              lowestMenuPrice={item.lowestMenuPrice}
-              preparationTimeMinutes={item.preparationTimeMinutes}
-              isFavorite={favoriteRestaurantIdsSet.has(item._id)}
-              favoriteDisabled={favoritePendingRestaurantId === item._id}
-              onToggleFavorite={() => handleToggleFavorite(item._id)}
-              compact
-              variant="nearby"
-              customBadge={getRestaurantCustomBadge(item)}
-              onPress={() => openRestaurant(item)}
-            />
-          )}
-        />
+            )}
+          />
         </View>
 
         <RestaurantFilterSheet
@@ -641,441 +563,143 @@ export default function CustomerSearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 18,
-    gap: 12,
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  searchField: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 18,
-    paddingHorizontal: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#F0E2D8",
     backgroundColor: palette.surface,
   },
-  input: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "700",
-    color: palette.foreground,
-    paddingVertical: 10,
-  },
-  clearButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F7F2F6",
-  },
-  locationPill: {
-    minHeight: 36,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: "#FFF7FB",
-    borderWidth: 1,
-    borderColor: "#F5DCE8",
-  },
-  locationText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    color: palette.foreground,
+  offlineWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   listWrap: {
     flex: 1,
   },
   listContent: {
-    paddingTop: 8,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
-  suggestionPanel: {
-    gap: 14,
+  separator: {
+    height: 20,
   },
-  // Borderless soft-pink hero — a clean tinted card lifted by a gentle shadow (no hard
-  // outline), with a white icon tile that pops against the tint.
-  suggestionHero: {
-    borderRadius: 22,
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#FFF3F8",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
-  },
-  suggestionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.surface,
-  },
-  suggestionHeroCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  suggestionTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  suggestionText: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  suggestionBlock: {
-    gap: 10,
-  },
-  suggestionBlockTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  // Recent searches + Recently viewed — matched exactly to the Browse tab's style
-  // (horizontal scrolling chips with a remove button, and image-thumb cards with a
-  // favourite heart) so the two screens feel like one.
-  pressablePressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.97 }],
-  },
-  chipPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.985 }],
-  },
-  cardPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }],
-  },
-  historyBlock: {
-    gap: 10,
-  },
-  historyLabel: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  recentSearchRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingRight: 6,
-  },
-  recentSearchChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    maxWidth: 220,
-    flexShrink: 0,
-    borderRadius: 999,
-    backgroundColor: "#F6F2F8",
-  },
-  recentSearchMain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingLeft: 12,
-    paddingRight: 6,
-    paddingVertical: 9,
-  },
-  recentSearchText: {
-    maxWidth: 150,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-    color: palette.foreground,
-  },
-  recentSearchRemove: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 4,
-  },
-  recentVisitedRow: {
-    paddingRight: 8,
-    gap: 12,
-  },
-  recentVisitedCardWrap: {
-    width: 232,
-  },
-  recentVisitedCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 22,
-    backgroundColor: palette.surface,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#F1E2EA",
-  },
-  recentVisitedThumb: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    overflow: "hidden",
-    backgroundColor: "#F7F1F7",
-  },
-  recentVisitedImage: {
-    width: "100%",
-    height: "100%",
-  },
-  recentVisitedCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  recentVisitedTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  recentVisitedSubtitle: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  recentVisitedMeta: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "700",
-    color: "#AA6A87",
-  },
-  recentVisitedHeart: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F6F1F5",
-  },
-  recentVisitedHeartActive: {
-    backgroundColor: palette.secondary,
-  },
-  suggestionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  // The sized flex child (5 per row). The width lives HERE (on the PressableScale
-  // container / skeleton wrapper) so the percentage resolves against the grid, not the
-  // shrink-to-fit inner Pressable — otherwise the label collapses to ~0 width.
-  categorySlot: {
-    width: "17.6%",
-  },
-  // Squircle image card (image on top, name below) — matches the home categories row.
-  // Fills its slot so the name gets the full card width.
-  categoryCard: {
-    width: "100%",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: 2,
-  },
-  categoryCardPressed: {
-    opacity: 0.82,
-    transform: [{ scale: 0.95 }],
-  },
-  categoryImageWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    backgroundColor: palette.surface,
-    shadowColor: "rgba(17, 17, 26, 0.16)",
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  categoryImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(17, 17, 26, 0.06)",
-  },
-  // Static (no-animation) category placeholders shown while the backend categories load,
-  // so the panel never pops in abruptly. Matches the real tile size for a stable layout.
-  categorySkeletonImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    backgroundColor: "#EFE7EF",
-  },
-  categorySkeletonName: {
-    width: "82%",
-    height: 9,
-    borderRadius: 999,
-    backgroundColor: "#EFE7EF",
-  },
-  categoryName: {
-    width: "100%",
-    fontSize: 10.5,
-    lineHeight: 13,
-    fontWeight: "600",
-    letterSpacing: 0.1,
-    color: "#2E2E38",
-    textAlign: "center",
-  },
-  recentRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 9,
-  },
-  recentChip: {
-    minHeight: 38,
-    borderRadius: 15,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  recentChipText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  recentViewedList: {
-    gap: 10,
-  },
-  recentViewedCard: {
-    minHeight: 66,
-    borderRadius: 20,
-    paddingHorizontal: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: "#F0E0EA",
-  },
-  recentViewedCardPressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.96,
-  },
-  recentViewedIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFF0F6",
-  },
-  recentViewedCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  recentViewedTitle: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "900",
-    color: palette.foreground,
-  },
-  recentViewedSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
-    color: palette.mutedForeground,
-  },
-  resultHeader: {
+  resultHeading: {
     marginBottom: 14,
-    gap: 2,
-  },
-  filterButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: palette.secondary,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-    flexShrink: 0,
-  },
-  filterButtonPressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.97 }],
-  },
-  filterBadge: {
-    position: "absolute",
-    top: -2,
-    right: -2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: palette.foreground,
-    borderWidth: 1,
-    borderColor: palette.surface,
-  },
-  filterBadgeText: {
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: "800",
-    color: palette.surface,
-  },
-  resultTitle: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-    color: palette.foreground,
-  },
-  resultSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-    color: palette.mutedForeground,
   },
   footerLoader: {
-    minHeight: 64,
+    paddingVertical: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
   footerText: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontWeight: "500",
+    color: palette.mutedForeground,
+  },
+  discover: {
+    gap: 26,
+  },
+  block: {
+    gap: 12,
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  categoryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -4,
+    rowGap: 14,
+  },
+  categorySlot: {
+    width: "25%",
+    paddingHorizontal: 4,
+  },
+  categoryTile: {
+    alignItems: "center",
+    gap: 7,
+  },
+  categoryImageWrap: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: palette.surfaceMuted,
+  },
+  categoryImage: {
+    width: "100%",
+    height: "100%",
+  },
+  categoryName: {
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: palette.foreground,
+    textAlign: "center",
+  },
+  categorySkeletonImage: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceMuted,
+  },
+  categorySkeletonName: {
+    width: "70%",
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: palette.surfaceMuted,
+  },
+  recentRow: {
+    gap: 12,
+    paddingRight: 8,
+    paddingBottom: 6,
+  },
+  recentCard: {
+    width: 196,
+    borderRadius: 16,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E6",
+  },
+  recentImageWrap: {
+    height: 104,
+    overflow: "hidden",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    backgroundColor: palette.surfaceMuted,
+  },
+  recentImage: {
+    width: "100%",
+    height: "100%",
+  },
+  recentHeart: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.95)",
+  },
+  recentBody: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 2,
+  },
+  recentTitle: {
+    fontSize: 14.5,
+    lineHeight: 19,
+    fontWeight: "700",
+    color: palette.foreground,
+  },
+  recentMeta: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "700",
+    fontWeight: "400",
     color: palette.mutedForeground,
   },
 });

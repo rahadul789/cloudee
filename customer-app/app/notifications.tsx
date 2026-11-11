@@ -7,6 +7,7 @@ import { FlashList } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { isExternalHttpUrl, openExternalUrl } from "@/src/components/linkified-text";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { RemoteImage } from "@/src/components/remote-image";
 import { Screen } from "@/src/components/screen";
@@ -22,13 +23,14 @@ import { refreshCustomerOrderCacheForPath } from "@/src/lib/customer-order-cache
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
 import { dedupeById } from "@/src/lib/dedupe";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
-type NotificationTab = "all" | "orders" | "offers";
+type NotificationTab = "all" | "offers" | "updates";
 
 const notificationTabs: { key: NotificationTab; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "orders", label: "Orders" },
   { key: "offers", label: "Offers" },
+  { key: "updates", label: "Updates" },
 ];
 
 // FlashList ignores `gap` in contentContainerStyle, so cards render flush against
@@ -37,24 +39,39 @@ function NotificationSeparator() {
   return <View style={styles.notificationSeparator} />;
 }
 
+// Inbox = offers + updates worth revisiting. Live order progress (accepted, preparing,
+// rider near, chat…) is push-only now — the Orders tab is the source of truth — so the
+// backend no longer stores it here. Mirrors backend customer-notification-rules.ts.
 function isOfferNotification(type: string) {
-  return type === "promotion" || type === "voucher" || type === "campaign";
-}
-
-function isOrderNotification(type: string) {
   return (
-    type === "order_status" ||
-    type === "rider_assigned" ||
-    type === "rider_near"
+    type === "promotion" ||
+    type === "voucher" ||
+    type === "campaign" ||
+    type === "custom_offer" ||
+    type === "custom_offer_qualified"
   );
 }
 
 function getToneStyle(type: string) {
   switch (type) {
     case "order_status":
+      // Only cancelled / not-accepted orders reach the inbox now.
       return {
-        cardTint: "#FFE8F0",
-        icon: "receipt-outline" as const,
+        cardTint: "#FDECEC",
+        icon: "close-circle-outline" as const,
+        iconColor: "#D93025",
+      };
+    case "refund_completed":
+      return {
+        cardTint: "#E7F7EE",
+        icon: "cash-outline" as const,
+        iconColor: palette.successText,
+      };
+    case "review_reply":
+    case "review_request":
+      return {
+        cardTint: "#FFF4E0",
+        icon: "star-outline" as const,
         iconColor: palette.secondary,
       };
     case "support_reply":
@@ -67,13 +84,15 @@ function getToneStyle(type: string) {
       return {
         cardTint: "#FFF2E6",
         icon: "storefront-outline" as const,
-        iconColor: palette.primary,
+        iconColor: palette.secondary,
       };
     case "promotion":
     case "voucher":
     case "campaign":
+    case "custom_offer":
+    case "custom_offer_qualified":
       return {
-        cardTint: "#FFF0F6",
+        cardTint: "#FFF6E8",
         icon: "gift-outline" as const,
         iconColor: palette.secondary,
       };
@@ -145,11 +164,11 @@ export default function NotificationsScreen() {
     });
   }, [pushedNotificationKey, notificationsQuery.data?.pages]);
   const notifications = useMemo(() => {
-    if (activeTab === "orders") {
-      return allNotifications.filter((notification) => isOrderNotification(notification.type));
-    }
     if (activeTab === "offers") {
       return allNotifications.filter((notification) => isOfferNotification(notification.type));
+    }
+    if (activeTab === "updates") {
+      return allNotifications.filter((notification) => !isOfferNotification(notification.type));
     }
     return allNotifications;
   }, [activeTab, allNotifications]);
@@ -219,6 +238,11 @@ export default function NotificationsScreen() {
       return;
     }
 
+    if (isExternalHttpUrl(notification.path)) {
+      openExternalUrl(notification.path ?? "");
+      return;
+    }
+
     const safePath = resolveCustomerPushRoute({
       type: notification.type,
       path: notification.path,
@@ -236,14 +260,7 @@ export default function NotificationsScreen() {
   return (
     <Screen>
       <View style={styles.container}>
-        <View style={[styles.topBar, { paddingTop: 4 }]}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
-
-          <Text style={styles.title}>Notifications</Text>
-
-          <Pressable
+        <AppHeader inline style={styles.headerInset} title="Notifications" right={<Pressable
             style={[
               styles.markAllButton,
               (markAllMutation.isPending || notifications.length === 0) && styles.buttonDisabled,
@@ -256,8 +273,7 @@ export default function NotificationsScreen() {
             ) : (
               <Text style={styles.markAllText}>Mark all read</Text>
             )}
-          </Pressable>
-        </View>
+          </Pressable>} />
 
         {openedFromPush && safePushTargetPath ? (
           <View style={styles.pushContextCard}>
@@ -323,16 +339,16 @@ export default function NotificationsScreen() {
               title={
                 activeTab === "offers"
                   ? "No offers yet"
-                  : activeTab === "orders"
-                    ? "No order updates yet"
+                  : activeTab === "updates"
+                    ? "No updates yet"
                     : "No notifications yet"
               }
               description={
                 activeTab === "offers"
-                  ? "Foodbela offers and promo updates will appear here."
-                  : activeTab === "orders"
-                    ? "Order status updates will appear here."
-                    : "Order updates and offers will appear here."
+                  ? "Foodbela offers and vouchers will appear here."
+                  : activeTab === "updates"
+                    ? "Refunds, cancelled orders and support replies will appear here. Live order progress is in the Orders tab."
+                    : "Offers and important updates will appear here. Track live orders from the Orders tab."
               }
             />
           </View>
@@ -364,7 +380,7 @@ export default function NotificationsScreen() {
             ListFooterComponent={
               notificationsQuery.isFetchingNextPage ? (
                 <View style={styles.footerLoading}>
-                  <ActivityIndicator size="small" color={palette.primary} />
+                  <ActivityIndicator size="small" color={palette.secondary} />
                 </View>
               ) : null
             }
@@ -433,6 +449,9 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // `inline` headers have no side padding (they expect a padded parent) — this screen's
+  // container isn't padded, so give the header the standard 16px gutter.
+  headerInset: { paddingHorizontal: 16 },
   topBar: {
     paddingHorizontal: 18,
     paddingBottom: 14,
@@ -455,7 +474,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   markAllButton: {
@@ -580,7 +599,7 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   list: {
@@ -594,8 +613,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#F8BBD0",
-    backgroundColor: "#FFF4F8",
+    borderColor: "#EFE4D3",
+    backgroundColor: "#FFFAF2",
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
@@ -605,7 +624,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: "#FFE3EE",
+    backgroundColor: "#FFF1DC",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -616,7 +635,7 @@ const styles = StyleSheet.create({
   pushContextTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   pushContextText: {
@@ -635,7 +654,7 @@ const styles = StyleSheet.create({
   pushContextActionText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
   tabs: {
@@ -655,13 +674,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabChipActive: {
-    borderColor: "#FFC0D4",
-    backgroundColor: "#FFF0F6",
+    borderColor: "#FFE2B3",
+    backgroundColor: "#FFF6E8",
   },
   tabText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   tabTextActive: {
@@ -682,7 +701,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   cardUnread: {
-    borderColor: "#F5D0DF",
+    borderColor: "#EFE4D3",
     backgroundColor: "#FFF9FC",
   },
   cardPressed: {
@@ -691,11 +710,6 @@ const styles = StyleSheet.create({
   },
   cardFocused: {
     borderColor: palette.secondary,
-    shadowColor: palette.secondary,
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
   },
   cardIconWrap: {
     width: 44,
@@ -717,14 +731,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   unreadDot: {
     width: 9,
     height: 9,
     borderRadius: 4.5,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   cardDescription: {
     fontSize: 13,
@@ -742,8 +756,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#FFC0D4",
-    backgroundColor: "#FFF0F6",
+    borderColor: "#FFE2B3",
+    backgroundColor: "#FFF6E8",
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -760,7 +774,7 @@ const styles = StyleSheet.create({
     maxWidth: 120,
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.secondary,
     letterSpacing: 0,
   },
@@ -773,7 +787,7 @@ const styles = StyleSheet.create({
   cardTime: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
 });

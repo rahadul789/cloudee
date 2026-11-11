@@ -1,13 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useIsFocused } from "@react-navigation/native";
-import LottieView from "lottie-react-native";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { OrdersTabSkeleton } from "@/src/components/loading-skeleton";
 import {
   buildOrderCardModel,
@@ -20,6 +20,7 @@ import {
   type CustomerOrderSummary,
 } from "@/src/components/orders/customer-order-cards";
 import { ReorderCartSwitchModal } from "@/src/components/orders/reorder-cart-switch-modal";
+import { closedReorderBanner, failedReorderBanner } from "@/src/lib/reorder-messages";
 import { styles } from "@/src/components/orders/orders-list.styles";
 import { OfflineNoticeCard } from "@/src/components/offline-notice-card";
 import {
@@ -30,7 +31,7 @@ import {
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useAppBannerStore } from "@/src/store/app-banner-store";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
-import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 const ORDER_TAB_HISTORY_PREVIEW_LIMIT = 5;
 
@@ -157,15 +158,26 @@ export default function OrdersScreen() {
   const handleReorder = useCallback(
     async (order: CustomerOrderSummary, forceReplace = false) => {
       void Haptics.selectionAsync();
-      const result = await reorderMutation.mutateAsync({
-        order: {
-          _id: order._id,
-          orderNumber: order.orderNumber,
-          restaurantId: order.restaurantId,
-          itemsSnapshot: order.itemsSnapshot,
-        },
-        forceReplace,
-      });
+      let result: Awaited<ReturnType<typeof reorderMutation.mutateAsync>>;
+      try {
+        result = await reorderMutation.mutateAsync({
+          order: {
+            _id: order._id,
+            orderNumber: order.orderNumber,
+            restaurantId: order.restaurantId,
+            itemsSnapshot: order.itemsSnapshot,
+          },
+          forceReplace,
+        });
+      } catch {
+        showBanner(failedReorderBanner);
+        return;
+      }
+
+      if (result.status === "closed") {
+        showBanner(closedReorderBanner(result));
+        return;
+      }
 
       if (result.status === "conflict") {
         setReorderConflictOrder(order);
@@ -204,7 +216,7 @@ export default function OrdersScreen() {
               } from this delivered order.`,
         tone: result.skippedCount > 0 ? "warning" : "success",
       });
-      router.push("/(tabs)/cart");
+      router.push({ pathname: "/(tabs)/cart", params: { view: "active" } });
     },
     [reorderMutation, router, showBanner],
   );
@@ -231,17 +243,11 @@ export default function OrdersScreen() {
         case "empty":
           return (
             <View style={styles.inlineEmptyWrap}>
-              <LottieView
-                source={require("@/assets/animations/waiting.json")}
-                autoPlay={isOrdersFocused}
-                loop={isOrdersFocused}
-                style={styles.emptyAnimation}
-              />
               <EmptyStateCard
                 title="No orders yet"
                 description="Once you place an order, live status and history will show up here."
                 actionLabel="Browse restaurants"
-                onPress={() => router.push("/(tabs)/browse")}
+                onPress={() => router.push("/(tabs)")}
               />
             </View>
           );
@@ -326,13 +332,8 @@ export default function OrdersScreen() {
   if (!customer) {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <AppHeader showBack={false} title="Your orders" subtitle="Live tracking and order history" />
         <View style={[styles.emptyState, styles.signedOutEmptyState]}>
-          <LottieView
-            source={require("@/assets/animations/waiting.json")}
-            autoPlay={isOrdersFocused}
-            loop={isOrdersFocused}
-            style={styles.emptyAnimation}
-          />
           <EmptyStateCard
             title="Sign in to see your orders"
             description="Your full order history stays tied to your verified customer account."
@@ -352,6 +353,7 @@ export default function OrdersScreen() {
   if (liveOrdersQuery.isError && historyOrdersError && !hasAnyOrders) {
     return (
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
+        <AppHeader showBack={false} title="Your orders" subtitle="Live tracking and order history" />
         <View style={styles.emptyState}>
           <EmptyStateCard
             title={
@@ -371,7 +373,7 @@ export default function OrdersScreen() {
                     void refetchLiveOrders();
                     void refetchHistoryOrders();
                   }
-                : () => router.push("/(tabs)/browse")
+                : () => router.push("/(tabs)")
             }
           />
         </View>
@@ -381,25 +383,21 @@ export default function OrdersScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      {/* Same fixed top bar as the Cart tab ("Your carts"). */}
+      <AppHeader showBack={false} title="Your orders" subtitle="Live tracking and order history" />
+      <BelaPullToRefresh
+        refreshing={isRefreshing}
+        onRefresh={handleRefresh}
+      >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={palette.secondary}
-            colors={[palette.secondary]}
-          />
-        }
       >
-        <View style={styles.header}>
-          <Text style={styles.kicker}>Orders</Text>
-          <Text style={styles.title}>Track your orders </Text>
-          {!isOnline ? (
+        {!isOnline ? (
+          <View style={styles.header}>
             <OfflineNoticeCard description="Showing your last synced orders. Live delivery updates will resume when you're back online." />
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
         {ordersListItems.map((item, index) => (
           <View key={keyExtractor(item, index)}>
@@ -408,6 +406,7 @@ export default function OrdersScreen() {
           </View>
         ))}
       </ScrollView>
+      </BelaPullToRefresh>
 
       <ReorderCartSwitchModal
         visible={Boolean(reorderConflictOrder && reorderConflictMeta)}

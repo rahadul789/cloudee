@@ -102,7 +102,7 @@ export function OtaUpdateGate() {
           accessibilityLabel="Reload to apply update"
         >
           {isReloading ? (
-            <ActivityIndicator size="small" color="#1F2430" />
+            <ActivityIndicator size="small" color="#111111" />
           ) : (
             <Text style={styles.reloadText}>Reload</Text>
           )}
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 520,
     borderRadius: 18,
-    backgroundColor: "#1F2430",
+    backgroundColor: "#111111",
     paddingVertical: 12,
     paddingHorizontal: 14,
     shadowColor: "#000",
@@ -146,13 +146,13 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   subtitle: {
     color: "rgba(255,255,255,0.72)",
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   dismiss: {
     paddingHorizontal: 8,
@@ -177,9 +177,9 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.97 }],
   },
   reloadText: {
-    color: "#1F2430",
+    color: "#111111",
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
   },
 });

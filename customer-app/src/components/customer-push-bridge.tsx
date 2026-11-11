@@ -20,6 +20,7 @@ import {
   refreshCustomerOrderCacheForPath,
 } from "@/src/lib/customer-order-cache";
 import { resolveCustomerPushRoute } from "@/src/lib/customer-routes";
+import { isExternalHttpUrl, openExternalUrl } from "@/src/components/linkified-text";
 import { queryClient } from "@/src/lib/query-client";
 import { useIsOnline } from "@/src/hooks/use-network-status";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
@@ -87,7 +88,7 @@ async function registerForPushNotificationsAsync() {
       name: "default",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#FF6392",
+      lightColor: "#A86300",
     });
   }
 
@@ -190,6 +191,12 @@ export function CustomerPushBridge({ children }: PropsWithChildren) {
     };
 
     const openNotificationTarget = async (data?: Record<string, unknown>) => {
+      // Admin can point a push at an outside website — open it in the browser.
+      const externalPath = typeof data?.path === "string" ? data.path.trim() : "";
+      if (isExternalHttpUrl(externalPath)) {
+        openExternalUrl(externalPath);
+        return;
+      }
       const target = resolveCustomerPushRoute(data);
       const navigationKey = `${String(data?.notificationId ?? data?.campaignId ?? "")}:${target}`;
       const recentNavigation = recentNavigationRef.current;

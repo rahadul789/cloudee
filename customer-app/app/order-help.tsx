@@ -8,6 +8,7 @@ import { useCustomerDiscoveryHomeQuery } from "@/src/hooks/use-customer-api";
 import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
 import { useLocationStore } from "@/src/store/location-store";
 import { palette } from "@/src/theme/palette";
+import { HeaderBackButton } from "@/src/components/ui";
 
 const orderSteps = [
   {
@@ -53,25 +54,12 @@ export default function OrderHelpScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topBar}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="chevron-back" size={20} color={palette.foreground} />
-          </Pressable>
+          <HeaderBackButton />
         </View>
 
         <View style={styles.hero}>
           <View style={styles.heroIcon}>
-            <Ionicons name="receipt-outline" size={26} color="#FFFFFF" />
+            <Ionicons name="receipt-outline" size={26} color={palette.onPrimary} />
           </View>
           <Text style={styles.kicker}>Order Help</Text>
           <Text style={styles.title}>How to order on Foodbela</Text>
@@ -93,13 +81,13 @@ export default function OrderHelpScreen() {
               onPress={() => void Linking.openURL(videoUrl)}
             >
               <View style={styles.videoIcon}>
-                <Ionicons name="logo-youtube" size={21} color="#FFFFFF" />
+                <Ionicons name="logo-youtube" size={21} color={palette.onPrimary} />
               </View>
               <View style={styles.primaryActionCopy}>
                 <Text style={styles.videoActionTitle}>Watch video guide</Text>
                 <Text style={styles.videoActionSubtitle}>See the full order flow in one quick guide.</Text>
               </View>
-              <Ionicons name="play" size={18} color="#FFFFFF" />
+              <Ionicons name="play" size={18} color={palette.onPrimary} />
             </Pressable>
           ) : null}
 
@@ -113,7 +101,7 @@ export default function OrderHelpScreen() {
                   }
                 : null,
             ]}
-            onPress={() => router.push("/(tabs)/browse")}
+            onPress={() => router.push("/(tabs)")}
           >
             <View style={styles.primaryActionIcon}>
               <Ionicons name="open-outline" size={18} color={palette.foreground} />
@@ -198,17 +186,17 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   kicker: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
-    color: "#FFD8E6",
+    color: "#FFF1DC",
   },
-  title: { fontSize: 28, lineHeight: 34, fontWeight: "800", color: "#FFFFFF" },
+  title: { fontSize: 28, lineHeight: 34, fontWeight: "700", color: "#FFFFFF" },
   subtitle: { fontSize: 14, lineHeight: 22, color: "rgba(255,255,255,0.78)" },
   primaryAction: {
     padding: 13,
@@ -224,16 +212,16 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   primaryActionCopy: { flex: 1, gap: 2 },
-  primaryActionTitle: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.foreground },
+  primaryActionTitle: { fontSize: 14, lineHeight: 18, fontWeight: "700", color: palette.foreground },
   primaryActionSubtitle: { fontSize: 12, lineHeight: 17, color: palette.mutedForeground },
   videoAction: {
     marginTop: 4,
     padding: 14,
     borderRadius: 24,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -249,8 +237,8 @@ const styles = StyleSheet.create({
   videoActionTitle: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   videoActionSubtitle: {
     fontSize: 12,
@@ -258,7 +246,7 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.82)",
   },
   section: { gap: 8 },
-  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "800", color: palette.foreground },
+  sectionTitle: { fontSize: 18, lineHeight: 24, fontWeight: "700", color: palette.foreground },
   sectionSubtitle: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
   stack: { gap: 10 },
   card: {
@@ -279,7 +267,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF0D8",
   },
   cardCopy: { flex: 1, gap: 4 },
-  cardTitle: { fontSize: 14, lineHeight: 19, fontWeight: "800", color: palette.foreground },
+  cardTitle: { fontSize: 14, lineHeight: 19, fontWeight: "700", color: palette.foreground },
   cardText: { fontSize: 13, lineHeight: 19, color: palette.mutedForeground },
   tipCard: {
     borderRadius: 24,
@@ -302,10 +290,10 @@ const styles = StyleSheet.create({
   supportActionText: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
   tipRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  tipDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.secondary, marginTop: 6 },
+  tipDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.primary, marginTop: 6 },
   tipText: { flex: 1, fontSize: 13, lineHeight: 19, color: palette.foreground },
 });

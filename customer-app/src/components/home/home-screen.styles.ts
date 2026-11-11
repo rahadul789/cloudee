@@ -1,20 +1,48 @@
 import { StyleSheet } from "react-native";
 
 import { palette } from "@/src/theme/palette";
+import { ink, type } from "@/src/theme/typography";
 
 export const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+  },
   content: {
     paddingBottom: 52,
+    backgroundColor: "#FFFFFF",
   },
-  hero: {
-    overflow: "hidden",
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: palette.heroBackground,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    gap: 10,
+  // Sticky red header (outside the ScrollView).
+  // Body block under the header (deals, categories, banners) — plain white, no card.
+  hero: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 2, gap: 14 },
+  // List-row skeleton (mirrors RestaurantListRow).
+  rowSkeleton: {
+    flexDirection: "row",
+    gap: 12,
+    padding: 10,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#ECECEC",
+  },
+  rowSkeletonImage: { width: 132, height: 108, borderRadius: 14, backgroundColor: ink.chipSurface },
+  rowSkeletonBody: { flex: 1, gap: 10, paddingTop: 4 },
+  rowSkeletonTitle: {
+    width: "78%",
+    height: 16,
+    borderRadius: 6,
+    backgroundColor: ink.chipSurface,
+  },
+  rowSkeletonLine: {
+    width: "62%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: ink.chipSurface,
+  },
+  rowSkeletonLineShort: {
+    width: "44%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: ink.chipSurface,
   },
   heroOrbPrimary: {
     position: "absolute",
@@ -74,7 +102,7 @@ export const styles = StyleSheet.create({
     paddingLeft: 22,
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   actions: {
@@ -86,7 +114,7 @@ export const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -105,7 +133,7 @@ export const styles = StyleSheet.create({
   cartCounterText: {
     fontSize: 10,
     lineHeight: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.surface,
   },
   profileBubble: {
@@ -126,7 +154,7 @@ export const styles = StyleSheet.create({
   profileBubbleText: {
     fontSize: 13,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.sky,
   },
   profileImage: {
@@ -136,18 +164,9 @@ export const styles = StyleSheet.create({
   // Dark "neon" panel matching the order-tracking priority (urgent) card: deep ink base +
   // amber neon border and glow. Static (no animation) so the always-visible panel has zero
   // perf cost. The search bar (light pill) + category labels sit on top in light colours.
+  // Categories row on the white body (the search bar now lives in the red header).
   searchCategoryPanel: {
     gap: 10,
-    borderRadius: 24,
-    padding: 10,
-    backgroundColor: "#211A2E",
-    borderWidth: 1,
-    borderColor: "rgba(255,201,77,0.4)",
-    shadowColor: "#FFC94D",
-    shadowOpacity: 0.34,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
   },
   // Admin "light" preset — soft white panel (overrides the neon look). Category labels use
   // the dark variant to stay readable on it.
@@ -166,7 +185,7 @@ export const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#F2E0EA",
+    borderColor: "#ECECEC",
   },
   searchIconBubble: {
     width: 32,
@@ -174,14 +193,14 @@ export const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   searchInput: {
     flex: 1,
     minHeight: 20,
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
     paddingVertical: 0,
     textAlignVertical: "center",
@@ -198,14 +217,14 @@ export const styles = StyleSheet.create({
   homeCategoryTitle: {
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   homeCategorySubtitle: {
     marginTop: 2,
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   homeCategorySeeAll: {
@@ -215,12 +234,12 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   homeCategorySeeAllText: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   homeCategoryRow: {
@@ -251,7 +270,7 @@ export const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   homeCategoryMoreChip: {
@@ -260,8 +279,8 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
-    shadowColor: "rgba(255,99,146,0.28)",
+    backgroundColor: palette.primary,
+    shadowColor: "rgba(255, 184, 76,0.28)",
     shadowOpacity: 1,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
@@ -323,18 +342,16 @@ export const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   homeCategoryName: {
     width: "100%",
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "800",
-    letterSpacing: 0.1,
-    // Light for the dark neon panel.
-    color: "#ECE7F2",
+    fontSize: 11.5,
+    lineHeight: 15,
+    fontWeight: "500",
+    color: ink.title,
     textAlign: "center",
   },
   // Dark label for the "light" search-panel preset.
@@ -389,12 +406,12 @@ export const styles = StyleSheet.create({
   bannerTitle: {
     fontSize: 18,
     lineHeight: 23,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   bannerSubtitle: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   bannerButton: {
     flexDirection: "row",
@@ -407,7 +424,7 @@ export const styles = StyleSheet.create({
   bannerButtonText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   campaignCard: {
@@ -450,17 +467,17 @@ export const styles = StyleSheet.create({
   campaignBadgeText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   campaignTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   campaignSubtitle: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     opacity: 0.78,
   },
   campaignAction: {
@@ -471,7 +488,7 @@ export const styles = StyleSheet.create({
   campaignActionText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#fff",
   },
   campaignModalOverlay: {
@@ -516,14 +533,14 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: 160,
     borderRadius: 20,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   homeModalImage: {
     width: "100%",
     minHeight: 260,
     flex: 1,
     borderRadius: 10,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   homeModalImageOnly: {
     minHeight: 340,
@@ -531,13 +548,13 @@ export const styles = StyleSheet.create({
   campaignModalTitle: {
     fontSize: 22,
     lineHeight: 28,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   campaignModalSubtitle: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   // Always pin the admin-set button to the bottom of the modal, whether or not there is
@@ -555,8 +572,8 @@ export const styles = StyleSheet.create({
   campaignModalActionText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "900",
-    color: "#fff",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   nearbySpinnerShell: {
     width: 30,
@@ -571,7 +588,7 @@ export const styles = StyleSheet.create({
     height: 25,
     borderRadius: 13,
     borderWidth: 2,
-    borderColor: "rgba(255,92,147,0.18)",
+    borderColor: "rgba(255, 184, 76,0.18)",
     borderTopColor: palette.secondary,
     borderRightColor: palette.secondary,
   },
@@ -581,7 +598,7 @@ export const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   offerChipRow: {
     paddingRight: 10,
@@ -594,13 +611,13 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   offerChipText: {
     fontSize: 12,
     lineHeight: 15,
-    fontWeight: "800",
-    color: "#B23B70",
+    fontWeight: "700",
+    color: "#A86300",
   },
   cmsBlock: {
     flexDirection: "row",
@@ -639,7 +656,7 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: 112,
     borderRadius: 14,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   cmsBlockCarousel: {
     width: 92,
@@ -671,7 +688,7 @@ export const styles = StyleSheet.create({
   },
   cmsCarouselDotActive: {
     width: 14,
-    backgroundColor: "#FF5C93",
+    backgroundColor: "#A86300",
   },
   cmsBlockCopy: {
     flex: 1,
@@ -689,12 +706,12 @@ export const styles = StyleSheet.create({
   cmsBlockBadgeText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   cmsBlockTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   cmsBlockSubtitle: {
     fontSize: 12,
@@ -723,7 +740,7 @@ export const styles = StyleSheet.create({
   cmsInlineButtonText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#fff",
   },
   genZLoaderCard: {
@@ -734,7 +751,7 @@ export const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.78)",
     borderWidth: 1,
-    borderColor: "#FFE0EC",
+    borderColor: "#FFE9C7",
   },
   genZLoaderIcon: {
     width: 38,
@@ -742,7 +759,7 @@ export const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   genZLoaderCopy: {
     flex: 1,
@@ -751,7 +768,7 @@ export const styles = StyleSheet.create({
   genZLoaderTitle: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   genZLoaderSubtitle: {
@@ -763,7 +780,7 @@ export const styles = StyleSheet.create({
   shimmerBlock: {
     position: "relative",
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.64)",
+    backgroundColor: ink.chipSurface,
   },
   shimmerHighlight: {
     position: "absolute",
@@ -777,8 +794,8 @@ export const styles = StyleSheet.create({
   },
   homeBannerSkeleton: {
     height: 112,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.56)",
+    borderRadius: 16,
+    backgroundColor: ink.chipSurface,
   },
   skeletonChipRow: {
     flexDirection: "row",
@@ -818,11 +835,11 @@ export const styles = StyleSheet.create({
     position: "relative",
     height: 148,
     overflow: "hidden",
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantSkeletonImage: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantSkeletonImageFeatured: {
   },
@@ -850,7 +867,7 @@ export const styles = StyleSheet.create({
     width: 92,
     height: 24,
     borderRadius: 8,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantSkeletonCopy: {
     padding: 14,
@@ -862,7 +879,7 @@ export const styles = StyleSheet.create({
     width: "100%",
     height: 31,
     borderRadius: 12,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantSkeletonTitleRow: {
     flexDirection: "row",
@@ -890,7 +907,7 @@ export const styles = StyleSheet.create({
     width: 66,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#FFF1F6",
+    backgroundColor: "#FFF6E8",
   },
   restaurantSkeletonMetricRow: {
     flexDirection: "row",
@@ -914,7 +931,7 @@ export const styles = StyleSheet.create({
     gap: 10,
   },
   guideCard: {
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -936,7 +953,7 @@ export const styles = StyleSheet.create({
   guideTitle: {
     fontSize: 15,
     lineHeight: 19,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   guideSubtitle: {
     fontSize: 12,
@@ -952,11 +969,11 @@ export const styles = StyleSheet.create({
   guideButtonText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#fff",
   },
   guideImageRow: {
-    paddingLeft: 20,
+    paddingLeft: 16,
     paddingRight: 10,
     gap: 10,
   },
@@ -973,18 +990,18 @@ export const styles = StyleSheet.create({
   guideImageTitle: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   section: {
-    paddingTop: 22,
-    gap: 14,
+    paddingTop: 24,
+    gap: 16,
   },
   sectionHeaderWrap: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   nearbySectionHeaderRow: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -993,20 +1010,23 @@ export const styles = StyleSheet.create({
   nearbySectionHeaderCopy: {
     flex: 1,
   },
+  // Vertical padding gives the cards' drop shadow room — a horizontal ScrollView clips
+  // anything outside its content box, which cut the card shadows off at the bottom.
   horizontalRow: {
-    paddingLeft: 20,
+    paddingLeft: 16,
     paddingRight: 10,
-    gap: 14,
+    paddingTop: 2,
+    paddingBottom: 14,
+    gap: 12,
   },
   featuredCardWrap: {
-    width: 286,
+    width: 264,
   },
-  verticalList: {
-    paddingHorizontal: 20,
-    gap: 16,
-  },
+  verticalList: { paddingHorizontal: 16, gap: 12 },
+  // All restaurants: flat photo-first cards need more air between them.
+  restaurantList: { paddingHorizontal: 16, gap: 20 },
   feedbackCard: {
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
@@ -1018,37 +1038,31 @@ export const styles = StyleSheet.create({
   feedbackText: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   browseAllButton: {
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     marginTop: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(216, 27, 96, 0.16)",
-    backgroundColor: "#FFF7FB",
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    borderColor: ink.hairline,
+    backgroundColor: "#FFFFFF",
   },
   browseAllButtonText: {
-    fontSize: 14,
+    fontSize: 14.5,
     lineHeight: 20,
-    fontWeight: "900",
-    color: palette.secondary,
-    letterSpacing: 0.2,
+    fontWeight: "500",
+    color: ink.title,
   },
   // Simple, lightweight header: emoji + title inline with a small live accent.
   timeSectionHeader: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     gap: 3,
   },
   timeSectionTitleRow: {
@@ -1060,11 +1074,8 @@ export const styles = StyleSheet.create({
     fontSize: 18,
   },
   timeSectionTitle: {
+    ...type.sectionTitle,
     flex: 1,
-    fontSize: 16.5,
-    lineHeight: 21,
-    fontWeight: "800",
-    color: palette.foreground,
   },
   timeSectionLivePill: {
     flexDirection: "row",
@@ -1081,19 +1092,19 @@ export const styles = StyleSheet.create({
   },
   timeSectionLiveText: {
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   timeSectionSubtitle: {
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: palette.mutedForeground,
+    ...type.sectionSubtitle,
   },
   // Compact restaurant cards (cart-recommendation style, a touch wider).
   timeCompactRow: {
-    paddingLeft: 20,
+    paddingLeft: 16,
     paddingRight: 10,
+    paddingTop: 2,
+    paddingBottom: 12,
     gap: 12,
   },
   timeCompactCard: {
@@ -1127,7 +1138,7 @@ export const styles = StyleSheet.create({
   },
   timeCompactClosedBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 0.3,
     color: palette.foreground,
   },
@@ -1140,10 +1151,10 @@ export const styles = StyleSheet.create({
     gap: 3,
   },
   timeCompactName: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "800",
-    color: palette.foreground,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "500",
+    color: ink.title,
   },
   timeCompactMetaRow: {
     flexDirection: "row",
@@ -1151,10 +1162,10 @@ export const styles = StyleSheet.create({
     gap: 5,
   },
   timeCompactMetaText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "600",
-    color: palette.mutedForeground,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: ink.body,
   },
   timeCompactDot: {
     fontSize: 11,
@@ -1177,5 +1188,226 @@ export const styles = StyleSheet.create({
     height: 9,
     borderRadius: 6,
     marginTop: 6,
+  },
+  // --- home v3 (amber top zone, sticky search, all restaurants) ---
+  topZone: {
+    overflow: "hidden",
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+    backgroundColor: palette.primary,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+  },
+  topZoneGlowA: {
+    position: "absolute",
+    top: -80,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(255,255,255,0.22)",
+  },
+  topZoneGlowB: {
+    position: "absolute",
+    bottom: -90,
+    left: -70,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "rgba(255,214,140,0.55)",
+  },
+  topBar: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 14 },
+  topBarAddressSlot: { flex: 1, alignItems: "flex-start" },
+  topBarAddress: { flexDirection: "row", alignItems: "center", gap: 10 },
+  topBarPinTile: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
+  },
+  topBarAddressCopy: { flex: 1, minWidth: 0 },
+  topBarLabelRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  topBarLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+    color: palette.onPrimary,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+  },
+  topBarAddressText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
+    color: "rgba(17,17,17,0.82)",
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+  },
+  topBarBell: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  bellBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 19,
+    height: 19,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E5484D",
+    borderWidth: 2,
+    borderColor: palette.primary,
+  },
+  bellBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: "700", color: "#FFFFFF" },
+  // Edge-to-edge banner: cancel the top zone's side padding.
+  heroCarouselWrap: { marginHorizontal: -16 },
+  topZoneGreeting: { paddingVertical: 10, gap: 4 },
+  topZoneGreetingTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700", color: palette.onPrimary },
+  topZoneGreetingSubtitle: { fontSize: 14, lineHeight: 19, fontWeight: "400", color: "rgba(17,17,17,0.72)" },
+  searchDock: { marginTop: -26, paddingHorizontal: 16, zIndex: 2 },
+  searchPillSlot: { flex: 1 },
+  searchPill: {
+    height: 52,
+    borderRadius: 16,
+    paddingLeft: 7,
+    paddingRight: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#ECECEC",
+    shadowColor: "#000000",
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  searchPillSticky: { height: 46, borderRadius: 14, shadowOpacity: 0.06, elevation: 2 },
+  searchPillIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+  },
+  searchPillText: { ...type.input, flex: 1, paddingVertical: 0 },
+  stickySearchBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: palette.primary,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  stickyBell: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.45)",
+  },
+  stickyBellDot: {
+    position: "absolute",
+    top: 10,
+    right: 11,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#E5484D",
+    borderWidth: 1.5,
+    borderColor: palette.primary,
+  },
+  listFooter: {
+    marginTop: 18,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  listFooterText: { fontSize: 12.5, lineHeight: 17, fontWeight: "500", color: palette.mutedForeground },
+  listEndRule: { flex: 1, height: 1, backgroundColor: "#ECECEC" },
+  loadMoreButton: {
+    marginTop: 18,
+    marginHorizontal: 16,
+    height: 46,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#E3E4E6",
+    backgroundColor: "#FFFFFF",
+  },
+  loadMoreButtonPressed: { backgroundColor: palette.surfaceMuted },
+  loadMoreButtonText: { fontSize: 14, lineHeight: 19, fontWeight: "500", color: palette.foreground },
+  // Media top zone (hero GIF fills it): no padding bands, rounded bottom, clipped.
+  topZoneMedia: {
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+  },
+  heroSkeletonDots: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+  },
+  heroSkeletonDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.7)",
+  },
+  heroSkeletonDotActive: {
+    width: 18,
+  },
+  topZoneMediaLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topBarOverlay: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+  },
+  // Frosted pills keep "Deliver to" + bell readable on any GIF.
+  // On the GIF: no white panels — just clear "glass" tiles so the media stays visible.
+  topBarAddressOnMedia: {
+    backgroundColor: "transparent",
+  },
+  topBarBellOnMedia: {
+    backgroundColor: "rgba(255,255,255,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
   },
 });

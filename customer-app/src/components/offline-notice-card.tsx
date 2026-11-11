@@ -59,14 +59,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   description: {
     fontSize: 12,
     lineHeight: 18,
     color: palette.mutedForeground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   button: {
     minHeight: 34,
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
 });

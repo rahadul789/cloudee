@@ -4,11 +4,12 @@ const { buildPageSeo, buildSitemapXml, buildAreaSeo } = require("../src/services
 const { fallbackSettings } = require("../src/services/website-api.service");
 const { getFoodbelaFacts } = require("../src/services/foodbela-facts.service");
 
-test("fallback metadata does not invent contact information or a physical location", () => {
+test("fallback metadata uses the real support number but never invents a physical location", () => {
   const seo = buildPageSeo({ path: "/" }, fallbackSettings);
   const graph = JSON.parse(seo.structuredDataJson);
   const organization = graph.find((item) => item["@type"] === "Organization");
-  assert.equal(organization.telephone, undefined);
+  // The fallback carries the real platform support number (not a placeholder), so it is advertised.
+  assert.equal(organization.telephone, "+8809658806633");
   assert.equal(organization.address, undefined);
   assert.ok(!graph.some((item) => item["@type"] === "LocalBusiness"));
   assert.equal(graph.find((item) => item["@type"] === "WebSite").potentialAction, undefined);

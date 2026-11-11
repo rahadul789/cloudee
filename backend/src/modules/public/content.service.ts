@@ -1,3 +1,4 @@
+import { cleanupHeroMediaAfterSave, stripDeletedHeroSlides } from "./hero-media-cleanup"
 import { z } from "zod"
 import { StatusCodes } from "http-status-codes"
 
@@ -21,7 +22,7 @@ import {
   type ServiceHoursConfig,
 } from "../service-area/service-hours"
 import { PublicContentModel } from "./content.model"
-import { platformContent } from "./content"
+import { DEFAULT_SUPPORT_PHONE, LEGACY_SUPPORT_PHONES, platformContent } from "./content"
 
 export const defaultAuthRateLimitSettings = {
   signinAttemptsPerWindow: 10,
@@ -319,6 +320,78 @@ const platformContentSchema = z.object({
           enabled: true,
           activeFrom: "",
         }),
+      heroCarousel: z
+        .object({
+          enabled: z.boolean().optional().default(true),
+          autoPlay: z.boolean().optional().default(true),
+          intervalSeconds: z.number().int().min(2).max(30).optional().default(4),
+          aspectRatio: z.enum(["16:9", "2:1", "4:3", "1:1"]).optional().default("16:9"),
+          showDots: z.boolean().optional().default(false),
+          slides: z
+            .array(
+              z.object({
+                id: z.string().trim().optional().default(""),
+                mediaUrl: z.string().trim(),
+                mediaPublicId: z.string().trim().optional().default(""),
+                title: z.string().trim().max(120).optional().default(""),
+                linkEnabled: z.boolean().optional().default(false),
+                ctaPath: z.string().trim().optional().default(""),
+                // Colour of the "Deliver to" + bell overlay on this slide; "" = app default.
+                // Anything that isn't #RRGGBB is dropped (never rejects the whole save).
+                overlayTextColor: z
+                  .string()
+                  .trim()
+                  .optional()
+                  .default("")
+                  .transform((value) => (/^#[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : "")),
+                isActive: z.boolean().optional().default(true),
+                // ISO datetimes; empty = no bound.
+                startsAt: z.string().trim().optional().default(""),
+                endsAt: z.string().trim().optional().default(""),
+              }),
+            )
+            .max(12)
+            .optional()
+            .default([]),
+        })
+        .optional()
+        .default({
+          enabled: false,
+          autoPlay: true,
+          intervalSeconds: 4,
+          aspectRatio: "16:9",
+          showDots: false,
+          slides: [],
+        }),
+      orderAgainSection: z
+        .object({
+          enabled: z.boolean().optional().default(true),
+          title: z.string().trim().max(60).optional().default("Order again"),
+          subtitle: z.string().trim().max(90).optional().default("Your favourites, one tap away"),
+          maxItems: z.coerce.number().int().min(3).max(10).optional().default(6),
+          maxAgeDays: z.coerce.number().int().min(7).max(365).optional().default(60),
+          placement: z
+            .enum(["before_top_sections", "after_top_sections"])
+            .optional()
+            .default("before_top_sections"),
+        })
+        .optional()
+        .default({
+          enabled: true,
+          title: "Order again",
+          subtitle: "Your favourites, one tap away",
+          maxItems: 6,
+          maxAgeDays: 60,
+          placement: "before_top_sections",
+        }),
+      // Home "Foodbela is closed" card (outside service hours) + its "Notify me" button.
+      closedNotice: z
+        .object({
+          enabled: z.boolean().optional().default(true),
+          notifyButton: z.boolean().optional().default(true),
+        })
+        .optional()
+        .default({ enabled: true, notifyButton: true }),
       dealsSection: z
         .object({
           enabled: z.boolean().optional().default(false),
@@ -783,6 +856,39 @@ const platformContentSchema = z.object({
         enabled: true,
         reviewDays: 7,
       }),
+    // Customer-app live-tracking timings (seconds). Lets ops tune order tracking without an
+    // app release. The app clamps these again, so a bad value can never break tracking.
+    customerTracking: z
+      .object({
+        fallbackPollSeconds: z.number().int().min(5).max(120).optional().default(25),
+        staleAfterSeconds: z.number().int().min(30).max(900).optional().default(120),
+        refetchIfQuietSeconds: z.number().int().min(10).max(600).optional().default(45),
+      })
+      .optional()
+      .default({ fallbackPollSeconds: 25, staleAfterSeconds: 120, refetchIfQuietSeconds: 45 }),
+    // Customer-app "update required" prompt (Play Store). Installed < minimumVersion → forced
+    // full-screen update; < latestVersion → dismissible prompt. "" = not set. Invalid versions
+    // are dropped (never reject the whole save).
+    appUpdate: z
+      .object({
+        enabled: z.boolean().optional().default(true),
+        latestVersion: z
+          .string()
+          .trim()
+          .optional()
+          .default("")
+          .transform((value) => (/^\d+(\.\d+){0,3}$/.test(value) ? value : "")),
+        minimumVersion: z
+          .string()
+          .trim()
+          .optional()
+          .default("")
+          .transform((value) => (/^\d+(\.\d+){0,3}$/.test(value) ? value : "")),
+        message: z.string().trim().max(300).optional().default(""),
+        storeUrl: z.string().trim().max(500).optional().default(""),
+      })
+      .optional()
+      .default({ enabled: true, latestVersion: "", minimumVersion: "", message: "", storeUrl: "" }),
     // Platform-wide minimum order amount (Taka) applied to the customer item subtotal.
     // 0 = no minimum. restaurant.commercial.minimumOrderAmount overrides per restaurant.
     minimumOrderAmount: z.number().int().min(0).max(100000).optional().default(0),
@@ -1130,7 +1236,7 @@ const platformContentSchema = z.object({
         }),
       telegramFallbackEnabled: z.boolean().optional().default(true),
       callButtonAfterResends: z.number().int().min(1).max(5).optional().default(2),
-      supportCallNumber: z.string().trim().max(20).optional().default("01883552285"),
+      supportCallNumber: z.string().trim().max(20).optional().default(""),
       whatsappOtpEnabled: z.boolean().optional().default(false),
       whatsappAfterResends: z.number().int().min(0).max(5).optional().default(1),
       // Which SMS gateway sends OTP/transactional SMS. Unset → falls back to env.SMS_PROVIDER.
@@ -1451,7 +1557,10 @@ function buildHomeCmsAreaOverride(homeCms: PlatformContent["customerApp"]["homeC
   return {
     offerStrip: normalizedHomeCms.offerStrip,
     myOfferSection: normalizedHomeCms.myOfferSection,
+    heroCarousel: normalizedHomeCms.heroCarousel,
     dealsSection: normalizedHomeCms.dealsSection,
+    closedNotice: normalizedHomeCms.closedNotice,
+    orderAgainSection: normalizedHomeCms.orderAgainSection,
     homeCategories: normalizedHomeCms.homeCategories,
     restaurantSections: normalizedHomeCms.restaurantSections,
     timeBasedSection: normalizedHomeCms.timeBasedSection,
@@ -1655,13 +1764,32 @@ function mapAdminEditablePlatformContent(
   } satisfies AdminEditablePlatformContent
 }
 
+// A saved copy of the OLD built-in number means "admin never set one" → show the new default.
+// Same for the OTP call number: the old default becomes "" (= use the support number).
+function upgradeLegacySupportPhone<T>(content: T): T {
+  const c = content as any
+  if (c?.supportContact && LEGACY_SUPPORT_PHONES.has(String(c.supportContact.phone ?? "").trim())) {
+    c.supportContact = { ...c.supportContact, phone: DEFAULT_SUPPORT_PHONE }
+  }
+  if (c?.auth?.otp && LEGACY_SUPPORT_PHONES.has(String(c.auth.otp.supportCallNumber ?? "").trim())) {
+    c.auth = { ...c.auth, otp: { ...c.auth.otp, supportCallNumber: "" } }
+  }
+  return content
+}
+
+/** The one support number (admin Settings → Support contact). */
+export async function getSupportPhone() {
+  const content = await getPlatformContent()
+  return content.supportContact?.phone?.trim() || DEFAULT_SUPPORT_PHONE
+}
+
 export async function getPlatformContent(scope?: PlatformContentScope) {
   const baseContent = await platformContentCache.getOrSet(CONTENT_KEY, async () => {
     const contentDoc = await PublicContentModel.findOne({ key: CONTENT_KEY })
       .select({ content: 1 })
       .lean()
     const content = contentDoc?.content
-      ? deepMerge(defaultPlatformContent, contentDoc.content)
+      ? upgradeLegacySupportPhone(deepMerge(defaultPlatformContent, contentDoc.content))
       : defaultPlatformContent
     return normalizePlatformContentHomeCms(withDefaultHomeCategories(content))
   })
@@ -1710,7 +1838,7 @@ export async function getAdminEditablePlatformContent(scope?: PlatformContentSco
       .slice("history", -platformContentHistoryLimit)
       .lean()
     const content = contentDoc?.content
-      ? deepMerge(defaultPlatformContent, contentDoc.content)
+      ? upgradeLegacySupportPhone(deepMerge(defaultPlatformContent, contentDoc.content))
       : defaultPlatformContent
 
     return mapAdminEditablePlatformContent(
@@ -1810,6 +1938,12 @@ export async function updatePlatformContent(params: {
       upsert: true,
       setDefaultsOnInsert: true,
     }
+  )
+
+  // Hero GIF/WebP no longer used by any scope → delete from Cloudinary (never blocks the save).
+  void cleanupHeroMediaAfterSave(
+    currentContent as unknown as Record<string, any>,
+    nextContent as unknown as Record<string, any>,
   )
 
   const mapped = mapAdminEditablePlatformContent(applyHomeCmsAreaOverride(nextContent, params.scope), {
@@ -2886,6 +3020,7 @@ export async function rollbackPlatformContent(params: {
       },
     })
   )
+  await stripDeletedHeroSlides(restoredContent as unknown as Record<string, any>)
   const currentContent = currentDoc.content
     ? normalizePlatformContentHomeCms(
         withDefaultHomeCategories(deepMerge(defaultPlatformContent, currentDoc.content)),

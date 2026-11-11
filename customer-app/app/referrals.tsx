@@ -5,7 +5,6 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  RefreshControl,
   Share,
   StyleSheet,
   Text,
@@ -14,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { Screen } from "@/src/components/screen";
 import {
   type CustomerReferralReward,
@@ -22,6 +22,7 @@ import {
 import { formatDateTimeAmPm } from "@/src/lib/date-time";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 type ReferralTab = "how" | "conditions" | "rewards";
 
@@ -69,21 +70,7 @@ export default function ReferralsScreen() {
   }
 
   const topBar = (
-    <View style={styles.topBar}>
-      <Pressable
-        style={({ pressed }) => [
-          styles.backButton,
-          pressed
-            ? { transform: [{ scale: 0.97 }, { translateY: 1 }], opacity: 0.92 }
-            : null,
-        ]}
-        onPress={() => router.back()}
-      >
-        <Ionicons name="chevron-back" size={21} color={palette.foreground} />
-      </Pressable>
-      <Text style={styles.topBarTitle}>Refer & earn</Text>
-      <View style={styles.topBarSpacer} />
-    </View>
+    <AppHeader inline title="Refer & earn" />
   );
 
   if (!customer) {
@@ -112,7 +99,7 @@ export default function ReferralsScreen() {
       <Screen>
         <View style={styles.fixedTop}>{topBar}</View>
         <View style={styles.loadingCard}>
-          <ActivityIndicator size="small" color={palette.primary} />
+          <ActivityIndicator size="small" color={palette.secondary} />
           <Text style={styles.loadingText}>Loading referral rewards</Text>
         </View>
       </Screen>
@@ -149,7 +136,7 @@ export default function ReferralsScreen() {
     <View style={styles.headerContent}>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Ionicons name="gift-outline" size={26} color="#FFFFFF" />
+          <Ionicons name="gift-outline" size={26} color={palette.onPrimary} />
         </View>
         <Text style={styles.heroTitle}>
           {summary.enabled
@@ -178,14 +165,14 @@ export default function ReferralsScreen() {
             onPress={handleShare}
             disabled={!summary.enabled}
           >
-            <Ionicons name="share-social-outline" size={18} color="#FFFFFF" />
+            <Ionicons name="share-social-outline" size={18} color={palette.onPrimary} />
             <Text style={styles.shareButtonText}>Share</Text>
           </Pressable>
         </View>
       </View>
 
       <View style={styles.statsGrid}>
-        <StatCard label="Invited" value={`${summary.totalReferrals}`} tint="#FFE8F0" />
+        <StatCard label="Invited" value={`${summary.totalReferrals}`} tint="#FFF1DC" />
         <StatCard label="Rewarded" value={`${summary.rewardedReferrals}`} tint="#EAF8F0" />
         <StatCard
           label="This month"
@@ -281,6 +268,7 @@ export default function ReferralsScreen() {
   return (
     <Screen>
       <View style={styles.fixedTop}>{topBar}</View>
+      <BelaPullToRefresh refreshing={isRefreshing} onRefresh={onRefresh}>
       <FlashList
         data={visibleRewards}
         keyExtractor={(item, index) => `${item.referredAt}-${index}`}
@@ -310,15 +298,8 @@ export default function ReferralsScreen() {
           paddingBottom: Math.max(insets.bottom, 18) + 28,
         }}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={onRefresh}
-            tintColor={palette.secondary}
-            colors={[palette.secondary]}
-          />
-        }
       />
+      </BelaPullToRefresh>
     </Screen>
   );
 }
@@ -467,16 +448,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 7 },
-    elevation: 3,
   },
   topBarTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   topBarSpacer: {
@@ -514,18 +490,18 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   heroTitle: {
     fontSize: 29,
     lineHeight: 35,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   heroText: {
     fontSize: 14,
     lineHeight: 20,
-    fontWeight: "600",
+    fontWeight: "500",
     color: "rgba(255,255,255,0.76)",
   },
   codeCard: {
@@ -544,14 +520,14 @@ const styles = StyleSheet.create({
   codeLabel: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     textTransform: "uppercase",
     color: palette.mutedForeground,
   },
   codeValue: {
     fontSize: 25,
     lineHeight: 30,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   shareButton: {
@@ -561,7 +537,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     paddingHorizontal: 14,
   },
   shareButtonDisabled: {
@@ -570,8 +546,8 @@ const styles = StyleSheet.create({
   shareButtonText: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "900",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   statsGrid: {
     flexDirection: "row",
@@ -588,13 +564,13 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 25,
     lineHeight: 30,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   statLabel: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   tabBar: {
@@ -621,26 +597,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   tabBadgeText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
   tabButtonActive: {
     backgroundColor: palette.surface,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
   },
   tabLabel: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   tabLabelActive: {
@@ -651,16 +622,11 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     padding: 14,
     gap: 10,
-    shadowColor: palette.shadow,
-    shadowOpacity: 0.9,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
   },
   ruleCardTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   ruleRow: {
@@ -689,7 +655,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     lineHeight: 25,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   rewardItemWrap: {
@@ -724,13 +690,13 @@ const styles = StyleSheet.create({
   rewardTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   rewardMeta: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.mutedForeground,
   },
   rewardRowUsed: {
@@ -746,7 +712,7 @@ const styles = StyleSheet.create({
   rewardVoucher: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   rewardVoucherUsed: {
@@ -762,7 +728,7 @@ const styles = StyleSheet.create({
   usedPillText: {
     fontSize: 10,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     textTransform: "uppercase",
     color: palette.mutedForeground,
   },
@@ -777,7 +743,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   noRewardsCard: {
@@ -791,7 +757,7 @@ const styles = StyleSheet.create({
   noRewardsTitle: {
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
 });

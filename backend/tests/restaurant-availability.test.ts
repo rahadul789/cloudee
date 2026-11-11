@@ -66,6 +66,38 @@ describe("computeRestaurantAvailability", () => {
     expect(Math.round(mins)).toBe(90);
   });
 
+  it("area closed but the restaurant's own schedule opens LATER → shows its own time", () => {
+    // Area opens 11:00, restaurant 14:00 → at 09:30 the real reopen is 2:00 PM, not 11:00 AM.
+    const a = computeRestaurantAvailability({
+      serviceHours: window11to23,
+      isOnline: false,
+      restricted: false,
+      openingHours: opensAt2pm,
+      now: atDhaka(9, 30),
+    });
+    expect(a.closedReason).toBe("service_window");
+    expect(a.opensAtLabel).toBe("2:00 PM");
+    expect(Math.round((a.opensAtEpochMs! - atDhaka(9, 30).getTime()) / 60000)).toBe(270);
+  });
+
+  it("area closed, restaurant schedule opens EARLIER → area time wins", () => {
+    const earlyBird = {
+      ...opensAt2pm,
+      weeklySchedule: opensAt2pm.weeklySchedule.map((day) => ({
+        ...day,
+        timeSlots: [{ startTime: "08:00", endTime: "22:00" }],
+      })),
+    };
+    const a = computeRestaurantAvailability({
+      serviceHours: window11to23,
+      isOnline: false,
+      restricted: false,
+      openingHours: earlyBird,
+      now: atDhaka(9, 30),
+    });
+    expect(a.opensAtLabel).toBe("11:00 AM");
+  });
+
   it("inside window + owner online → open", () => {
     const a = computeRestaurantAvailability({
       serviceHours: window11to23,

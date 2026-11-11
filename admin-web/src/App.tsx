@@ -233,6 +233,21 @@ const LiveMapPage = React.lazy(() =>
     default: module.LiveMapPage,
   }))
 )
+const RewardsPage = React.lazy(() =>
+  import("@/components/rewards-page").then((module) => ({
+    default: module.RewardsPage,
+  }))
+)
+const HypePage = React.lazy(() =>
+  import("@/components/hype-page").then((module) => ({
+    default: module.HypePage,
+  }))
+)
+const WinBackPage = React.lazy(() =>
+  import("@/components/win-back-page").then((module) => ({
+    default: module.WinBackPage,
+  }))
+)
 const OrderMapPage = React.lazy(() =>
   import("@/components/order-map-page").then((module) => ({
     default: module.OrderMapPage,
@@ -1896,9 +1911,9 @@ function DashboardPage() {
           drawer: "finance",
         },
         {
-          label: "Estimated margin",
+          label: "Net profit / loss",
           value: formatDashboardCurrency(data.overview.estimatedPlatformMargin),
-          helper: "Platform gross income - operating expense",
+          helper: `${timeframeLabel} · same as Finance net profit`,
           icon: CreditCard,
           tone: marginIsNegative
             ? "text-rose-600 bg-rose-50"
@@ -2314,7 +2329,7 @@ function DashboardPage() {
             ],
             ["Rider payroll expense", data?.overview.riderPayrollExpense],
             ["Total operating expense", data?.overview.platformOperatingExpense],
-            ["Estimated margin", data?.overview.estimatedPlatformMargin],
+            ["Net profit / loss", data?.overview.estimatedPlatformMargin],
             ["Restaurant payable", data?.overview.restaurantPayable],
           ].map(([label, value]) => (
             <DashboardDrawerRow
@@ -3019,7 +3034,7 @@ function DashboardPage() {
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground">Estimated margin</span>
+              <span className="text-muted-foreground">Net profit / loss</span>
               <span
                 className={
                   marginIsNegative
@@ -3422,6 +3437,30 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <LiveMapPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "rewards",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <RewardsPage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "hype",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <HypePage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "win-back",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <WinBackPage />
           </React.Suspense>
         ),
       },

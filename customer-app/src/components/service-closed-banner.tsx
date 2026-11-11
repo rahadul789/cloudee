@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef, type Ref } from "react";
+import { useEffect, useRef, type Ref, type ReactNode } from "react";
 import {
   Animated,
   StyleSheet,
@@ -14,19 +14,16 @@ import {
   useClosingSoonMs,
   useCountdownMs,
 } from "@/src/lib/restaurant-availability";
+import { palette } from "@/src/theme/palette";
 import type { AreaServiceWindow } from "@/src/types/restaurant";
 
-// Deep-red "classic closed" palette. Kept local to this component — it is a deliberate
-// alarm/closed identity, distinct from the app's warm coral brand.
+// Closed identity: charcoal night card + brand amber accents (matches the home closed card).
 const CLOSED = {
-  bg: "#B3261E",
-  bgDeep: "#7A140E",
-  bgDeeper: "#5E0F0A",
+  bg: "#1C1F24",
+  bgDeeper: "#000000",
   text: "#FFFFFF",
-  textDim: "rgba(255, 255, 255, 0.82)",
-  amber: "#FFD8A8",
-  block: "rgba(255, 255, 255, 0.14)",
-  blockBorder: "rgba(255, 255, 255, 0.20)",
+  textDim: "rgba(255, 255, 255, 0.72)",
+  amber: "#FFB84C",
 } as const;
 
 function splitTime(ms: number) {
@@ -41,9 +38,9 @@ function splitTime(ms: number) {
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-// Big segmented live timer. The ticking hook lives HERE (not in the parent screen) so a
-// once-per-second update re-renders only this tiny subtree — never the whole home/browse.
-function CountdownBlocks({
+// "in 2h 15m" / "in 14m 05s" for the closed card. The ticking hook lives here so the
+// once-per-second update re-renders only this text — never the whole home screen.
+function CountdownText({
   targetEpochMs,
   active = true,
 }: {
@@ -52,35 +49,9 @@ function CountdownBlocks({
 }) {
   const remaining = useCountdownMs(targetEpochMs, active);
   const { hours, minutes, seconds, total } = splitTime(remaining);
-
-  if (total <= 0) {
-    return <Text style={styles.openingText}>Opening shortly…</Text>;
-  }
-
-  const blocks =
-    hours > 0
-      ? [
-          { value: pad(hours), label: "HRS" },
-          { value: pad(minutes), label: "MIN" },
-          { value: pad(seconds), label: "SEC" },
-        ]
-      : [
-          { value: pad(minutes), label: "MIN" },
-          { value: pad(seconds), label: "SEC" },
-        ];
-
-  return (
-    <View style={styles.blocksRow}>
-      {blocks.map((block) => (
-        <View key={block.label} style={styles.blockGroup}>
-          <View style={styles.block}>
-            <Text style={styles.blockValue}>{block.value}</Text>
-          </View>
-          <Text style={styles.blockLabel}>{block.label}</Text>
-        </View>
-      ))}
-    </View>
-  );
+  if (total <= 0) return <Text style={styles.cardTimer}>opening shortly</Text>;
+  const text = hours > 0 ? `in ${hours}h ${pad(minutes)}m` : `in ${minutes}m ${pad(seconds)}s`;
+  return <Text style={styles.cardTimer}>{text}</Text>;
 }
 
 // Compact ticking time for the sticky pill. `active` is false while the pill is hidden,
@@ -99,9 +70,10 @@ function CountdownInline({
 }
 
 /**
- * Full-bleed, deep-red "Foodbela is closed" hero shown in the scroll flow while the whole
- * area is outside its service window. Renders nothing while the area is open. Reports its
- * layout so the screen can reveal the sticky pill once it scrolls up under the top.
+ * Compact "Foodbela is closed" card shown in the home scroll flow while the area is outside
+ * its service window: moon icon, title, "Opens at 12:00 PM · in 2h 15m", then an optional
+ * footer (the "Notify me when open" button). Renders nothing while the area is open.
+ * Reports its layout so the screen can reveal the sticky pill once it scrolls away.
  */
 export function ServiceClosedHero({
   area,
@@ -109,40 +81,44 @@ export function ServiceClosedHero({
   timerActive = true,
   onLayout,
   innerRef,
+  footer,
 }: {
   area?: AreaServiceWindow | null;
-  /** Show the big live countdown. Off on Browse to keep that list perfectly light. */
+  /** Show the live "in 2h 15m" countdown. */
   showTimer?: boolean;
   /** When false the countdown stops ticking (screen unfocused / app backgrounded). */
   timerActive?: boolean;
   onLayout?: (event: LayoutChangeEvent) => void;
   innerRef?: Ref<View>;
+  /** Extra content under the header (e.g. the "Notify me when open" button). */
+  footer?: ReactNode;
 }) {
   if (!area || area.isOpen !== false) return null;
 
-  const opensLabel = area.opensAtLabel ? `Opens at ${area.opensAtLabel}` : "We'll be back soon";
   const hasReopen = typeof area.opensAtEpochMs === "number";
 
   return (
-    <View ref={innerRef} onLayout={onLayout} style={styles.hero}>
-      <View style={styles.orbA} />
-      <View style={styles.orbB} />
-      <View style={styles.heroContent}>
-        <View style={styles.badgeRow}>
-          <View style={styles.badge}>
-            <View style={styles.badgeDot} />
-            <Text style={styles.badgeText}>CLOSED</Text>
+    <View ref={innerRef} onLayout={onLayout} style={styles.card}>
+      <View style={styles.cardRow}>
+        <View style={styles.cardIcon}>
+          <Ionicons name="moon" size={20} color={palette.onPrimary} />
+        </View>
+        <View style={styles.cardCopy}>
+          <Text style={styles.cardTitle}>Foodbela is closed now</Text>
+          <View style={styles.cardSubRow}>
+            <Text style={styles.cardSub} numberOfLines={1}>
+              {area.opensAtLabel ? `Opens at ${area.opensAtLabel}` : "We'll be back soon"}
+            </Text>
+            {showTimer && hasReopen ? (
+              <>
+                <Text style={styles.cardSub}> · </Text>
+                <CountdownText targetEpochMs={area.opensAtEpochMs} active={timerActive} />
+              </>
+            ) : null}
           </View>
         </View>
-        <Text style={styles.heroTitle}>Foodbela is closed now</Text>
-        <Text style={styles.heroSubtitle}>{opensLabel}</Text>
-        {showTimer && hasReopen ? (
-          <View style={styles.timerWrap}>
-            <Text style={styles.timerCaption}>Opens in</Text>
-            <CountdownBlocks targetEpochMs={area.opensAtEpochMs} active={timerActive} />
-          </View>
-        ) : null}
       </View>
+      {footer}
     </View>
   );
 }
@@ -258,6 +234,28 @@ export function ClosingSoonBanner({
 }
 
 const styles = StyleSheet.create({
+  // ── Closed card (home) ──
+  card: {
+    marginHorizontal: 16,
+    padding: 16,
+    gap: 14,
+    borderRadius: 20,
+    backgroundColor: "#1C1F24",
+  },
+  cardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  cardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+  },
+  cardCopy: { flex: 1, minWidth: 0, gap: 2 },
+  cardTitle: { fontSize: 16.5, lineHeight: 22, fontWeight: "700", color: "#FFFFFF" },
+  cardSubRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap" },
+  cardSub: { fontSize: 13, lineHeight: 18, color: "rgba(255,255,255,0.72)" },
+  cardTimer: { fontSize: 13, lineHeight: 18, fontWeight: "700", color: palette.primary },
   closingBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -290,136 +288,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   closingTime: {
-    fontWeight: "900",
+    fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
   closingSub: {
     color: CLOSING.textDim,
     fontSize: 13,
     fontWeight: "700",
-  },
-  hero: {
-    overflow: "hidden",
-    backgroundColor: CLOSED.bg,
-    paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: CLOSED.bgDeeper,
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 6,
-  },
-  orbA: {
-    position: "absolute",
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
-    top: -78,
-    right: -46,
-  },
-  orbB: {
-    position: "absolute",
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: CLOSED.bgDeep,
-    opacity: 0.55,
-    bottom: -56,
-    left: -34,
-  },
-  heroContent: {
-    gap: 7,
-  },
-  badgeRow: {
-    flexDirection: "row",
-  },
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    backgroundColor: CLOSED.bgDeep,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  badgeDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: CLOSED.amber,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.6,
-    color: CLOSED.text,
-  },
-  heroTitle: {
-    fontSize: 22,
-    lineHeight: 27,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-    color: CLOSED.text,
-    marginTop: 3,
-  },
-  heroSubtitle: {
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "600",
-    color: CLOSED.textDim,
-  },
-  timerWrap: {
-    marginTop: 13,
-    gap: 9,
-  },
-  timerCaption: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: CLOSED.textDim,
-  },
-  blocksRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 10,
-  },
-  blockGroup: {
-    alignItems: "center",
-    gap: 5,
-  },
-  block: {
-    minWidth: 60,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderRadius: 16,
-    backgroundColor: CLOSED.block,
-    borderWidth: 1,
-    borderColor: CLOSED.blockBorder,
-    alignItems: "center",
-  },
-  blockValue: {
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: "900",
-    color: CLOSED.amber,
-    fontVariant: ["tabular-nums"],
-  },
-  blockLabel: {
-    fontSize: 9.5,
-    fontWeight: "800",
-    letterSpacing: 1,
-    color: CLOSED.textDim,
-  },
-  openingText: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: CLOSED.amber,
-    marginTop: 2,
   },
   pillContainer: {
     position: "absolute",
@@ -451,19 +326,19 @@ const styles = StyleSheet.create({
   },
   pillTextStrong: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: CLOSED.text,
     letterSpacing: 0.1,
   },
   pillTextDim: {
     flexShrink: 1,
     fontSize: 12.5,
-    fontWeight: "600",
+    fontWeight: "500",
     color: CLOSED.textDim,
   },
   pillTimer: {
     fontSize: 13,
-    fontWeight: "900",
+    fontWeight: "700",
     color: CLOSED.amber,
     fontVariant: ["tabular-nums"],
   },

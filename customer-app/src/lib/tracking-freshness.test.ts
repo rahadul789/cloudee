@@ -19,3 +19,25 @@ describe("customer live location recovery", () => {
     expect(shouldPollCustomerTracking({ socketConnected: false, status: "Preparing" })).toBe(true);
   });
 });
+
+import { isSocketAuthError, resolveTrackingTuning } from "./tracking-freshness";
+
+describe("backend-tunable tracking", () => {
+  const now = Date.parse("2026-11-11T10:00:00Z");
+  it("uses shipped defaults when the backend sends nothing", () => {
+    expect(resolveTrackingTuning(undefined)).toEqual({ fallbackPollSeconds: 25, staleAfterSeconds: 120, refetchIfQuietSeconds: 45 });
+  });
+  it("clamps bad admin values to safe ranges", () => {
+    expect(resolveTrackingTuning({ fallbackPollSeconds: 0, staleAfterSeconds: 99999, refetchIfQuietSeconds: Number.NaN }))
+      .toEqual({ fallbackPollSeconds: 5, staleAfterSeconds: 900, refetchIfQuietSeconds: 45 });
+  });
+  it("honours a tuned stale window and quiet window", () => {
+    expect(getCustomerTrackingFreshness(new Date(now - 90_000).toISOString(), now, 60)).toBe("stale");
+    expect(shouldPollCustomerTracking({ socketConnected: true, status: "PickedUp", lastUpdatedAt: new Date(now - 20_000).toISOString(), nowMs: now, refetchIfQuietSeconds: 15 })).toBe(true);
+  });
+  it("recognises the server's socket auth rejections only", () => {
+    expect(isSocketAuthError(new Error("Invalid socket access token"))).toBe(true);
+    expect(isSocketAuthError(new Error("Socket session is not active"))).toBe(true);
+    expect(isSocketAuthError(new Error("xhr poll error"))).toBe(false);
+  });
+});

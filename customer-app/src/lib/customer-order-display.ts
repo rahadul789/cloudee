@@ -42,8 +42,8 @@ export function getCustomerOrderStatusMeta(status: string) {
     case "Rejected":
       return {
         label: "Rejected",
-        color: palette.primary,
-        background: "#FFF0F6",
+        color: palette.secondary,
+        background: "#FFF6E8",
         icon: "storefront-outline" as const,
       };
     case "PickedUp":
@@ -64,7 +64,7 @@ export function getCustomerOrderStatusMeta(status: string) {
       return {
         label: "Ready for pickup",
         color: palette.secondary,
-        background: "#FFE8F0",
+        background: "#FFF1DC",
         icon: "bag-handle-outline" as const,
       };
     case "Accepted":
@@ -78,7 +78,7 @@ export function getCustomerOrderStatusMeta(status: string) {
       return {
         label: "Order placed",
         color: palette.secondary,
-        background: "#FFE8F0",
+        background: "#FFF1DC",
         icon: "receipt-outline" as const,
       };
   }
@@ -99,7 +99,7 @@ export function getCustomerTrackingBanner(order: {
         subtitle:
           "The restaurant received your order. Rider assignment starts after food is ready.",
         icon: "receipt-outline" as const,
-        tint: "#FFE8F0",
+        tint: "#FFF1DC",
         accent: palette.secondary,
       };
     case "Accepted":
@@ -170,8 +170,8 @@ export function getCustomerTrackingBanner(order: {
           subtitle:
             "The restaurant could not continue with this order. If you paid online, support can help with the refund flow.",
           icon: "storefront-outline" as const,
-          tint: "#FFF0F6",
-          accent: palette.primary,
+          tint: "#FFF6E8",
+          accent: palette.secondary,
         };
       }
       return {
@@ -188,8 +188,8 @@ export function getCustomerTrackingBanner(order: {
         subtitle:
           "The restaurant could not accept this order. Please try another restaurant.",
         icon: "storefront-outline" as const,
-        tint: "#FFF0F6",
-        accent: palette.primary,
+        tint: "#FFF6E8",
+        accent: palette.secondary,
       };
     default:
       return null;
@@ -311,8 +311,8 @@ export function getLiveOrderTrackingState(order: {
         title: "Restaurant could not accept this order",
         subtitle: "Please try another restaurant.",
         icon: "storefront-outline" as const,
-        tint: "#FFF0F6",
-        accent: palette.primary,
+        tint: "#FFF6E8",
+        accent: palette.secondary,
       };
     default:
       return null;

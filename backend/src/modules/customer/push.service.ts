@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 import { StatusCodes } from "http-status-codes";
+import {
+  claimLiveOrderPush,
+  decorateLiveOrderPush,
+  liveOrderEventKey,
+} from "./live-order-notification";
+import {
+  customerNotificationGroup,
+  isTransientCustomerNotification,
+} from "./customer-notification-rules";
 
 import { AppError } from "../../common/utils/app-error";
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout";
@@ -32,6 +41,11 @@ type CustomerPushPayload = {
 };
 
 type CustomerNotificationRecord = {
+  // The voucher's real discount (looked up from the voucher), so the app can always show
+  // "৳50 off" / "10% off" / "Free delivery" even when the admin's label is just a name.
+  voucherDiscountType?: "flat" | "percentage" | "free_delivery" | "";
+  voucherDiscountValue?: number | null;
+  voucherMaxDiscount?: number | null;
   id: string;
   type: string;
   title: string;
@@ -72,6 +86,10 @@ type ExpoPushMessage = {
     image?: string;
   };
   data?: Record<string, unknown>;
+  /** Android: replaces a shown notification with the same tag. */
+  tag?: string;
+  /** iOS (apns-collapse-id): replaces a shown notification with the same id. */
+  collapseId?: string;
 };
 
 function isExpoPushToken(token: string) {
@@ -417,7 +435,7 @@ async function enrichNotificationVoucherUsage(
       .sort({ appliedAt: -1, createdAt: -1 })
       .lean(),
     VoucherModel.find({ _id: { $in: voucherIds } })
-      .select("audienceType selectedCustomerIds")
+      .select("audienceType selectedCustomerIds type discountValue maxDiscountAmount minimumOrderAmount")
       .lean(),
   ]);
   const redemptionByVoucherId = new Map(
@@ -436,7 +454,21 @@ async function enrichNotificationVoucherUsage(
       .map((voucher) => String(voucher._id)),
   );
 
-  return items.map((item) => {
+  const voucherById = new Map(vouchers.map((voucher) => [String(voucher._id), voucher as Record<string, any>]));
+  const withDiscount = (item: CustomerNotificationRecord): CustomerNotificationRecord => {
+    const voucher = voucherById.get(item.voucherId);
+    if (!voucher) return item;
+    return {
+      ...item,
+      voucherDiscountType: voucher.type ?? "",
+      voucherDiscountValue: typeof voucher.discountValue === "number" ? voucher.discountValue : null,
+      voucherMaxDiscount: typeof voucher.maxDiscountAmount === "number" ? voucher.maxDiscountAmount : null,
+      voucherMinOrder:
+        item.voucherMinOrder ?? (typeof voucher.minimumOrderAmount === "number" ? voucher.minimumOrderAmount : null),
+    };
+  };
+
+  return items.map(withDiscount).map((item) => {
     const isExpired = item.voucherExpiresAt
       ? new Date(item.voucherExpiresAt).getTime() <= Date.now()
       : false;
@@ -620,17 +652,36 @@ export async function createCustomerNotification(params: {
   return notification;
 }
 
+// Stored rows don't keep the order status; recover it from the title for old order pushes
+// so "Order cancelled/rejected" stays visible while progress pings are hidden.
+function orderStatusFromNotification(notification: { type?: unknown; title?: unknown; description?: unknown }) {
+  if (notification.type !== "order_status") return undefined;
+  const text = `${String(notification.title ?? "")} ${String(notification.description ?? "")}`.toLowerCase();
+  if (text.includes("cancel")) return "Cancelled";
+  if (text.includes("not accepted") || text.includes("reject") || text.includes("declin")) return "Rejected";
+  return undefined;
+}
+
 export async function listCustomerNotifications(
   customerId: string,
   params?: {
     page?: number;
     limit?: number;
-    category?: "all" | "orders" | "offers" | "personal_offers";
+    category?: "all" | "orders" | "offers" | "personal_offers" | "updates";
   },
 ) {
   const customer =
     await CustomerModel.findById(customerId).select("notifications");
-  const notifications = [...(customer?.notifications ?? [])].sort(
+  const notifications = [...(customer?.notifications ?? [])]
+    // Live order-progress pings are push-only; older stored ones are hidden too.
+    .filter(
+      (notification) =>
+        !isTransientCustomerNotification(
+          String(notification.type ?? ""),
+          orderStatusFromNotification(notification),
+        ),
+    )
+    .sort(
     (left, right) => {
       const leftTime = new Date(left.createdAt ?? 0).getTime();
       const rightTime = new Date(right.createdAt ?? 0).getTime();
@@ -646,7 +697,10 @@ export async function listCustomerNotifications(
   );
   const mappedNotifications = enrichedNotifications.filter((notification) => {
     if (category === "offers") {
-      return ["promotion", "voucher", "campaign"].includes(notification.type);
+      return customerNotificationGroup(notification.type) === "offers";
+    }
+    if (category === "updates") {
+      return customerNotificationGroup(notification.type) === "updates";
     }
     if (category === "personal_offers") {
       return notification.personalOffer === true;
@@ -833,7 +887,9 @@ export async function markAllCustomerNotificationsAsRead(customerId: string) {
     {
       $set: {
         "notifications.$[notification].isRead": true,
-        "notifications.$[notification].readAt": new Date(),
+        // NOT readAt: readAt means the customer actually OPENED it (push tap / tapped in the
+        // inbox) and drives the admin "opened" analytics. A bulk "mark all read" is not an open.
+        "notifications.$[notification].bulkReadAt": new Date(),
       },
     },
     {
@@ -855,13 +911,41 @@ export async function sendPushToCustomer(params: {
   zoneId?: string;
   districtId?: string;
 }) {
-  const payload = normalizeCustomerPushPayload(params.payload);
-  const createdNotification = await createCustomerNotification({
-    customerId: params.customerId,
-    payload,
-    zoneId: params.zoneId,
-    districtId: params.districtId,
-  });
+  // Live order: all progress pushes of one order share a slot (tag/collapseId) so the
+  // phone keeps ONE notification that updates, with a progress line under the message.
+  const decorated = decorateLiveOrderPush(normalizeCustomerPushPayload(params.payload));
+  const liveOrderSlot = decorated.slot;
+  const payload = normalizeCustomerPushPayload({ ...params.payload, body: decorated.body });
+  const pushType = String(payload.data?.type ?? "system");
+  // Fewer buzzes per order: minor steps right after another push are skipped (the
+  // tracking screen still shows them live). See live-order-notification.ts.
+  if (
+    liveOrderSlot &&
+    !claimLiveOrderPush(
+      String(payload.data?.orderId ?? ""),
+      liveOrderEventKey(pushType, payload.data?.status),
+    )
+  ) {
+    return {
+      sent: 0,
+      disabled: 0,
+      inAppCreated: 0,
+      skipped: true,
+      sentExpoTokens: [],
+      ticketIds: [],
+    };
+  }
+  // Live order progress / chat pings are push-only — not stored in the inbox (the Orders
+  // tab is the source of truth). Everything else is stored as before.
+  const storeInInbox = !isTransientCustomerNotification(pushType, payload.data?.status);
+  const createdNotification = storeInInbox
+    ? await createCustomerNotification({
+        customerId: params.customerId,
+        payload,
+        zoneId: params.zoneId,
+        districtId: params.districtId,
+      })
+    : { id: "" };
 
   if (!createdNotification) {
     return {
@@ -892,7 +976,7 @@ export async function sendPushToCustomer(params: {
     return {
       sent: 0,
       disabled: 0,
-      inAppCreated: 1,
+      inAppCreated: storeInInbox ? 1 : 0,
       skipped: true,
       sentExpoTokens: [],
       ticketIds: [],
@@ -950,6 +1034,7 @@ export async function sendPushToCustomer(params: {
     channelId: "default",
     title: payload.title,
     body: payload.body,
+    ...(liveOrderSlot ? { tag: liveOrderSlot, collapseId: liveOrderSlot } : {}),
     // Expo only supports images through `richContent.image` (Android big-picture)
     // plus `mutableContent` for the iOS service extension. The old top-level
     // `image` field is NOT a valid Expo push field and made Expo reject the whole
@@ -962,7 +1047,7 @@ export async function sendPushToCustomer(params: {
       : {}),
     data: {
       ...payload.data,
-      notificationId: createdNotification.id,
+      ...(createdNotification.id ? { notificationId: createdNotification.id } : {}),
     },
   }));
 

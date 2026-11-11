@@ -1452,7 +1452,6 @@ export function WebsitePage() {
                 ["appDownloadUrl", "Fallback app download URL"],
                 ["restaurantApplyUrl", "Restaurant apply URL"],
                 ["riderApplyUrl", "Rider apply URL"],
-                ["supportPhone", "Support phone"],
                 ["supportEmail", "Support email"],
               ].map(([key, label]) => (
                 <div key={key} className="grid gap-2">

@@ -12,23 +12,23 @@ import {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import MapView, { Region } from "react-native-maps";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PressableScale } from "@/src/components/pressable-scale";
+import { appAlert } from "@/src/lib/app-alert";
 import { styles } from "@/src/components/location/location-picker.styles";
 import {
   useCustomerSaveLocationMutation,
@@ -47,12 +47,24 @@ import { palette } from "@/src/theme/palette";
 import type { SavedLocation } from "@/src/types/location";
 
 const DEFAULT_LOCATION_PICKER_DELTA = 0.0045;
+
+// "Save as" presets — the label shown in the address switcher (Other keeps the
+// auto-detected area name).
+const LABEL_PRESETS: { key: "Home" | "Work" | "Other"; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "Home", icon: "home-outline" },
+  { key: "Work", icon: "briefcase-outline" },
+  { key: "Other", icon: "location-outline" },
+];
+type LabelPreset = (typeof LABEL_PRESETS)[number]["key"];
+
+// Tap-to-add guideline for typing the address by hand: what riders actually need.
+const ADDRESS_GUIDE = ["House / Holding", "Road", "Floor", "Flat", "Landmark"];
 const DEFAULT_LOCATION_PICKER_ZOOM = 17;
 const MIN_LOCATION_PICKER_ZOOM = 14;
 const MAX_LOCATION_PICKER_ZOOM = 20;
 
 function showLocationSettingsAlert() {
-  Alert.alert(
+  appAlert(
     "Location access needed",
     "Open phone settings and allow location access for Foodbela.",
     [
@@ -64,12 +76,13 @@ function showLocationSettingsAlert() {
         },
       },
     ],
+    { icon: "location-outline" },
   );
 }
 
 export default function LocationPickerScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ delta?: string }>();
+  const params = useLocalSearchParams<{ delta?: string; useCurrent?: string }>();
   const mapDelta = useMemo(() => {
     const raw = Number(params.delta);
     if (Number.isFinite(raw) && raw > 0 && raw <= 0.02) {
@@ -78,6 +91,7 @@ export default function LocationPickerScreen() {
     return DEFAULT_LOCATION_PICKER_DELTA;
   }, [params.delta]);
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const mapRef = useRef<MapView | null>(null);
   const hasAppliedInitialCameraRef = useRef(false);
   const isMountedRef = useRef(true);
@@ -93,6 +107,9 @@ export default function LocationPickerScreen() {
   const currentCoordinates = useLocationStore(
     (state) => state.currentCoordinates,
   );
+  // Opened from the home "are you somewhere else?" reminder: start at the phone's position
+  // and save as a NEW address (never overwrite the old saved one, e.g. "Home").
+  const startFromCurrent = params.useCurrent === "1" && Boolean(currentCoordinates);
   const upsertSavedLocation = useLocationStore(
     (state) => state.upsertSavedLocation,
   );
@@ -120,6 +137,21 @@ export default function LocationPickerScreen() {
   const [label, setLabel] = useState(initialLabel);
   const [address, setAddress] = useState(initialAddress);
   const [manualNote, setManualNote] = useState(initialAddressDetails);
+  const [labelPreset, setLabelPreset] = useState<LabelPreset | null>(
+    initialLabel === "Home" || initialLabel === "Work" ? initialLabel : null,
+  );
+  const detailsInputRef = useRef<TextInput | null>(null);
+  const [overlayHeight, setOverlayHeight] = useState(0);
+
+  // Guideline chip → appends "Road: " etc. and puts the cursor there.
+  const addGuidePart = (part: string) => {
+    setManualNote((current) => {
+      const trimmed = current.trim();
+      const next = `${trimmed}${trimmed ? ", " : ""}${part}: `;
+      return next.slice(0, 200);
+    });
+    detailsInputRef.current?.focus();
+  };
   const [isResolvingAddress, setIsResolvingAddress] = useState(false);
   const [isLoadingInitialRegion, setIsLoadingInitialRegion] = useState(
     !selectedLocation && !currentCoordinates,
@@ -128,7 +160,14 @@ export default function LocationPickerScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [region, setRegion] = useState<Region | null>(
-    selectedLocation
+    startFromCurrent && currentCoordinates
+      ? {
+          latitude: currentCoordinates.latitude,
+          longitude: currentCoordinates.longitude,
+          latitudeDelta: mapDelta,
+          longitudeDelta: mapDelta,
+        }
+      : selectedLocation
       ? {
           latitude: selectedLocation.latitude,
           longitude: selectedLocation.longitude,
@@ -150,6 +189,19 @@ export default function LocationPickerScreen() {
   const pinBob = useRef(new Animated.Value(0)).current;
   const pinHalo = useRef(new Animated.Value(0)).current;
   const currentPulse = useRef(new Animated.Value(1)).current;
+  const locateRadar = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(locateRadar, {
+        toValue: 1,
+        duration: 1600,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [locateRadar]);
   const manualFieldPulse = useRef(new Animated.Value(0)).current;
 
   const isConfirming = useMemo(
@@ -352,10 +404,23 @@ export default function LocationPickerScreen() {
   }, [region]);
 
   useEffect(() => {
+    if (startFromCurrent) return;
     setLabel(initialLabel);
     setAddress(initialAddress);
     setManualNote(initialAddressDetails);
-  }, [initialAddress, initialAddressDetails, initialLabel]);
+  }, [initialAddress, initialAddressDetails, initialLabel, startFromCurrent]);
+
+  // Starting from the phone's position: fresh address for that spot, no old details/label.
+  const startedFromCurrentRef = useRef(false);
+  useEffect(() => {
+    if (!startFromCurrent || startedFromCurrentRef.current || !currentCoordinates) return;
+    startedFromCurrentRef.current = true;
+    setLabel("");
+    setAddress("");
+    setManualNote("");
+    setLabelPreset(null);
+    void resolveAddress(currentCoordinates.latitude, currentCoordinates.longitude, false);
+  }, [currentCoordinates, resolveAddress, startFromCurrent]);
 
   function startDraggingPin() {
     if (isDraggingRef.current) return;
@@ -511,16 +576,20 @@ export default function LocationPickerScreen() {
       return;
     }
     if (!region) {
-      Alert.alert(
+      appAlert(
         "Location unavailable",
         "Please allow location access and try again.",
+        undefined,
+        { icon: "location-outline" },
       );
       return;
     }
     if (!address.trim()) {
-      Alert.alert(
+      appAlert(
         "Address required",
         "Please wait for the map address or move the pin slightly before saving.",
+        undefined,
+        { icon: "map-outline" },
       );
       return;
     }
@@ -535,15 +604,17 @@ export default function LocationPickerScreen() {
 
     const nextLocation: SavedLocation = {
       id:
-        !selectedLocation?.id || selectedLocation.id === "current-location"
+        startFromCurrent || !selectedLocation?.id || selectedLocation.id === "current-location"
           ? `loc-${Date.now()}`
           : selectedLocation.id,
-      label: label.trim() || "Selected location",
+      label:
+        (labelPreset && labelPreset !== "Other" ? labelPreset : label).trim() ||
+        "Selected location",
       address: finalAddress,
       addressDetails,
       latitude: region.latitude,
       longitude: region.longitude,
-      source: selectedLocation?.source === "saved" ? "saved" : "manual",
+      source: !startFromCurrent && selectedLocation?.source === "saved" ? "saved" : "manual",
     };
 
     setSelectedLocation(nextLocation);
@@ -561,6 +632,7 @@ export default function LocationPickerScreen() {
     void (async () => {
       try {
         const shouldUpdateExistingLocation =
+          !startFromCurrent &&
           Boolean(selectedLocation?.id) &&
           selectedLocation?.id !== "current-location" &&
           !selectedLocation?.id.startsWith("loc-");
@@ -616,366 +688,343 @@ export default function LocationPickerScreen() {
     })();
   }
 
+  const bottomOffset = keyboardHeight
+    ? keyboardHeight + 8
+    : Math.max(insets.bottom, 12);
+  // Equal top/bottom padding keeps the camera centre (= the pin) at the screen centre while
+  // lifting the Google logo above the floating card.
+  // Capped so the two paddings never eat the map (Google needs a usable centre area).
+  const mapEdge = overlayHeight
+    ? Math.min(overlayHeight + bottomOffset, Math.round(windowHeight * 0.42))
+    : 0;
+
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar style="dark" backgroundColor={palette.background} />
+    <View style={styles.root}>
+      <StatusBar style="dark" translucent />
 
-      <View style={styles.screenBody}>
-        <View style={styles.header}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.headerButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={() => router.back()}
-          >
-            <Ionicons
-              name="chevron-back"
-              size={22}
-              color={palette.foreground}
+      {/* Full-screen map; everything else floats on top of it. */}
+      <View style={StyleSheet.absoluteFill}>
+        {region ? (
+          <>
+            <MapView
+              ref={mapRef}
+              style={StyleSheet.absoluteFill}
+              initialRegion={region}
+              minZoomLevel={MIN_LOCATION_PICKER_ZOOM}
+              maxZoomLevel={MAX_LOCATION_PICKER_ZOOM}
+              showsCompass={false}
+              // pitch is disabled (always top-down), so 3D buildings never render
+              // anyway — turning them and indoor floor plans off is a pure GPU win.
+              showsBuildings={false}
+              showsIndoors={false}
+              customMapStyle={resolvedMapStyle}
+              toolbarEnabled={false}
+              showsUserLocation
+              showsMyLocationButton={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+              onMapReady={applyInitialCamera}
+              onRegionChange={handleRegionChange}
+              onRegionChangeComplete={handleRegionChangeComplete}
+              mapPadding={{ top: mapEdge, bottom: mapEdge, left: 0, right: 0 }}
             />
-          </Pressable>
 
-          <View style={styles.headerCopy}>
-            <View style={styles.headerBadge}>
-              <Ionicons
-                name="navigate-circle"
-                size={13}
-                color={palette.secondary}
-              />
-              <Text style={styles.headerBadgeText}>Delivery point</Text>
-            </View>
-            <Text style={styles.headerTitle}>Update delivery point</Text>
-            <Text style={styles.headerSubtitle}>
-              Move the pin to your exact drop-off spot.
-            </Text>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.headerLocateButton,
-              pressed
-                ? {
-                    transform: [{ scale: 0.97 }, { translateY: 1 }],
-                    opacity: 0.92,
-                  }
-                : null,
-            ]}
-            onPress={handleGoToCurrentLocation}
-          >
-            {isLocating ? (
-              <ActivityIndicator size="small" color={palette.surface} />
-            ) : (
-              <Ionicons name="locate" size={18} color={palette.surface} />
-            )}
-          </Pressable>
-        </View>
-
-        <View style={styles.mapWrap}>
-          {region ? (
-            <>
-              <MapView
-                ref={mapRef}
-                style={styles.map}
-                initialRegion={region}
-                minZoomLevel={MIN_LOCATION_PICKER_ZOOM}
-                maxZoomLevel={MAX_LOCATION_PICKER_ZOOM}
-                showsCompass={false}
-                // pitch is disabled (always top-down), so 3D buildings never render
-                // anyway — turning them and indoor floor plans off is a pure GPU win
-                // with no visible change for a pin-drop map. POI labels are kept since
-                // they help the user recognise their spot.
-                showsBuildings={false}
-                showsIndoors={false}
-                customMapStyle={resolvedMapStyle}
-                toolbarEnabled={false}
-                showsUserLocation
-                showsMyLocationButton={false}
-                rotateEnabled={false}
-                pitchEnabled={false}
-                onMapReady={applyInitialCamera}
-                onRegionChange={handleRegionChange}
-                onRegionChangeComplete={handleRegionChangeComplete}
-              />
-
-              <View pointerEvents="none" style={styles.mapHintPill}>
-                <Ionicons name="move-outline" size={14} color={palette.secondary} />
-                <Text style={styles.mapHintPillText}>
-                  Drag map to adjust location
-                </Text>
-              </View>
-
-              <View pointerEvents="none" style={styles.centerPinWrap}>
-                <Animated.View
-                  style={[
-                    styles.pinShadow,
-                    {
-                      transform: [
-                        {
-                          scale: pinLift.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [1, 0.72],
-                          }),
-                        },
-                      ],
-                      opacity: pinLift.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.22, 0.08],
-                      }),
-                    },
-                  ]}
-                />
-
-                <Animated.View
-                  style={[
-                    styles.pinHalo,
-                    {
-                      transform: [
-                        {
-                          scale: pinHalo.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.7, 1.45],
-                          }),
-                        },
-                      ],
-                      opacity: pinHalo.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.24, 0],
-                      }),
-                    },
-                  ]}
-                />
-
-                <Animated.View
-                  style={[
-                    styles.pinWrap,
-                    {
-                      transform: [
-                        {
-                          translateY: pinLift.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, -18],
-                          }),
-                        },
-                        {
-                          translateY: pinBob.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, -4],
-                          }),
-                        },
-                        { scale: pinPulse },
-                      ],
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name="location"
-                    size={40}
-                    color={palette.secondary}
-                  />
-                </Animated.View>
-              </View>
-
+            <View pointerEvents="none" style={styles.centerPinWrap}>
+              {/* Tooltip above the pin — hides while the map is moving. */}
               <Animated.View
                 style={[
-                  styles.currentLocationFab,
+                  styles.pinTooltip,
                   {
-                    transform: [{ scale: currentPulse }],
-                    bottom: Math.max(insets.bottom, 14) + 10,
+                    opacity: pinLift.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 0],
+                    }),
                   },
                 ]}
               >
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.currentLocationFabInner,
-                    pressed
-                      ? {
-                          transform: [{ scale: 0.96 }],
-                          opacity: 0.92,
-                        }
-                      : null,
-                  ]}
-                  onPress={handleGoToCurrentLocation}
-                >
-                  {isLocating ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={palette.foreground}
-                    />
-                  ) : (
-                    <Ionicons
-                      name="locate"
-                      size={20}
-                      color={palette.foreground}
-                    />
-                  )}
-                </Pressable>
+                <Text style={styles.pinTooltipText}>Your order will be delivered here</Text>
+                <View style={styles.pinTooltipArrow} />
               </Animated.View>
-            </>
-          ) : (
-            <View style={styles.mapFallback}>
-              {isLoadingInitialRegion ? (
-                <>
-                  <ActivityIndicator size="small" color={palette.primary} />
-                  <Text style={styles.mapFallbackTitle}>
-                    Opening the map...
-                  </Text>
-                  <Text style={styles.mapFallbackText}>
-                    We are trying to read your current location so you can
-                    fine-tune it on the map.
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons
-                    name="location-outline"
-                    size={28}
-                    color={palette.primary}
-                  />
-                  <Text style={styles.mapFallbackTitle}>
-                    Location access is needed
-                  </Text>
-                  <Text style={styles.mapFallbackText}>
-                    Allow location access first, then reopen the map picker to
-                    choose your exact delivery point.
-                  </Text>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.mapFallbackButton,
-                      pressed
-                        ? {
-                            transform: [{ scale: 0.985 }, { translateY: 1 }],
-                            opacity: 0.96,
-                          }
-                        : null,
-                    ]}
-                    onPress={() => void openLocationPermissionSettings()}
-                  >
-                    <Ionicons
-                      name="settings-outline"
-                      size={16}
-                      color="#FFFFFF"
-                    />
-                    <Text style={styles.mapFallbackButtonText}>
-                      Open settings
-                    </Text>
-                  </Pressable>
-                </>
-              )}
-            </View>
-          )}
-        </View>
 
-        <View
-          style={[
-            styles.bottomCard,
-            {
-              marginBottom: keyboardHeight
-                ? Math.max(keyboardHeight - insets.bottom + 12, 80)
-                : 0,
-              paddingBottom: Math.max(insets.bottom, 12),
-            },
-          ]}
+              <Animated.View
+                style={[
+                  styles.pinShadow,
+                  {
+                    transform: [
+                      {
+                        scale: pinLift.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 0.72],
+                        }),
+                      },
+                    ],
+                    opacity: pinLift.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.22, 0.08],
+                    }),
+                  },
+                ]}
+              />
+
+              <Animated.View
+                style={[
+                  styles.pinHalo,
+                  {
+                    transform: [
+                      {
+                        scale: pinHalo.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.7, 1.45],
+                        }),
+                      },
+                    ],
+                    opacity: pinHalo.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.24, 0],
+                    }),
+                  },
+                ]}
+              />
+
+              <Animated.View
+                style={[
+                  styles.pinWrap,
+                  {
+                    transform: [
+                      {
+                        translateY: pinLift.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, -18],
+                        }),
+                      },
+                      {
+                        translateY: pinBob.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, -4],
+                        }),
+                      },
+                      { scale: pinPulse },
+                    ],
+                  },
+                ]}
+              >
+                <Ionicons name="location" size={44} color={palette.primary} style={styles.pinIcon} />
+              </Animated.View>
+            </View>
+          </>
+        ) : (
+          <View style={styles.mapFallback}>
+            {isLoadingInitialRegion ? (
+              <>
+                <ActivityIndicator size="small" color={palette.secondary} />
+                <Text style={styles.mapFallbackTitle}>Opening the map…</Text>
+                <Text style={styles.mapFallbackText}>
+                  Finding your current location so you can fine-tune it.
+                </Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.mapFallbackIcon}>
+                  <Ionicons name="location-outline" size={26} color={palette.secondary} />
+                </View>
+                <Text style={styles.mapFallbackTitle}>Location access is needed</Text>
+                <Text style={styles.mapFallbackText}>
+                  Allow location access, then reopen the map to choose your exact delivery
+                  point.
+                </Text>
+                <PressableScale
+                  scaleTo={0.97}
+                  style={styles.mapFallbackButton}
+                  onPress={() => void openLocationPermissionSettings()}
+                >
+                  <Ionicons name="settings-outline" size={16} color={palette.onPrimary} />
+                  <Text style={styles.mapFallbackButtonText}>Open settings</Text>
+                </PressableScale>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* Top overlay: back + title pill. */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]} pointerEvents="box-none">
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.roundButton, pressed ? styles.pressed : null]}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={6}
         >
-          <View style={styles.bottomTopRow}>
-            <View style={styles.bottomIcon}>
-              <Ionicons name="pin" size={16} color={palette.foreground} />
-            </View>
+          <Ionicons name="arrow-back" size={20} color={palette.foreground} />
+        </Pressable>
+        <View style={styles.titlePill}>
+          <Ionicons name="navigate-circle" size={18} color={palette.secondary} />
+          <View style={styles.titleCopy}>
+            <Text style={styles.titleText}>Set delivery point</Text>
+            <Text style={styles.titleSub} numberOfLines={1}>
+              Drag the map to place the pin on your door
+            </Text>
+          </View>
+        </View>
+      </View>
 
-            <View style={styles.bottomCopy}>
-              <Text style={styles.bottomLabel}>Delivery point</Text>
-              <Text style={styles.bottomTitle} numberOfLines={3}>
-                {address || "Move the map to choose your exact spot"}
+      {/* Bottom overlay: locate FAB + the info card. */}
+      <View
+        style={[styles.bottomArea, { bottom: bottomOffset }]}
+        pointerEvents="box-none"
+        onLayout={(event) => {
+          if (!keyboardHeight) setOverlayHeight(Math.round(event.nativeEvent.layout.height));
+        }}
+      >
+        {region ? (
+          <Animated.View
+            style={[styles.locateFabWrap, { transform: [{ scale: currentPulse }] }]}
+          >
+            {/* Radar ring behind the pill: "tap here for your current location". */}
+            {!isLocating ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.locateRadar,
+                  {
+                    opacity: locateRadar.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+                    transform: [
+                      { scaleX: locateRadar.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) },
+                      { scaleY: locateRadar.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] }) },
+                    ],
+                  },
+                ]}
+              />
+            ) : null}
+            <Pressable
+              style={({ pressed }) => [styles.locatePill, pressed ? styles.pressed : null]}
+              onPress={handleGoToCurrentLocation}
+              disabled={isLocating}
+              accessibilityRole="button"
+              accessibilityLabel="Use my current location"
+            >
+              {isLocating ? (
+                <ActivityIndicator size="small" color={palette.onPrimary} />
+              ) : (
+                <Ionicons name="locate" size={18} color={palette.onPrimary} />
+              )}
+              <Text style={styles.locatePillText}>
+                {isLocating ? "Finding you…" : "Use my location"}
               </Text>
-              <Text style={styles.bottomSubtitle} numberOfLines={2}>
-                {region
-                  ? `${region.latitude.toFixed(6)}, ${region.longitude.toFixed(6)}`
-                  : "Waiting for location access"}
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        <View style={styles.card}>
+          {/* Address resolved from the pin */}
+          <View style={styles.addressRow}>
+            <View style={styles.addressIcon}>
+              <Ionicons name="location" size={18} color={palette.onPrimary} />
+            </View>
+            <View style={styles.addressCopy}>
+              <Text style={styles.addressTitle} numberOfLines={2}>
+                {isResolvingAddress && !address
+                  ? "Finding address…"
+                  : address || "Move the map to choose your spot"}
+              </Text>
+              <Text style={styles.addressHint} numberOfLines={1}>
+                {isResolvingAddress ? "Updating from the pin…" : "Detected from the pin"}
               </Text>
             </View>
-
             {isResolvingAddress ? (
-              <View style={styles.statusPill}>
-                <ActivityIndicator size="small" color={palette.foreground} />
-              </View>
+              <ActivityIndicator size="small" color={palette.secondary} />
             ) : null}
           </View>
 
-          <View style={styles.manualFieldWrap}>
-            <Text style={styles.manualFieldLabel}>
-              Address details (optional)
-            </Text>
+          {/* Save as */}
+          <View style={styles.presetRow}>
+            {LABEL_PRESETS.map((preset) => {
+              const active = labelPreset === preset.key;
+              return (
+                <PressableScale
+                  key={preset.key}
+                  scaleTo={0.95}
+                  onPress={() => setLabelPreset(active ? null : preset.key)}
+                  style={[styles.presetChip, active ? styles.presetChipActive : null]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Ionicons
+                    name={preset.icon}
+                    size={14}
+                    color={active ? palette.onPrimary : palette.mutedForeground}
+                  />
+                  <Text style={[styles.presetText, active ? styles.presetTextActive : null]}>
+                    {preset.key}
+                  </Text>
+                </PressableScale>
+              );
+            })}
+          </View>
+
+          {/* Manual details with a guideline */}
+          <View style={styles.detailsBlock}>
+            <Text style={styles.detailsLabel}>Help the rider find you</Text>
             <Animated.View
               style={[
-                styles.manualFieldShell,
-                styles.manualFieldShellMultiline,
+                styles.inputShell,
                 {
                   borderColor: manualFieldPulse.interpolate({
                     inputRange: [0, 1],
-                    outputRange: ["#E7D8DF", palette.secondary],
-                  }),
-                  shadowOpacity: manualFieldPulse.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.08, 0.24],
+                    outputRange: ["#E6E6E6", palette.primary],
                   }),
                 },
               ]}
             >
-              <View style={styles.manualFieldIcon}>
-                <Ionicons
-                  name="reader-outline"
-                  size={16}
-                  color={palette.secondary}
-                />
-              </View>
               <TextInput
+                ref={detailsInputRef}
                 value={manualNote}
                 onChangeText={setManualNote}
-                placeholder="Flat, floor, road, gate, or nearby landmark"
+                placeholder="e.g. House 12, Road 5, 3rd floor, Flat B — near City Bank"
                 placeholderTextColor={palette.placeholder}
                 selectionColor={palette.secondary}
-                style={[
-                  styles.manualFieldInput,
-                  styles.manualFieldInputMultiline,
-                ]}
+                style={styles.input}
                 multiline
-                numberOfLines={2}
+                maxLength={200}
                 textAlignVertical="top"
                 underlineColorAndroid="transparent"
               />
             </Animated.View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              contentContainerStyle={styles.guideRow}
+            >
+              {ADDRESS_GUIDE.map((item) => (
+                <Pressable
+                  key={item}
+                  onPress={() => addGuidePart(item)}
+                  style={({ pressed }) => [styles.guideChip, pressed ? styles.pressed : null]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item}`}
+                >
+                  <Ionicons name="add" size={13} color={palette.secondary} />
+                  <Text style={styles.guideText}>{item}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
 
           <PressableScale
             scaleTo={0.98}
-            style={[
-              styles.confirmButtonLift,
-              isConfirming ? styles.confirmButtonDisabled : null,
-            ]}
+            style={[styles.confirmButton, isConfirming ? styles.confirmDisabled : null]}
             onPress={handleConfirm}
             disabled={isConfirming}
           >
-            <View style={styles.confirmButton}>
-              <View style={styles.confirmButtonGlow} />
-              <View style={styles.confirmButtonSheen} />
-              {isConfirming ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <View style={styles.confirmButtonContent}>
-                  <Text style={styles.confirmButtonText}>
-                    Update delivery point
-                  </Text>
-                </View>
-              )}
-            </View>
+            {isConfirming ? (
+              <ActivityIndicator size="small" color={palette.onPrimary} />
+            ) : (
+              <Text style={styles.confirmText}>Confirm delivery point</Text>
+            )}
           </PressableScale>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }

@@ -38,6 +38,9 @@ export default function ProfileScreen() {
   const { copy, language, setLanguage } = useDeliveryCopy();
   const isNetworkOnline = useNetworkStatus();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Must sit above the `if (!rider) return <Redirect/>` below — a hook after an early return
+  // changes the hook order between renders (React crash on sign-out / session expiry).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -91,7 +94,6 @@ export default function ProfileScreen() {
     const updatedAt = new Date(order.updatedAt ?? order.createdAt ?? 0).getTime();
     return updatedAt >= weekStart.getTime() && updatedAt <= now;
   });
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const isOnline = profile.isAvailableForAssignments !== false;
   const statusTone = !isNetworkOnline ? "offline" : isOnline ? "online" : "paused";
   const statusLabel = !isNetworkOnline ? copy.common.offline : isOnline ? copy.common.online : "Paused";

@@ -1,6 +1,8 @@
+import { heroSlideDeliveryUrl } from "./hero-media-url";
 import { getLiveRestaurantAvailability, assertRestaurantAcceptingOrders } from "../owner/restaurant-automation.service";
 import crypto from "node:crypto";
 import { getCustomerPaymentReturnBase } from "./customer-payment-return";
+import { assertGiftPayment, normalizeGiftInput, type GiftInput } from "./gift-order";
 import { getAreaWebDeals } from "./customer-home-web";
 import { buildRestaurantDiscoveryGeoNear } from "./restaurant-discovery-geo";
 import mongoose from "mongoose";
@@ -131,6 +133,7 @@ import {
 } from "./customer-voucher.service";
 import {
   customerCartQuoteCache,
+  estimateRestaurantDeliveryFee,
   getCustomerFacingOrderNoteSetting,
   quoteCustomerCart,
 } from "./customer-cart.service";
@@ -2225,6 +2228,37 @@ function applyLiveRestaurantAvailability(
  * per-zone hours) is cache-backed; restaurant schedules are loaded in one batch, and
  * it's what makes closed→open flip instantly instead of waiting for the cache to expire.
  */
+/**
+ * Service window for the area at these coordinates (zone override → platform hours).
+ * Same rule the home feed uses for `areaServiceWindow`; used by "notify me when open".
+ */
+export async function getAreaServiceWindowForCoordinates(params: {
+  latitude: number;
+  longitude: number;
+  now?: Date;
+}) {
+  const areaZone = await resolveServiceZoneForCoordinates({
+    latitude: params.latitude,
+    longitude: params.longitude,
+  });
+  const availability = computeRestaurantAvailability({
+    serviceHours: resolveServiceHoursConfig(
+      await getServiceHoursOverrideForZone(areaZone?.snapshot?.zoneId),
+      await getPlatformServiceHours(),
+    ),
+    isOnline: true,
+    restricted: false,
+    openingHours: null,
+    now: params.now ?? new Date(),
+  });
+  return {
+    zoneId: areaZone?.snapshot?.zoneId ? String(areaZone.snapshot.zoneId) : "",
+    isOpen: availability.isOpen,
+    opensAtLabel: availability.opensAtLabel,
+    opensAtEpochMs: availability.opensAtEpochMs,
+  };
+}
+
 async function applyLiveHomeAvailability(
   home: CustomerDiscoveryHomeResult,
   params?: { latitude?: number; longitude?: number },
@@ -2600,6 +2634,18 @@ export async function listDiscoverableRestaurants(params?: {
             )
           : restaurants;
 
+      // Per-card delivery fee estimate (additive field; older app builds ignore it).
+      for (const restaurant of eligibleRestaurants) {
+        (restaurant as Record<string, any>).deliveryFee =
+          estimateRestaurantDeliveryFee({
+            platformContent,
+            restaurant,
+            latitude,
+            longitude,
+            serviceArea: selectedServiceArea?.snapshot ?? null,
+          });
+      }
+
       return enrichRestaurantDiscoveryRows(
         reorderBySearchRelevance(eligibleRestaurants, searchRankById),
       );
@@ -2665,6 +2711,41 @@ export async function listRestaurantsWithActiveOffers(): Promise<
   }));
 }
 
+/**
+ * Featured restaurant ids in Home order. Home's Featured row has three sources and the
+ * "See all" list must use exactly the same ones:
+ *   - the admin CMS section set to "manual" (selectedRestaurantIds, per-area override aware)
+ *   - otherwise the "featured_restaurants" collection + restaurants flagged discovery.isFeatured
+ */
+async function getHomeFeaturedRestaurantIdOrder(params?: {
+  latitude?: number;
+  longitude?: number;
+}): Promise<string[]> {
+  const [platformContent, featuredCollection, flaggedFeaturedRows] = await Promise.all([
+    getPlatformContent(),
+    RestaurantCollectionModel.findOne({ key: "featured_restaurants", isActive: true }).lean(),
+    RestaurantModel.find({ ...getDiscoverableRestaurantQuery(), "discovery.isFeatured": true })
+      .select({ _id: 1 })
+      .lean(),
+  ]);
+  const serviceArea =
+    typeof params?.latitude === "number" && typeof params?.longitude === "number"
+      ? await assertLocationInsideServiceArea({
+          latitude: params.latitude,
+          longitude: params.longitude,
+          required: false,
+        })
+      : null;
+  const featuredSection = applyServiceAreaHomeCmsOverride(platformContent, serviceArea?.snapshot)
+    .customerApp.homeCms.restaurantSections.featured;
+  const manualIds = getManualHomeRestaurantIds(featuredSection);
+  const autoIds = [
+    ...(featuredCollection?.restaurantIds ?? []).map((id) => id.toString()),
+    ...flaggedFeaturedRows.map((row) => row._id.toString()),
+  ];
+  return [...new Set(featuredSection.source === "manual" && manualIds.length ? manualIds : autoIds)];
+}
+
 export async function listDiscoverableRestaurantsPage(params?: {
   search?: string;
   collectionKey?: string;
@@ -2691,6 +2772,8 @@ export async function listDiscoverableRestaurantsPage(params?: {
     Math.min(30, Math.floor(params?.pageSize ?? 12)),
   );
   let restaurants = [...(await listDiscoverableRestaurants(params))];
+  // Set by the "featured" filter: Home's featured order, used to sort the See-all list.
+  let featuredOrder: Map<string, number> | null = null;
   // Reapply open/closed LIVE against the wall clock — `listDiscoverableRestaurants` bakes
   // `isOpen` into its cache, so without this a just-opened restaurant stays "closed" until the
   // cache expires. Done BEFORE the filter/sort below so "open now" and the open-first ordering
@@ -2750,11 +2833,16 @@ export async function listDiscoverableRestaurantsPage(params?: {
           : restaurants;
     }
   } else if (params?.filter === "featured") {
-    restaurants = restaurants.filter(
-      (restaurant) =>
-        restaurant.discovery?.isFeatured === true ||
-        typeof restaurant.discovery?.featuredSortOrder === "number",
-    );
+    const featuredIds = await getHomeFeaturedRestaurantIdOrder(params);
+    featuredOrder = new Map(featuredIds.map((id, index) => [id, index]));
+    // Exactly Home's membership; the legacy flag check only if Home has no featured list.
+    restaurants = featuredIds.length
+      ? restaurants.filter((restaurant) => featuredOrder!.has(String(restaurant._id)))
+      : restaurants.filter(
+          (restaurant) =>
+            restaurant.discovery?.isFeatured === true ||
+            typeof restaurant.discovery?.featuredSortOrder === "number",
+        );
   } else if (params?.filter === "offers") {
     const offerRestaurantIds = await getActiveOfferRestaurantIdSet();
     restaurants = restaurants.filter((restaurant) =>
@@ -2788,6 +2876,16 @@ export async function listDiscoverableRestaurantsPage(params?: {
         searchRelevanceOrder.get(String(left._id)) ?? Number.MAX_SAFE_INTEGER;
       const rightRank =
         searchRelevanceOrder.get(String(right._id)) ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+    }
+    // Offline/closed restaurants always sink below open ones (every sort, every page),
+    // so a later page never surfaces an open place under closed ones.
+    const leftClosed = left.isOpen === false ? 1 : 0;
+    const rightClosed = right.isOpen === false ? 1 : 0;
+    if (leftClosed !== rightClosed) return leftClosed - rightClosed;
+    if (featuredOrder && !params?.sortBy) {
+      const leftRank = featuredOrder.get(String(left._id)) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = featuredOrder.get(String(right._id)) ?? Number.MAX_SAFE_INTEGER;
       if (leftRank !== rightRank) return leftRank - rightRank;
     }
     if (params?.sortBy === "fastest") {
@@ -3691,6 +3789,30 @@ export async function getCustomerDiscoveryHome(params?: {
       const homeCms = JSON.parse(
         JSON.stringify(homePlatformContent.customerApp.homeCms),
       );
+      // Hero carousel: only live slides (active, has media, inside its schedule window).
+      // Done per request (not in the cached content) so scheduled slides flip on time.
+      if (homeCms.heroCarousel && Array.isArray(homeCms.heroCarousel.slides)) {
+        const nowMs = Date.now();
+        const inWindow = (value: unknown, compare: (at: number) => boolean) => {
+          const at = typeof value === "string" && value ? Date.parse(value) : NaN;
+          return Number.isNaN(at) ? true : compare(at);
+        };
+        homeCms.heroCarousel.slides = homeCms.heroCarousel.slides
+          .filter(
+            (slide: Record<string, unknown>) =>
+              slide?.isActive !== false &&
+              typeof slide?.mediaUrl === "string" &&
+              slide.mediaUrl.trim().length > 0 &&
+              inWindow(slide.startsAt, (at) => at <= nowMs) &&
+              inWindow(slide.endsAt, (at) => at > nowMs),
+          )
+          // Pre-optimised animated WebP must not go through the app's Cloudinary f_auto
+          // (big animations 400 → app shows a fallback icon). See hero-media-url.ts.
+          .map((slide: Record<string, unknown>) => ({
+            ...slide,
+            mediaUrl: heroSlideDeliveryUrl(slide.mediaUrl),
+          }));
+      }
       if (
         homeCms.howToOrderGuide?.audience === "new_users" &&
         (!params?.customerId || hasDeliveredCustomerOrder)
@@ -4035,6 +4157,7 @@ export async function getCustomerRestaurantDetails(
           .lean(),
         VoucherModel.find(buildActiveMenuMarkdownFilter(restaurant))
           .select({
+            name: 1,
             scopeType: 1,
             restaurantId: 1,
             selectedRestaurantIds: 1,
@@ -4199,6 +4322,20 @@ export async function getCustomerRestaurantDetails(
         categories,
         menuItems,
         activeOffers,
+        // Item-price discounts (menu markdowns) live on the item prices, not in the
+        // checkout-voucher strip — but the home card advertises them ("3% off"), so the
+        // details page lists them too. Additive field; older builds ignore it.
+        menuDeals: (markdownRules as Array<Record<string, any>>).map((rule) => ({
+          _id: String(rule._id),
+          name: String(rule.name ?? ""),
+          type: rule.type === "percentage" ? "percentage" : "flat",
+          discountValue: Number(rule.discountValue) || 0,
+          maxDiscountAmount:
+            typeof rule.maxDiscountAmount === "number" && rule.maxDiscountAmount > 0
+              ? rule.maxDiscountAmount
+              : null,
+          applicability: String(rule.applicability ?? "all"),
+        })),
         cartRecommendations:
           scopedPlatformContent.customerApp.homeCms.cartRecommendations,
         recentReviews: recentReviews.map((review) => ({
@@ -5074,9 +5211,24 @@ export async function placeCustomerOrder(params: {
   platformFeeOptedIn?: boolean;
   // Customer opted into urgent/priority delivery at checkout.
   urgentDeliveryOptedIn?: boolean;
+  // "Send food home": deliver to someone else (prepaid only).
+  gift?: GiftInput | null;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
   const customer = await getCustomerById(customerId);
+  // A bKash order can be finalised by the app (bkash-payment screen) OR the gateway callback;
+  // either way the gift chosen at checkout lives in the bKash session snapshot, so recover it
+  // from there when the caller didn't resend it — a paid gift must never lose its receiver.
+  let giftInput: GiftInput | null | undefined = params.gift;
+  const giftSessionId = params.paymentReference?.bkashSessionId;
+  if (!giftInput && params.paymentMethod === "Bkash" && giftSessionId && mongoose.Types.ObjectId.isValid(giftSessionId)) {
+    const giftSession = await BkashSandboxPaymentSessionModel.findOne({ _id: giftSessionId, customerId })
+      .select({ checkoutSnapshot: 1 })
+      .lean();
+    giftInput = ((giftSession as Record<string, any> | null)?.checkoutSnapshot?.gift as GiftInput | null) ?? null;
+  }
+  const gift = normalizeGiftInput(giftInput, customer);
+  assertGiftPayment(gift, params.paymentMethod);
   const clientOrderId = normalizeClientOrderId(params.clientOrderId);
   const existingOrder = await findIdempotentOrder(customer.id, clientOrderId);
   if (existingOrder) {
@@ -5336,6 +5488,7 @@ export async function placeCustomerOrder(params: {
             // Top-level flag so admin/owner/rider can badge + (later) prioritise urgent
             // orders. True only when urgent was enabled AND the customer opted in.
             isUrgent: quote.urgentDeliveryInfo?.charged === true,
+            gift,
             appliedVouchers: quote.appliedVouchers ?? [],
             serviceAreaSnapshot: quote.serviceArea ?? {},
             customerSnapshot: {
@@ -5950,9 +6103,12 @@ export async function initiateBkashPayment(params: {
   deliveryAddress: CustomerDeliveryAddressInput;
   platformFeeOptedIn?: boolean;
   urgentDeliveryOptedIn?: boolean;
+  gift?: GiftInput | null;
 }) {
   const customerId = ensureCustomerIdentity(params.customerId);
-  await getCustomerById(customerId);
+  const giftSender = await getCustomerById(customerId);
+  // Validate the gift up front so a bad receiver number fails BEFORE the customer pays.
+  const gift = normalizeGiftInput(params.gift, giftSender);
   const paymentSettings = await getPaymentMethodSettings();
 
   if (!paymentSettings.bkashEnabled) {
@@ -6000,6 +6156,9 @@ export async function initiateBkashPayment(params: {
     // Carry the opt-in so the order created on payment success is priced identically.
     platformFeeOptedIn: params.platformFeeOptedIn === true,
     urgentDeliveryOptedIn: params.urgentDeliveryOptedIn === true,
+    gift: gift
+      ? { recipientName: gift.recipientName, recipientPhone: gift.recipientPhone, message: gift.message }
+      : null,
   };
   const session = await BkashSandboxPaymentSessionModel.create({
     customerId,
@@ -6201,6 +6360,7 @@ async function finalizeConfirmedBkashSessionOrder(session: any) {
         (checkoutSnapshot as Record<string, any>).platformFeeOptedIn === true,
       urgentDeliveryOptedIn:
         (checkoutSnapshot as Record<string, any>).urgentDeliveryOptedIn === true,
+      gift: ((checkoutSnapshot as Record<string, any>).gift as GiftInput | null) ?? null,
     });
     return String(result.order?._id ?? result.order?.id ?? "");
   } catch (error) {
@@ -6718,7 +6878,7 @@ export async function listCustomerOrders(
   ];
   const restaurants = restaurantIds.length
     ? await RestaurantModel.find({ _id: { $in: restaurantIds } })
-        .select("_id preparationTimeMinutes")
+        .select("_id preparationTimeMinutes name coverImage logo")
         .lean()
     : [];
   const restaurantById = new Map(
@@ -6727,8 +6887,19 @@ export async function listCustomerOrders(
 
   return orders.map((order) => {
     const orderObject = order as Record<string, any>;
+    const restaurant = restaurantById.get(String(order.restaurantId ?? "")) as
+      | Record<string, any>
+      | undefined;
     return {
       ...orderObject,
+      // Additive (older apps ignore it): lets the app show the restaurant on order cards
+      // and the home "Order again" rail without a second request.
+      restaurantCard: restaurant
+        ? {
+            name: String(restaurant.name ?? ""),
+            imageUrl: restaurant.coverImage?.url || restaurant.logo?.url || null,
+          }
+        : null,
       note: getCustomerOrderNote(orderObject),
       preparationTiming: buildOrderPreparationTiming({
         order: orderObject,

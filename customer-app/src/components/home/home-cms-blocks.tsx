@@ -6,6 +6,7 @@ import {
   Animated,
   AppState,
   Easing,
+  Image,
   Linking,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -23,11 +24,14 @@ import {
   resolveCustomerRoute,
   withRestaurantViewSource,
 } from "@/src/lib/customer-routes";
-import { isTrustedYoutubeUrl } from "@/src/lib/youtube-url";
+import { isTrustedYoutubeUrl, parseYoutubeId } from "@/src/lib/youtube-url";
+import { palette } from "@/src/theme/palette";
 import type {
   CustomerCampaignPlacement,
   CustomerHomeCms,
 } from "@/src/types/restaurant";
+
+const BELA_MASCOT = require("../../../assets/bela_mascot.png");
 
 export function recordCampaignEvent(
   voucherId: string | undefined,
@@ -89,7 +93,7 @@ export function getBannerToneStyle(
       };
     case "amber":
       return {
-        shell: "#FFEAF3",
+        shell: "#FFF1DC",
         chip: "#FFD9E8",
         title: "#A73D69",
         subtitle: "#8A5E72",
@@ -130,9 +134,9 @@ export function CampaignPlacementCard({
   const ctaPath = resolveCustomerRoute(display.ctaPath, null);
   const canOpenModal = Boolean(display.openInModal);
   const hasAction = canOpenModal || Boolean(ctaPath);
-  const backgroundColor = display.backgroundColor || "#FFF0F6";
+  const backgroundColor = display.backgroundColor || "#FFF6E8";
   const textColor = display.textColor || "#3F2432";
-  const accentColor = display.accentColor || "#FF5C93";
+  const accentColor = display.accentColor || "#A86300";
   const router = useRouter();
 
   const handlePress = () => {
@@ -467,41 +471,27 @@ function HomeCmsPromoBlockBase({ cms }: { cms: CustomerHomeCms }) {
                       </Text>
                     </View>
                   ) : null}
-                  {hasAction ? (
-                    <View
-                      style={[
-                        styles.cmsCarouselButton,
-                        { backgroundColor: block.accentColor || "#FF5C93" },
-                      ]}
-                    >
-                      <Text style={styles.cmsCarouselButtonText}>
-                        {block.ctaLabel || "View restaurant"}
-                      </Text>
-                      <Ionicons
-                        name="arrow-forward"
-                        size={13}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                  ) : null}
+                  {/* No CTA button on the banner — the whole slide is the tap target. */}
                 </Pressable>
               </View>
             );
           })}
         </ScrollView>
-        <View style={styles.cmsCarouselDots}>
-          {visibleCarouselImages.map((image, index) => (
-            <View
-              key={`${image.url}-${index}-dot`}
-              style={[
-                styles.cmsCarouselDot,
-                index === activeSlideIndex
-                  ? styles.cmsCarouselDotActive
-                  : null,
-              ]}
-            />
-          ))}
-        </View>
+        {visibleCarouselImages.length > 1 ? (
+          <View style={styles.cmsCarouselDots}>
+            {visibleCarouselImages.map((image, index) => (
+              <View
+                key={`${image.url}-${index}-dot`}
+                style={[
+                  styles.cmsCarouselDot,
+                  index === activeSlideIndex
+                    ? styles.cmsCarouselDotActive
+                    : null,
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -511,7 +501,7 @@ function HomeCmsPromoBlockBase({ cms }: { cms: CustomerHomeCms }) {
       style={[
         styles.cmsBlock,
         block.variant === "image" ? styles.cmsBlockImageOnlyShell : null,
-        { backgroundColor: block.backgroundColor || "#FFF0F6" },
+        { backgroundColor: block.backgroundColor || "#FFF6E8" },
       ]}
     >
       {block.variant === "image" && block.imageUrl ? (
@@ -539,7 +529,7 @@ function HomeCmsPromoBlockBase({ cms }: { cms: CustomerHomeCms }) {
           <View
             style={[
               styles.cmsBlockBadge,
-            { backgroundColor: block.accentColor || "#FF5C93" },
+            { backgroundColor: block.accentColor || "#A86300" },
             ]}
           >
             <Ionicons
@@ -592,174 +582,94 @@ export function HowToOrderGuideBlock({
 }) {
   const guide = cms.howToOrderGuide;
   const canOpenVideo = isTrustedYoutubeUrl(guide?.youtubeUrl);
-  const accentPulse = useRef(new Animated.Value(0)).current;
-  const accentColor = guide?.accentColor || "#5D8BFF";
+  const playPulse = useRef(new Animated.Value(0)).current;
+  const router = useRouter();
 
+  // Plays inside the app (same player as the Hype videos); a non-YouTube-id link still
+  // falls back to the browser.
   const openGuide = () => {
-    if (canOpenVideo && guide?.youtubeUrl) {
-      recordHomeCmsEvent("guide_video_click");
-      void Linking.openURL(guide.youtubeUrl).catch(() => undefined);
+    if (!canOpenVideo || !guide?.youtubeUrl) return;
+    recordHomeCmsEvent("guide_video_click");
+    if (parseYoutubeId(guide.youtubeUrl)) {
+      router.push({
+        pathname: "/guide-video",
+        params: { url: guide.youtubeUrl, title: guide.title ?? "", subtitle: guide.subtitle ?? "" },
+      } as never);
+      return;
     }
+    void Linking.openURL(guide.youtubeUrl).catch(() => undefined);
   };
 
   useEffect(() => {
     if (guide?.isActive && canOpenVideo) recordHomeCmsEvent("guide_impression");
   }, [canOpenVideo, guide?.isActive]);
 
+  // One gentle "breathing" ring on the play badge — the only motion (native driver).
   useEffect(() => {
     if (!guide?.isActive || !canOpenVideo || !isAnimationActive) {
-      accentPulse.stopAnimation();
-      accentPulse.setValue(0);
+      playPulse.stopAnimation();
+      playPulse.setValue(0);
       return;
     }
-
     const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(accentPulse, {
-          toValue: 1,
-          duration: 1800,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(accentPulse, {
-          toValue: 0,
-          duration: 2200,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
+      Animated.timing(playPulse, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
     );
     animation.start();
-
     return () => {
       animation.stop();
-      accentPulse.stopAnimation();
-      accentPulse.setValue(0);
+      playPulse.setValue(0);
     };
-  }, [accentPulse, canOpenVideo, guide?.isActive, isAnimationActive]);
+  }, [playPulse, canOpenVideo, guide?.isActive, isAnimationActive]);
 
   if (!guide?.isActive || !canOpenVideo) return null;
 
-  const accentWashOpacity = accentPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.1, 0.18],
-  });
-  const accentWashScale = accentPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.06],
-  });
-  const accentOutlineOpacity = accentPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.14, 0.26],
-  });
-  const accentRailOpacity = accentPulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.56, 0.82],
-  });
+  const ringScale = playPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.7] });
+  const ringOpacity = playPulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] });
 
+  // Brand-consistent card (white + amber, Bela as the "video thumbnail"). Admin still
+  // controls title / subtitle / button label / video / step images; the old custom
+  // background/accent colours are intentionally ignored so it matches the rest of home.
   return (
     <View style={styles.guideSection}>
-      <View style={styles.guideCardFrame}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.guideCard,
-            { backgroundColor: guide.backgroundColor || "#EDF4FF" },
-            pressed ? styles.guideCardPressed : null,
-          ]}
-          onPress={openGuide}
-        >
-          {({ pressed }) => (
-            <>
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.guideAccentWash,
-                  {
-                    backgroundColor: accentColor,
-                    opacity: accentWashOpacity,
-                    transform: [{ scale: accentWashScale }],
-                  },
-                ]}
-              />
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.guideAccentOutline,
-                  {
-                    borderColor: accentColor,
-                    opacity: accentOutlineOpacity,
-                  },
-                ]}
-              />
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.guideAccentRail,
-                  {
-                    backgroundColor: accentColor,
-                    opacity: accentRailOpacity,
-                  },
-                ]}
-              />
-              <Ionicons
-                name="play-circle-outline"
-                size={42}
-                color="rgba(255,255,255,0.30)"
-                style={styles.guideDecorPlay}
-              />
-              <Ionicons
-                name="book-outline"
-                size={30}
-                color="rgba(255,255,255,0.24)"
-                style={styles.guideDecorBook}
-              />
-              <Ionicons
-                name="fast-food-outline"
-                size={32}
-                color="rgba(255,255,255,0.22)"
-                style={styles.guideDecorFood}
-              />
-              <View style={styles.guideIcon}>
-                <Ionicons name="play-circle" size={24} color={accentColor} />
-              </View>
-              <View style={styles.guideCopy}>
-                <Text
-                  style={[
-                    styles.guideTitle,
-                    { color: guide.textColor || "#24406F" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {guide.title || "How to order on Foodbela"}
-                </Text>
-                {guide.subtitle?.trim() ? (
-                  <Text
-                    style={[
-                      styles.guideSubtitle,
-                      { color: guide.textColor || "#24406F" },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {guide.subtitle}
-                  </Text>
-                ) : null}
-              </View>
-              <View
-                style={[
-                  styles.guideButton,
-                  { backgroundColor: accentColor },
-                  pressed ? styles.guideButtonPressed : null,
-                ]}
-              >
-                <Ionicons name="play" size={12} color="#fff" />
-                <Text style={styles.guideButtonText}>
-                  {guide.ctaLabel || "Watch"}
-                </Text>
-              </View>
-            </>
-          )}
-        </Pressable>
-      </View>
+      <Pressable
+        style={({ pressed }) => [styles.guideCard, pressed ? styles.guideCardPressed : null]}
+        onPress={openGuide}
+        accessibilityRole="button"
+        accessibilityLabel={`${guide.title || "How to order on Foodbela"} — watch video`}
+      >
+        <View style={styles.guideThumb}>
+          <Image source={BELA_MASCOT} style={styles.guideMascot} resizeMode="contain" />
+          <View style={styles.guidePlayWrap} pointerEvents="none">
+            <Animated.View
+              style={[styles.guidePlayRing, { opacity: ringOpacity, transform: [{ scale: ringScale }] }]}
+            />
+            <View style={styles.guidePlay}>
+              <Ionicons name="play" size={11} color={palette.onPrimary} style={styles.guidePlayIcon} />
+            </View>
+          </View>
+        </View>
+        <View style={styles.guideCopy}>
+          <Text style={styles.guideEyebrow}>NEW TO FOODBELA?</Text>
+          <Text style={styles.guideTitle} numberOfLines={2}>
+            {guide.title || "How to order on Foodbela"}
+          </Text>
+          {guide.subtitle?.trim() ? (
+            <Text style={styles.guideSubtitle} numberOfLines={2}>
+              {guide.subtitle}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.guideButton}>
+          <Ionicons name="play" size={12} color={palette.onPrimary} />
+          <Text style={styles.guideButtonText}>{guide.ctaLabel || "Watch"}</Text>
+        </View>
+      </Pressable>
+
       {guide.guideImages.length ? (
         <ScrollView
           horizontal
@@ -767,19 +677,26 @@ export function HowToOrderGuideBlock({
           contentContainerStyle={styles.guideImageRow}
         >
           {guide.guideImages.slice(0, 6).map((image, index) => (
-            <View key={`${image.url}-${index}`} style={styles.guideImageCard}>
-              <Pressable onPress={() => recordHomeCmsEvent("guide_image_click")}>
+            <Pressable
+              key={`${image.url}-${index}`}
+              style={styles.guideImageCard}
+              onPress={() => recordHomeCmsEvent("guide_image_click")}
+            >
+              <View>
                 <RemoteImage
                   uri={image.url}
                   style={styles.guideImage}
                   fallbackIcon="book-outline"
                   accessibilityLabel={image.title || `How to order step ${index + 1}`}
                 />
-              </Pressable>
+                <View style={styles.guideStepBadge}>
+                  <Text style={styles.guideStepBadgeText}>{index + 1}</Text>
+                </View>
+              </View>
               <Text style={styles.guideImageTitle} numberOfLines={1}>
                 {image.title || `Step ${index + 1}`}
               </Text>
-            </View>
+            </Pressable>
           ))}
         </ScrollView>
       ) : null}
@@ -788,6 +705,94 @@ export function HowToOrderGuideBlock({
 }
 
 const styles = StyleSheet.create({
+  // ── "How to order" guide (brand card) ──
+  guideSection: { paddingHorizontal: 16, paddingTop: 20, gap: 12 },
+  guideCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#ECECEC",
+  },
+  guideCardPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  guideThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primarySoft,
+  },
+  guideMascot: { width: 52, height: 52 },
+  guidePlayWrap: {
+    position: "absolute",
+    right: -4,
+    bottom: -4,
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guidePlayRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 13,
+    backgroundColor: palette.primary,
+  },
+  guidePlay: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+    borderWidth: 2,
+    borderColor: palette.surface,
+  },
+  guidePlayIcon: { marginLeft: 1 },
+  guideCopy: { flex: 1, minWidth: 0, gap: 2 },
+  guideEyebrow: {
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: palette.secondary,
+  },
+  guideTitle: { fontSize: 15, lineHeight: 20, fontWeight: "700", color: palette.foreground },
+  guideSubtitle: { fontSize: 12.5, lineHeight: 17, color: palette.mutedForeground },
+  guideButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: palette.primary,
+  },
+  guideButtonText: { fontSize: 12.5, lineHeight: 16, fontWeight: "700", color: palette.onPrimary },
+  guideImageRow: { gap: 10, paddingRight: 4 },
+  guideImageCard: { width: 124, gap: 6 },
+  guideImage: {
+    width: 124,
+    height: 92,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceMuted,
+  },
+  guideStepBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.primary,
+  },
+  guideStepBadgeText: { fontSize: 11.5, lineHeight: 14, fontWeight: "700", color: palette.onPrimary },
+  guideImageTitle: { fontSize: 12, lineHeight: 16, fontWeight: "500", color: palette.foreground },
   campaignCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -800,7 +805,7 @@ const styles = StyleSheet.create({
     width: 84,
     height: 84,
     borderRadius: 18,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   campaignCarousel: {
     maxWidth: 118,
@@ -810,7 +815,7 @@ const styles = StyleSheet.create({
     height: 76,
     marginRight: 8,
     borderRadius: 16,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   campaignCopy: {
     flex: 1,
@@ -828,17 +833,17 @@ const styles = StyleSheet.create({
   campaignBadgeText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   campaignTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   campaignSubtitle: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
     opacity: 0.78,
   },
   campaignAction: {
@@ -849,7 +854,7 @@ const styles = StyleSheet.create({
   campaignActionText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
+    fontWeight: "700",
     color: "#fff",
   },
   cmsBlock: {
@@ -868,13 +873,13 @@ const styles = StyleSheet.create({
     width: 82,
     height: 82,
     borderRadius: 18,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   cmsImageOnly: {
     width: "100%",
     height: 112,
     borderRadius: 16,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   cmsCarouselOnly: {
     position: "relative",
@@ -897,7 +902,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 112,
     borderRadius: 16,
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
   },
   // "Sponsored" ad-label pill, top-left of the slide (mirrors the Featured card's badge).
   cmsCarouselSponsored: {
@@ -918,34 +923,11 @@ const styles = StyleSheet.create({
   cmsCarouselSponsoredText: {
     fontSize: 9,
     lineHeight: 12,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 0.3,
     color: "#F4F6FB",
   },
-  cmsCarouselButton: {
-    position: "absolute",
-    right: 12,
-    bottom: 12,
-    minHeight: 34,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    shadowColor: "#111827",
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
-  },
-  cmsCarouselButtonText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
+  // No admin label → a round arrow-only button.
   cmsCarouselDots: {
     position: "absolute",
     bottom: 12,
@@ -959,11 +941,11 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#FF5C93",
+    backgroundColor: "#A86300",
   },
   cmsCarouselDotActive: {
     width: 14,
-    backgroundColor: "#FF5C93",
+    backgroundColor: "#A86300",
   },
   cmsBlockCopy: {
     flex: 1,
@@ -981,12 +963,12 @@ const styles = StyleSheet.create({
   cmsBlockBadgeText: {
     fontSize: 10,
     lineHeight: 13,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   cmsBlockTitle: {
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: "900",
+    fontWeight: "700",
   },
   cmsBlockSubtitle: {
     fontSize: 12,
@@ -1015,150 +997,7 @@ const styles = StyleSheet.create({
   cmsInlineButtonText: {
     fontSize: 11,
     lineHeight: 14,
-    fontWeight: "900",
-    color: "#fff",
-  },
-  guideSection: {
-    paddingTop: 18,
-    gap: 10,
-  },
-  guideCardFrame: {
-    marginHorizontal: 20,
-    position: "relative",
-    padding: 1,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.58)",
-    shadowColor: "#111827",
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 9 },
-    elevation: 3,
-  },
-  guideCard: {
-    position: "relative",
-    overflow: "hidden",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 78,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 21,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.78)",
-  },
-  guideCardPressed: {
-    opacity: 0.96,
-    transform: [{ scale: 0.992 }],
-  },
-  guideAccentWash: {
-    position: "absolute",
-    right: -46,
-    top: -42,
-    width: 142,
-    height: 142,
-    borderRadius: 71,
-  },
-  guideAccentOutline: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 21,
-    borderWidth: 1,
-  },
-  guideAccentRail: {
-    position: "absolute",
-    left: 0,
-    top: 15,
-    bottom: 15,
-    width: 3,
-    borderTopRightRadius: 999,
-    borderBottomRightRadius: 999,
-  },
-  guideDecorPlay: {
-    position: "absolute",
-    right: 18,
-    top: 10,
-  },
-  guideDecorBook: {
-    position: "absolute",
-    right: 72,
-    bottom: 10,
-  },
-  guideDecorFood: {
-    position: "absolute",
-    right: 116,
-    bottom: 12,
-  },
-  guideIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.7)",
-  },
-  guideCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  guideTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
-  },
-  guideSubtitle: {
-    fontSize: 12,
-    lineHeight: 16,
     fontWeight: "700",
-    opacity: 0.72,
-  },
-  guideButton: {
-    minHeight: 36,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 999,
-    shadowColor: "#111827",
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
-  },
-  guideButtonPressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.94 }],
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  guideButtonText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "900",
     color: "#fff",
-  },
-  guideImageRow: {
-    paddingLeft: 20,
-    paddingRight: 10,
-    gap: 10,
-  },
-  guideImageCard: {
-    width: 116,
-    gap: 6,
-  },
-  guideImage: {
-    width: 116,
-    height: 86,
-    borderRadius: 16,
-    backgroundColor: "#EDF4FF",
-  },
-  guideImageTitle: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    color: "#181620",
   },
 });

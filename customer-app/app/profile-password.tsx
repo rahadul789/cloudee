@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import type { ComponentProps, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -25,11 +24,11 @@ import { useSafeTimeout } from "@/src/hooks/use-safe-timeout";
 import { getCustomerAuthErrorMessage } from "@/src/lib/auth-error-message";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
 import { palette } from "@/src/theme/palette";
+import { AppHeader } from "@/src/components/ui";
 
 const CUSTOMER_PASSWORD_MIN_LENGTH = 6;
 
 export default function ProfilePasswordScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const customer = useCustomerAuthStore((state) => state.customer);
   const isOnline = useIsOnline();
@@ -153,23 +152,10 @@ export default function ProfilePasswordScreen() {
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.topBar}>
-            <PressableScale
-              scaleTo={0.9}
-              onPress={() => router.back()}
-              style={styles.backButton}
-            >
-              <Ionicons
-                name="chevron-back"
-                size={20}
-                color={palette.foreground}
-              />
-            </PressableScale>
-            <Text style={styles.topBarTitle}>
-              {hasPassword ? "Change password" : "Add password"}
-            </Text>
-            <View style={styles.topBarSpacer} />
-          </View>
+          <AppHeader
+              inline
+              title={hasPassword ? "Change password" : "Add password"}
+            />
 
           {!isOnline ? (
             <OfflineNoticeCard description="Reconnect to update your password." />
@@ -178,9 +164,9 @@ export default function ProfilePasswordScreen() {
           <View style={styles.heroCard}>
             <View style={styles.heroIcon}>
               <Ionicons
-                name="lock-closed-outline"
+                name={hasPassword ? "shield-checkmark" : "lock-closed"}
                 size={24}
-                color="#FFFFFF"
+                color={palette.secondary}
               />
             </View>
             <View style={styles.heroCopy}>
@@ -312,13 +298,13 @@ export default function ProfilePasswordScreen() {
               disabled={!canPressSave}
             >
               {passwordMutation.isPending ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={palette.onPrimary} />
               ) : (
                 <>
                   <Text style={styles.primaryButtonText}>
                     {hasPassword ? "Update password" : "Save password"}
                   </Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  <Ionicons name="arrow-forward" size={16} color={palette.onPrimary} />
                 </>
               )}
             </PressableScale>
@@ -438,9 +424,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 18,
+    paddingHorizontal: 16,
     paddingTop: 8,
-    gap: 18,
+    gap: 14,
   },
   topBar: {
     flexDirection: "row",
@@ -459,7 +445,7 @@ const styles = StyleSheet.create({
   },
   topBarTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   topBarSpacer: {
@@ -469,22 +455,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
     backgroundColor: palette.surface,
     padding: 16,
-    shadowColor: palette.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    elevation: 2,
   },
   heroIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 20,
-    backgroundColor: palette.foreground,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -493,9 +474,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   heroTitle: {
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "800",
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "700",
     color: palette.foreground,
   },
   heroSubtitle: {
@@ -504,39 +485,33 @@ const styles = StyleSheet.create({
     color: palette.mutedForeground,
   },
   formCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "rgba(31, 36, 48, 0.08)",
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E4E7",
     backgroundColor: palette.surface,
     padding: 16,
-    gap: 13,
+    gap: 12,
   },
   field: {
-    minHeight: 70,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#EEE3DD",
-    backgroundColor: "#FFFDFB",
-    paddingHorizontal: 13,
-    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#E3E4E7",
+    backgroundColor: palette.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   fieldFocused: {
-    borderColor: "#FFD4C3",
-    backgroundColor: "#FFF9F5",
-    shadowColor: "rgba(255, 99, 146, 0.2)",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 2,
+    borderColor: palette.primary,
   },
   fieldIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    backgroundColor: "#FFF0E9",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: palette.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -554,16 +529,15 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "500",
     color: palette.mutedForeground,
-    textTransform: "uppercase",
   },
   input: {
     minHeight: 26,
     padding: 0,
     paddingRight: 42,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "500",
     color: palette.foreground,
   },
   visibilityButton: {
@@ -580,8 +554,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    borderRadius: 16,
-    backgroundColor: "#FFF1F5",
+    borderRadius: 14,
+    backgroundColor: "#FDECEF",
     paddingHorizontal: 12,
     paddingVertical: 11,
   },
@@ -589,8 +563,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    borderRadius: 16,
-    backgroundColor: "#F2FBF7",
+    borderRadius: 14,
+    backgroundColor: palette.successSurface,
     paddingHorizontal: 12,
     paddingVertical: 11,
   },
@@ -607,28 +581,21 @@ const styles = StyleSheet.create({
     color: palette.successText,
   },
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 18,
-    backgroundColor: palette.secondary,
-    paddingVertical: 15,
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: palette.primary,
+    paddingVertical: 14,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    shadowColor: "rgba(255, 99, 146, 0.42)",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.24,
-    shadowRadius: 18,
-    elevation: 3,
   },
   primaryButtonDisabled: {
-    backgroundColor: "#D8D2D4",
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: "#ECEDEF",
   },
   primaryButtonText: {
     fontSize: 15,
-    fontWeight: "800",
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: palette.onPrimary,
   },
 });

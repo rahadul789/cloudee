@@ -29,15 +29,15 @@ export const styles = StyleSheet.create({
   kicker: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
     letterSpacing: 1,
     textTransform: "uppercase",
-    color: palette.primary,
+    color: palette.secondary,
   },
   title: {
     fontSize: 28,
     lineHeight: 34,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   subtitle: {
@@ -58,7 +58,7 @@ export const styles = StyleSheet.create({
     elevation: 5,
   },
   heroCardTint: {
-    backgroundColor: "#FFF7FB",
+    backgroundColor: "#FFFAF2",
   },
   heroTopRow: {
     flexDirection: "row",
@@ -95,7 +95,7 @@ export const styles = StyleSheet.create({
   statusPillText: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   heroMeta: {
     fontSize: 13,
@@ -117,14 +117,14 @@ export const styles = StyleSheet.create({
   heroMetricValue: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   heroMetricLabel: {
     fontSize: 12,
     lineHeight: 16,
     color: palette.mutedForeground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   successFlashCard: {
     marginHorizontal: 18,
@@ -156,7 +156,7 @@ export const styles = StyleSheet.create({
   successFlashTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   successFlashSubtitle: {
@@ -173,7 +173,7 @@ export const styles = StyleSheet.create({
     borderRadius: 24,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -202,7 +202,7 @@ export const styles = StyleSheet.create({
   reorderActionTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   reorderActionSubtitle: {
@@ -235,7 +235,7 @@ export const styles = StyleSheet.create({
   cancelledStateTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   cancelledStateSubtitle: {
@@ -271,7 +271,7 @@ export const styles = StyleSheet.create({
   trackLiveButtonTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: "800",
+    fontWeight: "700",
     color: "#fff",
   },
   trackLiveButtonSubtitle: {
@@ -295,7 +295,7 @@ export const styles = StyleSheet.create({
     elevation: 4,
   },
   secondaryActionButtonDanger: {
-    backgroundColor: "#FFF0F6",
+    backgroundColor: "#FFF6E8",
     borderWidth: 1,
     borderColor: "#FFD6C9",
   },
@@ -306,7 +306,7 @@ export const styles = StyleSheet.create({
     color: palette.foreground,
   },
   secondaryActionButtonTextDanger: {
-    color: palette.primary,
+    color: palette.secondary,
   },
   sectionCard: {
     marginHorizontal: 18,
@@ -344,7 +344,7 @@ export const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     lineHeight: 24,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   sectionHint: {
@@ -382,13 +382,13 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: palette.mutedForeground,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   miniTimelineLabelActive: {
     color: palette.foreground,
   },
   miniTimelineLabelCurrent: {
-    color: palette.primary,
+    color: palette.secondary,
   },
   miniTimelineConnector: {
     width: 24,
@@ -443,7 +443,7 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "#FFE8F0",
+    backgroundColor: "#FFF1DC",
   },
   currentBadgeText: {
     fontSize: 11,
@@ -470,8 +470,8 @@ export const styles = StyleSheet.create({
   detailLabel: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
-    color: palette.primary,
+    fontWeight: "700",
+    color: palette.secondary,
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
@@ -514,7 +514,7 @@ export const styles = StyleSheet.create({
   riderHintText: {
     fontSize: 11,
     lineHeight: 15,
-    color: palette.primary,
+    color: palette.secondary,
     fontWeight: "700",
   },
   riderActionButton: {
@@ -586,7 +586,7 @@ export const styles = StyleSheet.create({
     color: palette.successText,
   },
   summaryStrong: {
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   divider: {
@@ -627,7 +627,7 @@ export const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: palette.secondary,
+    backgroundColor: palette.primary,
   },
   submitReviewButtonDisabled: {
     opacity: 0.55,
@@ -636,7 +636,7 @@ export const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: "700",
-    color: "#fff",
+    color: palette.onPrimary,
   },
   reviewDoneCard: {
     padding: 14,
@@ -674,8 +674,8 @@ export const styles = StyleSheet.create({
   noteLabel: {
     fontSize: 11,
     lineHeight: 15,
-    fontWeight: "800",
-    color: palette.primary,
+    fontWeight: "700",
+    color: palette.secondary,
     textTransform: "uppercase",
     letterSpacing: 0.8,
   },
@@ -700,7 +700,7 @@ export const styles = StyleSheet.create({
   loadingText: {
     fontSize: 14,
     lineHeight: 18,
-    fontWeight: "600",
+    fontWeight: "500",
     color: palette.foreground,
   },
   emptyState: {
@@ -741,7 +741,7 @@ export const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     lineHeight: 26,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
     textAlign: "center",
   },

@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Battery from "expo-battery";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useDeliveryCopy } from "@/src/lib/copy";
 import {
@@ -31,6 +32,9 @@ export function RiderTrackingHealthCard() {
   const [isRequesting, setIsRequesting] = useState(false);
   // Default true = hidden until we've loaded the stored flag, so the tip never flashes.
   const [batteryTipDismissed, setBatteryTipDismissed] = useState(true);
+  // Android only: when the OS is still optimizing this app, the location service is the
+  // first thing killed once the screen goes off — so this warning can't be dismissed.
+  const [batteryOptimized, setBatteryOptimized] = useState(false);
 
   const refreshPermissions = useCallback(async () => {
     const [foreground, background] = await Promise.all([
@@ -43,6 +47,12 @@ export function RiderTrackingHealthCard() {
     setBackgroundGranted(
       background ? background.status === "granted" : false,
     );
+    if (Platform.OS === "android") {
+      const optimized = await Battery.isBatteryOptimizationEnabledAsync().catch(
+        () => false,
+      );
+      setBatteryOptimized(optimized);
+    }
   }, []);
 
   useEffect(() => {
@@ -94,12 +104,18 @@ export function RiderTrackingHealthCard() {
   if (!foregroundGranted) return null;
 
   const needsAlways = backgroundGranted === false;
-  const showBatteryTip = backgroundGranted === true && !batteryTipDismissed;
+  const showBatteryTip =
+    batteryOptimized || (backgroundGranted === true && !batteryTipDismissed);
 
   if (!needsAlways && !showBatteryTip) return null;
 
   return (
-    <View style={[styles.card, needsAlways ? styles.cardWarn : styles.cardTip]}>
+    <View
+      style={[
+        styles.card,
+        needsAlways || batteryOptimized ? styles.cardWarn : styles.cardTip,
+      ]}
+    >
       {needsAlways ? (
         <View style={styles.section}>
           <View style={styles.headingRow}>
@@ -123,10 +139,18 @@ export function RiderTrackingHealthCard() {
 
       <View style={styles.section}>
         <View style={styles.headingRow}>
-          <Ionicons name="battery-charging" size={18} color={palette.warning} />
-          <Text style={styles.title}>{t.batteryTitle}</Text>
+          <Ionicons
+            name={batteryOptimized ? "battery-dead" : "battery-charging"}
+            size={18}
+            color={batteryOptimized ? palette.danger : palette.warning}
+          />
+          <Text style={styles.title}>
+            {batteryOptimized ? t.batteryOnTitle : t.batteryTitle}
+          </Text>
         </View>
-        <Text style={styles.body}>{t.batteryBody}</Text>
+        <Text style={styles.body}>
+          {batteryOptimized ? t.batteryOnBody : t.batteryBody}
+        </Text>
         <View style={styles.actionRow}>
           <Pressable
             style={styles.ghostButton}
@@ -137,7 +161,7 @@ export function RiderTrackingHealthCard() {
             <Ionicons name="settings-outline" size={14} color={palette.primary} />
             <Text style={styles.ghostButtonText}>{t.batteryAction}</Text>
           </Pressable>
-          {showBatteryTip && !needsAlways ? (
+          {showBatteryTip && !needsAlways && !batteryOptimized ? (
             <Pressable style={styles.dismissButton} onPress={handleDismissBattery}>
               <Text style={styles.dismissText}>{t.dismiss}</Text>
             </Pressable>
