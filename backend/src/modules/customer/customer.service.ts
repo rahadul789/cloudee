@@ -3384,6 +3384,15 @@ function isPersonalVoucherHiddenFromCustomer(
   return !selectedIds.includes(normalizedCustomerId);
 }
 
+// Home voucher ordering (admin display position first, then priority / value / expiry).
+const HOME_OFFER_SORT = {
+  "display.position": 1,
+  priority: -1,
+  discountValue: -1,
+  endsAt: 1,
+  createdAt: -1,
+} as const;
+
 export async function getCustomerDiscoveryHome(params?: {
   latitude?: number;
   longitude?: number;
@@ -3401,7 +3410,7 @@ export async function getCustomerDiscoveryHome(params?: {
         platformContent,
         featuredCollection,
         flaggedFeaturedRows,
-        rawActiveOffers,
+        publicActiveOffers,
         orderedRestaurantIds,
       ] = await Promise.all([
         getPlatformContent(),
@@ -3415,23 +3424,38 @@ export async function getCustomerDiscoveryHome(params?: {
         })
           .select({ _id: 1 })
           .lean(),
+        // Public offers only. Personal (selected_users) vouchers — mystery-box, referral and
+        // custom rewards — used to share this capped query: sorted by discount value they
+        // filled the slots and pushed small restaurant offers (e.g. "3% OFF") out, so those
+        // restaurants lost their card badge. Personal ones are fetched separately below,
+        // for THIS customer only. The cap is only a safety net (the strip shows ≤ 8).
         VoucherModel.find({
           archivedAt: null,
           status: "Active",
           startsAt: { $lte: new Date() },
           endsAt: { $gte: new Date() },
+          audienceType: { $ne: "selected_users" },
         })
-          .sort({
-            "display.position": 1,
-            priority: -1,
-            discountValue: -1,
-            endsAt: 1,
-            createdAt: -1,
-          })
-          .limit(20)
+          .sort(HOME_OFFER_SORT)
+          .limit(200)
           .lean(),
         getCustomerOrderedRestaurantIds(params?.customerId),
       ]);
+      const personalActiveOffers =
+        params?.customerId && mongoose.isValidObjectId(params.customerId)
+          ? await VoucherModel.find({
+              archivedAt: null,
+              status: "Active",
+              startsAt: { $lte: new Date() },
+              endsAt: { $gte: new Date() },
+              audienceType: "selected_users",
+              selectedCustomerIds: params.customerId,
+            })
+              .sort(HOME_OFFER_SORT)
+              .limit(20)
+              .lean()
+          : [];
+      const rawActiveOffers = [...publicActiveOffers, ...personalActiveOffers];
 
       // Drop personal (selected_users) vouchers that don't belong to this customer
       // up front, so every downstream use — the "restaurants with offers" section,
