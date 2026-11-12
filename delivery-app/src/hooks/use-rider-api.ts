@@ -1,3 +1,5 @@
+import type { PrepTiming } from "@/src/lib/prep-status";
+import type { AppUpdateConfig } from "@/src/lib/app-update";
 import {
   keepPreviousData,
   type QueryClient,
@@ -26,6 +28,10 @@ import { useRiderAuthStore, type RiderProfile } from "@/src/store/auth-store";
 export type RiderOrder = {
   id: string;
   orderNumber: string;
+  /** Admin turned the delivery code on: ask the customer for their order id's last 4 digits. */
+  deliveryCodeRequired?: boolean;
+  /** Kitchen timing (target ready time, actual ready time) — drives the prep/ready chips. */
+  preparation?: PrepTiming;
   status: string;
   isUrgent?: boolean;
   // Off-platform (Foodbela-delivery-only) order — customer is not an app user; the rider
@@ -170,6 +176,7 @@ export type RiderLiveMapOrder = {
     targetReadyAt?: string | null;
     remainingSeconds?: number | null;
     lateBySeconds?: number;
+    readyAt?: string | null;
   };
   pricing?: {
     total?: number;
@@ -237,6 +244,7 @@ type PlatformContentResponse = {
     liveTracking?: RiderLiveTrackingPolicy;
     dispatch?: Partial<RiderDeliveryThresholds>;
     mapStyles?: PlatformMapStyleSettings;
+    riderAppUpdate?: AppUpdateConfig;
   };
   supportContact?: {
     phone?: string;
@@ -592,6 +600,17 @@ export function useRiderLiveMapQuery(enabled = true) {
   });
 }
 
+/** Admin "App update → Rider app" (soft / forced update prompt). */
+export function useRiderAppUpdateConfigQuery(enabled = true) {
+  return useQuery({
+    queryKey: ["platform-content", "rider"],
+    staleTime: 5 * 60_000,
+    enabled,
+    queryFn: async () => (await apiGet<PlatformContentResponse>("/rider/platform-content")).data,
+    select: (content): AppUpdateConfig => content.operations?.riderAppUpdate ?? {},
+  });
+}
+
 export function useRiderLiveTrackingPolicyQuery() {
   return useRiderPlatformContentQuery((content) => content.operations?.liveTracking ?? null);
 }
@@ -869,8 +888,11 @@ export function useDeliverOrderMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (orderId: string) => {
-      const response = await apiPost<RiderOrder>(`/rider/orders/${orderId}/deliver`);
+    mutationFn: async (params: { orderId: string; code?: string }) => {
+      const response = await apiPost<RiderOrder>(
+        `/rider/orders/${params.orderId}/deliver`,
+        params.code ? { code: params.code } : {},
+      );
       return response.data;
     },
     onSuccess: (data: RiderOrder) => {

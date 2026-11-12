@@ -1,3 +1,4 @@
+import { forRider } from "../common/utils/delivery-code"
 import type { Server as HttpServer } from "node:http"
 import type { Socket } from "socket.io"
 import { Server } from "socket.io"
@@ -208,7 +209,9 @@ export function createSocketServer(server: HttpServer) {
   return io
 }
 
-export function emitSocketEvent(channel: string, eventName: string, payload: unknown) {
+export function emitSocketEvent(channel: string, eventName: string, rawPayload: unknown) {
+  // Rider rooms never see the delivery code (order-number suffix) while it's ON.
+  const payload = channel.startsWith("rider:") ? forRider(rawPayload) : rawPayload
   if (!ioInstance) {
     logger.warn(
       {

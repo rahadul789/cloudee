@@ -227,6 +227,8 @@ export function buildOrderPreparationTiming(params: {
     return {
       phase: "completed",
       label: "Food ready",
+      // When the kitchen actually marked it ready — rider app shows "Ready for 12 min".
+      readyAt: serializeDate(readyAt),
       baseMinutes,
       extraMinutes,
       totalMinutes,

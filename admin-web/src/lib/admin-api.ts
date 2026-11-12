@@ -4680,6 +4680,19 @@ export type PlatformContent = {
       staleAfterSeconds: number
       refetchIfQuietSeconds: number
     }
+    /** Rider (delivery) app "update required" prompt. "" = not set. */
+    riderAppUpdate?: {
+      enabled: boolean
+      latestVersion: string
+      minimumVersion: string
+      message: string
+      storeUrl: string
+    }
+    /** Delivery code (last 4 digits of the order id) required to mark Delivered. */
+    deliveryCode?: {
+      enabled: boolean
+      maxAttempts: number
+    }
     /** Customer-app "update required" prompt (Play Store). "" = not set. */
     appUpdate?: {
       enabled: boolean

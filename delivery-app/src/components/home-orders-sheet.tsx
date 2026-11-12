@@ -1,3 +1,12 @@
+import { getPrepInfo, READY_WAITING_URGENT_MIN, type PrepInfo } from "@/src/lib/prep-status";
+import { openTurnByTurn } from "@/src/lib/turn-by-turn";
+import { stopRiderAlertSound } from "@/src/lib/new-order-sound";
+import { ApiRequestError } from "@/src/lib/api";
+import {
+  isRetryableDeliveryError,
+  queuePendingDelivery,
+  usePendingDeliveryIds,
+} from "@/src/lib/pending-deliveries";
 import { Ionicons } from "@expo/vector-icons";
 import * as Battery from "expo-battery";
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +54,111 @@ const SCREEN_HEIGHT = Dimensions.get("window").height;
 
 // The active-language sheet strings (en | bn union) — used to type the module-level helpers.
 type SheetCopy = ReturnType<typeof useDeliveryCopy>["copy"]["sheet"];
+
+// Customer-app design language: neutral hairlines, 700-weight titles, calm surfaces.
+const HAIRLINE = "#E7E7EB";
+const INK = "#111827";
+
+// Re-render every 30s so "Kitchen 7 min late" / "Ready for 12 min" stay current.
+function useMinuteTick(active = true) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+const PREP_TONES = {
+  amber: { bg: "#FFF4E0", fg: "#A86300" },
+  red: { bg: "#FEECEC", fg: "#C42B2B" },
+  green: { bg: "#E8F7EE", fg: "#14804A" },
+} as const;
+
+function PrepChip({ info }: { info: PrepInfo | null }) {
+  const { copy } = useDeliveryCopy();
+  const t = copy.sheet;
+  if (!info) return null;
+  let text: string = t.preparing;
+  let tone: keyof typeof PREP_TONES = "amber";
+  let icon: keyof typeof Ionicons.glyphMap = "time";
+  switch (info.kind) {
+    case "ready_in":
+      text = t.readyInMin(info.minutes);
+      break;
+    case "any_moment":
+      text = t.readyAnyMoment;
+      break;
+    case "late":
+      text = t.kitchenLate(info.minutes);
+      tone = "red";
+      icon = "alert-circle";
+      break;
+    case "ready_for":
+      text = t.readyFor(info.minutes);
+      tone = info.minutes >= READY_WAITING_URGENT_MIN ? "red" : "green";
+      icon = "checkmark-circle";
+      break;
+    default:
+      break;
+  }
+  const colors = PREP_TONES[tone];
+  return (
+    <View style={[styles.prepChip, { backgroundColor: colors.bg }]}>
+      <Ionicons name={icon} size={13} color={colors.fg} />
+      <Text style={[styles.prepChipText, { color: colors.fg }]}>{text}</Text>
+    </View>
+  );
+}
+
+// Pickup → drop-off, like the customer app's tracking route. Once picked up, the pickup
+// stop is ticked and dimmed so the next stop reads first.
+function RouteBlock({
+  restaurantName,
+  restaurantSub,
+  customerName,
+  customerSub,
+  picked,
+}: {
+  restaurantName: string;
+  restaurantSub?: string;
+  customerName: string;
+  customerSub?: string;
+  picked: boolean;
+}) {
+  const { copy } = useDeliveryCopy();
+  const t = copy.sheet;
+  return (
+    <View style={styles.route}>
+      <View style={styles.routeRow}>
+        <View style={[styles.routeIcon, picked ? styles.routeIconDone : styles.routeIconPickup]}>
+          <Ionicons name={picked ? "checkmark" : "storefront"} size={13} color="#FFFFFF" />
+        </View>
+        <View style={styles.routeText}>
+          <Text style={styles.routeLabel}>{t.pickupFrom}</Text>
+          <Text style={[styles.routeTitle, picked ? styles.routeTitleDone : null]} numberOfLines={1}>
+            {restaurantName}
+          </Text>
+          {restaurantSub && !picked ? (
+            <Text style={styles.routeSub} numberOfLines={1}>{restaurantSub}</Text>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.routeConnector} />
+      <View style={styles.routeRow}>
+        <View style={[styles.routeIcon, styles.routeIconDrop]}>
+          <Ionicons name="person" size={13} color="#FFFFFF" />
+        </View>
+        <View style={styles.routeText}>
+          <Text style={styles.routeLabel}>{t.dropTo}</Text>
+          <Text style={styles.routeTitle} numberOfLines={1}>{customerName}</Text>
+          {customerSub ? <Text style={styles.routeSub} numberOfLines={1}>{customerSub}</Text> : null}
+        </View>
+      </View>
+    </View>
+  );
+}
 
 function formatTk(value?: number | null) {
   return `Tk ${Math.round(Number(value || 0)).toLocaleString()}`;
@@ -102,9 +216,7 @@ function openNavigation(order: RiderOrder) {
     : order.restaurant?.address;
   const query = dest ? `${dest.latitude},${dest.longitude}` : address;
   if (!query) return;
-  void Linking.openURL(
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
-  );
+  void openTurnByTurn(query);
 }
 
 function call(phone?: string) {
@@ -121,9 +233,7 @@ function openMapsTo(
       ? `${lat},${lng}`
       : fallbackAddress;
   if (!query) return;
-  void Linking.openURL(
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
-  );
+  void openTurnByTurn(query);
 }
 
 function minsSince(iso?: string | null) {
@@ -188,6 +298,9 @@ export type SheetContextOrder = {
   amount: number;
   prepRemainingSeconds: number | null;
   prepLabel: string;
+  /** When the kitchen expects it ready (late = past this) / actually marked it ready. */
+  prepTargetReadyAt?: string | null;
+  prepReadyAt?: string | null;
   restaurantId: string;
   restaurantName: string;
   restaurantAddress: string;
@@ -201,22 +314,13 @@ export type SheetContextOrder = {
   customerLng: number | null;
 };
 
-function prepText(remainingSeconds: number | null, label: string, t: SheetCopy) {
-  if (typeof remainingSeconds !== "number") return label || t.preparing;
-  if (remainingSeconds <= 0) return t.readyAnyMoment;
-  const mins = Math.ceil(remainingSeconds / 60);
-  return t.readyInMin(mins);
-}
-
 function openContextNavigation(context: SheetContextOrder) {
   const query =
     typeof context.restaurantLat === "number" && typeof context.restaurantLng === "number"
       ? `${context.restaurantLat},${context.restaurantLng}`
       : context.restaurantAddress;
   if (!query) return;
-  void Linking.openURL(
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
-  );
+  void openTurnByTurn(query);
 }
 
 // Google Maps directions to THIS order's customer (exact drop point) — one customer per
@@ -227,9 +331,7 @@ function openCustomerNavigation(context: SheetContextOrder) {
       ? `${context.customerLat},${context.customerLng}`
       : context.customerAddress;
   if (!query) return;
-  void Linking.openURL(
-    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}&travelmode=driving`,
-  );
+  void openTurnByTurn(query);
 }
 
 function contextCustomerCoord(context: SheetContextOrder) {
@@ -279,9 +381,16 @@ export function HomeOrdersSheet({
   const [failFor, setFailFor] = useState<RiderOrder | null>(null);
   const [failReason, setFailReason] = useState<RiderDeliveryFailureReason | null>(null);
   const [failNote, setFailNote] = useState("");
+  // Delivery code entry (admin switch) + offline-queued deliveries.
+  const [codeFor, setCodeFor] = useState<RiderOrder | null>(null);
+  const [codeValue, setCodeValue] = useState("");
+  const [codeError, setCodeError] = useState("");
+  const pendingDeliveries = usePendingDeliveryIds();
   const sheetRef = useRef<PersistentBottomSheetHandle>(null);
   const { copy } = useDeliveryCopy();
   const t = copy.sheet;
+  const pd = copy.pendingDelivery;
+  const dc = copy.deliveryCode;
   const failReasons: { value: RiderDeliveryFailureReason; label: string }[] = [
     { value: "customer_no_response", label: t.reasonNoResponse },
     { value: "wrong_item", label: t.reasonWrongItem },
@@ -348,6 +457,7 @@ export function HomeOrdersSheet({
   }
 
   function accept(order: RiderOrder) {
+    stopRiderAlertSound();
     setBusyId(order.id);
     acceptMutation.mutate(order.id, { onSettled: () => setBusyId(""), onError });
   }
@@ -388,20 +498,50 @@ export function HomeOrdersSheet({
     ]);
   }
 
-  function deliver(order: RiderOrder) {
-    Alert.alert(t.confirmDeliveryTitle, t.confirmDeliveryBody(order.orderNumber), [
-      { text: t.cancel, style: "cancel" },
+  function runDeliver(order: RiderOrder, code?: string) {
+    setBusyId(order.id);
+    deliverMutation.mutate(
+      { orderId: order.id, code },
       {
-        text: t.yesDelivered,
-        onPress: () => {
-          setBusyId(order.id);
-          deliverMutation.mutate(order.id, {
-            onSettled: () => setBusyId(""),
-            onSuccess: () => onSelectOrder(""),
-            onError,
-          });
+        onSettled: () => setBusyId(""),
+        onSuccess: () => {
+          setCodeFor(null);
+          onSelectOrder("");
+        },
+        onError: (error) => {
+          if (isRetryableDeliveryError(error)) {
+            // Weak network at the door: keep it and send automatically later.
+            void queuePendingDelivery(order.id, code);
+            setCodeFor(null);
+            onSelectOrder("");
+            Alert.alert(pd.queuedTitle, pd.queuedBody);
+            return;
+          }
+          if (error instanceof ApiRequestError && error.code?.startsWith("DELIVERY_CODE")) {
+            setCodeError(error.message);
+            if (!codeFor) setCodeFor(order);
+            return;
+          }
+          onError(error);
         },
       },
+    );
+  }
+
+  function deliver(order: RiderOrder) {
+    if (pendingDeliveries.some((item) => item.orderId === order.id)) {
+      Alert.alert(pd.queuedTitle, pd.queuedBody);
+      return;
+    }
+    if (order.deliveryCodeRequired) {
+      setCodeValue("");
+      setCodeError("");
+      setCodeFor(order);
+      return;
+    }
+    Alert.alert(t.confirmDeliveryTitle, t.confirmDeliveryBody(order.orderNumber), [
+      { text: t.cancel, style: "cancel" },
+      { text: t.yesDelivered, onPress: () => runDeliver(order) },
     ]);
   }
 
@@ -538,6 +678,14 @@ export function HomeOrdersSheet({
       peekDragHeight={92}
       peek={peek}
     >
+      {pendingDeliveries.length ? (
+        <View style={styles.pendingBanner}>
+          <Ionicons name="cloud-upload-outline" size={16} color="#92400E" />
+          <Text style={styles.pendingBannerText}>
+            {pendingDeliveries.length > 1 ? `${pendingDeliveries.length} × ` : ""}{pd.badge}
+          </Text>
+        </View>
+      ) : null}
       {siblingOrders.length > 1 && selectedOrderId ? (
         <OrderSwitcher
           orders={siblingOrders}
@@ -624,6 +772,53 @@ export function HomeOrdersSheet({
       </PersistentBottomSheet>
 
       <Modal
+        visible={codeFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCodeFor(null)}
+      >
+        <Pressable style={styles.failBackdrop} onPress={() => setCodeFor(null)} />
+        <View style={styles.failSheet}>
+          <Text style={styles.failTitle}>{dc.title}</Text>
+          <Text style={styles.failSubtitle}>{dc.body}</Text>
+          <TextInput
+            style={styles.codeInput}
+            placeholder={dc.placeholder}
+            placeholderTextColor={palette.mutedForeground}
+            value={codeValue}
+            onChangeText={(value) => {
+              setCodeValue(value.replace(/\D/g, "").slice(0, 4));
+              setCodeError("");
+            }}
+            keyboardType="number-pad"
+            maxLength={4}
+            autoFocus
+          />
+          {codeError ? <Text style={styles.codeError}>{codeError}</Text> : null}
+          <View style={styles.failActions}>
+            <Pressable style={styles.failCancelButton} onPress={() => setCodeFor(null)}>
+              <Text style={styles.failCancelText}>{dc.cancel}</Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.failConfirmButton,
+                styles.codeConfirmButton,
+                (codeValue.length !== 4 || deliverMutation.isPending) && styles.buttonDisabled,
+              ]}
+              disabled={codeValue.length !== 4 || deliverMutation.isPending}
+              onPress={() => codeFor && runDeliver(codeFor, codeValue)}
+            >
+              {deliverMutation.isPending ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.failConfirmText}>{dc.confirm}</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={failFor !== null}
         transparent
         animationType="fade"
@@ -700,40 +895,49 @@ function OfferCard({
 }) {
   const { copy } = useDeliveryCopy();
   const payment = getPaymentMethodBadge(order.paymentMethod);
+  const now = useMinuteTick();
+  const prep = getPrepInfo({ status: order.status, preparation: order.preparation, timestamps: order.timestamps, now });
   return (
     <View style={[styles.card, styles.offerCard, order.isExternal ? styles.cardExternal : null]}>
-      <Pressable onPress={onOpen}>
-        <View style={styles.cardTop}>
-          <Text style={styles.orderNumber} numberOfLines={1}>
-            {order.orderNumber}
-          </Text>
-          <View style={styles.badgeRow}>
-            {order.isExternal ? (
-              <View style={styles.externalChip}>
-                <Ionicons name="storefront" size={11} color="#6D28D9" />
-                <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
-              </View>
-            ) : null}
-            {order.isUrgent ? (
-              <View style={styles.urgentChip}>
-                <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
-              </View>
-            ) : null}
+      <Pressable onPress={onOpen} style={styles.cardBody}>
+        <View style={styles.cardHead}>
+          <View style={styles.newPill}>
+            <Ionicons name="flash" size={11} color="#FFFFFF" />
+            <Text style={styles.newPillText}>{copy.sheet.accept}</Text>
           </View>
+          {order.isUrgent ? (
+            <View style={styles.urgentChip}>
+              <Text style={styles.urgentChipText}>⚡ {copy.common.urgent}</Text>
+            </View>
+          ) : null}
+          {order.isExternal ? (
+            <View style={styles.externalChip}>
+              <Ionicons name="storefront" size={11} color="#6D28D9" />
+              <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.cardOrderNo} numberOfLines={1}>{order.orderNumber}</Text>
         </View>
-        <Text style={styles.restaurant} numberOfLines={1}>
-          {order.restaurant?.name || copy.common.restaurant}
-        </Text>
-        <Text style={styles.address} numberOfLines={1}>
-          {order.customer?.deliveryAddress?.addressLine || order.customer?.name || "—"}
-        </Text>
+        {prep ? (
+          <View style={styles.cardChipsRow}>
+            <PrepChip info={prep} />
+          </View>
+        ) : null}
+        <RouteBlock
+          restaurantName={order.restaurant?.name || copy.common.restaurant}
+          restaurantSub={order.restaurant?.address || undefined}
+          customerName={order.customer?.name || copy.common.customer}
+          customerSub={order.customer?.deliveryAddress?.addressLine || undefined}
+          picked={false}
+        />
       </Pressable>
-      <View style={styles.cardBottom}>
-        <View style={styles.moneyRow}>
-          <Ionicons name={payment.icon} size={14} color={payment.color} />
-          <Text style={[styles.amount, { color: payment.color }]}>
-            {formatTk(order.pricing?.total)} · {payment.label}
-          </Text>
+      <View style={styles.cardFoot}>
+        <View style={styles.moneyBlock}>
+          <Text style={styles.money}>{formatTk(order.pricing?.total)}</Text>
+          <View style={[styles.payPill, { backgroundColor: payment.backgroundColor }]}>
+            <Ionicons name={payment.icon} size={11} color={payment.color} />
+            <Text style={[styles.payPillText, { color: payment.color }]}>{payment.label}</Text>
+          </View>
         </View>
         <Pressable
           style={[styles.acceptButton, accepting && styles.buttonDisabled]}
@@ -775,13 +979,15 @@ function TaskCard({
   const status = getOrderStatusBadge(order.status);
   const payment = getPaymentMethodBadge(order.paymentMethod);
   const isPicked = order.status === "PickedUp";
-  // The card's own next-step action (replaces the redundant "Open" — tapping the card body
-  // already opens the detail): Pickup for a ready order, Deliver once picked up.
+  // The card's own next step: Pickup for a ready order, Deliver once picked up.
   const isActionable = order.status === "ReadyForPickup" || order.status === "PickedUp";
-  // A compact map-jump icon on the card, mirroring the detail's "Show on map".
   const hasMapTarget = Boolean(destinationCoord(order, isPicked));
   const assigned = minutesAgo(order.assignedAt, t);
   const showSetLive = isPicked && !order.isFocusedLiveTrip;
+  const now = useMinuteTick(!isPicked);
+  const prep = isPicked
+    ? null
+    : getPrepInfo({ status: order.status, preparation: order.preparation, timestamps: order.timestamps, now });
   return (
     <View
       style={[
@@ -790,97 +996,74 @@ function TaskCard({
         lateness ? styles.cardLate : null,
       ]}
     >
-      <Pressable onPress={onOpen}>
-        {/* Top row: order number · round map-jump icon (badge-sized) · status badge. */}
-        <View style={styles.cardTop}>
-          <Text style={[styles.orderNumber, styles.flexShrink]} numberOfLines={1}>
-            {order.orderNumber}
-          </Text>
-          <View style={styles.cardTopRight}>
-            {hasMapTarget ? (
-              <Pressable
-                style={styles.cardMapIcon}
-                onPress={onShowOnMap}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={t.showOnMap}
-              >
-                <Ionicons name="map-outline" size={15} color={palette.secondary} />
-              </Pressable>
-            ) : null}
-            <View
-              style={[
-                styles.statusChip,
-                { backgroundColor: status.backgroundColor, borderColor: status.borderColor },
-              ]}
-            >
-              <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+      <Pressable onPress={onOpen} style={styles.cardBody}>
+        <View style={styles.cardHead}>
+          <View style={[styles.statusPill, { backgroundColor: status.backgroundColor }]}>
+            <View style={[styles.statusDot, { backgroundColor: status.color }]} />
+            <Text style={[styles.statusPillText, { color: status.color }]}>{status.label}</Text>
+          </View>
+          {order.isFocusedLiveTrip ? (
+            <View style={styles.liveBadge}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
             </View>
-          </View>
-        </View>
-        {order.isExternal || order.isFocusedLiveTrip || lateness ? (
-          <View style={styles.cardChipsRow}>
-            {order.isExternal ? (
-              <View style={styles.externalChip}>
-                <Ionicons name="storefront" size={11} color="#6D28D9" />
-                <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
-              </View>
-            ) : null}
-            {order.isFocusedLiveTrip ? (
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
-              </View>
-            ) : null}
-            {lateness ? <LateChip lateness={lateness} /> : null}
-          </View>
-        ) : null}
-        {/* Name row: restaurant/customer name · Set-live parked at the far right. */}
-        <View style={styles.cardNameRow}>
-          <Text style={[styles.restaurant, styles.flexShrink]} numberOfLines={1}>
-            {isPicked ? "→ " : ""}
-            {isPicked
-              ? order.customer?.name || copy.common.customer
-              : order.restaurant?.name || copy.common.restaurant}
-          </Text>
-          {showSetLive ? (
-            <Pressable style={styles.liveButton} disabled={settingLive} onPress={onSetLive}>
-              {settingLive ? (
-                <ActivityIndicator size="small" color={palette.secondary} />
-              ) : (
-                <>
-                  <Ionicons name="radio-outline" size={14} color={palette.secondary} />
-                  <Text style={styles.liveButtonText}>{t.setLive}</Text>
-                </>
-              )}
+          ) : null}
+          {order.isExternal ? (
+            <View style={styles.externalChip}>
+              <Ionicons name="storefront" size={11} color="#6D28D9" />
+              <Text style={styles.externalChipText}>{copy.sheet.external}</Text>
+            </View>
+          ) : null}
+          <Text style={styles.cardOrderNo} numberOfLines={1}>{order.orderNumber}</Text>
+          {hasMapTarget ? (
+            <Pressable
+              style={styles.cardMapIcon}
+              onPress={onShowOnMap}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t.showOnMap}
+            >
+              <Ionicons name="map-outline" size={15} color={INK} />
             </Pressable>
           ) : null}
         </View>
-        <Text style={styles.address} numberOfLines={1}>
-          {isPicked
-            ? order.customer?.deliveryAddress?.addressLine || t.collectFromCustomer
-            : order.restaurant?.address || t.navigateToRestaurant}
-        </Text>
+        {lateness || prep ? (
+          <View style={styles.cardChipsRow}>
+            {lateness ? <LateChip lateness={lateness} /> : null}
+            <PrepChip info={prep} />
+          </View>
+        ) : null}
+        <RouteBlock
+          restaurantName={order.restaurant?.name || copy.common.restaurant}
+          restaurantSub={order.restaurant?.address || undefined}
+          customerName={order.customer?.name || copy.common.customer}
+          customerSub={order.customer?.deliveryAddress?.addressLine || undefined}
+          picked={isPicked}
+        />
       </Pressable>
-      {/* Bottom row: amount + payment badge · the single next-step action button. */}
-      <View style={styles.cardBottom}>
-        <View style={styles.taskMoneyBlock}>
-          <View style={styles.taskAmountRow}>
-            <Text style={styles.amount}>{formatTk(order.pricing?.total)}</Text>
-            <View
-              style={[
-                styles.cardPayBadge,
-                { backgroundColor: payment.backgroundColor, borderColor: payment.borderColor },
-              ]}
-            >
+      <View style={styles.cardFoot}>
+        <View style={styles.moneyBlock}>
+          <View style={styles.moneyRow}>
+            <Text style={styles.money}>{formatTk(order.pricing?.total)}</Text>
+            <View style={[styles.payPill, { backgroundColor: payment.backgroundColor }]}>
               <Ionicons name={payment.icon} size={11} color={payment.color} />
-              <Text style={[styles.cardPayBadgeText, { color: payment.color }]}>
-                {payment.label}
-              </Text>
+              <Text style={[styles.payPillText, { color: payment.color }]}>{payment.label}</Text>
             </View>
           </View>
           {assigned ? <Text style={styles.assignedText}>{t.assignedAgo(assigned)}</Text> : null}
         </View>
+        {showSetLive ? (
+          <Pressable style={styles.liveButton} disabled={settingLive} onPress={onSetLive}>
+            {settingLive ? (
+              <ActivityIndicator size="small" color={palette.secondary} />
+            ) : (
+              <>
+                <Ionicons name="radio-outline" size={14} color={palette.secondary} />
+                <Text style={styles.liveButtonText}>{t.setLive}</Text>
+              </>
+            )}
+          </Pressable>
+        ) : null}
         {isActionable ? (
           <Pressable
             style={[styles.cardActionButton, busy && styles.buttonDisabled]}
@@ -891,10 +1074,8 @@ function TaskCard({
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <>
-                <Ionicons name={isPicked ? "flag" : "cube"} size={14} color="#FFFFFF" />
-                <Text style={styles.cardActionText}>
-                  {isPicked ? t.deliverShort : t.pickupShort}
-                </Text>
+                <Ionicons name={isPicked ? "flag" : "cube"} size={15} color="#FFFFFF" />
+                <Text style={styles.cardActionText}>{isPicked ? t.deliverShort : t.pickupShort}</Text>
               </>
             )}
           </Pressable>
@@ -939,9 +1120,18 @@ function OrderDetail({
   const distanceKm = order.routeToNext?.distanceKm ?? order.riderTracking?.remainingDistanceKm ?? null;
   const durationMin =
     order.routeToNext?.durationMinutes ?? order.riderTracking?.remainingDurationMinutes ?? null;
+  const now = useMinuteTick(!isPicked);
+  const prep = isPicked
+    ? null
+    : getPrepInfo({ status: order.status, preparation: order.preparation, timestamps: order.timestamps, now });
 
   return (
     <View style={styles.detail}>
+      {prep ? (
+        <View style={styles.cardChipsRow}>
+          <PrepChip info={prep} />
+        </View>
+      ) : null}
       {lateness ? (
         <View style={styles.lateBanner}>
           <Ionicons name="alert-circle" size={18} color="#FFFFFF" />
@@ -1334,6 +1524,17 @@ function ContextDetail({
   const status = getOrderStatusBadge(order?.status ?? context.status);
   const isCooking = ["Preparing", "Accepted"].includes(order?.status ?? context.status);
   const customerCoord = contextCustomerCoord(context);
+  const now = useMinuteTick();
+  const contextStatus = order?.status ?? context.status;
+  const prep = getPrepInfo({
+    status: contextStatus,
+    preparation: order?.preparation ?? {
+      targetReadyAt: context.prepTargetReadyAt,
+      readyAt: context.prepReadyAt,
+    },
+    timestamps: order?.timestamps,
+    now,
+  });
   return (
     <View style={styles.detail}>
       <View style={styles.detailHeader}>
@@ -1353,13 +1554,8 @@ function ContextDetail({
           <Text style={styles.amountLabel}>{t.orderAmount}</Text>
           <Text style={styles.amountBig}>{formatTk(context.amount)}</Text>
         </View>
-        {isCooking ? (
-          <View style={styles.prepTag}>
-            <Ionicons name="time" size={14} color={palette.warning} />
-            <Text style={styles.prepTagText}>
-              {prepText(context.prepRemainingSeconds, context.prepLabel, t)}
-            </Text>
-          </View>
+        {prep ? <PrepChip info={prep} /> : isCooking ? (
+          <PrepChip info={{ kind: "preparing" }} />
         ) : null}
       </View>
 
@@ -1546,10 +1742,36 @@ function ChatIconButton({ orderId }: { orderId: string }) {
 }
 
 const styles = StyleSheet.create({
+  pendingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: "#FEF3C7",
+  },
+  pendingBannerText: { flex: 1, fontSize: 13, fontWeight: "700", color: "#92400E" },
+  codeInput: {
+    marginTop: 14,
+    height: 60,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "#0f766e",
+    textAlign: "center",
+    fontSize: 30,
+    fontWeight: "700",
+    letterSpacing: 12,
+    color: "#0f172a",
+  },
+  codeError: { marginTop: 8, fontSize: 13, fontWeight: "600", color: "#DC2626", textAlign: "center" },
+  codeConfirmButton: { backgroundColor: "#16A34A" },
   chatButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.primarySoft,
@@ -1592,27 +1814,95 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   peekTextBlock: { flex: 1, minWidth: 0 },
-  peekTitle: { fontSize: 15, fontWeight: "900", color: palette.foreground, flexShrink: 1 },
+  peekTitle: { fontSize: 15, fontWeight: "700", color: palette.foreground, flexShrink: 1 },
   peekMeta: { marginTop: 2, fontSize: 12, fontWeight: "700", color: palette.mutedForeground },
   section: { paddingHorizontal: 12, paddingTop: 2, paddingBottom: 8, gap: 8 },
   sectionTitle: {
-    paddingHorizontal: 2,
-    fontSize: 13,
-    fontWeight: "900",
-    color: palette.mutedForeground,
-    textTransform: "uppercase",
+    paddingHorizontal: 4,
+    fontSize: 16,
+    fontWeight: "700",
+    color: INK,
   },
   card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    gap: 3,
+    padding: 14,
+    gap: 12,
   },
-  offerCard: { borderColor: "#FFCEE0", backgroundColor: "#FFF7FA" },
-  cardLate: { borderColor: "#F6B8B8", backgroundColor: "#FEF3F3" },
+  cardBody: { gap: 12 },
+  cardHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  cardOrderNo: { flex: 1, textAlign: "right", fontSize: 12, fontWeight: "500", color: palette.mutedForeground },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 24,
+    paddingHorizontal: 9,
+    borderRadius: 12,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusPillText: { fontSize: 12, fontWeight: "700" },
+  newPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    height: 24,
+    paddingHorizontal: 9,
+    borderRadius: 12,
+    backgroundColor: palette.secondary,
+  },
+  newPillText: { fontSize: 12, fontWeight: "700", color: "#FFFFFF" },
+  prepChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 26,
+    paddingHorizontal: 10,
+    borderRadius: 13,
+  },
+  prepChipText: { fontSize: 12.5, fontWeight: "700" },
+  route: { gap: 2 },
+  routeRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  routeIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  routeIconPickup: { backgroundColor: INK },
+  routeIconDrop: { backgroundColor: palette.secondary },
+  routeIconDone: { backgroundColor: "#16A34A" },
+  routeConnector: { marginLeft: 13, width: 2, height: 12, borderRadius: 1, backgroundColor: HAIRLINE },
+  routeText: { flex: 1, minWidth: 0 },
+  routeLabel: { fontSize: 11, fontWeight: "500", color: palette.mutedForeground },
+  routeTitle: { fontSize: 15, fontWeight: "700", color: INK },
+  routeTitleDone: { color: palette.mutedForeground, textDecorationLine: "line-through" },
+  routeSub: { marginTop: 1, fontSize: 12.5, fontWeight: "400", color: palette.mutedForeground },
+  cardFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: HAIRLINE,
+  },
+  moneyBlock: { flex: 1, minWidth: 0, gap: 2 },
+  money: { fontSize: 18, fontWeight: "700", color: INK },
+  payPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    alignSelf: "flex-start",
+    height: 20,
+    paddingHorizontal: 7,
+    borderRadius: 10,
+  },
+  payPillText: { fontSize: 11, fontWeight: "700" },
+  offerCard: { borderColor: "#FFC2D6", borderWidth: 1 },
+  cardLate: { borderColor: "#F5B5B5", borderWidth: 1, backgroundColor: "#FFF8F8" },
   lateChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1622,7 +1912,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: "#DC2626",
   },
-  lateChipText: { fontSize: 10.5, fontWeight: "900", color: "#FFFFFF", letterSpacing: 0.3 },
+  lateChipText: { fontSize: 10.5, fontWeight: "700", color: "#FFFFFF", letterSpacing: 0.3 },
   lateBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1632,34 +1922,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 11,
   },
-  lateBannerText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "900", color: "#FFFFFF" },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  cardTopRight: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 },
+  lateBannerText: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: "700", color: "#FFFFFF" },
   cardMapIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#FFCEE0",
-    backgroundColor: "#FFF1F6",
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
+    backgroundColor: palette.surface,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  flexShrink: { flexShrink: 1, minWidth: 0 },
-  orderNumber: { fontSize: 14, fontWeight: "900", color: palette.foreground, flexShrink: 1 },
-  badgeRow: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
-  cardChipsRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" },
+  cardChipsRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   peekIdRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   peekMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   externalChip: {
@@ -1673,7 +1947,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#EDE9FE",
     borderColor: "#C4B5FD",
   },
-  externalChipText: { fontSize: 11, fontWeight: "900", color: "#6D28D9", letterSpacing: 0.3 },
+  externalChipText: { fontSize: 11, fontWeight: "700", color: "#6D28D9", letterSpacing: 0.3 },
   // A violet accent so off-platform (external) orders are unmistakable in the list.
   cardExternal: { borderColor: "#C4B5FD", backgroundColor: "#FAF8FF" },
   externalBanner: {
@@ -1697,7 +1971,7 @@ const styles = StyleSheet.create({
   externalBannerBody: { flex: 1, minWidth: 0 },
   externalBannerTitle: {
     fontSize: 12.5,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.4,
     color: "#6D28D9",
   },
@@ -1716,7 +1990,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.warningSoft,
     borderColor: palette.warning,
   },
-  urgentChipText: { fontSize: 11, fontWeight: "900", color: palette.warning },
+  urgentChipText: { fontSize: 11, fontWeight: "700", color: palette.warning },
   liveBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1727,51 +2001,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#DC2626",
   },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" },
-  liveText: { fontSize: 10.5, fontWeight: "900", color: "#FFFFFF", letterSpacing: 0.5 },
+  liveText: { fontSize: 10.5, fontWeight: "700", color: "#FFFFFF", letterSpacing: 0.5 },
   statusChip: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderWidth: 1,
   },
-  statusText: { fontSize: 12, fontWeight: "800" },
-  restaurant: { fontSize: 15, fontWeight: "800", color: palette.foreground },
-  address: { fontSize: 12, fontWeight: "600", color: palette.mutedForeground },
-  cardBottom: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
+  statusText: { fontSize: 12, fontWeight: "700" },
   moneyRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  amount: { fontSize: 15, fontWeight: "900", color: palette.foreground },
-  taskMoneyBlock: { flexShrink: 1, minWidth: 0 },
-  taskAmountRow: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
-  cardPayBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  cardPayBadgeText: { fontSize: 10.5, fontWeight: "900" },
+  amount: { fontSize: 16, fontWeight: "700", color: INK },
   assignedText: { marginTop: 1, fontSize: 11, fontWeight: "700", color: palette.mutedForeground },
   cardActionButton: {
     flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    minWidth: 96,
-    borderRadius: 13,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    backgroundColor: palette.secondary,
+    gap: 6,
+    minWidth: 110,
+    height: 46,
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    backgroundColor: INK,
   },
-  cardActionText: { fontSize: 13, fontWeight: "900", color: "#FFFFFF" },
+  cardActionText: { fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
   liveButton: {
     flexShrink: 0,
     flexDirection: "row",
@@ -1784,17 +2037,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  liveButtonText: { fontSize: 12, fontWeight: "900", color: palette.secondary },
+  liveButtonText: { fontSize: 12, fontWeight: "700", color: palette.secondary },
   acceptButton: {
-    minWidth: 92,
-    borderRadius: 13,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    minWidth: 110,
+    height: 46,
+    borderRadius: 14,
+    paddingHorizontal: 20,
     backgroundColor: palette.secondary,
     alignItems: "center",
     justifyContent: "center",
   },
-  acceptText: { fontSize: 14, fontWeight: "900", color: "#FFFFFF" },
+  acceptText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
   buttonDisabled: { opacity: 0.6 },
   empty: {
     alignItems: "center",
@@ -1803,7 +2056,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 28,
   },
-  emptyTitle: { fontSize: 16, fontWeight: "900", color: palette.foreground },
+  emptyTitle: { fontSize: 16, fontWeight: "700", color: palette.foreground },
   emptyText: {
     fontSize: 13,
     lineHeight: 19,
@@ -1812,26 +2065,26 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   // ── detail mode ──
-  detail: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 8, gap: 12 },
+  detail: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 12 },
   detailHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
-  detailOrderNumber: { fontSize: 16, fontWeight: "900", color: palette.foreground, flexShrink: 1 },
+  detailOrderNumber: { fontSize: 16, fontWeight: "700", color: palette.foreground, flexShrink: 1 },
   amountCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surfaceMuted,
     padding: 14,
   },
-  amountLabel: { fontSize: 12, fontWeight: "800", color: palette.mutedForeground },
-  amountBig: { marginTop: 2, fontSize: 24, fontWeight: "900", color: palette.foreground },
+  amountLabel: { fontSize: 12, fontWeight: "700", color: palette.mutedForeground },
+  amountBig: { marginTop: 2, fontSize: 24, fontWeight: "700", color: palette.foreground },
   payTag: {
     flexDirection: "row",
     alignItems: "center",
@@ -1841,25 +2094,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
-  payTagText: { fontSize: 13, fontWeight: "900" },
+  payTagText: { fontSize: 13, fontWeight: "700" },
   // ── compact detail: metrics / timeline / items ──
   metricsRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.surfaceMuted,
-    paddingVertical: 12,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
+    backgroundColor: palette.surface,
+    paddingVertical: 14,
   },
   metricBlock: { flex: 1, alignItems: "center", gap: 3 },
   metricLabel: {
     fontSize: 10,
-    fontWeight: "900",
+    fontWeight: "700",
     letterSpacing: 0.4,
     color: palette.mutedForeground,
   },
-  metricValue: { fontSize: 16, fontWeight: "900", color: palette.foreground },
+  metricValue: { fontSize: 18, fontWeight: "700", color: INK },
   metricValueCod: { color: palette.warning },
   metricDivider: { width: 1, height: 30, backgroundColor: palette.border },
   payChipRow: {
@@ -1880,7 +2133,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
-  showMapText: { fontSize: 12.5, fontWeight: "900", color: palette.secondary },
+  showMapText: { fontSize: 12.5, fontWeight: "700", color: palette.secondary },
   showMapButtonWide: {
     flexDirection: "row",
     alignItems: "center",
@@ -1893,19 +2146,17 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   blockCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     padding: 12,
     gap: 10,
   },
   blockTitle: {
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.3,
-    color: palette.mutedForeground,
-    textTransform: "uppercase",
+    fontSize: 14,
+    fontWeight: "700",
+    color: INK,
   },
   blockTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   blockCount: {
@@ -1917,7 +2168,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  blockCountText: { fontSize: 11, fontWeight: "900", color: palette.foreground },
+  blockCountText: { fontSize: 11, fontWeight: "700", color: palette.foreground },
   timelineRow: { flexDirection: "row", alignItems: "center", paddingRight: 4 },
   timelinePillWrap: { flexDirection: "row", alignItems: "center" },
   timelineArrow: { marginHorizontal: 4 },
@@ -1927,19 +2178,19 @@ const styles = StyleSheet.create({
     gap: 7,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surfaceMuted,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   timelineDot: { width: 9, height: 9, borderRadius: 5 },
-  timelinePillLabel: { fontSize: 12, fontWeight: "800", color: palette.foreground },
+  timelinePillLabel: { fontSize: 12, fontWeight: "700", color: palette.foreground },
   timelinePillTime: { fontSize: 10.5, fontWeight: "700", color: palette.mutedForeground },
   itemsList: { gap: 10 },
   itemRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   itemQty: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.secondary,
     minWidth: 26,
     paddingTop: 1,
@@ -1950,7 +2201,7 @@ const styles = StyleSheet.create({
   itemOptionChip: {
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surfaceMuted,
     paddingHorizontal: 7,
     paddingVertical: 2,
@@ -1960,7 +2211,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: palette.mutedForeground,
   },
-  itemPrice: { fontSize: 13, fontWeight: "800", color: palette.foreground, paddingTop: 1 },
+  itemPrice: { fontSize: 13, fontWeight: "700", color: palette.foreground, paddingTop: 1 },
   cantDeliverButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1972,7 +2223,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEF3F3",
     paddingVertical: 12,
   },
-  cantDeliverText: { fontSize: 13, fontWeight: "800", color: palette.danger },
+  cantDeliverText: { fontSize: 13, fontWeight: "700", color: palette.danger },
   reassignButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1980,13 +2231,13 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     paddingVertical: 12,
   },
   reassignButtonText: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.secondary,
   },
   reassignBackdrop: {
@@ -2013,7 +2264,7 @@ const styles = StyleSheet.create({
   },
   reassignTitle: {
     fontSize: 16,
-    fontWeight: "900",
+    fontWeight: "700",
     color: palette.foreground,
   },
   reassignEmpty: {
@@ -2037,7 +2288,7 @@ const styles = StyleSheet.create({
     gap: 10,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -2046,7 +2297,7 @@ const styles = StyleSheet.create({
   reassignRowBody: { flex: 1, minWidth: 0, gap: 2 },
   reassignRowName: {
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   reassignRowMeta: {
@@ -2069,7 +2320,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     gap: 10,
   },
-  failTitle: { fontSize: 18, fontWeight: "900", color: palette.foreground },
+  failTitle: { fontSize: 18, fontWeight: "700", color: palette.foreground },
   failSubtitle: {
     fontSize: 13,
     lineHeight: 18,
@@ -2085,7 +2336,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
   },
   failOptionSelected: { borderColor: palette.danger, backgroundColor: "#FFF1F2" },
@@ -2094,7 +2345,7 @@ const styles = StyleSheet.create({
     minHeight: 64,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     paddingHorizontal: 14,
     paddingTop: 12,
@@ -2111,10 +2362,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
   },
-  failCancelText: { fontSize: 14, fontWeight: "800", color: palette.foreground },
+  failCancelText: { fontSize: 14, fontWeight: "700", color: palette.foreground },
   failConfirmButton: {
     flex: 1.4,
     minHeight: 50,
@@ -2123,19 +2374,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: palette.danger,
   },
-  failConfirmText: { fontSize: 14, fontWeight: "800", color: "#fff" },
-  prepTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#F2D5A8",
-    backgroundColor: palette.warningSoft,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  prepTagText: { fontSize: 13, fontWeight: "900", color: palette.warning },
+  failConfirmText: { fontSize: 14, fontWeight: "700", color: "#fff" },
   noteCard: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2149,29 +2388,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     padding: 12,
   },
   detailRowIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.surfaceMuted,
   },
   detailRowText: { flex: 1, minWidth: 0 },
-  detailRowTitle: { fontSize: 14, fontWeight: "800", color: palette.foreground },
-  detailRowSubtitle: { marginTop: 2, fontSize: 12, fontWeight: "600", color: palette.mutedForeground },
+  detailRowTitle: { fontSize: 15, fontWeight: "700", color: INK },
+  detailRowSubtitle: { marginTop: 2, fontSize: 12.5, fontWeight: "400", color: palette.mutedForeground },
   detailPhoneRow: { marginTop: 3, flexDirection: "row", alignItems: "center", gap: 4 },
-  detailPhoneText: { fontSize: 12.5, fontWeight: "900", color: palette.success },
+  detailPhoneText: { fontSize: 12.5, fontWeight: "700", color: palette.success },
   switcherWrap: { paddingBottom: 12, gap: 7 },
   switcherLabel: {
     fontSize: 11.5,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.mutedForeground,
   },
   switcherRow: { flexDirection: "row", gap: 8, paddingRight: 8 },
@@ -2181,7 +2420,7 @@ const styles = StyleSheet.create({
     gap: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     paddingHorizontal: 11,
     paddingVertical: 7,
@@ -2191,21 +2430,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFF1F6",
   },
   switcherDot: { width: 7, height: 7, borderRadius: 4 },
-  switcherChipText: { fontSize: 13, fontWeight: "900", color: palette.mutedForeground },
+  switcherChipText: { fontSize: 13, fontWeight: "700", color: palette.mutedForeground },
   switcherChipTextActive: { color: palette.secondary },
   callButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.successSoft,
   },
   detailRowActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   navIconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FFF1F6",
@@ -2218,7 +2457,7 @@ const styles = StyleSheet.create({
     gap: 9,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: palette.border,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -2226,7 +2465,7 @@ const styles = StyleSheet.create({
   navButtonText: {
     flex: 1,
     fontSize: 14,
-    fontWeight: "800",
+    fontWeight: "700",
     color: palette.foreground,
   },
   detailSecondary: {
@@ -2235,23 +2474,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
+    height: 50,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: HAIRLINE,
     backgroundColor: palette.surface,
-    paddingVertical: 12,
   },
-  detailSecondaryText: { fontSize: 14, fontWeight: "800", color: palette.foreground },
+  detailSecondaryText: { fontSize: 14, fontWeight: "700", color: palette.foreground },
   primaryAction: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: 15,
-    backgroundColor: palette.secondary,
-    paddingVertical: 15,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: INK,
   },
-  primaryActionText: { fontSize: 15, fontWeight: "900", color: "#FFFFFF" },
+  primaryActionText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
   fullScreenLink: {
     flexDirection: "row",
     alignItems: "center",
@@ -2259,5 +2498,5 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 6,
   },
-  fullScreenLinkText: { fontSize: 13, fontWeight: "800", color: palette.mutedForeground },
+  fullScreenLinkText: { fontSize: 13, fontWeight: "700", color: palette.mutedForeground },
 });

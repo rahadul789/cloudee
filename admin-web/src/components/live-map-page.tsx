@@ -674,7 +674,14 @@ function restaurantSearchText(restaurant: AdminLiveMapRestaurant) {
     .join(" ")
 }
 
-function riderFreshness(rider: AdminLiveMapRider): "live" | "stale" {
+// "offline" = rider switched off and has no delivery: the app deliberately stops sharing
+// location, so an old position is EXPECTED — never flag it as stale (that used to make the
+// map look "always stale"). Online / delivering riders go stale after 2 min of silence
+// (the app sends at least every ~45s, even when standing still).
+function riderFreshness(rider: AdminLiveMapRider): "live" | "stale" | "offline" {
+  if (rider.isAvailableForAssignments === false && (rider.activeOrderCount ?? 0) === 0) {
+    return "offline"
+  }
   const updatedAt = rider.currentLocation?.lastUpdatedAt
   if (!updatedAt) return "stale"
   const ageMs = Date.now() - new Date(updatedAt).getTime()
@@ -3975,7 +3982,7 @@ function NearbyRidersPanel({
             <div className="flex items-center gap-1">
               <Badge
                 variant={
-                  candidate.freshness === "live" ? "default" : "destructive"
+                  candidate.freshness === "live" ? "default" : candidate.freshness === "offline" ? "secondary" : "destructive"
                 }
                 className="rounded-full"
               >
@@ -4201,10 +4208,10 @@ function RiderDetails({
           {rider.isAvailableForAssignments ? "Available" : "Unavailable"}
         </Badge>
         <Badge
-          variant={freshness === "live" ? "default" : "destructive"}
+          variant={freshness === "live" ? "default" : freshness === "offline" ? "secondary" : "destructive"}
           className="rounded-full"
         >
-          {freshness === "live" ? "Live location" : "Stale location"}
+          {freshness === "live" ? "Live location" : freshness === "offline" ? "Offline · last seen" : "Stale location"}
         </Badge>
       </div>
       <DetailRow label="Phone" value={rider.phone || "Not added"} />

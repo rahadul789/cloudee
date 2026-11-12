@@ -37,11 +37,14 @@ function resolveRefreshBackoffMs(response: Response) {
 
 export class ApiRequestError extends Error {
   status?: number;
+  /** Server error code, e.g. "DELIVERY_CODE_INVALID". */
+  code?: string;
 
-  constructor(message: string, options?: { status?: number }) {
+  constructor(message: string, options?: { status?: number; code?: string }) {
     super(message);
     this.name = "ApiRequestError";
     this.status = options?.status;
+    this.code = options?.code;
   }
 }
 
@@ -54,13 +57,13 @@ async function parseResponse<T>(response: Response) {
       "Too many attempts for now. Please wait a moment and try again.";
 
     if (contentType.includes("application/json") && text) {
-      const payload = JSON.parse(text) as { message?: string };
+      const payload = JSON.parse(text) as { message?: string; error?: { code?: string } };
       throw new ApiRequestError(
         payload.message ??
           (response.status === 429
             ? defaultRateLimitMessage
             : `Request failed with status ${response.status}`),
-        { status: response.status }
+        { status: response.status, code: payload.error?.code }
       );
     }
 

@@ -1,3 +1,4 @@
+import { deliveryCodeFromOrderNumber, isDeliveryCodeCorrect, isDeliveryCodeEnabled } from "../../common/utils/delivery-code"
 import crypto from "node:crypto"
 import { decorateOwnerFinancials } from "../owner/order-financials"
 import { deliveryContactOf } from "../customer/gift-order"
@@ -315,6 +316,8 @@ function mapRiderOrder(
   return {
     id: String(order._id ?? order.id ?? ""),
     orderNumber: order.orderNumber ?? "",
+    // The rider must type the customer's code (last 4 digits of the order id) to deliver.
+    deliveryCodeRequired: isDeliveryCodeEnabled(),
     status: order.status ?? "",
     isUrgent: order.isUrgent === true,
     // Off-platform (Foodbela-delivery-only) order: the customer is not an app user, the
@@ -344,6 +347,9 @@ function mapRiderOrder(
       : null,
     pricing: order.pricing ?? {},
     timestamps: order.timestamps ?? {},
+    // Prep timing (target / late / ready-since) so the rider sees "Kitchen 7 min late" or
+    // "Ready for 12 min" instead of a vague "Ready any moment".
+    preparation: buildOrderPreparationTiming({ order, restaurant }),
     riderSnapshot: order.riderSnapshot ?? {},
     riderTracking: decorateTrackingSnapshot(order.riderTracking ?? {}, order.status ?? ""),
     // Gift orders hand off to the RECIPIENT: rider calls/meets them, not the sender.
@@ -1896,6 +1902,12 @@ export async function pickupRiderOrder(params: {
     throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
   }
 
+  // Idempotent retry: on a flaky network the first tap can succeed server-side while the
+  // response is lost. A repeat from the SAME rider must succeed, not show a scary error.
+  if (order.status === "PickedUp" && order.riderId === rider.id) {
+    return getRiderOrderDetails({ riderId: rider.id, orderId: order.id })
+  }
+
   if (order.status !== "ReadyForPickup") {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
@@ -1995,7 +2007,7 @@ export async function pickupRiderOrder(params: {
   })
 }
 
-export async function deliverRiderOrder(params: { riderId: string; orderId: string }) {
+export async function deliverRiderOrder(params: { riderId: string; orderId: string; code?: string }) {
   const rider = await RiderModel.findById(params.riderId)
 
   if (!rider) {
@@ -2010,12 +2022,55 @@ export async function deliverRiderOrder(params: { riderId: string; orderId: stri
     throw new AppError(StatusCodes.NOT_FOUND, "ORDER_NOT_FOUND", "Order not found")
   }
 
+  // Idempotent retry: "Delivered" tapped again after a lost response (weak network at the
+  // customer's door) returns success instead of "not in transit".
+  if (order.status === "Delivered") {
+    return getRiderOrderDetails({ riderId: rider.id, orderId: order.id })
+  }
+
   if (order.status !== "PickedUp") {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
       "ORDER_NOT_IN_TRANSIT",
       "This order is not currently in transit"
     )
+  }
+
+  // Delivery code (admin switch). Checked before anything changes; wrong tries are counted
+  // and lock the order after maxAttempts so the code can't be brute-forced (admin can still
+  // complete it from the admin panel).
+  const content = await getPlatformContent()
+  const codeSettings = (content as unknown as {
+    operations?: { deliveryCode?: { enabled?: boolean; maxAttempts?: number } }
+  }).operations?.deliveryCode
+  if (codeSettings?.enabled === true && deliveryCodeFromOrderNumber(order.orderNumber)) {
+    const maxAttempts = codeSettings.maxAttempts ?? 5
+    const attempts = Number((order as unknown as { deliveryCodeAttempts?: number }).deliveryCodeAttempts ?? 0)
+    if (attempts >= maxAttempts) {
+      throw new AppError(
+        StatusCodes.TOO_MANY_REQUESTS,
+        "DELIVERY_CODE_LOCKED",
+        "Too many wrong codes. Call support to complete this delivery."
+      )
+    }
+    if (!String(params.code ?? "").trim()) {
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        "DELIVERY_CODE_REQUIRED",
+        "Ask the customer for the last 4 digits of their order ID."
+      )
+    }
+    if (!isDeliveryCodeCorrect(order.orderNumber, params.code)) {
+      await OrderModel.updateOne({ _id: order._id }, { $inc: { deliveryCodeAttempts: 1 } })
+      const left = Math.max(0, maxAttempts - attempts - 1)
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        "DELIVERY_CODE_INVALID",
+        left > 0
+          ? `Wrong code. ${left} ${left === 1 ? "try" : "tries"} left.`
+          : "Wrong code. Call support to complete this delivery."
+      )
+    }
   }
 
   // Deliver only the order the rider is currently live-delivering. With several

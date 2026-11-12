@@ -1,3 +1,4 @@
+import { setDeliveryCodeEnabled } from "../../common/utils/delivery-code"
 import { cleanupHeroMediaAfterSave, stripDeletedHeroSlides } from "./hero-media-cleanup"
 import { z } from "zod"
 import { StatusCodes } from "http-status-codes"
@@ -856,6 +857,29 @@ const platformContentSchema = z.object({
         enabled: true,
         reviewDays: 7,
       }),
+    // Delivery code (last 4 digits of the order number) required to mark an order
+    // Delivered. OFF by default — riders on an app without the code screen can't deliver
+    // while it's ON, so set riderAppUpdate.minimumVersion first.
+    deliveryCode: z
+      .object({
+        enabled: z.boolean().optional().default(false),
+        maxAttempts: z.number().int().min(3).max(20).optional().default(5),
+      })
+      .optional()
+      .default({ enabled: false, maxAttempts: 5 }),
+    // Rider (delivery) app "update required" prompt — same rules as appUpdate.
+    riderAppUpdate: z
+      .object({
+        enabled: z.boolean().optional().default(true),
+        latestVersion: z.string().trim().optional().default("")
+          .transform((value) => (/^\d+(\.\d+){0,3}$/.test(value) ? value : "")),
+        minimumVersion: z.string().trim().optional().default("")
+          .transform((value) => (/^\d+(\.\d+){0,3}$/.test(value) ? value : "")),
+        message: z.string().trim().max(300).optional().default(""),
+        storeUrl: z.string().trim().max(500).optional().default(""),
+      })
+      .optional()
+      .default({ enabled: true, latestVersion: "", minimumVersion: "", message: "", storeUrl: "" }),
     // Customer-app live-tracking timings (seconds). Lets ops tune order tracking without an
     // app release. The app clamps these again, so a bad value can never break tracking.
     customerTracking: z
@@ -1793,6 +1817,11 @@ export async function getPlatformContent(scope?: PlatformContentScope) {
       : defaultPlatformContent
     return normalizePlatformContentHomeCms(withDefaultHomeCategories(content))
   })
+  // Keep the rider-facing order-number masking in step with the admin switch.
+  setDeliveryCodeEnabled(
+    (baseContent as unknown as { operations?: { deliveryCode?: { enabled?: boolean } } })
+      .operations?.deliveryCode?.enabled === true,
+  )
   return applyHomeCmsAreaOverride(baseContent, scope)
 }
 

@@ -7,6 +7,35 @@ import {
 
 const copy = {
   en: {
+    pendingDelivery: {
+      queuedTitle: "Saved — will send when online",
+      queuedBody: "No internet right now. This delivery is saved on your phone and will be sent automatically as soon as the connection is back. You can continue.",
+      badge: "Delivered · sending when online",
+      failedTitle: "Delivery not recorded",
+      failedBody: "The server did not accept this delivery. Please open the order and try again.",
+    },
+    deliveryCode: {
+      title: "Delivery code",
+      body: "Ask the customer for the last 4 digits of their order ID (shown in their Foodbela app).",
+      placeholder: "4 digits",
+      confirm: "Confirm delivery",
+      cancel: "Cancel",
+    },
+    appUpdate: {
+      forceTitle: "Update required",
+      softTitle: "New update available",
+      forceBody: "This version is no longer supported. Update the app to keep receiving orders.",
+      softBody: "Update for the latest features and smoother deliveries.",
+      update: "Update now",
+      later: "Later",
+      yourVersion: "Your version",
+      newVersion: "New",
+    },
+    mapNav: {
+      navigatorOn: "Navigator on — map turns with your phone",
+      navigatorOff: "Navigator off",
+      exit: "Exit",
+    },
     trackingHealth: {
       alwaysTitle: "Keep sharing location always",
       alwaysBody:
@@ -344,6 +373,10 @@ const copy = {
       deliveryLateChip: (m: number) => `Delivery ${m}m late`,
       readyInMin: (m: number) => `Ready in ~${m} min`,
       readyAnyMoment: "Ready any moment",
+      kitchenLate: (m: number) => `Kitchen ${m} min late`,
+      readyFor: (m: number) => (m < 1 ? "Ready just now" : `Ready for ${m} min`),
+      pickupFrom: "Pickup",
+      dropTo: "Drop-off",
       preparing: "Preparing",
       stillPreparing:
         "Still being prepared — it’ll move to your tasks once it’s ready to pick up.",
@@ -384,6 +417,35 @@ const copy = {
     },
   },
   bn: {
+    pendingDelivery: {
+      queuedTitle: "সেভ হয়েছে — নেট এলে পাঠানো হবে",
+      queuedBody: "এখন ইন্টারনেট নেই। ডেলিভারিটি ফোনে সেভ আছে, নেট ফিরলেই নিজে থেকে পাঠানো হবে। আপনি কাজ চালিয়ে যান।",
+      badge: "ডেলিভার্ড · নেট এলে পাঠানো হবে",
+      failedTitle: "ডেলিভারি জমা হয়নি",
+      failedBody: "সার্ভার এই ডেলিভারি গ্রহণ করেনি। অর্ডারটি খুলে আবার চেষ্টা করুন।",
+    },
+    deliveryCode: {
+      title: "ডেলিভারি কোড",
+      body: "কাস্টমারের কাছে তার অর্ডার আইডির শেষ ৪ সংখ্যা চান (তার Foodbela অ্যাপে দেখা যায়)।",
+      placeholder: "৪ সংখ্যা",
+      confirm: "ডেলিভারি নিশ্চিত করুন",
+      cancel: "বাতিল",
+    },
+    appUpdate: {
+      forceTitle: "আপডেট করা প্রয়োজন",
+      softTitle: "নতুন আপডেট এসেছে",
+      forceBody: "এই ভার্সনটি আর চালু নেই। অর্ডার পেতে অ্যাপটি আপডেট করুন।",
+      softBody: "নতুন ফিচার আর সহজ ডেলিভারির জন্য অ্যাপটি আপডেট করুন।",
+      update: "আপডেট করুন",
+      later: "পরে",
+      yourVersion: "আপনার ভার্সন",
+      newVersion: "নতুন",
+    },
+    mapNav: {
+      navigatorOn: "নেভিগেটর চালু — ফোন ঘোরালে ম্যাপ ঘুরবে",
+      navigatorOff: "নেভিগেটর বন্ধ",
+      exit: "বন্ধ",
+    },
     trackingHealth: {
       alwaysTitle: "সবসময় লোকেশন শেয়ার করুন",
       alwaysBody:
@@ -688,6 +750,10 @@ const copy = {
       deliveryLateChip: (m: number) => `ডেলিভারি ${m}m লেট`,
       readyInMin: (m: number) => `প্রায় ${m} মিনিটে রেডি`,
       readyAnyMoment: "যেকোনো মুহূর্তে রেডি",
+      kitchenLate: (m: number) => `রান্না ${m} মিনিট দেরি`,
+      readyFor: (m: number) => (m < 1 ? "এইমাত্র রেডি" : `${m} মিনিট ধরে রেডি`),
+      pickupFrom: "পিকআপ",
+      dropTo: "ডেলিভারি",
       preparing: "প্রস্তুত হচ্ছে",
       stillPreparing:
         "এখনো প্রস্তুত হচ্ছে — রেডি হলে আপনার টাস্কে চলে আসবে।",
@@ -742,6 +808,11 @@ export function useDeliveryCopy() {
     setLanguage,
     copy: messages,
   };
+}
+
+/** Non-hook access (alerts fired from background sync etc.). */
+export function getCopy(): DeliveryCopy {
+  return copy[usePreferencesStore.getState().language] as DeliveryCopy;
 }
 
 export function isBangla(language: AppLanguage) {

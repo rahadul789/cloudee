@@ -447,7 +447,8 @@ export const postRiderAccept = asyncHandler(async (req: Request, res: Response) 
 export const postRiderDelivered = asyncHandler(async (req: Request, res: Response) => {
   const data = await deliverRiderOrder({
     riderId: req.user?.id ?? "",
-    orderId: String(req.params.orderId ?? "")
+    orderId: String(req.params.orderId ?? ""),
+    code: typeof req.body?.code === "string" ? req.body.code : undefined
   })
 
   return sendSuccess(res, {

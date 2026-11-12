@@ -1,3 +1,4 @@
+import { forRider } from "../../common/utils/delivery-code"
 import mongoose from "mongoose"
 
 import { fetchWithTimeout } from "../../common/utils/fetch-with-timeout"
@@ -136,12 +137,27 @@ export async function createRiderNotification(params: {
   return notificationId.toString()
 }
 
-export async function sendPushToRider(params: {
+// Apps >= 1.1.0 ship two loud channels: "rider-alert" (alert.mp3, ~22s) for the
+// order-accepted heads-up and "rider-assign" (assign_order.mp3) for "assigned to you".
+// Older apps keep their original channels (a channel they don't have would go silent).
+const MODERN_CHANNEL: Record<string, { channelId: string; sound: string }> = {
+  "new-order-headsup": { channelId: "rider-alert", sound: "alert.mp3" },
+  "new-delivery": { channelId: "rider-assign", sound: "assign_order.mp3" },
+}
+function supportsRiderAlertChannel(appVersion: unknown) {
+  const parts = String(appVersion ?? "").split(".").map(Number)
+  if (parts.length < 2 || parts.some((part) => !Number.isFinite(part))) return false
+  const [major = 0, minor = 0] = parts
+  return major > 1 || (major === 1 && minor >= 1)
+}
+
+export async function sendPushToRider(rawParams: {
   riderId: string
   payload: RiderPushPayload
   zoneId?: string
   districtId?: string
 }) {
+  const params = { ...rawParams, payload: forRider(rawParams.payload) }
   const notificationId = await createRiderNotification(params)
   const rider = await RiderModel.findById(params.riderId).select("pushTokens")
 
@@ -159,9 +175,14 @@ export async function sendPushToRider(params: {
     return { sent: 0, disabled: 0, inAppCreated: 1 }
   }
 
-  const messages: ExpoPushMessage[] = activeTokens.map((token) => ({
+  const messages: ExpoPushMessage[] = activeTokens.map((token) => {
+    const modern = supportsRiderAlertChannel((token as { appVersion?: string }).appVersion)
+      ? MODERN_CHANNEL[params.payload.channelId ?? ""]
+      : undefined
+    const channelId = modern?.channelId ?? params.payload.channelId ?? "general"
+    return {
     to: token.expoPushToken,
-    sound: params.payload.channelId === "new-order-headsup"
+    sound: modern ? modern.sound : params.payload.channelId === "new-order-headsup"
       ? "new_order.mp3"
       : params.payload.channelId === "new-order-placed"
         ? "new_order_placed.mp3"
@@ -175,11 +196,11 @@ export async function sendPushToRider(params: {
     priority: "high",
     title: params.payload.title,
     body: params.payload.body,
-    data: { ...params.payload.data, notificationId, channelId: params.payload.channelId ?? "general" },
+    data: { ...params.payload.data, notificationId, channelId },
     // Android uses the channel sound; iOS uses the bundled sound selected above.
     // Special pushes override (e.g. "new-delivery", "delivery-late"); the rest fall back
     // to the "general" channel (common chime).
-    channelId: params.payload.channelId ?? "general",
+    channelId,
     ...(params.payload.imageUrl
       ? {
           mutableContent: true,
@@ -187,7 +208,8 @@ export async function sendPushToRider(params: {
           richContent: { image: optimizePushImageUrl(params.payload.imageUrl) },
         }
       : {}),
-  }))
+    }
+  })
 
   const response = await fetchWithTimeout("https://exp.host/--/api/v2/push/send", {
     method: "POST",

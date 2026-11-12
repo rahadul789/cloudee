@@ -1,6 +1,6 @@
+import { HEADING_ARROW, PIN_ANCHOR_Y, pinImage } from "@/src/lib/marker-images";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import MapView, {
   Marker,
   Polyline,
@@ -55,21 +55,11 @@ export type DeliveryMapHandle = {
   fit: () => void;
 };
 
-const PICKUP_COLOR = "#EC1C63";
-const DROP_COLOR = "#16A34A";
-const RIDER_COLOR = "#2563EB";
 const ROUTE_COLOR = "#EC1C63";
 const ROUTE_COLOR_FADED = "rgba(236,28,99,0.45)";
 
-// Minimal map: hide business POIs, transit, and road icons so the rider's own pins stand
-// out and the map isn't cluttered with information they don't need.
-const MAP_STYLE = [
-  { featureType: "poi", stylers: [{ visibility: "off" }] },
-  { featureType: "poi.business", stylers: [{ visibility: "off" }] },
-  { featureType: "poi.park", elementType: "labels", stylers: [{ visibility: "off" }] },
-  { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-];
+// Default native Google map: shops, landmarks, buildings and road names stay visible —
+// riders navigate by them ("the pharmacy next to the mosque").
 
 const FALLBACK_REGION: Region = {
   latitude: 23.78,
@@ -103,6 +93,11 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
   showUserLocation?: boolean;
   fitPadding?: { top: number; right: number; bottom: number; left: number };
   onStopPress?: (id: string) => void;
+  /** Navigator: camera follows the rider, turns with the phone (heading-up), tilted. */
+  navigating?: boolean;
+  /** Rider dragged the map while navigating → leave navigator mode. */
+  onExitNavigation?: () => void;
+  showTraffic?: boolean;
 }>(function DeliveryMap(
   {
     stops,
@@ -115,11 +110,19 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
     showUserLocation = false,
     fitPadding,
     onStopPress,
+    navigating = false,
+    onExitNavigation,
+    showTraffic = false,
   },
   ref,
 ) {
   const mapRef = useRef<MapView | null>(null);
   const [tracksChanges, setTracksChanges] = useState(true);
+  const lastZoomDelta = useRef(0);
+  const retrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (retrackTimer.current) clearTimeout(retrackTimer.current);
+  }, []);
   // The native blue dot's own live coordinate, captured from `onUserLocationChange` — the SAME
   // location client the dot already uses (no extra GPS client), so our facing arrow can sit
   // exactly on the dot instead of drifting to the (laggy) server `rider` prop.
@@ -200,10 +203,40 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
     return () => clearTimeout(timer);
   }, [stopSignature]);
 
+  // Navigator camera: follow + heading-up + tilt. Throttled (≤4/s, only on a real move or
+  // turn) so it stays smooth without burning CPU/battery.
+  const lastCamera = useRef({ at: 0, heading: Number.NaN, latitude: 0, longitude: 0 });
+  useEffect(() => {
+    if (!navigating || !meCoord || !mapRef.current) return;
+    const heading = deviceHeading ?? 0;
+    const now = Date.now();
+    const prev = lastCamera.current;
+    const turned = Number.isNaN(prev.heading) ||
+      Math.abs(((heading - prev.heading + 540) % 360) - 180) > 5;
+    const moved = Math.abs(meCoord.latitude - prev.latitude) + Math.abs(meCoord.longitude - prev.longitude) > 0.00003;
+    if (now - prev.at < 250 || (!turned && !moved && now - prev.at < 3000)) return;
+    lastCamera.current = { at: now, heading, latitude: meCoord.latitude, longitude: meCoord.longitude };
+    mapRef.current.animateCamera(
+      { center: meCoord, heading, pitch: 50, zoom: 17.5 },
+      { duration: 350 },
+    );
+  }, [navigating, meCoord, deviceHeading]);
+
+  // Leaving navigator: flatten + north-up, then show everything again.
+  const wasNavigating = useRef(false);
+  useEffect(() => {
+    if (wasNavigating.current && !navigating) {
+      lastCamera.current = { at: 0, heading: Number.NaN, latitude: 0, longitude: 0 };
+      mapRef.current?.animateCamera({ heading: 0, pitch: 0 }, { duration: 300 });
+      setTimeout(() => fitAll(), 320);
+    }
+    wasNavigating.current = navigating;
+  }, [navigating, fitAll]);
+
   // Auto-fit ONLY when the set of stops changes (a new/removed order) — never on periodic
   // refreshes or rider movement, so the rider's chosen zoom/pan is preserved.
   useEffect(() => {
-    fitAll();
+    if (!navigating) fitAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopIdsKey]);
 
@@ -213,18 +246,30 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
       provider={PROVIDER_GOOGLE}
       style={[styles.map, style]}
       initialRegion={FALLBACK_REGION}
-      customMapStyle={MAP_STYLE}
       liteMode={liteMode}
       showsUserLocation={showUserLocation}
       showsMyLocationButton={false}
-      showsPointsOfInterest={false}
-      showsBuildings={false}
-      showsCompass={false}
+      showsPointsOfInterest
+      showsBuildings
+      showsTraffic={showTraffic}
+      showsCompass={navigating}
       toolbarEnabled={false}
-      pitchEnabled={false}
+      pitchEnabled
+      rotateEnabled
+      onPanDrag={navigating ? () => onExitNavigation?.() : undefined}
       moveOnMarkerPress={false}
       loadingEnabled
       onMapReady={() => setTracksChanges(true)}
+      onRegionChangeComplete={(region) => {
+        // A zoom changes how Google scales the cached marker bitmap; re-capture briefly so
+        // pins never come back cropped. Pans/rotations don't need it.
+        const last = lastZoomDelta.current;
+        lastZoomDelta.current = region.latitudeDelta;
+        if (!last || Math.abs(Math.log(region.latitudeDelta / last)) < 0.15) return;
+        setTracksChanges(true);
+        if (retrackTimer.current) clearTimeout(retrackTimer.current);
+        retrackTimer.current = setTimeout(() => setTracksChanges(false), 700);
+      }}
       onUserLocationChange={
         showUserLocation
           ? (event) => {
@@ -270,11 +315,14 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
           coordinate={{ latitude: stop.latitude, longitude: stop.longitude }}
           onPress={() => onStopPress?.(stop.id)}
           tracksViewChanges={tracksChanges}
-          anchor={{ x: 0.5, y: 0.57 }}
+          anchor={{ x: 0.5, y: PIN_ANCHOR_Y }}
+          image={pinImage(
+            stop.kind === "pickup" ? "pickup" : "drop",
+            stop.alert === "late" ? "late" : stop.focused || stop.live ? "focused" : "normal",
+            stop.count,
+          )}
           zIndex={stop.focused ? 5 : stop.kind === "pickup" ? 3 : 4}
-        >
-          <StopPin stop={stop} />
-        </Marker>
+ />
       ))}
 
       {/* When the caller opts out of the native dot but still gives a coordinate (rare), draw
@@ -299,210 +347,21 @@ export const DeliveryMap = forwardRef<DeliveryMapHandle, {
       {showHeading && meCoord ? (
         <Marker
           coordinate={meCoord}
-          anchor={{ x: 0.5, y: 1 }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          image={HEADING_ARROW}
           flat
           rotation={deviceHeading ?? 0}
           tracksViewChanges={tracksChanges}
-          zIndex={7}
-        >
-          <View collapsable={false} pointerEvents="none" style={styles.headingWrap}>
-            <View collapsable={false} style={styles.headingLayer}>
-              <View collapsable={false} style={styles.headingArrowOutline} />
-            </View>
-            <View collapsable={false} style={styles.headingLayer}>
-              <View collapsable={false} style={styles.headingArrow} />
-            </View>
-          </View>
-        </Marker>
+          // Under the pins (3–5) so the translucent light never tints a restaurant/customer pin.
+          zIndex={1}
+        />
       ) : null}
     </MapView>
   );
 });
 
-// Teardrop pin modeled on the customer-app's tracking markers (which render crisply and
-// never crop): every View is `collapsable={false}` so Android doesn't flatten/clip it, a
-// rotated square forms the point, and a soft lift-shadow grounds it. A count badge rides on
-// top when a restaurant has more than one order.
-function StopPin({ stop }: { stop: MapStop }) {
-  const color = stop.kind === "pickup" ? PICKUP_COLOR : DROP_COLOR;
-  const icon = stop.kind === "pickup" ? "storefront" : "home";
-  const ring = stop.statusColor ?? "#FFFFFF";
-  return (
-    <View collapsable={false} pointerEvents="none" style={styles.markerRoot}>
-      <View collapsable={false} style={styles.markerLiftShadow} />
-      <View collapsable={false} style={[styles.markerPointer, { backgroundColor: color }]} />
-      <View
-        collapsable={false}
-        style={[
-          styles.markerPin,
-          { backgroundColor: color, borderColor: ring },
-          stop.focused && styles.markerPinFocused,
-        ]}
-      >
-        <Ionicons name={icon} size={13} color="#FFFFFF" />
-      </View>
-      {stop.count && stop.count > 1 ? (
-        <View collapsable={false} style={styles.countBadge}>
-          <Text style={styles.countText}>{stop.count}</Text>
-        </View>
-      ) : null}
-      {stop.live ? (
-        <View collapsable={false} style={styles.liveDotOuter}>
-          <View collapsable={false} style={styles.liveDotInner} />
-        </View>
-      ) : null}
-      {stop.alert === "late" ? (
-        <View collapsable={false} style={styles.latePill}>
-          <Ionicons name="alert" size={9} color="#FFFFFF" />
-          {typeof stop.alertMinutes === "number" && stop.alertMinutes > 0 ? (
-            <Text style={styles.latePillText}>{stop.alertMinutes}m</Text>
-          ) : null}
-        </View>
-      ) : stop.alert === "prep" ? (
-        <View collapsable={false} style={styles.prepBadge}>
-          <Ionicons name="time" size={11} color="#FFFFFF" />
-        </View>
-      ) : null}
-      {stop.tag ? (
-        <View collapsable={false} pointerEvents="none" style={styles.tagRow}>
-          <View collapsable={false} style={styles.tagPill}>
-            <Text style={styles.tagText}>{stop.tag}</Text>
-          </View>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   map: { flex: 1 },
-  // Tight, fixed bounds (the pin never changes size — focus is shown by the ring only, so
-  // the native snapshot size is stable and never clips). Mirrors the customer-app teardrop.
-  // Small, fixed, crop-proof: no Android `elevation` (its shadow renders outside the marker
-  // bounds and gets clipped — a common crop cause); grounding is the flat liftShadow only.
-  markerRoot: {
-    width: 46,
-    // Taller so the order-id tag pill fits UNDER the pin, inside the marker bounds (a pill
-    // placed below the frame gets clipped by react-native-maps and never shows).
-    height: 60,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingTop: 8,
-  },
-  markerLiftShadow: {
-    position: "absolute",
-    bottom: 21,
-    width: 15,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: "rgba(15,23,42,0.22)",
-    transform: [{ scaleX: 1.18 }],
-  },
-  markerPointer: {
-    position: "absolute",
-    top: 26,
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-    transform: [{ rotate: "45deg" }],
-    zIndex: 1,
-  },
-  markerPin: {
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    borderWidth: 2.5,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2,
-  },
-  markerPinFocused: { borderWidth: 3.5 },
-  countBadge: {
-    position: "absolute",
-    top: 0,
-    right: 7,
-    minWidth: 17,
-    height: 17,
-    borderRadius: 9,
-    paddingHorizontal: 4,
-    backgroundColor: "#111827",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 3,
-  },
-  countText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
-  tagRow: {
-    position: "absolute",
-    bottom: 2,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  tagPill: {
-    paddingHorizontal: 5,
-    height: 15,
-    borderRadius: 8,
-    backgroundColor: "#111827",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tagText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
-  liveDotOuter: {
-    position: "absolute",
-    top: 1,
-    left: 1,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "rgba(220,38,38,0.28)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 3,
-  },
-  liveDotInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#DC2626",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-  },
-  prepBadge: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#F59E0B",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 3,
-  },
-  // Late alert as a small corner pill on the pin: the warning icon + minutes past the
-  // threshold (e.g. "⚠ 3m"). Top-left corner, within the marker's fixed width so it can't crop.
-  latePill: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 1,
-    height: 15,
-    paddingHorizontal: 4,
-    borderRadius: 8,
-    backgroundColor: "#DC2626",
-    borderWidth: 1.5,
-    borderColor: "#FFFFFF",
-    zIndex: 4,
-  },
-  latePillText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
   // Fallback blue-dot puck (only when the native dot is disabled): Google-blue dot + white
   // ring + soft halo. Fixed pixel size so it reads the same at every zoom.
   puckHalo: {
@@ -529,34 +388,4 @@ const styles = StyleSheet.create({
   // Real-time facing arrow: a slim white-outlined blue arrowhead that floats just off the dot
   // and points where the phone faces. The Marker anchor {0.5,1} = the wrap's bottom-centre,
   // which sits on the dot; the arrow tip is at the top, so it points outward from the dot.
-  headingWrap: {
-    width: 22,
-    height: 34,
-  },
-  headingLayer: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "flex-start",
-  },
-  headingArrowOutline: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 9,
-    borderRightWidth: 9,
-    borderBottomWidth: 24,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "#FFFFFF",
-  },
-  headingArrow: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 6.5,
-    borderRightWidth: 6.5,
-    borderBottomWidth: 19,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "#1A73E8",
-    marginTop: 2.5,
-  },
 });

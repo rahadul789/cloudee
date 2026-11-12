@@ -14,7 +14,7 @@ import {
   clearCurrentRiderExpoPushToken,
   setCurrentRiderExpoPushToken,
 } from "@/src/lib/rider-push-token-state";
-import { playRiderNotificationSound } from "@/src/lib/new-order-sound";
+import { playRiderNotificationSound, stopRiderAlertSound } from "@/src/lib/new-order-sound";
 import { useRiderAuthStore } from "@/src/store/auth-store";
 
 const PUSH_DEBUG_ENABLED =
@@ -120,6 +120,28 @@ async function registerForPushNotificationsAsync() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#0f766e",
     });
+    // Loud ~22s alert (alert.mp3) for "order accepted → heads-up" and "assigned to you".
+    // Backend routes those two pushes here for app >= 1.1.0 (by token appVersion); a NEW
+    // channel id is required because Android never lets an existing channel change sound.
+    await Notifications.setNotificationChannelAsync("rider-alert", {
+      name: "New order alerts (loud)",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "alert.mp3",
+      vibrationPattern: [0, 600, 300, 600, 300, 600],
+      lightColor: "#0f766e",
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+    // "Assigned to you" (assign_order.mp3). Own channel = own lock-screen sound.
+    await Notifications.setNotificationChannelAsync("rider-assign", {
+      name: "Order assigned to you",
+      importance: Notifications.AndroidImportance.MAX,
+      sound: "assign_order.mp3",
+      vibrationPattern: [0, 500, 250, 500, 250, 500],
+      lightColor: "#0f766e",
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
     // Dedicated channel for a brand-new delivery assignment. Android plays the CHANNEL's
     // sound on the lock screen; the rider can also override it in the phone's notification
     // settings for this channel (WhatsApp-style).
@@ -224,6 +246,7 @@ export function RiderPushBridge({ children }: PropsWithChildren) {
 
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
+        stopRiderAlertSound();
         openTarget(response.notification.request.content.data);
         void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
       }

@@ -1,4 +1,6 @@
+import { forRider } from "../../common/utils/delivery-code"
 import { Router } from "express"
+import { getPlatformContent } from "../public/content.service"
 import {
   createOtpSendIpLimiter,
   createOtpSendLimiter,
@@ -46,6 +48,21 @@ import {
 } from "./rider.controller"
 
 export const riderRouter = Router()
+
+// While the delivery code is ON, every rider HTTP response shows order numbers as
+// "FB-…-••••" (the last 4 digits ARE the code). Never blocks a request (the location
+// upload is a hot path): uses the cached switch and refreshes it in the background at
+// most once a minute (any platform-content read also updates it).
+let deliveryCodeSwitchRefreshedAt = 0
+riderRouter.use((req, res, next) => {
+  if (Date.now() - deliveryCodeSwitchRefreshedAt > 60_000) {
+    deliveryCodeSwitchRefreshedAt = Date.now()
+    void getPlatformContent().catch(() => undefined)
+  }
+  const json = res.json.bind(res)
+  res.json = ((body: unknown) => json(forRider(body))) as typeof res.json
+  next()
+})
 const riderAuthStartLimiter = createOtpSendLimiter("rider")
 const riderAuthStartIpLimiter = createOtpSendIpLimiter("rider")
 const riderAuthVerifyLimiter = createOtpVerifyLimiter("rider")

@@ -1,3 +1,4 @@
+import { openTurnByTurn } from "@/src/lib/turn-by-turn";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -7,7 +8,6 @@ import {
   Animated,
   Dimensions,
   Easing,
-  Linking,
   Modal,
   PanResponder,
   Pressable,
@@ -285,13 +285,8 @@ function RestaurantMapSheet({
         ? leadOrder.customer.location
         : restaurant?.location;
     if (!isCoordinate(destinationCoordinate)) return;
-    const destination = `${destinationCoordinate.latitude},${destinationCoordinate.longitude}`;
-    const origin = isCoordinate(riderLocation)
-      ? `&origin=${encodeURIComponent(`${riderLocation.latitude},${riderLocation.longitude}`)}`
-      : "";
-    const url = `https://www.google.com/maps/dir/?api=1${origin}&destination=${encodeURIComponent(destination)}&travelmode=bicycling`;
-
-    await Linking.openURL(url);
+    // Google Maps knows the rider's position itself; turn-by-turn starts from there.
+    await openTurnByTurn(destinationCoordinate);
   };
 
   return (
@@ -693,6 +688,8 @@ export default function RiderMapScreen() {
           amount: order.pricing?.total ?? 0,
           prepRemainingSeconds: order.preparation?.remainingSeconds ?? null,
           prepLabel: order.preparation?.label ?? "",
+          prepTargetReadyAt: order.preparation?.targetReadyAt ?? null,
+          prepReadyAt: order.preparation?.readyAt ?? null,
           restaurantId: restaurant.id,
           restaurantName: restaurant.name,
           restaurantAddress: restaurant.address ?? "",
@@ -769,6 +766,8 @@ export default function RiderMapScreen() {
   };
 
   const deliveryMapRef = useRef<DeliveryMapHandle | null>(null);
+  // Navigator: map follows the rider and turns with the phone (heading-up, tilted).
+  const [navigating, setNavigating] = useState(false);
   const profileQuery = useRiderProfileQuery();
   const availabilityMutation = useUpdateRiderAvailabilityMutation();
   const isOnline =
@@ -858,14 +857,9 @@ export default function RiderMapScreen() {
 
   const openNavigation = useCallback(async () => {
     if (!navigateTarget) return;
-    const origin = isCoordinate(riderLocation)
-      ? `&origin=${encodeURIComponent(`${riderLocation.latitude},${riderLocation.longitude}`)}`
-      : "";
-    const url = `https://www.google.com/maps/dir/?api=1${origin}&destination=${encodeURIComponent(
-      `${navigateTarget.latitude},${navigateTarget.longitude}`,
-    )}&travelmode=driving`;
-    await Linking.openURL(url);
-  }, [navigateTarget, riderLocation]);
+    // Starts Google Maps voice turn-by-turn from the rider's own position.
+    await openTurnByTurn(navigateTarget);
+  }, [navigateTarget]);
 
   return (
     <View style={styles.screen}>
@@ -881,6 +875,8 @@ export default function RiderMapScreen() {
           rider={riderForMap}
           routes={customerLines}
           showUserLocation={hasLocationPermission}
+          navigating={navigating && hasLocationPermission}
+          onExitNavigation={() => setNavigating(false)}
           fitPadding={{
             top: insets.top + 130,
             right: 60,
@@ -946,6 +942,18 @@ export default function RiderMapScreen() {
         </View>
       </SafeAreaView>
 
+      {navigating ? (
+        <View pointerEvents="box-none" style={[styles.navigatorBannerWrap, { top: insets.top + 74 }]}>
+          <View style={styles.navigatorBanner}>
+            <Ionicons name="compass" size={16} color="#FFFFFF" />
+            <Text style={styles.navigatorBannerText} numberOfLines={1}>{copy.mapNav.navigatorOn}</Text>
+            <Pressable onPress={() => setNavigating(false)} hitSlop={10} style={styles.navigatorExit}>
+              <Text style={styles.navigatorExitText}>{copy.mapNav.exit}</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
       {/* Bottom-right controls: show-customers toggle + recenter on me + navigate to next stop. */}
       <View style={[styles.mapControls, { bottom: Math.max(insets.bottom, 12) + 168 }]}>
         <Pressable
@@ -963,6 +971,19 @@ export default function RiderMapScreen() {
             size={20}
             color={showCustomers ? palette.secondary : palette.foreground}
           />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={navigating ? copy.mapNav.navigatorOff : copy.mapNav.navigatorOn}
+          disabled={!hasLocationPermission}
+          onPress={() => setNavigating((value) => !value)}
+          style={({ pressed }) => [
+            styles.recenterButton,
+            navigating ? styles.navigatorActive : null,
+            pressed ? styles.mapButtonPressed : null,
+          ]}
+        >
+          <Ionicons name={navigating ? "compass" : "compass-outline"} size={22} color={navigating ? "#FFFFFF" : palette.foreground} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -1010,6 +1031,22 @@ export default function RiderMapScreen() {
 }
 
 const styles = StyleSheet.create({
+  navigatorActive: { backgroundColor: "#0f766e" },
+  navigatorBannerWrap: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  navigatorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "92%",
+    paddingLeft: 12,
+    paddingRight: 6,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(15,118,110,0.95)",
+  },
+  navigatorBannerText: { flexShrink: 1, fontSize: 13, fontWeight: "700", color: "#FFFFFF" },
+  navigatorExit: { paddingHorizontal: 10, height: 28, borderRadius: 14, justifyContent: "center", backgroundColor: "rgba(255,255,255,0.22)" },
+  navigatorExitText: { fontSize: 12.5, fontWeight: "800", color: "#FFFFFF" },
   screen: {
     flex: 1,
     backgroundColor: palette.background,

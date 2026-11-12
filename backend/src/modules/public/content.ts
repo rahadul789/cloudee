@@ -573,6 +573,18 @@ export const platformContent = {
       enabled: true,
       reviewDays: 7,
     },
+    // Delivery code at handover (OFF by default) + rider-app update prompt.
+    deliveryCode: {
+      enabled: false,
+      maxAttempts: 5,
+    },
+    riderAppUpdate: {
+      enabled: true,
+      latestVersion: "",
+      minimumVersion: "",
+      message: "",
+      storeUrl: "",
+    },
     // Customer-app live-tracking timings (seconds) — see content.service schema.
     customerTracking: {
       fallbackPollSeconds: 25,

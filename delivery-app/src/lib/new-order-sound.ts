@@ -8,7 +8,10 @@ export type RiderSoundEvent = {
   channelId?: unknown;
 };
 
-type Sound = "incoming" | "placed" | "assignment" | "late" | "common";
+// "alert" = assets/sounds/alert.mp3 (loud, ~22s) for "order accepted → heads-up" and
+// "order assigned to you" — the two events a rider must never miss.
+// "assign" = assets/sounds/assign_order.mp3 — "this order is now YOURS".
+type Sound = "alert" | "assign" | "placed" | "late" | "common";
 const players = new Map<Sound, AudioPlayer>();
 const sounded = new Map<string, number>();
 const pending = new Map<string, Promise<boolean>>();
@@ -16,9 +19,11 @@ const DEDUP_MS = 20_000;
 let audioModeReady: Promise<void> | undefined;
 
 export function resolveRiderNotificationSound(event: RiderSoundEvent): Sound | null {
-  if (event.type === "order.headsup" || event.channelId === "new-order-headsup") return "incoming";
+  if (event.channelId === "rider-alert") return "alert";
+  if (event.channelId === "rider-assign") return "assign";
+  if (event.type === "order.headsup" || event.channelId === "new-order-headsup") return "alert";
   if (event.type === "order.placed.headsup" || event.channelId === "new-order-placed") return "placed";
-  if (event.type === "rider_assignment" || event.channelId === "new-delivery") return "assignment";
+  if (event.type === "rider_assignment" || event.channelId === "new-delivery") return "assign";
   if (event.channelId === "delivery-late" || [
     "rider_response_late", "rider_pickup_late", "delivery_late_after_pickup",
     "delivery_critical_after_pickup", "delivery_eta_exceeded",
@@ -46,9 +51,9 @@ function ensureAudioMode() {
 function getPlayer(sound: Sound) {
   const existing = players.get(sound);
   if (existing) return existing;
-  const source = sound === "incoming" ? require("../../assets/sounds/new_order.mp3")
+  const source = sound === "alert" ? require("../../assets/sounds/alert.mp3")
+    : sound === "assign" ? require("../../assets/sounds/assign_order.mp3")
     : sound === "placed" ? require("../../assets/sounds/new_order_placed.mp3")
-    : sound === "assignment" ? require("../../assets/sounds/new_delivery.mp3")
     : sound === "late" ? require("../../assets/sounds/delivery_hurry.mp3")
     : require("../../assets/sounds/common.mp3");
   const player = createAudioPlayer(source, { updateInterval: 100 });
@@ -101,6 +106,20 @@ export async function playRiderNotificationSound(event: RiderSoundEvent): Promis
   })();
   pending.set(key, work);
   try { return await work; } finally { pending.delete(key); }
+}
+
+/** Stop the long alert as soon as the rider responds (opens the push / accepts). */
+export function stopRiderAlertSound() {
+  for (const sound of ["alert", "assign"] as const) {
+    const player = players.get(sound);
+    if (!player) continue;
+    try {
+      player.pause();
+      void player.seekTo(0).catch(() => undefined);
+    } catch {
+      // player already released — nothing to stop
+    }
+  }
 }
 
 export function playHeadsUpSound(orderId?: string) {

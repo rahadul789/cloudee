@@ -1,3 +1,4 @@
+import { deliveryCodeFromOrderNumber, isDeliveryCodeEnabled } from "../../common/utils/delivery-code"
 import { StatusCodes } from "http-status-codes";
 import mongoose from "mongoose";
 import type { SortOrder } from "mongoose";
@@ -724,7 +725,14 @@ async function safeSendCustomerOrderStatusPush(params: {
   orderNumber: string;
   nextStatus: string;
 }) {
-  const customerMessage = getCustomerOrderStatusMessage(params.nextStatus);
+  const baseMessage = getCustomerOrderStatusMessage(params.nextStatus);
+  const deliveryCode =
+    params.nextStatus === "PickedUp" && isDeliveryCodeEnabled()
+      ? deliveryCodeFromOrderNumber(params.orderNumber)
+      : "";
+  const customerMessage = deliveryCode
+    ? { ...baseMessage, body: `${baseMessage.body} Delivery code: ${deliveryCode} — tell it to your rider.` }
+    : baseMessage;
 
   enqueueBackgroundTask("owner.order_status.customer_push", async () => {
     await sendPushToCustomer({

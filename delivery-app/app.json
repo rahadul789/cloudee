@@ -2,7 +2,7 @@
   "expo": {
     "name": "Foodbela Rider",
     "slug": "delivery-app",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "deliveryapp",
@@ -58,7 +58,9 @@
             "./assets/sounds/delivery_hurry.mp3",
             "./assets/sounds/new_order.mp3",
             "./assets/sounds/new_order_placed.mp3",
-            "./assets/sounds/common.mp3"
+            "./assets/sounds/common.mp3",
+            "./assets/sounds/alert.mp3",
+            "./assets/sounds/assign_order.mp3"
           ]
         }
       ],
@@ -87,7 +89,8 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
