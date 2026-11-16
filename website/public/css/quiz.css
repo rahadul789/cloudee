@@ -1,0 +1,99 @@
+:root {
+  --amber: #ffb84c;
+  --amber-deep: #ff9f2e;
+  --amber-soft: #fff4e2;
+  --ink: #1a1a1a;
+  --muted: #6b6f76;
+  --line: #ececee;
+  --card: #ffffff;
+  --bg: #fff8ee;
+  --green: #16a34a;
+  --green-soft: #e8f7ee;
+  --red: #e5484d;
+  --red-soft: #fdecec;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: radial-gradient(120% 60% at 50% 0%, #ffe2b3 0%, var(--bg) 60%) fixed, var(--bg);
+  color: var(--ink);
+  font-family: "Noto Sans Bengali", system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+.qz { max-width: 480px; margin: 0 auto; padding: 14px 16px 48px; }
+.qz-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.qz-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; color: var(--ink); text-decoration: none; font-size: 17px; }
+.qz-brand img { border-radius: 8px; }
+.qz-chip { background: var(--ink); color: var(--amber); font-weight: 800; font-size: 13px; padding: 6px 12px; border-radius: 999px; }
+.qz-card {
+  background: var(--card);
+  border-radius: 24px;
+  padding: 22px 18px;
+  box-shadow: 0 10px 30px rgba(120, 72, 0, 0.12);
+  margin-bottom: 14px;
+  animation: qz-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.qz-center { text-align: center; }
+.qz-bela { display: block; margin: 0 auto 6px; width: 132px; height: 132px; object-fit: contain; animation: qz-bob 2.6s ease-in-out infinite; }
+h1 { font-size: 26px; line-height: 1.35; margin: 6px 0 8px; font-weight: 800; }
+h2 { font-size: 21px; line-height: 1.45; margin: 4px 0 16px; font-weight: 800; }
+.qz-muted { color: var(--muted); font-size: 15px; line-height: 1.55; margin: 0 0 16px; }
+.qz-input {
+  width: 100%; height: 54px; border-radius: 16px; border: 2px solid var(--line);
+  padding: 0 16px; font: inherit; font-size: 17px; outline: none; background: #fafafa; margin-bottom: 12px;
+}
+.qz-input:focus { border-color: var(--amber); background: #fff; }
+.qz-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 54px;
+  border: 0; border-radius: 16px; background: var(--amber); color: var(--ink); font: inherit; font-size: 17px;
+  font-weight: 800; text-decoration: none; cursor: pointer; box-shadow: 0 6px 0 var(--amber-deep);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.qz-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--amber-deep); }
+.qz-btn[disabled] { opacity: 0.6; cursor: default; }
+.qz-btn-dark { background: var(--ink); color: var(--amber); box-shadow: 0 6px 0 #000; }
+.qz-btn-ghost { background: #fff; border: 2px solid var(--line); box-shadow: none; margin-top: 10px; }
+.qz-error { color: var(--red); font-size: 14px; min-height: 20px; margin: -4px 0 8px; }
+.qz-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.qz-bar { flex: 1; height: 10px; border-radius: 999px; background: #f1e6d4; overflow: hidden; }
+.qz-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--amber), var(--amber-deep)); border-radius: inherit; transition: width 0.35s ease; }
+.qz-count { font-weight: 800; font-size: 14px; color: var(--muted); }
+.qz-author { margin: -10px 0 14px; font-size: 13px; font-weight: 600; color: #a86300; }
+.qz-options { display: grid; gap: 10px; }
+.qz-option {
+  text-align: left; width: 100%; min-height: 56px; padding: 12px 16px; border-radius: 16px;
+  border: 2px solid var(--line); background: #fff; font: inherit; font-size: 16.5px; font-weight: 600; color: var(--ink);
+  cursor: pointer; transition: transform 0.08s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.qz-option:active { transform: scale(0.98); }
+.qz-option.is-correct { border-color: var(--green); background: var(--green-soft); }
+.qz-option.is-wrong { border-color: var(--red); background: var(--red-soft); animation: qz-shake 0.35s; }
+.qz-option[disabled] { cursor: default; }
+.qz-react { min-height: 30px; margin-top: 14px; text-align: center; font-weight: 800; font-size: 17px; }
+.qz-react.good { color: var(--green); }
+.qz-react.bad { color: var(--red); }
+.qz-score { font-size: 64px; font-weight: 800; line-height: 1; margin: 6px 0; }
+.qz-score small { font-size: 26px; color: var(--muted); }
+.qz-title { display: inline-block; background: var(--ink); color: var(--amber); font-weight: 800; padding: 8px 16px; border-radius: 999px; font-size: 18px; margin: 8px 0 6px; }
+.qz-rank { color: var(--muted); font-weight: 600; margin-bottom: 18px; }
+.qz-board-title { font-size: 17px; font-weight: 800; margin: 2px 0 10px; display: flex; justify-content: space-between; align-items: baseline; }
+.qz-board-title span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.qz-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+.qz-row:last-child { border-bottom: 0; }
+.qz-row.me { background: var(--amber-soft); border-radius: 12px; padding: 10px; }
+.qz-pos { width: 30px; text-align: center; font-weight: 800; color: var(--muted); }
+.qz-who { flex: 1; min-width: 0; }
+.qz-who b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qz-who small { color: var(--muted); }
+.qz-pts { font-weight: 800; }
+.qz-empty { color: var(--muted); text-align: center; padding: 8px 0; }
+.qz-confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 5; }
+.qz-confetti i { position: absolute; top: -20px; width: 10px; height: 14px; border-radius: 3px; animation: qz-fall 2.4s linear forwards; }
+@keyframes qz-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes qz-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes qz-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@keyframes qz-fall { to { transform: translateY(110vh) rotate(540deg); opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) {
+  .qz-card, .qz-bela, .qz-option.is-wrong, .qz-confetti i { animation: none; }
+}

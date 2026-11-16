@@ -8,7 +8,6 @@ import { NetworkStatusBanner } from "@/src/components/network-status-banner";
 import { NetworkStateBridge } from "@/src/components/network-state-bridge";
 import { RiderLocationController } from "@/src/components/rider-location-controller";
 import { PendingDeliverySync } from "@/src/components/pending-delivery-sync";
-import { AppUpdateGate } from "@/src/components/app-update-gate";
 import { RiderPushBridge } from "@/src/components/rider-push-bridge";
 import { RiderSocketBridge } from "@/src/components/rider-socket-bridge";
 import { queryClient } from "@/src/lib/query-client";
@@ -27,7 +26,6 @@ export function AppProviders({ children }: PropsWithChildren) {
             <View style={styles.shell}>
               <RiderSocketBridge />
               <PendingDeliverySync />
-              <AppUpdateGate />
               <RiderLocationController>{children}</RiderLocationController>
               <NetworkStatusBanner />
             </View>

@@ -16,10 +16,26 @@ import {
   deleteAdminHypeItemController,
   getAdminHypeComments,
   getAdminHypeItems,
+  getAdminHypeLayout,
+  getAdminHypeRestaurantMenuItems,
+  putAdminHypeLayout,
   postAdminHypeCommentModeration,
   postAdminHypeItem,
   putAdminHypeItem,
 } from "../hype/hype.controller";
+import {
+  deleteAdminQuizQuestionController,
+  getAdminQuizQuestionsController,
+  getAdminQuizSettingsController,
+  getAdminQuizStatsController,
+  getAdminQuizSubmissionsController,
+  postAdminQuizSubmissionApprove,
+  postAdminQuizSubmissionReject,
+  postAdminQuizPlayVisibility,
+  postAdminQuizQuestionController,
+  putAdminQuizQuestionController,
+  putAdminQuizSettingsController,
+} from "../quiz/quiz.controller";
 import {
   getAdminWinBackCandidates,
   getAdminWinBackSettings,
@@ -146,10 +162,25 @@ adminOrdersMonitorRouter.post("/win-back/send", postAdminWinBackSend);
 adminOrdersMonitorRouter.get("/win-back/stats", getAdminWinBackStats);
 // Hype tab content (drops / events / videos).
 adminOrdersMonitorRouter.get("/hype/items", getAdminHypeItems);
+adminOrdersMonitorRouter.get("/hype/layout", getAdminHypeLayout);
+adminOrdersMonitorRouter.get("/hype/restaurants/:restaurantId/menu-items", getAdminHypeRestaurantMenuItems);
+adminOrdersMonitorRouter.put("/hype/layout", putAdminHypeLayout);
 adminOrdersMonitorRouter.post("/hype/items", postAdminHypeItem);
 adminOrdersMonitorRouter.put("/hype/items/:itemId", putAdminHypeItem);
 adminOrdersMonitorRouter.delete("/hype/items/:itemId", deleteAdminHypeItemController);
 adminOrdersMonitorRouter.get("/hype/items/:itemId/comments", getAdminHypeComments);
+// Friend quiz: settings, question bank, stats, leaderboard moderation.
+adminOrdersMonitorRouter.get("/quiz/settings", getAdminQuizSettingsController);
+adminOrdersMonitorRouter.put("/quiz/settings", putAdminQuizSettingsController);
+adminOrdersMonitorRouter.get("/quiz/questions", getAdminQuizQuestionsController);
+adminOrdersMonitorRouter.post("/quiz/questions", postAdminQuizQuestionController);
+adminOrdersMonitorRouter.put("/quiz/questions/:questionId", putAdminQuizQuestionController);
+adminOrdersMonitorRouter.delete("/quiz/questions/:questionId", deleteAdminQuizQuestionController);
+adminOrdersMonitorRouter.get("/quiz/stats", getAdminQuizStatsController);
+adminOrdersMonitorRouter.post("/quiz/plays/:playId/visibility", postAdminQuizPlayVisibility);
+adminOrdersMonitorRouter.get("/quiz/submissions", getAdminQuizSubmissionsController);
+adminOrdersMonitorRouter.post("/quiz/submissions/:submissionId/approve", postAdminQuizSubmissionApprove);
+adminOrdersMonitorRouter.post("/quiz/submissions/:submissionId/reject", postAdminQuizSubmissionReject);
 // Stamp card / scratch-card rewards.
 adminOrdersMonitorRouter.get("/rewards/settings", getAdminRewardSettingsController);
 adminOrdersMonitorRouter.put("/rewards/settings", putAdminRewardSettingsController);

@@ -1,3 +1,4 @@
+import { dropStockLine, HypeEventActions } from "@/src/components/hype/hype-cards";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -48,9 +49,18 @@ export function HypeDetailsSheet({
   onOpenTarget,
   onOpenWebsite,
   onToggleReminder,
+  myReaction,
+  going,
+  onReact,
+  onToggleGoing,
 }: {
   item: HypeItem | null;
   reminded: boolean;
+  /** Event only: like / dislike / going (same as on the row). */
+  myReaction?: "like" | "dislike" | null;
+  going?: boolean;
+  onReact?: (item: HypeItem, reaction: "like" | "dislike") => void;
+  onToggleGoing?: (item: HypeItem) => void;
   onClose: () => void;
   onOpenTarget: (item: HypeItem) => void;
   onOpenWebsite: (url: string) => void;
@@ -153,7 +163,19 @@ export function HypeDetailsSheet({
             {item.location ? <InfoRow icon="location-outline" text={item.location} /> : null}
             {item.restaurantName ? <InfoRow icon="storefront-outline" text={item.restaurantName} /> : null}
             {item.limitLabel ? <InfoRow icon="flame-outline" text={item.limitLabel} /> : null}
+            {item.kind === "drop" && dropStockLine(item) ? <InfoRow icon="cart-outline" text={dropStockLine(item) ?? ""} /> : null}
           </View>
+
+          {item.kind === "event" && (onReact || onToggleGoing) ? (
+            <HypeEventActions
+              event={item}
+              size="large"
+              myReaction={myReaction}
+              going={going}
+              onReact={onReact ? (reaction) => onReact(item, reaction) : undefined}
+              onToggleGoing={onToggleGoing ? () => onToggleGoing(item) : undefined}
+            />
+          ) : null}
 
           {item.description ? <Text style={styles.description}>{item.description}</Text> : null}
         </View>

@@ -3815,6 +3815,18 @@ export async function getCustomerDiscoveryHome(params?: {
       );
       // Hero carousel: only live slides (active, has media, inside its schedule window).
       // Done per request (not in the cached content) so scheduled slides flip on time.
+      // Promo modal schedule: outside its window it is simply off for this request.
+      if (homeCms.modal?.isActive) {
+        const modalNow = Date.now();
+        const modalStart = Date.parse(String(homeCms.modal.startsAt ?? ""));
+        const modalEnd = Date.parse(String(homeCms.modal.endsAt ?? ""));
+        if (
+          (!Number.isNaN(modalStart) && modalStart > modalNow) ||
+          (!Number.isNaN(modalEnd) && modalEnd <= modalNow)
+        ) {
+          homeCms.modal.isActive = false;
+        }
+      }
       if (homeCms.heroCarousel && Array.isArray(homeCms.heroCarousel.slides)) {
         const nowMs = Date.now();
         const inWindow = (value: unknown, compare: (at: number) => boolean) => {

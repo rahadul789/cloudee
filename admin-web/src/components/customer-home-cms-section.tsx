@@ -872,6 +872,11 @@ const DEFAULT_HOME_CMS: PlatformContent["customerApp"]["homeCms"] = {
     backgroundColor: "#FFFFFF",
     textColor: "#2B1D24",
     accentColor: "#FF5C93",
+    imageAspect: "4:5",
+    badgeLabel: "",
+    dismissLabel: "Maybe later",
+    startsAt: "",
+    endsAt: "",
   },
   howToOrderGuide: {
     isActive: false,
@@ -1247,6 +1252,22 @@ function normalizeContentForCms(content: PlatformContent | null) {
       },
     },
   } satisfies PlatformContent
+}
+
+
+// <input type="datetime-local"> ⇄ ISO (local time on the admin's machine).
+function modalLocalInput(iso?: string) {
+  if (!iso) return ""
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ""
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function modalIsoInput(value: string) {
+  if (!value) return ""
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString()
 }
 
 export function CustomerHomeCmsSection({
@@ -4923,6 +4944,73 @@ export function CustomerHomeCmsSection({
                   <SelectItem value="every_refresh">Every refresh</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Floating card design + schedule */}
+            <div className="mt-4 grid gap-3 rounded-lg border p-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Image shape</Label>
+                <Select
+                  value={cms.modal.imageAspect ?? "4:5"}
+                  onValueChange={(value) =>
+                    updateModal("imageAspect", value as "1:1" | "4:5" | "16:9")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="4:5">Portrait 4:5 (best for posters)</SelectItem>
+                    <SelectItem value="1:1">Square 1:1</SelectItem>
+                    <SelectItem value="16:9">Wide 16:9</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Upload the image in this shape so nothing is cropped.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Badge on image (optional)</Label>
+                <Input
+                  value={cms.modal.badgeLabel ?? ""}
+                  maxLength={24}
+                  placeholder="e.g. NEW · Today only · 50% OFF"
+                  onChange={(event) => updateModal("badgeLabel", event.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Secondary button text</Label>
+                <Input
+                  value={cms.modal.dismissLabel ?? "Maybe later"}
+                  maxLength={30}
+                  placeholder="Maybe later"
+                  onChange={(event) => updateModal("dismissLabel", event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown under the main button; closes the modal. Leave empty to hide it.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Starts (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={modalLocalInput(cms.modal.startsAt)}
+                    onChange={(event) => updateModal("startsAt", modalIsoInput(event.target.value))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Ends (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={modalLocalInput(cms.modal.endsAt)}
+                    onChange={(event) => updateModal("endsAt", modalIsoInput(event.target.value))}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  Outside this window the modal stays off automatically (even when Active).
+                </p>
+              </div>
             </div>
           </CmsDetailsCard>
 

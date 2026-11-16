@@ -27,6 +27,11 @@ import {
 } from "../open-notify/open-notify.controller"
 import {
   getCustomerHypeFeed,
+  getCustomerHypeLatest,
+  getCustomerHypeVideos,
+  getCustomerHypeVideo,
+  postCustomerHypeGoing,
+  postCustomerHypeAttribution,
   getCustomerHypePollComments,
   postCustomerHypeEvents,
   postCustomerHypePollComment,
@@ -41,6 +46,14 @@ import {
   postCustomerSpin,
   postCustomerUnlockSpin,
 } from "../rewards/rewards.controller"
+import {
+  deleteCustomerQuiz,
+  getCustomerQuiz,
+  getCustomerQuizBank,
+  getCustomerQuizSubmissions,
+  postCustomerQuizSubmission,
+  postCustomerQuiz,
+} from "../quiz/quiz.controller"
 import { postCustomerAnalyticsEvent } from "./customer-analytics.controller"
 import {
   getCustomerOrder,
@@ -202,7 +215,14 @@ customerRouter.post("/vouchers/display-event", customerAnalyticsEventLimiter, po
 customerRouter.post("/home/poll/vote", customerAnalyticsEventLimiter, postCustomerPollVote)
 // Hype tab (admin-curated drops / events / videos). Optional auth: guests react by deviceId.
 customerRouter.get("/hype/feed", getCustomerHypeFeed)
+customerRouter.get("/hype/latest", getCustomerHypeLatest)
+customerRouter.get("/hype/videos", getCustomerHypeVideos)
+customerRouter.get("/hype/videos/:videoId", getCustomerHypeVideo)
+customerRouter.post("/hype/items/:itemId/going", customerAnalyticsEventLimiter, postCustomerHypeGoing)
+customerRouter.post("/hype/attribution", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerHypeAttribution)
 customerRouter.post("/hype/videos/:videoId/reaction", customerAnalyticsEventLimiter, postCustomerHypeVideoReaction)
+// Same handler for any reactable item (videos + "Happening in Netrakona" events).
+customerRouter.post("/hype/items/:videoId/reaction", customerAnalyticsEventLimiter, postCustomerHypeVideoReaction)
 customerRouter.post("/hype/videos/:videoId/view", customerAnalyticsEventLimiter, postCustomerHypeVideoView)
 customerRouter.post("/hype/events", customerAnalyticsEventLimiter, postCustomerHypeEvents)
 // Stamp card + scratch cards (signed-in only — prizes are personal vouchers).
@@ -211,6 +231,13 @@ customerRouter.post("/rewards/spins/:spinId/spin", requireAuth, requireRole("cus
 customerRouter.post("/rewards/spins/:spinId/unlock", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerUnlockSpin)
 customerRouter.post("/rewards/stamps/buy", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerBuyStamp)
 customerRouter.post("/rewards/boxes/:boxId/open", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerOpenBox)
+// Friend quiz ("তুমি আমাকে কতটা চেনো?") — signed-in owners; friends play via the website.
+customerRouter.get("/quiz", requireAuth, requireRole("customer"), getCustomerQuiz)
+customerRouter.get("/quiz/bank", requireAuth, requireRole("customer"), getCustomerQuizBank)
+customerRouter.post("/quiz", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerQuiz)
+customerRouter.delete("/quiz", requireAuth, requireRole("customer"), deleteCustomerQuiz)
+customerRouter.get("/quiz/submissions", requireAuth, requireRole("customer"), getCustomerQuizSubmissions)
+customerRouter.post("/quiz/submissions", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerQuizSubmission)
 customerRouter.post("/hype/polls/:pollId/vote", customerAnalyticsEventLimiter, postCustomerHypePollVote)
 customerRouter.get("/hype/polls/:pollId/comments", getCustomerHypePollComments)
 customerRouter.post("/hype/polls/:pollId/comments", requireAuth, requireRole("customer"), customerAnalyticsEventLimiter, postCustomerHypePollComment)

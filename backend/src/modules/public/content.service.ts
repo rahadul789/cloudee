@@ -55,6 +55,21 @@ export const defaultAuthRateLimitSettings = {
   otpVerifyLockMinutes: 15,
 }
 
+// One social network link (Account tab "Follow us"). Empty URL is allowed while disabled.
+const socialLinkSchema = z
+  .object({
+    enabled: z.boolean().optional().default(false),
+    url: z
+      .string()
+      .trim()
+      .max(300)
+      .optional()
+      .default("")
+      .refine((value) => !value || /^https:\/\/[^\s]+$/i.test(value), "Link must start with https://"),
+  })
+  .optional()
+  .default({ enabled: false, url: "" })
+
 const DEFAULT_REVIEW_REQUEST_PUSH_TITLE = "How was your food?"
 const DEFAULT_REVIEW_REQUEST_PUSH_BODY =
   "Tap to rate your order and help others choose with confidence."
@@ -605,6 +620,13 @@ const platformContentSchema = z.object({
         backgroundColor: z.string().trim(),
         textColor: z.string().trim(),
         accentColor: z.string().trim(),
+        // Floating-card redesign (all optional so older saved content still parses).
+        imageAspect: z.enum(["1:1", "4:5", "16:9"]).optional().default("4:5"),
+        badgeLabel: z.string().trim().max(24).optional().default(""),
+        dismissLabel: z.string().trim().max(30).optional().default("Maybe later"),
+        // Schedule window (ISO, "" = no bound) — enforced per request on the home feed.
+        startsAt: z.string().trim().optional().default(""),
+        endsAt: z.string().trim().optional().default(""),
       }),
       howToOrderGuide: z.object({
         isActive: z.boolean(),
@@ -1310,6 +1332,21 @@ const platformContentSchema = z.object({
     supportHours: z.string().trim().min(1),
     reportLabel: z.string().trim().min(1),
     directHelpNote: z.string().trim().min(1),
+    // "Follow us" in the app's Account tab — each network shows only when enabled with a link.
+    socialLinks: z
+      .object({
+        facebook: socialLinkSchema,
+        instagram: socialLinkSchema,
+        youtube: socialLinkSchema,
+        tiktok: socialLinkSchema,
+      })
+      .optional()
+      .default({
+        facebook: { enabled: false, url: "" },
+        instagram: { enabled: false, url: "" },
+        youtube: { enabled: false, url: "" },
+        tiktok: { enabled: false, url: "" },
+      }),
   }),
   helpCenter: z.object({
     categories: z.array(
@@ -1815,7 +1852,18 @@ export async function getPlatformContent(scope?: PlatformContentScope) {
     const content = contentDoc?.content
       ? upgradeLegacySupportPhone(deepMerge(defaultPlatformContent, contentDoc.content))
       : defaultPlatformContent
-    return normalizePlatformContentHomeCms(withDefaultHomeCategories(content))
+    const normalized = normalizePlatformContentHomeCms(withDefaultHomeCategories(content))
+    // The rider (delivery) app must NEVER show an update prompt — the owner decided the
+    // rider app doesn't use versions. Live rider builds (1.1.0) contain the gate, so it is
+    // switched off here, whatever was saved before (a saved minimumVersion once blocked
+    // every rider).
+    return {
+      ...normalized,
+      operations: {
+        ...normalized.operations,
+        riderAppUpdate: { enabled: false, latestVersion: "", minimumVersion: "", message: "", storeUrl: "" },
+      },
+    }
   })
   // Keep the rider-facing order-number masking in step with the admin switch.
   setDeliveryCodeEnabled(

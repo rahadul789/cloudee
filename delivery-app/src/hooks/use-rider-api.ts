@@ -1,5 +1,4 @@
 import type { PrepTiming } from "@/src/lib/prep-status";
-import type { AppUpdateConfig } from "@/src/lib/app-update";
 import {
   keepPreviousData,
   type QueryClient,
@@ -244,7 +243,6 @@ type PlatformContentResponse = {
     liveTracking?: RiderLiveTrackingPolicy;
     dispatch?: Partial<RiderDeliveryThresholds>;
     mapStyles?: PlatformMapStyleSettings;
-    riderAppUpdate?: AppUpdateConfig;
   };
   supportContact?: {
     phone?: string;
@@ -597,17 +595,6 @@ export function useRiderLiveMapQuery(enabled = true) {
       const response = await apiGet<RiderLiveMapResponse>("/rider/live-map");
       return response.data;
     },
-  });
-}
-
-/** Admin "App update → Rider app" (soft / forced update prompt). */
-export function useRiderAppUpdateConfigQuery(enabled = true) {
-  return useQuery({
-    queryKey: ["platform-content", "rider"],
-    staleTime: 5 * 60_000,
-    enabled,
-    queryFn: async () => (await apiGet<PlatformContentResponse>("/rider/platform-content")).data,
-    select: (content): AppUpdateConfig => content.operations?.riderAppUpdate ?? {},
   });
 }
 

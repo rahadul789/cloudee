@@ -309,6 +309,12 @@ export type CustomerHomeCms = {
     backgroundColor: string;
     textColor: string;
     accentColor: string;
+    /** Floating card options (admin; older content may omit them). */
+    imageAspect?: "1:1" | "4:5" | "16:9";
+    badgeLabel?: string;
+    dismissLabel?: string;
+    startsAt?: string;
+    endsAt?: string;
   };
   howToOrderGuide?: {
     isActive: boolean;

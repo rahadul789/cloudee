@@ -141,7 +141,7 @@ const coinTxnSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: "Customer", required: true, index: true },
     amount: { type: Number, required: true }, // + credit, − debit
-    reason: { type: String, enum: ["spin", "buy_stamp", "skip_spin", "expire", "admin"], required: true },
+    reason: { type: String, enum: ["spin", "buy_stamp", "skip_spin", "expire", "admin", "quiz_question"], required: true },
     refId: { type: String, default: "" },
     // credits only
     expiresAt: { type: Date, default: null },

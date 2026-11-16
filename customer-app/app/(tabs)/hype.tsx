@@ -1,7 +1,7 @@
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ActivityIndicator, Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -10,15 +10,27 @@ import { HypeDropCard, HypeEventRow, HypeVideoTile } from "@/src/components/hype
 import { HypeDetailsSheet } from "@/src/components/hype/hype-details-sheet";
 import { HypePollCard, HypePollCommentsSheet } from "@/src/components/hype/hype-poll";
 import { StampCardTeaser } from "@/src/components/rewards/stamp-card";
+import { QuizHypeCard } from "@/src/components/quiz/quiz-hype-card";
+import { useCustomerQuizQuery } from "@/src/hooks/use-quiz-api";
 import { useCustomerRewardsQuery } from "@/src/hooks/use-rewards-api";
 import { HypeSegments, type HypeSegment } from "@/src/components/hype/hype-segments";
 import { ShimmerBlock } from "@/src/components/loading-skeleton";
 import { Screen } from "@/src/components/screen";
 import { AppHeader } from "@/src/components/ui";
 import { appAlert } from "@/src/lib/app-alert";
-import { useHypeFeedQuery, useHypePollVoteMutation, type HypeItem } from "@/src/hooks/use-hype-api";
+import {
+  resolveHypeSectionOrder,
+  useHypeFeedQuery,
+  useHypePollVoteMutation,
+  useHypeVideoReactionMutation,
+  useHypeVideosInfiniteQuery,
+  useHypeGoingMutation,
+  type HypeItem,
+  type HypeSectionKey,
+} from "@/src/hooks/use-hype-api";
 import { trackHypeEvent, trackHypeImpressions } from "@/src/lib/hype-analytics";
 import { useCustomerAuthStore } from "@/src/store/auth-store";
+import { isNewVideo, useHypeSeenStore } from "@/src/store/hype-seen-store";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { resolveCustomerRoute, withRestaurantViewSource } from "@/src/lib/customer-routes";
 import { getHypeReminderIds, toggleHypeReminder } from "@/src/lib/hype-reminders";
@@ -39,23 +51,9 @@ function SectionTitle({ title, action, onAction }: { title: string; action?: str
   );
 }
 
-// Mirrors the real feed order: video rail → drop card → poll → event rows.
-function HypeSkeleton() {
-  return (
-    <View style={styles.skeleton}>
-      <ShimmerBlock style={styles.skeletonTitle} />
-      <View style={styles.skeletonRail}>
-        {[0, 1, 2].map((index) => (
-          <ShimmerBlock key={index} style={styles.skeletonTile} />
-        ))}
-      </View>
-      <ShimmerBlock style={styles.skeletonDrop} />
-      <ShimmerBlock style={styles.skeletonTitle} />
-      <ShimmerBlock style={styles.skeletonRow} />
-      <ShimmerBlock style={styles.skeletonRow} />
-    </View>
-  );
-}
+// Last section order / quiz flag seen this session, so the first-load skeleton matches the feed.
+let lastSectionOrder: string[] | undefined;
+let lastQuizEnabled = false;
 
 // Hype tab: admin-curated flash drops, what's happening in town, and food/fun videos.
 export default function HypeTabScreen() {
@@ -70,6 +68,46 @@ export default function HypeTabScreen() {
   const signedIn = useCustomerAuthStore((state) => Boolean(state.customer));
   const voteMutation = useHypePollVoteMutation();
   const rewardsQuery = useCustomerRewardsQuery(isFocused);
+  const quizEnabled = Boolean(feedQuery.data?.quiz?.enabled);
+  // Videos tab pages 10 at a time (the feed itself only carries the rail's first few).
+  const videosListQuery = useHypeVideosInfiniteQuery("all", segment === "videos");
+  const pagedVideos = useMemo(
+    () => videosListQuery.data?.pages.flatMap((page) => page.items) ?? [],
+    [videosListQuery.data],
+  );
+  const watchedVideos = useHypeSeenStore((state) => state.watched);
+  const markHypeSeen = useHypeSeenStore((state) => state.markSeen);
+  const hydrateSeen = useHypeSeenStore((state) => state.hydrate);
+  useEffect(() => {
+    void hydrateSeen();
+  }, [hydrateSeen]);
+  // Opening the tab = the newest content is "seen" (clears the bottom-tab dot).
+  useEffect(() => {
+    if (isFocused && feedQuery.data?.latestAt) markHypeSeen(feedQuery.data.latestAt);
+  }, [feedQuery.data?.latestAt, isFocused, markHypeSeen]);
+  const eventReaction = useHypeVideoReactionMutation();
+  if (feedQuery.data) {
+    lastSectionOrder = feedQuery.data.sectionOrder ?? lastSectionOrder;
+    lastQuizEnabled = quizEnabled;
+  }
+  const sectionOrder = useMemo(
+    () => resolveHypeSectionOrder(feedQuery.data?.sectionOrder ?? lastSectionOrder),
+    [feedQuery.data?.sectionOrder],
+  );
+  const quizQuery = useCustomerQuizQuery(quizEnabled && isFocused);
+  const openQuiz = useCallback(() => {
+    void trackCustomerEvent({
+      eventType: "custom",
+      path: "/(tabs)/hype",
+      screenName: "hype",
+      metadata: { action: "quiz_card_open" },
+    });
+    if (!signedIn) {
+      router.push({ pathname: "/sign-in", params: { redirectTo: "/quiz" } });
+      return;
+    }
+    router.push("/quiz" as never);
+  }, [router, signedIn]);
   const setDetails = useCallback((item: HypeItem | null) => {
     if (item) trackHypeEvent(item.id, "open");
     setDetailsState(item);
@@ -128,9 +166,15 @@ export default function HypeTabScreen() {
         return;
       }
       if (item.restaurantId) {
+        // Remember the tap so an order at this restaurant (within 3h) counts for this item.
+        useHypeSeenStore.getState().setOrderIntent({ itemId: item.id, restaurantId: item.restaurantId, at: Date.now() });
         router.push({
           pathname: "/restaurants/[restaurantId]",
-          params: { restaurantId: item.restaurantId, source: "hype" },
+          params: {
+            restaurantId: item.restaurantId,
+            source: "hype",
+            ...(item.menuItemId ? { itemId: item.menuItemId } : {}),
+          },
         });
       }
     },
@@ -182,6 +226,241 @@ export default function HypeTabScreen() {
     trackHypeImpressions(visible.map((item) => item.id));
   }, [drops, events, feed, isFocused, polls, segment, showDrops, showEvents, showPolls, showVideos, videos]);
 
+  const goingMutation = useHypeGoingMutation();
+  const toggleGoing = useCallback(
+    (event: HypeItem) => {
+      goingMutation.mutate({ itemId: event.id, going: !feed?.myGoing?.[event.id] });
+    },
+    [feed?.myGoing, goingMutation],
+  );
+
+  const reactToEvent = useCallback(
+    (event: HypeItem, next: "like" | "dislike") => {
+      const mine = feed?.myReactions?.[event.id] ?? null;
+      eventReaction.mutate({ videoId: event.id, reaction: mine === next ? "none" : next });
+    },
+    [eventReaction, feed?.myReactions],
+  );
+
+  // One renderer per section so the "For you" feed follows the admin order.
+  // skeleton = placeholder while the feed loads (same shape and order as the real thing).
+  const renderSection = (key: HypeSectionKey, skeleton: boolean): ReactNode => {
+    const all = segment === "all";
+    // In "For you", pinned items already sit in Featured — don't show them twice.
+    const pinnedIds = new Set((feed?.pinned ?? []).map((item) => item.id));
+    const unpinned = (item: HypeItem) => !pinnedIds.has(item.id);
+    switch (key) {
+      case "featured": {
+        // Admin-pinned items, always on top (max 3), each in its usual card.
+        if (!all || skeleton) return null;
+        const pinned = feed?.pinned ?? [];
+        if (!pinned.length) return null;
+        return (
+          <View style={styles.section}>
+            <SectionTitle title="📌 Featured" />
+            {pinned.map((item) =>
+              item.kind === "video" ? (
+                <HypeVideoTile
+                  key={item.id}
+                  video={item}
+                  variant="row"
+                  isNew={isNewVideo(item.createdAt, item.id, watchedVideos)}
+                  onPress={() => openVideo(item)}
+                />
+              ) : item.kind === "drop" ? (
+                <HypeDropCard
+                  key={item.id}
+                  drop={item}
+                  active={isFocused}
+                  reminded={reminders.has(item.id)}
+                  onGrab={() => openItem(item)}
+                  onOpenDetails={() => setDetails(item)}
+                  onToggleReminder={() => void handleReminder(item)}
+                />
+              ) : item.kind === "event" ? (
+                <HypeEventRow
+                  key={item.id}
+                  event={item}
+                  reminded={reminders.has(item.id)}
+                  myReaction={feed?.myReactions?.[item.id] ?? null}
+                  going={Boolean(feed?.myGoing?.[item.id])}
+                  onPress={() => setDetails(item)}
+                  onToggleReminder={() => void handleReminder(item)}
+                  onReact={(next) => reactToEvent(item, next)}
+                  onToggleGoing={() => toggleGoing(item)}
+                />
+              ) : (
+                <HypePollCard
+                  key={item.id}
+                  poll={item}
+                  voting={voteMutation.isPending && voteMutation.variables?.pollId === item.id}
+                  onVote={(optionId) =>
+                    voteMutation.mutate(
+                      { pollId: item.id, optionId },
+                      { onError: (error) => appAlert("Couldn't vote", error instanceof Error ? error.message : "Try again.") },
+                    )
+                  }
+                  onOpenComments={() => {
+                    trackHypeEvent(item.id, "open");
+                    setCommentsFor(item);
+                  }}
+                />
+              ),
+            )}
+          </View>
+        );
+      }
+      case "quiz":
+        if (!all) return null;
+        if (skeleton) return lastQuizEnabled ? <ShimmerBlock style={styles.skeletonQuiz} /> : null;
+        return quizEnabled ? <QuizHypeCard quiz={quizQuery.data?.quiz ?? null} onPress={openQuiz} active={isFocused} /> : null;
+      case "stamps":
+        // Stamp teaser comes from rewards (not the feed), so it can show even while the feed loads.
+        if (!all || !rewardsQuery.data?.stamps.enabled) return null;
+        return <StampCardTeaser rewards={rewardsQuery.data} onPress={() => router.push("/rewards" as never)} />;
+      case "videos":
+        if (skeleton) {
+          return (
+            <View style={styles.skeleton}>
+              <ShimmerBlock style={styles.skeletonTitle} />
+              <View style={styles.skeletonRail}>
+                {[0, 1, 2].map((index) => (
+                  <ShimmerBlock key={index} style={styles.skeletonTile} />
+                ))}
+              </View>
+            </View>
+          );
+        }
+        if (!showVideos || !videos.length) return null;
+        return (
+          <View style={styles.section}>
+            <SectionTitle title="Watch & crave" action={all ? "See all" : undefined} onAction={() => changeSegment("videos")} />
+            {all ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+                {videos.filter(unpinned).slice(0, 8).map((video) => (
+                  <HypeVideoTile
+                    key={video.id}
+                    video={video}
+                    variant="rail"
+                    isNew={isNewVideo(video.createdAt, video.id, watchedVideos)}
+                    onPress={() => openVideo(video)}
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <>
+                {(pagedVideos.length ? pagedVideos : videos).map((video) => (
+                  <HypeVideoTile
+                    key={video.id}
+                    video={video}
+                    variant="row"
+                    isNew={isNewVideo(video.createdAt, video.id, watchedVideos)}
+                    onPress={() => openVideo(video)}
+                  />
+                ))}
+                {videosListQuery.isFetchingNextPage ? <ActivityIndicator color={palette.mutedForeground} /> : null}
+              </>
+            )}
+          </View>
+        );
+      case "drops":
+        if (skeleton) return <ShimmerBlock style={styles.skeletonDrop} />;
+        if (!showDrops || !drops.length) return null;
+        return (
+          <View style={styles.section}>
+            {!all ? <SectionTitle title="Drops" /> : null}
+            {(all ? drops.filter(unpinned).slice(0, 2) : drops).map((drop) => (
+              <HypeDropCard
+                key={drop.id}
+                drop={drop}
+                active={isFocused}
+                reminded={reminders.has(drop.id)}
+                onGrab={() => openItem(drop)}
+                onOpenDetails={() => setDetails(drop)}
+                onToggleReminder={() => void handleReminder(drop)}
+              />
+            ))}
+            {all && drops.length > 2 ? (
+              <Pressable onPress={() => changeSegment("drops")} style={styles.moreButton} accessibilityRole="button">
+                <Text style={styles.moreText}>See all {drops.length} drops</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      case "polls":
+        if (skeleton) {
+          return (
+            <View style={styles.skeleton}>
+              <ShimmerBlock style={styles.skeletonTitle} />
+              <ShimmerBlock style={styles.skeletonPoll} />
+            </View>
+          );
+        }
+        if (!showPolls || !polls.length) return null;
+        return (
+          <View style={styles.section}>
+            <SectionTitle
+              title="Netrakona votes"
+              action={all && polls.length > 2 ? "See all" : undefined}
+              onAction={() => changeSegment("polls")}
+            />
+            {(all ? polls.filter(unpinned).slice(0, 2) : polls).map((poll) => (
+              <HypePollCard
+                key={poll.id}
+                poll={poll}
+                voting={voteMutation.isPending && voteMutation.variables?.pollId === poll.id}
+                onVote={(optionId) =>
+                  voteMutation.mutate(
+                    { pollId: poll.id, optionId },
+                    { onError: (error) => appAlert("Couldn't vote", error instanceof Error ? error.message : "Try again.") },
+                  )
+                }
+                onOpenComments={() => {
+                  trackHypeEvent(poll.id, "open");
+                  setCommentsFor(poll);
+                }}
+              />
+            ))}
+          </View>
+        );
+      case "events":
+        if (skeleton) {
+          return (
+            <View style={styles.skeleton}>
+              <ShimmerBlock style={styles.skeletonTitle} />
+              <ShimmerBlock style={styles.skeletonRow} />
+              <ShimmerBlock style={styles.skeletonRow} />
+            </View>
+          );
+        }
+        if (!showEvents || !events.length) return null;
+        return (
+          <View style={styles.section}>
+            <SectionTitle
+              title="Happening in Netrakona"
+              action={all && events.length > 3 ? "See all" : undefined}
+              onAction={() => changeSegment("events")}
+            />
+            {(all ? events.filter(unpinned).slice(0, 3) : events).map((event) => (
+              <HypeEventRow
+                key={event.id}
+                event={event}
+                reminded={reminders.has(event.id)}
+                myReaction={feed?.myReactions?.[event.id] ?? null}
+                going={Boolean(feed?.myGoing?.[event.id])}
+                onPress={() => setDetails(event)}
+                onToggleReminder={() => void handleReminder(event)}
+                onReact={(next) => reactToEvent(event, next)}
+                onToggleGoing={() => toggleGoing(event)}
+              />
+            ))}
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <Screen>
       <AppHeader showBack={false} title="Hype" subtitle="What's happening in Netrakona today" />
@@ -189,32 +468,40 @@ export default function HypeTabScreen() {
         <HypeSegments
           value={segment}
           onChange={changeSegment}
-          counts={{ drops: drops.length, events: events.length, videos: videos.length, polls: polls.length }}
+          counts={{ drops: drops.length, events: events.length, videos: feed?.videoTotal ?? videos.length, polls: polls.length }}
         />
       </View>
 
       <BelaPullToRefresh refreshing={isRefreshing} onRefresh={handleRefresh}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Stamp card teaser (signed-in): progress + scratch cards waiting — shown even when the feed is empty. */}
-          {segment === "all" && rewardsQuery.data?.stamps.enabled ? (
-            <StampCardTeaser rewards={rewardsQuery.data} onPress={() => router.push("/rewards" as never)} />
-          ) : null}
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={200}
+          onScroll={(event) => {
+            // Infinite scroll for the Videos tab: fetch the next 10 near the bottom.
+            if (segment !== "videos" || !videosListQuery.hasNextPage || videosListQuery.isFetchingNextPage) return;
+            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+            if (contentOffset.y + layoutMeasurement.height > contentSize.height - 600) void videosListQuery.fetchNextPage();
+          }}
+        >
           {feedQuery.isLoading && !feed ? (
-            <HypeSkeleton />
+            // Skeleton follows the same (admin) section order as the real feed.
+            <View style={styles.animatedContent}>
+              {sectionOrder.map((key) => {
+                const node = renderSection(key, true);
+                return node ? <View key={key}>{node}</View> : null;
+              })}
+            </View>
           ) : feedQuery.isError && !feed ? (
-            <ErrorRetryCard
-              title="Couldn't load Hype"
-              description="Check your connection and try again."
-              onRetry={() => void feedQuery.refetch()}
-              retrying={feedQuery.isFetching}
-            />
-          ) : nothingAtAll || segmentEmpty ? (
-            <EmptyStateCard
-              title="Nothing hyped right now"
-              description="New drops, polls, events and videos land here often. Pull down to check again."
-              icon="flame-outline"
-              mascot={false}
-            />
+            <>
+              {segment === "all" ? renderSection("stamps", false) : null}
+              <ErrorRetryCard
+                title="Couldn't load Hype"
+                description="Check your connection and try again."
+                onRetry={() => void feedQuery.refetch()}
+                retrying={feedQuery.isFetching}
+              />
+            </>
           ) : (
             <Animated.View
               style={[
@@ -225,111 +512,31 @@ export default function HypeTabScreen() {
                 },
               ]}
             >
-              {/* Videos lead the feed: the most scroll-stopping thing for a quick visit. */}
-              {showVideos && videos.length ? (
-                <View style={styles.section}>
-                  <SectionTitle
-                    title="Watch & crave"
-                    action={segment === "all" ? "See all" : undefined}
-                    onAction={() => changeSegment("videos")}
-                  />
-                  {segment === "all" ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.rail}
-                    >
-                      {videos.slice(0, 8).map((video) => (
-                        <HypeVideoTile key={video.id} video={video} variant="rail" onPress={() => openVideo(video)} />
-                      ))}
-                    </ScrollView>
-                  ) : (
-                    videos.map((video) => (
-                      <HypeVideoTile key={video.id} video={video} variant="row" onPress={() => openVideo(video)} />
-                    ))
-                  )}
-                </View>
+              {(segment === "all" ? sectionOrder : [segment as HypeSectionKey]).map((key) => {
+                const node = renderSection(key, false);
+                return node ? <View key={key}>{node}</View> : null;
+              })}
+              {nothingAtAll || segmentEmpty ? (
+                <EmptyStateCard
+                  title="Nothing hyped right now"
+                  description="New drops, polls, events and videos land here often. Pull down to check again."
+                  icon="flame-outline"
+                  mascot={false}
+                />
               ) : null}
-
-              {showDrops && drops.length ? (
-                <View style={styles.section}>
-                  {segment !== "all" ? <SectionTitle title="Drops" /> : null}
-                  {(segment === "all" ? drops.slice(0, 2) : drops).map((drop) => (
-                    <HypeDropCard
-                      key={drop.id}
-                      drop={drop}
-                      active={isFocused}
-                      reminded={reminders.has(drop.id)}
-                      onGrab={() => openItem(drop)}
-                      onOpenDetails={() => setDetails(drop)}
-                      onToggleReminder={() => void handleReminder(drop)}
-                    />
-                  ))}
-                  {segment === "all" && drops.length > 2 ? (
-                    <Pressable onPress={() => changeSegment("drops")} style={styles.moreButton} accessibilityRole="button">
-                      <Text style={styles.moreText}>See all {drops.length} drops</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {showPolls && polls.length ? (
-                <View style={styles.section}>
-                  <SectionTitle
-                    title="Netrakona votes"
-                    action={segment === "all" && polls.length > 2 ? "See all" : undefined}
-                    onAction={() => changeSegment("polls")}
-                  />
-                  {(segment === "all" ? polls.slice(0, 2) : polls).map((poll) => (
-                    <HypePollCard
-                      key={poll.id}
-                      poll={poll}
-                      voting={voteMutation.isPending && voteMutation.variables?.pollId === poll.id}
-                      onVote={(optionId) =>
-                        voteMutation.mutate(
-                          { pollId: poll.id, optionId },
-                          {
-                            onError: (error) =>
-                              appAlert("Couldn't vote", error instanceof Error ? error.message : "Try again."),
-                          },
-                        )
-                      }
-                      onOpenComments={() => {
-                        trackHypeEvent(poll.id, "open");
-                        setCommentsFor(poll);
-                      }}
-                    />
-                  ))}
-                </View>
-              ) : null}
-
-              {showEvents && events.length ? (
-                <View style={styles.section}>
-                  <SectionTitle
-                    title="Happening in Netrakona"
-                    action={segment === "all" && events.length > 3 ? "See all" : undefined}
-                    onAction={() => changeSegment("events")}
-                  />
-                  {(segment === "all" ? events.slice(0, 3) : events).map((event) => (
-                    <HypeEventRow
-                      key={event.id}
-                      event={event}
-                      reminded={reminders.has(event.id)}
-                      onPress={() => setDetails(event)}
-                      onToggleReminder={() => void handleReminder(event)}
-                    />
-                  ))}
-                </View>
-              ) : null}
-
             </Animated.View>
           )}
         </ScrollView>
       </BelaPullToRefresh>
 
       <HypeDetailsSheet
-        item={details}
+        // Live copy from the feed so counts update while the sheet is open.
+        item={details ? events.find((event) => event.id === details.id) ?? drops.find((drop) => drop.id === details.id) ?? details : null}
         reminded={details ? reminders.has(details.id) : false}
+        myReaction={details ? feed?.myReactions?.[details.id] ?? null : null}
+        going={details ? Boolean(feed?.myGoing?.[details.id]) : false}
+        onReact={(item, next) => reactToEvent(item, next)}
+        onToggleGoing={(item) => toggleGoing(item)}
         onClose={() => setDetails(null)}
         onOpenTarget={(item) => {
           setDetails(null);
@@ -386,4 +593,6 @@ const styles = StyleSheet.create({
   skeletonTile: { width: 132, height: 176, borderRadius: 18 },
   skeletonDrop: { height: 250, borderRadius: 22, marginTop: 10 },
   skeletonRow: { height: 80, borderRadius: 18 },
+  skeletonQuiz: { height: 128, borderRadius: 24 },
+  skeletonPoll: { height: 200, borderRadius: 22 },
 });

@@ -71,6 +71,7 @@ export function HypeDropCard({
           <Text style={styles.dropBadgeText}>{ended ? "ENDED" : isLive ? "LIVE DROP" : "COMING SOON"}</Text>
         </View>
         {drop.limitLabel ? <Text style={styles.dropLimit}>{drop.limitLabel}</Text> : null}
+        {dropStockLine(drop) ? <Text style={styles.dropStock}>🔥 {dropStockLine(drop)}</Text> : null}
       </View>
       <Pressable
         style={styles.dropCopy}
@@ -141,16 +142,108 @@ export function HypeDropCard({
 }
 
 // ── Event row: date tile + title + "Remind me". ──
+/** 1234 → "1.2K" (views / likes on small tiles). */
+export function compactCount(value: number) {
+  if (!Number.isFinite(value) || value < 1000) return String(Math.max(0, Math.round(value || 0)));
+  if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0).replace(/.0$/, "")}K`;
+  return `${(value / 1_000_000).toFixed(1).replace(/.0$/, "")}M`;
+}
+
+/** drop: "12 grabbed · 38 left" when the admin set a stock (else null). */
+export function dropStockLine(drop: HypeItem) {
+  const total = drop.stockTotal ?? 0;
+  if (total <= 0) return null;
+  const grabbed = Math.min(drop.grabbedCount ?? 0, total);
+  const left = Math.max(0, total - grabbed);
+  return left === 0 ? `All ${total} grabbed — sold out` : `${compactCount(grabbed)} grabbed · ${left} left`;
+}
+
+/** 👍 / 👎 / "Going" for an event — used on the event row and in the details sheet. */
+export function HypeEventActions({
+  event,
+  myReaction,
+  going,
+  onReact,
+  onToggleGoing,
+  size = "small",
+}: {
+  event: HypeItem;
+  myReaction?: "like" | "dislike" | null;
+  going?: boolean;
+  onReact?: (reaction: "like" | "dislike") => void;
+  onToggleGoing?: () => void;
+  size?: "small" | "large";
+}) {
+  const large = size === "large";
+  const pill = [styles.reactPill, large ? styles.reactPillLarge : null];
+  const iconSize = large ? 16 : 13;
+  return (
+    <View style={[styles.reactRow, large ? styles.reactRowLarge : null]}>
+      {onToggleGoing ? (
+        <Pressable
+          onPress={onToggleGoing}
+          hitSlop={6}
+          style={({ pressed }) => [...pill, going ? styles.goingOn : null, pressed ? styles.pressed : null]}
+          accessibilityRole="button"
+          accessibilityLabel={going ? "Not going" : "I'm going"}
+          accessibilityState={{ selected: Boolean(going) }}
+        >
+          <Ionicons name={going ? "checkmark-circle" : "walk-outline"} size={iconSize} color={going ? palette.onPrimary : palette.foreground} />
+          <Text style={[styles.reactText, large ? styles.reactTextLarge : null, going ? styles.goingText : null]}>
+            {going ? "Going" : "I'm going"}
+            {event.goingCount ? ` · ${compactCount(event.goingCount)}` : ""}
+          </Text>
+        </Pressable>
+      ) : null}
+      {onReact ? (
+        <>
+          <Pressable
+            onPress={() => onReact("like")}
+            hitSlop={6}
+            style={({ pressed }) => [...pill, myReaction === "like" ? styles.reactPillLike : null, pressed ? styles.pressed : null]}
+            accessibilityRole="button"
+            accessibilityLabel={myReaction === "like" ? "Remove like" : "Like"}
+            accessibilityState={{ selected: myReaction === "like" }}
+          >
+            <Ionicons name={myReaction === "like" ? "thumbs-up" : "thumbs-up-outline"} size={iconSize} color={palette.foreground} />
+            <Text style={[styles.reactText, large ? styles.reactTextLarge : null]}>{compactCount(event.likeCount)}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onReact("dislike")}
+            hitSlop={6}
+            style={({ pressed }) => [...pill, myReaction === "dislike" ? styles.reactPillDislike : null, pressed ? styles.pressed : null]}
+            accessibilityRole="button"
+            accessibilityLabel={myReaction === "dislike" ? "Remove dislike" : "Dislike"}
+            accessibilityState={{ selected: myReaction === "dislike" }}
+          >
+            <Ionicons name={myReaction === "dislike" ? "thumbs-down" : "thumbs-down-outline"} size={iconSize} color={palette.foreground} />
+            <Text style={[styles.reactText, large ? styles.reactTextLarge : null]}>{compactCount(event.dislikeCount ?? 0)}</Text>
+          </Pressable>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export function HypeEventRow({
   event,
   reminded,
+  myReaction,
+  going,
   onPress,
   onToggleReminder,
+  onReact,
+  onToggleGoing,
 }: {
   event: HypeItem;
   reminded: boolean;
+  myReaction?: "like" | "dislike" | null;
+  going?: boolean;
   onPress: () => void;
   onToggleReminder: () => void;
+  /** Like / dislike (tap again to clear). */
+  onReact?: (reaction: "like" | "dislike") => void;
+  onToggleGoing?: () => void;
 }) {
   const date = event.startsAt ? new Date(event.startsAt) : null;
   const started = date ? date.getTime() <= Date.now() : false;
@@ -175,6 +268,15 @@ export function HypeEventRow({
             .filter(Boolean)
             .join(" · ")}
         </Text>
+        {onReact || onToggleGoing ? (
+          <HypeEventActions
+            event={event}
+            myReaction={myReaction}
+            going={going}
+            onReact={onReact}
+            onToggleGoing={onToggleGoing}
+          />
+        ) : null}
       </View>
       {started ? (
         <View style={styles.eventNow}>
@@ -205,10 +307,13 @@ export function HypeVideoTile({
   video,
   variant,
   onPress,
+  isNew = false,
 }: {
   video: HypeItem;
   variant: "rail" | "row";
   onPress: () => void;
+  /** Recently published and not watched on this phone → small amber "NEW" dot. */
+  isNew?: boolean;
 }) {
   const thumb = video.imageUrl || youtubeThumbnail(video.youtubeId);
   if (variant === "rail") {
@@ -219,6 +324,12 @@ export function HypeVideoTile({
         <View style={styles.playDot}>
           <Ionicons name="play" size={18} color={palette.onPrimary} />
         </View>
+        {isNew ? (
+          <View style={styles.newBadge}>
+            <View style={styles.newDot} />
+            <Text style={styles.newText}>NEW</Text>
+          </View>
+        ) : null}
         <Text style={styles.railTitle} numberOfLines={2}>
           {video.title}
         </Text>
@@ -236,11 +347,20 @@ export function HypeVideoTile({
       </View>
       <View style={styles.videoRowCopy}>
         <Text style={styles.videoRowTitle} numberOfLines={2}>
+          {isNew ? <Text style={styles.newInline}>● </Text> : null}
           {video.title}
         </Text>
-        <Text style={styles.videoRowMeta} numberOfLines={1}>
-          {[video.restaurantName, `${video.likeCount} likes`].filter(Boolean).join(" · ")}
-        </Text>
+        <View style={styles.videoStats}>
+          <Ionicons name="eye-outline" size={13} color={palette.mutedForeground} />
+          <Text style={styles.videoRowMeta}>{compactCount(video.viewCount)} views</Text>
+          <Ionicons name="thumbs-up-outline" size={12} color={palette.mutedForeground} style={styles.videoStatGap} />
+          <Text style={styles.videoRowMeta}>{compactCount(video.likeCount)}</Text>
+        </View>
+        {video.restaurantName ? (
+          <Text style={styles.videoRowMeta} numberOfLines={1}>
+            {video.restaurantName}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -324,6 +444,44 @@ const styles = StyleSheet.create({
   eventMonth: { fontSize: 11, fontWeight: "700", color: palette.secondary },
   eventDay: { fontSize: 20, lineHeight: 24, fontWeight: "800", color: palette.foreground },
   eventCopy: { flex: 1, minWidth: 0, gap: 2 },
+  reactRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
+  reactRowLarge: { gap: 8, marginTop: 0 },
+  reactPillLarge: { height: 38, paddingHorizontal: 14, borderRadius: 19 },
+  reactTextLarge: { fontSize: 13.5 },
+  goingOn: { backgroundColor: palette.primary, borderColor: palette.primary },
+  goingText: { color: palette.onPrimary },
+  dropStock: { fontSize: 12.5, fontWeight: "700", color: palette.primary },
+  reactPill: {
+    height: 28,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E3E4E7",
+    backgroundColor: palette.surface,
+  },
+  reactPillLike: { borderColor: palette.primary, backgroundColor: palette.primarySoft },
+  reactPillDislike: { borderColor: palette.foreground, backgroundColor: palette.surfaceMuted },
+  reactText: { fontSize: 12, fontWeight: "700", color: palette.foreground },
+  videoStats: { flexDirection: "row", alignItems: "center", gap: 4 },
+  newBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  newDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.primary },
+  newText: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5, color: "#FFFFFF" },
+  newInline: { color: palette.primary, fontWeight: "700" },
+  videoStatGap: { marginLeft: 8 },
   eventTitle: { fontSize: 14.5, lineHeight: 19, fontWeight: "700", color: palette.foreground },
   eventMeta: { fontSize: 12, lineHeight: 16, color: palette.mutedForeground },
   remindButton: {

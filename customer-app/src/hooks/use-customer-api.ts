@@ -88,6 +88,7 @@ type PlatformContentResponse = {
     phone?: string;
     email?: string;
     supportHours?: string;
+    socialLinks?: Partial<Record<SocialNetwork, { enabled?: boolean; url?: string }>>;
   };
   customerApp?: {
     homeCms?: Partial<CustomerHomeCms>;
@@ -657,6 +658,24 @@ export function useCustomerSupportContactQuery() {
       email: content.supportContact?.email?.trim() || "support@foodbela.com",
       hours: content.supportContact?.supportHours?.trim() || "",
     }),
+  });
+}
+
+export type SocialNetwork = "facebook" | "instagram" | "youtube" | "tiktok";
+const SOCIAL_ORDER: SocialNetwork[] = ["facebook", "instagram", "youtube", "tiktok"];
+
+/** Admin-enabled social links (Account tab "Follow us"); only enabled + https links. */
+export function useCustomerSocialLinksQuery() {
+  return useQuery({
+    queryKey: ["platform-content"],
+    staleTime: 5 * 60_000,
+    queryFn: fetchCustomerPlatformContent,
+    select: (content) =>
+      SOCIAL_ORDER.flatMap((network) => {
+        const link = content.supportContact?.socialLinks?.[network];
+        const url = link?.url?.trim() ?? "";
+        return link?.enabled && /^https:\/\/\S+$/i.test(url) ? [{ network, url }] : [];
+      }),
   });
 }
 

@@ -15,6 +15,7 @@ const TRANSIENT_TYPES = new Set([
   "rider_live_tracking",
   "order_chat",
   "open_notify",
+  "quiz_play",
 ])
 
 const OFFER_TYPES = new Set([

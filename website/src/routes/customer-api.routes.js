@@ -1,6 +1,7 @@
 const express = require("express");
 const { customerRequest, backendRequest } = require("../services/customer-api.service");
 const { readSession, writeSession, clearSession } = require("../services/customer-session.service");
+const { ensurePlayerKey } = require("../services/quiz-player.service");
 const router = express.Router();
 const limits = new Map();
 router.use((req, res, next) => {
@@ -67,6 +68,21 @@ for (const action of ["phone/password", "phone/verify"]) {
     return { customer: data.customer };
   }));
 }
+// Friend quiz (foodbela.com/q/:code): the player key comes from the httpOnly cookie, never the client.
+const quizCode = (req) => {
+  const code = String(req.params.code || "").toLowerCase();
+  if (!/^[a-z0-9]{6,12}$/.test(code)) throw Object.assign(new Error("Quiz পাওয়া যায়নি।"), { statusCode: 404 });
+  return code;
+};
+const quizPost = (action, pick) => wrap((req, res) => backendRequest(`/website/quiz/${quizCode(req)}/${action}`, {
+  method: "POST",
+  body: { anonymousId: ensurePlayerKey(req, res), ...pick(req.body || {}) },
+  userAgent: req.headers["user-agent"],
+  clientIp: req.ip,
+}));
+router.post("/quiz/:code/start", quizPost("start", (body) => ({ name: String(body.name || "").slice(0, 60) })));
+router.post("/quiz/:code/answer", quizPost("answer", (body) => ({ index: Number(body.index), optionId: String(body.optionId || "").slice(0, 20) })));
+router.post("/quiz/:code/make-own", quizPost("make-own", () => ({})));
 router.post("/auth/logout", wrap(async (req, res) => {
   const session = readSession(req);
   try { if (session) await backendRequest("/customer/auth/logout", { method: "POST", body: { refreshToken: session.refreshToken } }); }

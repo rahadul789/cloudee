@@ -85,3 +85,10 @@ describe("live order push budget", () => {
     expect(shouldSendLiveOrderPush({ eventKey: "Cancelled", now: 1, last: { at: 0, eventKey: "Preparing" } })).toBe(true)
   })
 })
+
+describe("ready-for-pickup is never pushed", () => {
+  it("skips ReadyForPickup even after a long quiet gap", () => {
+    expect(shouldSendLiveOrderPush({ eventKey: "ReadyForPickup", now: 60 * 60_000, last: { at: 0, eventKey: "Accepted" } })).toBe(false)
+    expect(shouldSendLiveOrderPush({ eventKey: "ReadyForPickup", now: 0, last: null })).toBe(false)
+  })
+})

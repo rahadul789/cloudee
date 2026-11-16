@@ -728,6 +728,16 @@ export default function CartScreen() {
           </View>
         ) : (
           <>
+            {/* Pinned header: the restaurant name + back stay on top while the cart scrolls. */}
+            <View style={styles.stickyHeader}>
+              <AppHeader
+                inline
+                showBack={allCarts.length > 1}
+                onBack={() => setCartDetailOpen(false)}
+                eyebrow={allCarts.length > 1 ? `Cart · ${allCarts.length} carts` : "Cart"}
+                title={restaurant?.restaurantName || "Your cart"}
+              />
+            </View>
             <BelaPullToRefresh
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
@@ -737,13 +747,6 @@ export default function CartScreen() {
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.header}>
-                <AppHeader
-                  inline
-                  showBack={allCarts.length > 1}
-                  onBack={() => setCartDetailOpen(false)}
-                  eyebrow={allCarts.length > 1 ? `Cart · ${allCarts.length} carts` : "Cart"}
-                  title={restaurant?.restaurantName || "Your cart"}
-                />
                 {/* <Text style={styles.subtitle}>
                   Review your items, pricing, and checkout details before
                   placing the order.

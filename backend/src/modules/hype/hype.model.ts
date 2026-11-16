@@ -19,19 +19,30 @@ const hypeItemSchema = new Schema(
     imageUrl: { type: String, default: "", trim: true },
     // Where "Grab the deal" / "Order this" goes: a restaurant, or any in-app path.
     restaurantId: { type: Schema.Types.ObjectId, ref: "Restaurant", default: null },
+    // Optional dish: "Order this" opens the restaurant straight on this item (customize → cart).
+    menuItemId: { type: Schema.Types.ObjectId, ref: "MenuItem", default: null },
     ctaLabel: { type: String, default: "", trim: true, maxlength: 40 },
     ctaPath: { type: String, default: "", trim: true, maxlength: 300 },
     // Optional outside link (Facebook event, ticket site, news page…) → "Visit website" button.
     externalUrl: { type: String, default: "", trim: true, maxlength: 500 },
     startsAt: { type: Date, default: null },
     endsAt: { type: Date, default: null },
+    // drop: optional real stock — app shows "X grabbed · Y left" (grabbed = button taps).
+    stockTotal: { type: Number, default: 0, min: 0 },
+    // event: "I'm going" count.
+    goingCount: { type: Number, default: 0, min: 0 },
+    // Pinned to the very top of "For you" (admin "Featured").
+    isPinned: { type: Boolean, default: false },
+    // Orders placed after "Order this" on this item (attributed by the app, verified server-side).
+    orderCount: { type: Number, default: 0, min: 0 },
     // drop: short scarcity line ("Only 50 orders") — display only.
     limitLabel: { type: String, default: "", trim: true, maxlength: 60 },
     // event: where it happens.
     location: { type: String, default: "", trim: true, maxlength: 120 },
     // video
     youtubeId: { type: String, default: "", trim: true, maxlength: 20 },
-    category: { type: String, enum: HYPE_VIDEO_CATEGORIES, default: "food" },
+    // Video category id — admin-managed list (HypeSettings.videoCategories); the 4 built-ins are the defaults.
+    category: { type: String, default: "food", trim: true, maxlength: 30 },
     durationLabel: { type: String, default: "", trim: true, maxlength: 12 },
     likeCount: { type: Number, default: 0, min: 0 },
     dislikeCount: { type: Number, default: 0, min: 0 },
@@ -105,6 +116,53 @@ const hypeCommentSchema = new Schema(
 )
 hypeCommentSchema.index({ pollId: 1, status: 1, createdAt: -1 })
 
+// Admin layout of the Hype tab ("For you"): which section comes first. Single doc, key "default".
+export const HYPE_SECTIONS = ["featured", "quiz", "stamps", "videos", "drops", "polls", "events"] as const
+const hypeSettingsSchema = new Schema(
+  {
+    key: { type: String, default: "default", unique: true },
+    sectionOrder: { type: [String], default: [...HYPE_SECTIONS] },
+    /** Video categories (chips in the app). Admin can add / rename / remove. */
+    videoCategories: {
+      type: [
+        new Schema(
+          {
+            id: { type: String, required: true, trim: true, maxlength: 30 },
+            label: { type: String, required: true, trim: true, maxlength: 30 },
+          },
+          { _id: false },
+        ),
+      ],
+      default: undefined,
+    },
+  },
+  { timestamps: true },
+)
+
+export const HypeSettingsModel = model("HypeSettings", hypeSettingsSchema)
+
+// "Going" on an event — one per voter (customer id or device id).
+const hypeGoingSchema = new Schema(
+  {
+    itemId: { type: Schema.Types.ObjectId, ref: "HypeItem", required: true },
+    voterKey: { type: String, required: true, trim: true },
+  },
+  { timestamps: true },
+)
+hypeGoingSchema.index({ itemId: 1, voterKey: 1 }, { unique: true })
+hypeGoingSchema.index({ voterKey: 1 })
+export const HypeGoingModel = model("HypeGoing", hypeGoingSchema)
+
+// One attribution per order: "this order came from that video / drop".
+const hypeOrderAttributionSchema = new Schema(
+  {
+    orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, unique: true },
+    itemId: { type: Schema.Types.ObjectId, ref: "HypeItem", required: true, index: true },
+    customerId: { type: String, required: true },
+  },
+  { timestamps: true },
+)
+export const HypeOrderAttributionModel = model("HypeOrderAttribution", hypeOrderAttributionSchema)
 export type HypeItem = InferSchemaType<typeof hypeItemSchema>
 export const HypeItemModel = model("HypeItem", hypeItemSchema)
 export const HypeVideoReactionModel = model("HypeVideoReaction", hypeVideoReactionSchema)

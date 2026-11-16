@@ -66,6 +66,9 @@ function RootLayout() {
           <Stack.Screen name="watch/[videoId]" />
           <Stack.Screen name="guide-video" />
           <Stack.Screen name="rewards" />
+          <Stack.Screen name="quiz/index" />
+          <Stack.Screen name="quiz/create" />
+          <Stack.Screen name="quiz/questions" />
           <Stack.Screen
             name="location-picker"
             options={{ presentation: "card" }}

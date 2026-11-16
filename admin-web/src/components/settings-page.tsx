@@ -638,14 +638,6 @@ const defaultAppUpdateSettings: NonNullable<PlatformContent["operations"]["appUp
   storeUrl: "",
 }
 
-function ensureRiderAppUpdateSettings(content: PlatformContent) {
-  content.operations.riderAppUpdate = {
-    ...defaultAppUpdateSettings,
-    ...(content.operations.riderAppUpdate ?? {}),
-  }
-  return content.operations.riderAppUpdate
-}
-
 function ensureDeliveryCodeSettings(content: PlatformContent) {
   content.operations.deliveryCode = {
     enabled: false,
@@ -1925,10 +1917,6 @@ export function SettingsPage() {
     ...defaultAppUpdateSettings,
     ...(draft.operations.appUpdate ?? {}),
   }
-  const riderAppUpdate = {
-    ...defaultAppUpdateSettings,
-    ...(draft.operations.riderAppUpdate ?? {}),
-  }
   const deliveryCode = { enabled: false, maxAttempts: 5, ...(draft.operations.deliveryCode ?? {}) }
   const latestVersionInvalid =
     appUpdate.latestVersion.trim() !== "" && !VERSION_PATTERN.test(appUpdate.latestVersion.trim())
@@ -2729,71 +2717,6 @@ export function SettingsPage() {
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Smartphone className="size-4" />
-                    App update (rider app)
-                  </CardTitle>
-                  <CardDescription>
-                    Same as above, for the Foodbela Rider app (version from the delivery app&rsquo;s{" "}
-                    <code>app.json</code>). Works on rider app 1.1.0 and newer. Set the minimum
-                    version before turning on anything older riders can&rsquo;t handle (e.g. the
-                    delivery code).
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <SettingRow title="Enable rider update prompts" description="Master switch for the rider app.">
-                    <Switch
-                      checked={riderAppUpdate.enabled}
-                      onCheckedChange={(checked) =>
-                        updateDraft((content) => {
-                          ensureRiderAppUpdateSettings(content).enabled = checked
-                        })
-                      }
-                    />
-                  </SettingRow>
-                  <SettingRow title="Latest version (soft prompt)" description="Older rider apps see Update / Later.">
-                    <Input
-                      className="w-40"
-                      placeholder="e.g. 1.1.0"
-                      value={riderAppUpdate.latestVersion}
-                      aria-invalid={riderAppUpdate.latestVersion.trim() !== "" && !VERSION_PATTERN.test(riderAppUpdate.latestVersion.trim())}
-                      onChange={(event) =>
-                        updateDraft((content) => {
-                          ensureRiderAppUpdateSettings(content).latestVersion = event.target.value
-                        })
-                      }
-                    />
-                  </SettingRow>
-                  <SettingRow title="Minimum version (forced update)" description="Older rider apps are blocked until updated.">
-                    <Input
-                      className="w-40"
-                      placeholder="e.g. 1.1.0"
-                      value={riderAppUpdate.minimumVersion}
-                      aria-invalid={riderAppUpdate.minimumVersion.trim() !== "" && !VERSION_PATTERN.test(riderAppUpdate.minimumVersion.trim())}
-                      onChange={(event) =>
-                        updateDraft((content) => {
-                          ensureRiderAppUpdateSettings(content).minimumVersion = event.target.value
-                        })
-                      }
-                    />
-                  </SettingRow>
-                  <SettingRow title="Store link (optional)" description="Empty = the rider app on Google Play. Paste an APK/download link if riders install it outside Play.">
-                    <Input
-                      className="w-full max-w-md"
-                      placeholder="https://play.google.com/store/apps/details?id=com.haqrahadul.deliveryapp"
-                      value={riderAppUpdate.storeUrl}
-                      onChange={(event) =>
-                        updateDraft((content) => {
-                          ensureRiderAppUpdateSettings(content).storeUrl = event.target.value
-                        })
-                      }
-                    />
-                  </SettingRow>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
                     <ShieldCheck className="size-4" />
                     Delivery code at handover
                   </CardTitle>
@@ -2805,9 +2728,9 @@ export function SettingsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {!deliveryCode.enabled && riderAppUpdate.minimumVersion.trim() === "" ? (
+                  {!deliveryCode.enabled ? (
                     <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
-                      Before turning this on, set the rider app <b>Minimum version</b> to 1.1.0 —
+                      Turn this on only when <b>every rider</b> uses rider app 1.1.0 or newer —
                       older rider apps have no code screen and could not complete deliveries.
                     </p>
                   ) : null}
@@ -6349,6 +6272,52 @@ export function SettingsPage() {
                   }
                 />
               </SettingRow>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Social media (Account tab → Follow us)</CardTitle>
+              <CardDescription>
+                চালু করা আর link দেওয়া network-গুলোই অ্যাপের Account পাতায় icon হিসেবে দেখাবে। Link https:// দিয়ে শুরু হতে হবে।
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(
+                [
+                  ["facebook", "Facebook", "https://facebook.com/foodbela"],
+                  ["instagram", "Instagram", "https://instagram.com/foodbela"],
+                  ["youtube", "YouTube", "https://youtube.com/@foodbela"],
+                  ["tiktok", "TikTok", "https://tiktok.com/@foodbela"],
+                ] as const
+              ).map(([key, label, placeholder]) => {
+                const link = support.socialLinks?.[key] ?? { enabled: false, url: "" }
+                const invalid = Boolean(link.url) && !/^https:\/\/\S+$/i.test(link.url)
+                return (
+                  <SettingRow key={key} title={label} description={invalid ? "⚠️ Link https:// দিয়ে শুরু হতে হবে" : link.enabled ? "অ্যাপে দেখাচ্ছে" : "বন্ধ"}>
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={link.enabled}
+                        onCheckedChange={(checked) =>
+                          updateDraft((content) => {
+                            const links = (content.supportContact.socialLinks ??= {})
+                            links[key] = { url: links[key]?.url ?? "", enabled: checked }
+                          })
+                        }
+                      />
+                      <Input
+                        value={link.url}
+                        placeholder={placeholder}
+                        onChange={(event) =>
+                          updateDraft((content) => {
+                            const links = (content.supportContact.socialLinks ??= {})
+                            links[key] = { enabled: links[key]?.enabled ?? false, url: event.target.value.trim() }
+                          })
+                        }
+                      />
+                    </div>
+                  </SettingRow>
+                )
+              })}
             </CardContent>
           </Card>
         </TabsContent>

@@ -19,6 +19,13 @@ export const styles = StyleSheet.create({
     paddingBottom: 160,
     gap: 20,
   },
+  // Pinned above the scroll so the restaurant name + back never scroll away.
+  stickyHeader: {
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    backgroundColor: palette.background,
+    zIndex: 2,
+  },
   // Same position as checkout: 16px gutter, no extra top offset (back button lines up).
   header: {
     paddingHorizontal: 16,

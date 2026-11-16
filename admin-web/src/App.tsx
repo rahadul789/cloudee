@@ -243,6 +243,11 @@ const HypePage = React.lazy(() =>
     default: module.HypePage,
   }))
 )
+const QuizPage = React.lazy(() =>
+  import("@/components/quiz-page").then((module) => ({
+    default: module.QuizPage,
+  }))
+)
 const WinBackPage = React.lazy(() =>
   import("@/components/win-back-page").then((module) => ({
     default: module.WinBackPage,
@@ -3453,6 +3458,14 @@ const router = createBrowserRouter([
         element: (
           <React.Suspense fallback={<RouteLoading />}>
             <HypePage />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: "quiz",
+        element: (
+          <React.Suspense fallback={<RouteLoading />}>
+            <QuizPage />
           </React.Suspense>
         ),
       },

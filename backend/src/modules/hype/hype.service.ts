@@ -3,14 +3,20 @@ import { StatusCodes } from "http-status-codes"
 
 import { AppError } from "../../common/utils/app-error"
 import { createInMemoryAsyncCache } from "../../common/utils/in-memory-cache"
+import { isQuizEnabled } from "../quiz/quiz.service"
 import { RestaurantModel } from "../auth/auth.model"
 import { CustomerModel } from "../customer/customer.model"
+import { CategoryModel, MenuItemModel, OrderModel } from "../owner/operational.model"
 import {
   HYPE_EVENT_TYPES,
+  HYPE_SECTIONS,
   HypeCommentModel,
   HypeItemModel,
   HypePollVoteModel,
+  HypeSettingsModel,
   HypeVideoReactionModel,
+  HypeGoingModel,
+  HypeOrderAttributionModel,
 } from "./hype.model"
 import {
   isDropVisible,
@@ -64,6 +70,7 @@ function toPublic(item: LeanItem) {
     imageUrl: item.imageUrl ?? "",
     restaurantId: item.restaurantId ? String(item.restaurantId) : null,
     restaurantName: item.restaurantName ?? "",
+    menuItemId: item.restaurantId && item.menuItemId ? String(item.menuItemId) : null,
     ctaLabel: item.ctaLabel ?? "",
     ctaPath: item.ctaPath ?? "",
     externalUrl: item.externalUrl ?? "",
@@ -75,6 +82,14 @@ function toPublic(item: LeanItem) {
     category: item.category ?? "food",
     durationLabel: item.durationLabel ?? "",
     likeCount: item.likeCount ?? 0,
+    dislikeCount: item.dislikeCount ?? 0,
+    // "New" dot in the app (videos added in the last few days that you haven't watched).
+    createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : null,
+    isPinned: item.isPinned === true,
+    goingCount: item.goingCount ?? 0,
+    // drop: real numbers for "X grabbed · Y left" (0 stock = not shown).
+    grabbedCount: item.kind === "drop" ? item.ctaCount ?? 0 : 0,
+    stockTotal: item.kind === "drop" ? item.stockTotal ?? 0 : 0,
     viewCount: item.viewCount ?? 0,
     // poll (vote counts are filled per caller in pollView — hidden until you vote)
     pollOptions: ((item.pollOptions ?? []) as Array<{ id: string; label: string }>).map((option) => ({
@@ -112,7 +127,7 @@ function voterKeyOf(params: { customerId?: string; deviceId?: string }) {
   return device ? `d:${device}` : ""
 }
 
-export async function getHypeFeed(params: { customerId?: string; deviceId?: string }) {
+export async function getHypeFeed(params: { customerId?: string; deviceId?: string; videoLimit?: number }) {
   const now = Date.now()
   const items = await loadPublishedItems()
   const drops = items
@@ -150,10 +165,19 @@ export async function getHypeFeed(params: { customerId?: string; deviceId?: stri
     for (const row of rows) myVotes[String(row.pollId)] = row.optionId
   }
   const myReactions: Record<string, "like" | "dislike"> = {}
-  if (voterKey && videos.length) {
+  const myGoing: Record<string, boolean> = {}
+  if (voterKey && events.length) {
+    const rows = await HypeGoingModel.find({ voterKey, itemId: { $in: events.map((event) => event._id) } })
+      .select({ itemId: 1 })
+      .lean()
+    for (const row of rows) myGoing[String(row.itemId)] = true
+  }
+  // Likes / dislikes on videos and on "Happening in Netrakona" events share one table.
+  const reactable = [...videos, ...events]
+  if (voterKey && reactable.length) {
     const rows = await HypeVideoReactionModel.find({
       voterKey,
-      videoId: { $in: videos.map((video) => video._id) },
+      videoId: { $in: reactable.map((item) => item._id) },
     })
       .select({ videoId: 1, reaction: 1 })
       .lean()
@@ -164,9 +188,25 @@ export async function getHypeFeed(params: { customerId?: string; deviceId?: stri
     serverTime: new Date(now).toISOString(),
     drops: drops.map(toPublic),
     events: events.map(toPublic),
-    videos: videos.map(toPublic),
+    // New apps ask for a short rail (videoLimit) and page the rest via /hype/videos; old apps get all.
+    videos: (params.videoLimit ? videos.slice(0, params.videoLimit) : videos).map(toPublic),
+    videoTotal: videos.length,
+    videoCategories: await getHypeVideoCategories(),
+    latestAt: latestContentAt(items, now),
     polls: polls.map((poll) => pollView(poll, myVotes[String(poll._id)] ?? null, now)),
     myReactions,
+    myGoing,
+    // Admin "Featured" pins: shown at the very top of "For you" (any kind that is currently visible).
+    pinned: [
+      ...videos.filter((item) => item.isPinned).map(toPublic),
+      ...drops.filter((item) => item.isPinned).map(toPublic),
+      ...events.filter((item) => item.isPinned).map(toPublic),
+      ...polls.filter((item) => item.isPinned).map((poll) => pollView(poll, myVotes[String(poll._id)] ?? null, now)),
+    ].slice(0, 3),
+    // Friend quiz card at the top of Hype (admin on/off). Older apps ignore it.
+    quiz: { enabled: await isQuizEnabled() },
+    // Admin-chosen order of the "For you" sections (older apps ignore it).
+    sectionOrder: await getHypeSectionOrder(),
   }
 }
 
@@ -360,7 +400,8 @@ export async function reactToHypeVideo(params: {
   if (!voterKey) {
     throw new AppError(StatusCodes.BAD_REQUEST, "VOTER_REQUIRED", "deviceId is required")
   }
-  const video = await HypeItemModel.findOne({ _id: params.videoId, kind: "video", isPublished: true })
+  // Videos and events can be liked / disliked (same endpoint and table).
+  const video = await HypeItemModel.findOne({ _id: params.videoId, kind: { $in: ["video", "event"] }, isPublished: true })
     .select({ _id: 1 })
     .lean()
   if (!video) throw new AppError(StatusCodes.NOT_FOUND, "VIDEO_NOT_FOUND", "Video not found")
@@ -387,8 +428,13 @@ export async function reactToHypeVideo(params: {
     )
     invalidateFeed()
   }
-  const fresh = await HypeItemModel.findById(video._id).select({ likeCount: 1 }).lean()
-  return { videoId: String(video._id), reaction: next, likeCount: fresh?.likeCount ?? 0 }
+  const fresh = await HypeItemModel.findById(video._id).select({ likeCount: 1, dislikeCount: 1 }).lean()
+  return {
+    videoId: String(video._id),
+    reaction: next,
+    likeCount: fresh?.likeCount ?? 0,
+    dislikeCount: fresh?.dislikeCount ?? 0,
+  }
 }
 
 export async function recordHypeVideoView(videoId: string) {
@@ -405,15 +451,18 @@ export type HypeItemInput = {
   description?: string
   imageUrl?: string
   restaurantId?: string | null
+  menuItemId?: string | null
   ctaLabel?: string
   ctaPath?: string
   externalUrl?: string
   startsAt?: string | null
   endsAt?: string | null
   limitLabel?: string
+  stockTotal?: number
+  isPinned?: boolean
   location?: string
   youtubeUrl?: string
-  category?: "food" | "funny" | "local" | "other"
+  category?: string
   durationLabel?: string
   isPublished?: boolean
   position?: number
@@ -475,12 +524,17 @@ function normalizeInput(input: HypeItemInput, existingOptions: Array<{ id: strin
     description: input.description?.trim() ?? "",
     imageUrl: input.imageUrl?.trim() ?? "",
     restaurantId,
+    // A dish only makes sense together with its restaurant.
+    menuItemId:
+      restaurantId && input.menuItemId && mongoose.Types.ObjectId.isValid(input.menuItemId) ? input.menuItemId : null,
     ctaLabel: input.ctaLabel?.trim() ?? "",
     ctaPath: input.ctaPath?.trim() ?? "",
     externalUrl: normalizeExternalUrl(input.externalUrl),
     startsAt,
     endsAt,
     limitLabel: input.limitLabel?.trim() ?? "",
+    stockTotal: input.kind === "drop" && Number.isFinite(input.stockTotal) ? Math.max(0, Math.round(Number(input.stockTotal))) : 0,
+    isPinned: input.isPinned === true,
     location: input.location?.trim() ?? "",
     youtubeId,
     category: input.category ?? "food",
@@ -504,6 +558,7 @@ function toAdmin(item: LeanItem) {
     impressionCount: item.impressionCount ?? 0,
     openCount: item.openCount ?? 0,
     ctaCount: item.ctaCount ?? 0,
+    orderCount: item.orderCount ?? 0,
     websiteCount: item.websiteCount ?? 0,
     remindCount: item.remindCount ?? 0,
     voteCount: item.voteCount ?? 0,
@@ -560,4 +615,215 @@ export async function deleteAdminHypeItem(id: string) {
   await HypeCommentModel.deleteMany({ pollId: id })
   invalidateFeed()
   return { deleted: true }
+}
+
+// ── Section order of the "For you" feed (admin) ──
+let sectionOrderCache: { value: string[]; at: number } | null = null
+
+/** Valid, de-duplicated order; sections missing from the saved list are appended (new ones show). */
+export function normaliseSectionOrder(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw.map(String) : []
+  const known = new Set<string>(HYPE_SECTIONS)
+  const ordered = list.filter((key, index) => known.has(key) && list.indexOf(key) === index)
+  HYPE_SECTIONS.forEach((key, defaultIndex) => {
+    if (!ordered.includes(key)) ordered.splice(Math.min(defaultIndex, ordered.length), 0, key)
+  })
+  return ordered
+}
+
+export async function getHypeSectionOrder(): Promise<string[]> {
+  if (sectionOrderCache && Date.now() - sectionOrderCache.at < 30_000) return sectionOrderCache.value
+  try {
+    const doc = await HypeSettingsModel.findOne({ key: "default" }).lean()
+    const value = normaliseSectionOrder(doc?.sectionOrder)
+    sectionOrderCache = { value, at: Date.now() }
+    return value
+  } catch {
+    return [...HYPE_SECTIONS]
+  }
+}
+
+export async function saveHypeSectionOrder(order: string[]) {
+  const value = normaliseSectionOrder(order)
+  await HypeSettingsModel.updateOne({ key: "default" }, { $set: { sectionOrder: value } }, { upsert: true })
+  sectionOrderCache = null
+  invalidateFeed()
+  return { sectionOrder: value }
+}
+
+// ── Video categories (admin) ──
+export const DEFAULT_VIDEO_CATEGORIES = [
+  { id: "food", label: "Food" },
+  { id: "funny", label: "Funny" },
+  { id: "local", label: "Netrakona" },
+  { id: "other", label: "More" },
+]
+let videoCategoryCache: { value: Array<{ id: string; label: string }>; at: number } | null = null
+
+export function normaliseVideoCategories(raw: unknown) {
+  const list = Array.isArray(raw) ? raw : []
+  const seen = new Set<string>()
+  const out: Array<{ id: string; label: string }> = []
+  for (const entry of list) {
+    const label = String((entry as { label?: unknown })?.label ?? "").trim().slice(0, 30)
+    let id = String((entry as { id?: unknown })?.id ?? "").trim().toLowerCase()
+    if (!id) id = label.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "")
+    id = id.slice(0, 30)
+    if (!label || !id || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, label })
+  }
+  return out.length ? out.slice(0, 20) : DEFAULT_VIDEO_CATEGORIES
+}
+
+export async function getHypeVideoCategories() {
+  if (videoCategoryCache && Date.now() - videoCategoryCache.at < 30_000) return videoCategoryCache.value
+  try {
+    const doc = await HypeSettingsModel.findOne({ key: "default" }).lean()
+    const value = normaliseVideoCategories(doc?.videoCategories)
+    videoCategoryCache = { value, at: Date.now() }
+    return value
+  } catch {
+    return DEFAULT_VIDEO_CATEGORIES
+  }
+}
+
+export async function saveHypeVideoCategories(categories: Array<{ id?: string; label: string }>) {
+  const value = normaliseVideoCategories(categories)
+  await HypeSettingsModel.updateOne({ key: "default" }, { $set: { videoCategories: value } }, { upsert: true })
+  videoCategoryCache = null
+  invalidateFeed()
+  return { videoCategories: value }
+}
+
+/** Newest publish time among items currently visible in the feed (drives the Hype tab dot). */
+function latestContentAt(items: LeanItem[], now: number) {
+  let latest = 0
+  for (const item of items) {
+    const visible =
+      item.kind === "video" ? Boolean(item.youtubeId)
+      : item.kind === "drop" ? isDropVisible(item, now)
+      : item.kind === "event" ? isEventVisible(item, now)
+      : item.kind === "poll" ? isPollOpen(item, now)
+      : false
+    if (!visible) continue
+    const at = new Date(item.createdAt ?? 0).getTime()
+    if (Number.isFinite(at) && at > latest && at <= now) latest = at
+  }
+  return latest ? new Date(latest).toISOString() : null
+}
+
+/** Light check for the bottom-tab dot: only the newest publish time. */
+export async function getHypeLatest() {
+  const items = await loadPublishedItems()
+  return { latestAt: latestContentAt(items, Date.now()) }
+}
+
+/** Paged videos for the Videos tab / watch screen (infinite scroll), optionally one category. */
+export async function listHypeVideos(params: { category?: string; page: number; pageSize: number }) {
+  const items = await loadPublishedItems()
+  const videos = items
+    .filter((item) => item.kind === "video" && item.youtubeId)
+    .filter((item) => !params.category || params.category === "all" || item.category === params.category)
+    .sort((a, b) => {
+      if ((a.position ?? 0) !== (b.position ?? 0)) return (a.position ?? 0) - (b.position ?? 0)
+      return videoScore(b) - videoScore(a)
+    })
+  const start = (params.page - 1) * params.pageSize
+  const pageItems = videos.slice(start, start + params.pageSize)
+  return {
+    items: pageItems.map(toPublic),
+    page: params.page,
+    total: videos.length,
+    hasMore: start + pageItems.length < videos.length,
+  }
+}
+
+/** One published video (the watch screen can open videos that aren't in the feed rail). */
+export async function getHypeVideo(videoId: string) {
+  const items = await loadPublishedItems()
+  const video = items.find((item) => item.kind === "video" && item.youtubeId && String(item._id) === videoId)
+  if (!video) throw new AppError(StatusCodes.NOT_FOUND, "VIDEO_NOT_FOUND", "Video not found")
+  return toPublic(video)
+}
+
+/** Admin picker: a restaurant's live dishes (for "Order this" → that item). */
+export async function listAdminRestaurantMenuItems(restaurantId: string) {
+  if (!mongoose.Types.ObjectId.isValid(restaurantId)) return []
+  const [items, categories] = await Promise.all([
+    MenuItemModel.find({ restaurantId, isDeleted: { $ne: true }, status: { $ne: "deleted" } })
+      .select({ name: 1, categoryId: 1, basePrice: 1, status: 1 })
+      .sort({ name: 1 })
+      .limit(500)
+      .lean(),
+    CategoryModel.find({ restaurantId, status: { $ne: "deleted" } }).select({ name: 1, displayOrder: 1 }).lean(),
+  ])
+  const categoryById = new Map(categories.map((category) => [String(category._id), category]))
+  return items
+    .map((item) => {
+      const category = categoryById.get(String(item.categoryId))
+      return {
+        id: String(item._id),
+        name: item.name,
+        categoryName: category?.name ?? "",
+        categoryOrder: category?.displayOrder ?? 0,
+        price: item.basePrice ?? 0,
+        archived: item.status === "archived",
+      }
+    })
+    .sort((a, b) => a.categoryOrder - b.categoryOrder || a.categoryName.localeCompare(b.categoryName) || a.name.localeCompare(b.name))
+}
+
+// ── Event "Going" ──
+export async function setHypeGoing(params: { itemId: string; going: boolean; customerId?: string; deviceId?: string }) {
+  if (!mongoose.Types.ObjectId.isValid(params.itemId)) {
+    throw new AppError(StatusCodes.NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
+  }
+  const voterKey = voterKeyOf(params)
+  if (!voterKey) throw new AppError(StatusCodes.BAD_REQUEST, "VOTER_REQUIRED", "deviceId is required")
+  const event = await HypeItemModel.findOne({ _id: params.itemId, kind: "event", isPublished: true }).select({ _id: 1 }).lean()
+  if (!event) throw new AppError(StatusCodes.NOT_FOUND, "EVENT_NOT_FOUND", "Event not found")
+  if (params.going) {
+    const result = await HypeGoingModel.updateOne(
+      { itemId: event._id, voterKey },
+      { $setOnInsert: { itemId: event._id, voterKey } },
+      { upsert: true },
+    )
+    if (result.upsertedCount) await HypeItemModel.updateOne({ _id: event._id }, { $inc: { goingCount: 1 } })
+  } else {
+    const result = await HypeGoingModel.deleteOne({ itemId: event._id, voterKey })
+    if (result.deletedCount) {
+      await HypeItemModel.updateOne({ _id: event._id, goingCount: { $gt: 0 } }, { $inc: { goingCount: -1 } })
+    }
+  }
+  invalidateFeed()
+  const fresh = await HypeItemModel.findById(event._id).select({ goingCount: 1 }).lean()
+  return { itemId: String(event._id), going: params.going, goingCount: fresh?.goingCount ?? 0 }
+}
+
+// ── "This order came from that video / drop" ──
+const ATTRIBUTION_WINDOW_MS = 3 * 60 * 60_000
+
+/** App reports it after an order placed within 3h of tapping "Order this"; verified here. */
+export async function attributeHypeOrder(params: { customerId: string; orderId: string; itemId: string }) {
+  if (!mongoose.Types.ObjectId.isValid(params.orderId) || !mongoose.Types.ObjectId.isValid(params.itemId)) {
+    return { attributed: false }
+  }
+  const [order, item] = await Promise.all([
+    OrderModel.findById(params.orderId).select({ customerId: 1, restaurantId: 1, createdAt: 1 }).lean(),
+    HypeItemModel.findById(params.itemId).select({ restaurantId: 1 }).lean(),
+  ])
+  if (!order || !item?.restaurantId) return { attributed: false }
+  if (String(order.customerId) !== params.customerId) return { attributed: false }
+  if (String(order.restaurantId) !== String(item.restaurantId)) return { attributed: false }
+  const createdAt = new Date((order as { createdAt?: Date }).createdAt ?? 0).getTime()
+  if (!createdAt || Date.now() - createdAt > ATTRIBUTION_WINDOW_MS) return { attributed: false }
+  try {
+    await HypeOrderAttributionModel.create({ orderId: order._id, itemId: item._id, customerId: params.customerId })
+  } catch (error) {
+    if ((error as { code?: number }).code === 11000) return { attributed: false }
+    throw error
+  }
+  await HypeItemModel.updateOne({ _id: item._id }, { $inc: { orderCount: 1 } })
+  return { attributed: true }
 }

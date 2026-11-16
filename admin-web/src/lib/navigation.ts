@@ -10,6 +10,7 @@ import {
   Gift,
   Globe2,
   Gauge,
+  Gamepad2,
   HeartHandshake,
   HeartPulse,
   Headphones,
@@ -237,6 +238,11 @@ export const adminSidebarGroups: AdminNavigationGroup[] = [
         title: "Hype tab",
         to: "/hype",
         icon: Flame,
+      },
+      {
+        title: "Friend Quiz",
+        to: "/quiz",
+        icon: Gamepad2,
       },
       {
         title: "Win-back",

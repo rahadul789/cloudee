@@ -1,15 +1,27 @@
 import { Tabs } from "expo-router";
+import { useEffect } from "react";
 
 import { ModernTabBar } from "@/src/components/navigation/modern-tab-bar";
+import { useHypeLatestQuery } from "@/src/hooks/use-hype-api";
 import { getAllCartsItemCount, useCartStore } from "@/src/store/cart-store";
+import { hasUnseenHype, useHypeSeenStore } from "@/src/store/hype-seen-store";
 import { palette } from "@/src/theme/palette";
 
 export default function TabsLayout() {
   const cartItemCount = useCartStore((state) => getAllCartsItemCount(state));
+  // Dot on the Hype tab while there is content newer than what this phone has seen.
+  const latestQuery = useHypeLatestQuery();
+  const lastSeenAt = useHypeSeenStore((state) => state.lastSeenAt);
+  const seenHydrated = useHypeSeenStore((state) => state.hydrated);
+  const hydrateSeen = useHypeSeenStore((state) => state.hydrate);
+  useEffect(() => {
+    void hydrateSeen();
+  }, [hydrateSeen]);
+  const hypeDot = seenHydrated && hasUnseenHype(latestQuery.data?.latestAt, lastSeenAt);
 
   return (
     <Tabs
-      tabBar={(props) => <ModernTabBar {...props} cartCount={cartItemCount} />}
+      tabBar={(props) => <ModernTabBar {...props} cartCount={cartItemCount} dots={{ hype: hypeDot }} />}
       screenOptions={{
         headerShown: false,
         // No tab is frozen on blur. Two reasons:

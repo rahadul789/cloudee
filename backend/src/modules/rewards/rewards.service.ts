@@ -45,7 +45,7 @@ async function ensureWallet(customerId: string) {
   ).lean()
 }
 
-async function creditCoins(customerId: string, amount: number, reason: "spin" | "admin", refId: string, isTest = false) {
+async function creditCoins(customerId: string, amount: number, reason: "spin" | "admin" | "quiz_question", refId: string, isTest = false) {
   if (amount <= 0) return
   const settings = await getRewardSettings()
   await ensureWallet(customerId)
@@ -58,6 +58,14 @@ async function creditCoins(customerId: string, amount: number, reason: "spin" | 
     expiresAt: new Date(Date.now() + settings.coinExpiryDays * DAY),
   })
   await CoinWalletModel.updateOne({ customerId }, { $inc: { balance: amount, earnedTotal: amount } })
+}
+
+/** Coin reward for a friend-quiz question the admin approved (refId = submission id). */
+export async function creditQuizQuestionCoins(customerId: string, amount: number, submissionId: string) {
+  if (!mongoose.Types.ObjectId.isValid(customerId) || amount <= 0) return
+  // Once per submission, even if the admin double-clicks.
+  if (await CoinTxnModel.exists({ customerId, reason: "quiz_question", refId: submissionId })) return
+  await creditCoins(customerId, Math.round(amount), "quiz_question", submissionId)
 }
 
 /** Atomic spend: succeeds only if the balance covers it (no overspend under double taps). */

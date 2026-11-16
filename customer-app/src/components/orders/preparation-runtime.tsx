@@ -100,6 +100,12 @@ function getPreparationEstimate(
       };
     }
 
+    // We promise a RANGE ("2–12 min left") whose upper end is the kitchen target plus the
+    // spread. Late is counted only after that UPPER end — counting from the lower end said
+    // "Running late" 2 minutes into a promised 12 (and the timer ran out early too).
+    const upperAt = timingTargetAt + PREP_TIME_RANGE_SPREAD_MINUTES * 60_000;
+    const secondsToUpper = Math.max(0, Math.ceil((upperAt - now) / 1000));
+
     if (remainingSeconds > 60) {
       const prepRange = buildPreparationRangeMinutes(remainingMinutes);
       return {
@@ -114,28 +120,29 @@ function getPreparationEstimate(
                 timing.extraMinutes,
               )} to prepare it properly.`
             : "",
-        targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
+        targetTimeLabel: formatTimeAmPm(new Date(upperAt)),
         lateByMinutes: 0,
         averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
-        remainingSeconds,
+        remainingSeconds: secondsToUpper,
       };
     }
 
-    if (remainingSeconds > 0) {
+    if (secondsToUpper > 0) {
+      const withinMinutes = Math.max(1, Math.ceil(secondsToUpper / 60));
       return {
         state: "almost_ready",
         rangeLabel: "Almost ready",
-        supportingText: "The kitchen is finishing your order now.",
-        targetTimeLabel: formatTimeAmPm(new Date(timingTargetAt)),
+        supportingText: `The kitchen is finishing your order — ready within ${formatDurationMinutes(withinMinutes)}.`,
+        targetTimeLabel: formatTimeAmPm(new Date(upperAt)),
         lateByMinutes: 0,
         averagePrepMinutes: timingTotalMinutes ?? preparationTimeMinutes ?? 0,
-        remainingSeconds,
+        remainingSeconds: secondsToUpper,
       };
     }
 
     const lateByMinutes = Math.max(
       1,
-      Math.ceil(Math.max(0, now - timingTargetAt) / 60_000),
+      Math.ceil(Math.max(0, now - upperAt) / 60_000),
     );
 
     return {

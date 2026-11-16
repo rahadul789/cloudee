@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title><%= title %></title>
+    <meta name="description" content="<%= description %>" />
+    <meta name="robots" content="noindex,follow" />
+    <meta name="theme-color" content="#FFB84C" />
+    <link rel="canonical" href="<%= canonicalUrl %>" />
+    <meta property="og:site_name" content="Foodbela" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="<%= title %>" />
+    <meta property="og:description" content="<%= description %>" />
+    <meta property="og:url" content="<%= canonicalUrl %>" />
+    <meta property="og:image" content="<%= ogImageUrl %>" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Foodbela Quiz — তুমি আমাকে কতটা চেনো?" />
+    <meta property="og:locale" content="bn_BD" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="<%= title %>" />
+    <meta name="twitter:description" content="<%= description %>" />
+    <meta name="twitter:image" content="<%= ogImageUrl %>" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;600;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/css/quiz.css" />
+  </head>
+  <body>
+    <main class="qz">
+      <header class="qz-top">
+        <a href="/" class="qz-brand"><img src="/images/foodbela-icon.png" alt="" width="28" height="28" /> Foodbela</a>
+        <span class="qz-chip">Quiz 🍕</span>
+      </header>
+
+      <% if (!quiz) { %>
+        <section class="qz-card qz-center">
+          <img class="qz-bela" src="/images/bela-quiz.webp" alt="" width="140" height="140" />
+          <h1>Quiz পাওয়া যায়নি 😕</h1>
+          <p class="qz-muted">লিংকটা হয়তো ভুল, অথবা quiz-টা আর নেই।</p>
+          <a class="qz-btn" href="<%= playStoreUrl %>">Foodbela অ্যাপে নিজের quiz বানাও</a>
+        </section>
+      <% } else if (quiz.status === "expired") { %>
+        <section class="qz-card qz-center">
+          <img class="qz-bela" src="/images/bela-quiz.webp" alt="" width="140" height="140" />
+          <h1><%= quiz.ownerName %>-এর quiz-এর সময় শেষ ⏰</h1>
+          <p class="qz-muted">ওকে বলো নতুন একটা বানাতে — অথবা তুমি নিজেই বানাও!</p>
+          <a class="qz-btn" href="<%= playStoreUrl %>" data-make-own>এবার তোমারটা বানাও →</a>
+        </section>
+      <% } else { %>
+        <div id="qz-app" aria-live="polite"></div>
+        <noscript><p class="qz-card">খেলতে ব্রাউজারে JavaScript চালু করো।</p></noscript>
+      <% } %>
+    </main>
+    <script type="application/json" id="qz-data"><%- JSON.stringify({ quiz, code, playStoreUrl }).replace(/</g, "\\u003c") %></script>
+    <script src="/js/quiz.js" defer></script>
+  </body>
+</html>

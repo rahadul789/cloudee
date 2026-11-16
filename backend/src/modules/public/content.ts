@@ -452,6 +452,11 @@ export const platformContent = {
         backgroundColor: "#FFFFFF",
         textColor: "#2B1D24",
         accentColor: "#FF5C93",
+        imageAspect: "4:5",
+        badgeLabel: "",
+        dismissLabel: "Maybe later",
+        startsAt: "",
+        endsAt: "",
       },
       howToOrderGuide: {
         isActive: false,
@@ -935,6 +940,13 @@ export const platformContent = {
     },
   },
   supportContact: {
+    // Account tab "Follow us" (admin Settings → Support). Off until a link is set.
+    socialLinks: {
+      facebook: { enabled: false, url: "" },
+      instagram: { enabled: false, url: "" },
+      youtube: { enabled: false, url: "" },
+      tiktok: { enabled: false, url: "" },
+    },
     email: "support@foodbela.com",
     // THE support number — app Help center, OTP "Instant OTP" call, website, owner/rider help
     // all read this. Change it in admin Settings → Support contact.

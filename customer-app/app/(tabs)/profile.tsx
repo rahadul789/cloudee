@@ -1,10 +1,14 @@
+import { FollowUs } from "@/src/components/profile/follow-us";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   InteractionManager,
   Linking,
   Pressable,
@@ -113,6 +117,22 @@ export default function ProfileScreen() {
   );
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Sticky compact header: fades in once the amber hero has scrolled away. State flips only
+  // when crossing the threshold, so scrolling doesn't re-render the screen.
+  const heroHeightRef = useRef(220);
+  const [compactHeader, setCompactHeader] = useState(false);
+  const compactOpacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(compactOpacity, {
+      toValue: compactHeader ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [compactHeader, compactOpacity]);
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const next = event.nativeEvent.contentOffset.y > heroHeightRef.current - 64;
+    setCompactHeader((current) => (current === next ? current : next));
+  }, []);
   const customer = useCustomerAuthStore((state) => state.customer);
   const deferredProfileWorkReady = useDeferredProfileWork(Boolean(customer));
   const profileQuery = useCustomerProfileQuery(Boolean(customer));
@@ -357,7 +377,12 @@ export default function ProfileScreen() {
       switch (item) {
         case "hero":
           return (
-            <View style={[styles.hero, { paddingTop: insets.top + 10 }]}>
+            <View
+              style={[styles.hero, { paddingTop: insets.top + 10 }]}
+              onLayout={(event) => {
+                heroHeightRef.current = event.nativeEvent.layout.height;
+              }}
+            >
               <View style={styles.heroTopRow}>
                 <Text style={styles.heroTitle}>Account</Text>
                 <PressableScale
@@ -616,6 +641,7 @@ export default function ProfileScreen() {
                   </View>
                 </Pressable>
               </View>
+              <FollowUs />
               <Text style={styles.footer}>
                 Foodbela{APP_VERSION ? ` · v${APP_VERSION}` : ""}
               </Text>
@@ -667,6 +693,8 @@ export default function ProfileScreen() {
         <ScrollView
           contentContainerStyle={[styles.container, !customer ? styles.guestContainer : null]}
           showsVerticalScrollIndicator={false}
+          onScroll={customer ? handleScroll : undefined}
+          scrollEventThrottle={32}
         >
           {profileListItems.map((item, index) => (
             <View key={keyExtractor(item)}>
@@ -676,6 +704,31 @@ export default function ProfileScreen() {
           ))}
         </ScrollView>
       </BelaPullToRefresh>
+
+      {customer ? (
+        <Animated.View
+          pointerEvents={compactHeader ? "auto" : "none"}
+          style={[styles.stickyHeader, { paddingTop: insets.top + 6, opacity: compactOpacity }]}
+        >
+          <Text style={styles.stickyTitle} numberOfLines={1}>
+            Account
+          </Text>
+          <PressableScale
+            scaleTo={0.92}
+            style={styles.stickyBell}
+            onPress={openNotifications}
+            accessibilityRole="button"
+            accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+          >
+            <Ionicons name="notifications-outline" size={20} color={palette.foreground} />
+            {unreadCount > 0 ? (
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+              </View>
+            ) : null}
+          </PressableScale>
+        </Animated.View>
+      ) : null}
 
       <AppDialog
         visible={logoutConfirmVisible}
@@ -841,6 +894,29 @@ const styles = StyleSheet.create({
   guestContainer: { justifyContent: "center" },
   emptyWrap: { justifyContent: "center", paddingHorizontal: 20 },
   separator: { height: 20 },
+  stickyHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: palette.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E3E4E7",
+  },
+  stickyTitle: { flex: 1, fontSize: 18, fontWeight: "700", color: palette.foreground },
+  stickyBell: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.surfaceMuted,
+  },
   gutter: { paddingHorizontal: 16 },
   noticeWrap: { marginTop: 12 },
 

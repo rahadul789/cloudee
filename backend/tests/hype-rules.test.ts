@@ -75,3 +75,19 @@ describe("polls", () => {
     expect(pollPercentages([3, 1])).toEqual([75, 25])
   })
 })
+
+describe("hype section order", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { normaliseSectionOrder } = require("../src/modules/hype/hype.service")
+  it("keeps the admin order, drops unknown/duplicates and appends missing sections", () => {
+    // Missing sections go back to their default slot ("featured" first, etc.).
+    expect(normaliseSectionOrder(["events", "videos", "events", "bogus"])).toEqual([
+      "featured", "quiz", "stamps", "events", "drops", "polls", "videos",
+    ])
+    expect(normaliseSectionOrder(["quiz", "stamps", "videos", "drops", "polls", "events"])).toEqual([
+      "featured", "quiz", "stamps", "videos", "drops", "polls", "events",
+    ])
+    expect(normaliseSectionOrder(undefined)).toEqual(["featured", "quiz", "stamps", "videos", "drops", "polls", "events"])
+    expect(normaliseSectionOrder(["events", "videos"])[0]).toBe("featured")
+  })
+})

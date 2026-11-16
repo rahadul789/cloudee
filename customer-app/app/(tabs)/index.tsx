@@ -1,3 +1,4 @@
+import { HomePromoModal } from "@/src/components/home/home-promo-modal";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -2381,92 +2382,17 @@ export default function HomeScreen() {
             onVoted={() => undefined}
           />
         ) : homeCms?.modal.isActive ? (
-          <View style={styles.campaignModalOverlay}>
-            <Pressable
-              style={styles.campaignModalBackdrop}
-              onPress={() => setShowHomeCmsModal(false)}
-            />
-            <View
-              style={[
-                styles.homeModalCard,
-                {
-                  backgroundColor:
-                    homeCms.modal.backgroundColor || palette.surface,
-                },
-              ]}
-            >
-              <Pressable
-                style={styles.campaignModalClose}
-                onPress={() => setShowHomeCmsModal(false)}
-              >
-                <Ionicons name="close" size={18} color={palette.foreground} />
-              </Pressable>
-
-              {homeCms.modal.imageUrl ? (
-                <RemoteImage
-                  uri={homeCms.modal.imageUrl}
-                  style={[
-                    styles.homeModalImage,
-                    !homeCms.modal.title.trim() &&
-                    !homeCms.modal.subtitle.trim()
-                      ? styles.homeModalImageOnly
-                      : null,
-                  ]}
-                  fallbackIcon="image-outline"
-                  targetWidth={screenWidth}
-                  accessibilityLabel={
-                    homeCms.modal.title || "Foodbela announcement"
-                  }
-                />
-              ) : null}
-
-              {homeCms.modal.title.trim() ? (
-                <Text
-                  style={[
-                    styles.campaignModalTitle,
-                    { color: homeCms.modal.textColor || palette.foreground },
-                  ]}
-                >
-                  {homeCms.modal.title.trim()}
-                </Text>
-              ) : null}
-              {homeCms.modal.subtitle.trim() ? (
-                <Text
-                  style={[
-                    styles.campaignModalSubtitle,
-                    {
-                      color: homeCms.modal.textColor || palette.mutedForeground,
-                    },
-                  ]}
-                >
-                  {homeCms.modal.subtitle.trim()}
-                </Text>
-              ) : null}
-
-              {canOpenCustomerTarget(homeCms.modal.ctaPath) ? (
-                <PressableScale
-                  scaleTo={0.97}
-                  containerStyle={styles.campaignModalActionSlot}
-                  style={[
-                    styles.campaignModalAction,
-                    {
-                      backgroundColor:
-                        homeCms.modal.accentColor || palette.secondary,
-                    },
-                  ]}
-                  onPress={() => {
-                    recordHomeCmsEvent("modal_click");
-                    setShowHomeCmsModal(false);
-                    void openCustomerTarget(homeCms.modal.ctaPath);
-                  }}
-                >
-                  <Text style={styles.campaignModalActionText}>
-                    {homeCms.modal.ctaLabel || "Explore now"}
-                  </Text>
-                </PressableScale>
-              ) : null}
-            </View>
-          </View>
+          <HomePromoModal
+            modal={homeCms.modal}
+            width={screenWidth}
+            canCta={canOpenCustomerTarget(homeCms.modal.ctaPath)}
+            onClose={() => setShowHomeCmsModal(false)}
+            onCta={() => {
+              recordHomeCmsEvent("modal_click");
+              setShowHomeCmsModal(false);
+              void openCustomerTarget(homeCms.modal.ctaPath);
+            }}
+          />
         ) : null}
       </Modal>
     </View>

@@ -10,6 +10,7 @@ const leadRoutes = require("./routes/lead.routes");
 const analyticsRoutes = require("./routes/analytics.routes");
 const customerApiRoutes = require("./routes/customer-api.routes");
 const storefrontRoutes = require("./routes/storefront.routes");
+const quizRoutes = require("./routes/quiz.routes");
 const { site } = require("./data/site");
 const { buildPageSeo } = require("./services/seo.service");
 const { getWebsiteSettings } = require("./services/website-api.service");
@@ -74,6 +75,7 @@ app.use(async (req, res, next) => {
   next();
 });
 
+app.use("/", quizRoutes);
 app.use("/", storefrontRoutes);
 app.use("/", pageRoutes);
 app.use("/leads", leadRoutes);

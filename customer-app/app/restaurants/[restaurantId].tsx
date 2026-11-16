@@ -1,3 +1,4 @@
+import { appAlert } from "@/src/lib/app-alert";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
@@ -833,10 +834,34 @@ export default function RestaurantDetailsScreen() {
     }
 
     handledRouteItemIdRef.current = routedItemId;
+    // Deep link to a dish (e.g. Hype "Order this") while ordering isn't possible: a tapped card
+    // would be disabled here, so don't open a sheet whose Add button can't work — explain why.
+    if (!isRestaurantOpenNow || !canAddFromRestaurant) {
+      const name = restaurant?.name || "This restaurant";
+      if (!canAddFromRestaurant) {
+        appAlert(
+          "Not available at your location",
+          `${name} doesn't deliver to your current address. You can still browse the menu.`,
+          undefined,
+          { icon: "location-outline" },
+        );
+      } else {
+        const closed = getClosedCopy(restaurant?.availability);
+        appAlert(
+          `${name} is closed right now`,
+          closed.hasReopen && closed.opensAtLabel
+            ? `It opens at ${closed.opensAtLabel}. You can look at the menu now and order once it opens.`
+            : "It isn't taking orders at the moment. You can still look at the menu.",
+          undefined,
+          { icon: "moon-outline" },
+        );
+      }
+      return;
+    }
     runAfterUiCommit(() => {
       openCustomizer(targetItem);
     });
-  }, [allMenuItems, openCustomizer, routedItemId]);
+  }, [allMenuItems, canAddFromRestaurant, isRestaurantOpenNow, openCustomizer, restaurant?.availability, restaurant?.name, routedItemId]);
 
   function closeCustomizer() {
     addInFlightRef.current = false;

@@ -1031,20 +1031,16 @@ export default function CheckoutScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      {/* Sticky header (stays while the form scrolls), same as Cart / Account. */}
+      <AppHeader title="Checkout" subtitle="Confirm address & payment" />
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: 154 + Math.max(insets.bottom, 0) },
+          // breathing room under the sticky header
+          { paddingTop: 14, paddingBottom: 154 + Math.max(insets.bottom, 0) },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <AppHeader
-          inline
-          // inline headers have no side padding; this scroll content isn't padded either
-          style={{ paddingHorizontal: 16 }}
-          title="Checkout"
-          subtitle="Confirm address & payment"
-        />
 
         {!isOnline ? (
           <View style={styles.offlineWrap}>

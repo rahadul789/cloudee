@@ -26,7 +26,8 @@ export function ModernTabBar({
   state,
   navigation,
   cartCount,
-}: BottomTabBarProps & { cartCount: number }) {
+  dots,
+}: BottomTabBarProps & { cartCount: number; dots?: Partial<Record<string, boolean>> }) {
   const insets = useSafeAreaInsets();
   const routes = state.routes.filter((route) => !HIDDEN_TABS.has(route.name));
   const activeKey = state.routes[state.index]?.key;
@@ -105,6 +106,7 @@ export function ModernTabBar({
               label={meta.label}
               icon={focused ? meta.iconActive : meta.icon}
               focused={focused}
+              showDot={Boolean(dots?.[route.name]) && !focused}
               onPress={onPress}
               onLongPress={onLongPress}
             />
@@ -119,12 +121,15 @@ function TabButton({
   label,
   icon,
   focused,
+  showDot = false,
   onPress,
   onLongPress,
 }: {
   label: string;
   icon: IconName;
   focused: boolean;
+  /** "Something new here" dot (e.g. Hype has unseen content). */
+  showDot?: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
@@ -156,6 +161,7 @@ function TabButton({
           size={22}
           color={focused ? palette.onPrimary : palette.mutedForeground}
         />
+        {showDot ? <View style={styles.newDot} /> : null}
       </Animated.View>
       <Text
         style={[styles.label, focused ? styles.labelActive : null]}
@@ -293,6 +299,17 @@ const styles = StyleSheet.create({
   },
   cartFabPressed: {
     transform: [{ scale: 0.92 }],
+  },
+  newDot: {
+    position: "absolute",
+    top: 4,
+    right: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: "#E5484D",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
   badge: {
     position: "absolute",

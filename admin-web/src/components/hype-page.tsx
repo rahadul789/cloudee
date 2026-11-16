@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner"
 
 import { AppLinkPicker } from "@/components/app-link-picker"
+import { HypeLayoutCard } from "@/components/hype-layout-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -39,6 +40,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   createAdminHypeItem,
+  getAdminHypeLayout,
+  listAdminHypeRestaurantMenuItems,
   deleteAdminHypeItem,
   listAdminHypeComments,
   listAdminHypeItems,
@@ -60,7 +63,8 @@ const KIND_INFO: Record<AdminHypeKind, { label: string; bn: string; icon: typeof
   poll: { label: "Polls", bn: "প্রশ্ন + অপশন — user একবার ভোট দেবে, চাইলে comment চালু রাখুন", icon: Vote },
 }
 
-const CATEGORY_LABEL: Record<AdminHypeCategory, string> = {
+// Built-in labels; the live list comes from the "ভিডিও category" card (admin-managed).
+const CATEGORY_LABEL: Record<string, string> = {
   food: "Food",
   funny: "Funny",
   local: "Netrakona",
@@ -74,12 +78,15 @@ type FormState = {
   description: string
   imageUrl: string
   restaurantId: string
+  menuItemId: string
   ctaLabel: string
   ctaPath: string
   externalUrl: string
   startsAt: string
   endsAt: string
   limitLabel: string
+  stockTotal: string
+  isPinned: boolean
   location: string
   youtubeUrl: string
   category: AdminHypeCategory
@@ -109,12 +116,15 @@ function emptyForm(kind: AdminHypeKind): FormState {
     description: "",
     imageUrl: "",
     restaurantId: "",
+    menuItemId: "",
     ctaLabel: "",
     ctaPath: "",
     externalUrl: "",
     startsAt: "",
     endsAt: "",
     limitLabel: "",
+    stockTotal: "",
+    isPinned: false,
     location: "",
     youtubeUrl: "",
     category: "food",
@@ -134,12 +144,15 @@ function formFromItem(item: AdminHypeItem): FormState {
     description: item.description,
     imageUrl: item.imageUrl,
     restaurantId: item.restaurantId ?? "",
+    menuItemId: item.menuItemId ?? "",
     ctaLabel: item.ctaLabel,
     ctaPath: item.ctaPath,
     externalUrl: item.externalUrl ?? "",
     startsAt: toLocalInput(item.startsAt),
     endsAt: toLocalInput(item.endsAt),
     limitLabel: item.limitLabel,
+    stockTotal: item.stockTotal ? String(item.stockTotal) : "",
+    isPinned: item.isPinned === true,
     location: item.location,
     youtubeUrl: item.youtubeId ? `https://youtu.be/${item.youtubeId}` : "",
     category: item.category,
@@ -158,12 +171,15 @@ function toInput(form: FormState): AdminHypeItemInput {
     description: form.description,
     imageUrl: form.imageUrl,
     restaurantId: form.restaurantId || null,
+    menuItemId: form.restaurantId && form.menuItemId ? form.menuItemId : null,
     ctaLabel: form.ctaLabel,
     ctaPath: form.ctaPath,
     externalUrl: form.externalUrl,
     startsAt: fromLocalInput(form.startsAt),
     endsAt: fromLocalInput(form.endsAt),
     limitLabel: form.limitLabel,
+    stockTotal: form.kind === "drop" && form.stockTotal ? Math.max(0, Number(form.stockTotal) || 0) : 0,
+    isPinned: form.isPinned,
     location: form.location,
     youtubeUrl: form.youtubeUrl,
     category: form.category,
@@ -291,6 +307,10 @@ function ItemAnalytics({ item }: { item: AdminHypeItem }) {
       { icon: ThumbsUp, label: "Likes", value: String(item.likeCount ?? 0) },
       { icon: X, label: "Dislikes", value: String(item.dislikeCount ?? 0) },
     )
+    if (item.restaurantId) {
+      stats.push({ icon: MousePointerClick, label: "Order this", value: String(item.ctaCount ?? 0) })
+      stats.push({ icon: Zap, label: "Orders", value: String(item.orderCount ?? 0), hint: pct(item.orderCount ?? 0, item.ctaCount ?? 0) })
+    }
   } else if (item.kind === "poll") {
     stats.push(
       { icon: Vote, label: "Votes", value: String(item.voteCount ?? 0), hint: pct(item.voteCount, item.impressionCount) },
@@ -303,6 +323,13 @@ function ItemAnalytics({ item }: { item: AdminHypeItem }) {
     )
     if (item.externalUrl) stats.push({ icon: MousePointerClick, label: "Website", value: String(item.websiteCount ?? 0) })
     stats.push({ icon: CalendarDays, label: "Reminders", value: String(item.remindCount ?? 0) })
+    if (item.kind === "event") {
+      stats.push({ icon: ThumbsUp, label: "Going", value: String(item.goingCount ?? 0) })
+      stats.push({ icon: ThumbsUp, label: "Likes", value: String(item.likeCount ?? 0) })
+    }
+    if (item.kind === "drop" && item.restaurantId) {
+      stats.push({ icon: Zap, label: "Orders", value: String(item.orderCount ?? 0), hint: pct(item.orderCount ?? 0, item.ctaCount ?? 0) })
+    }
   }
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -434,6 +461,23 @@ export function HypePage() {
     queryKey: ["admin-hype-items"],
     queryFn: () => listAdminHypeItems(),
   })
+  const layoutQuery = useQuery({ queryKey: ["admin-hype-layout"], queryFn: getAdminHypeLayout })
+  const menuRestaurantId = form?.restaurantId ?? ""
+  const menuItemsQuery = useQuery({
+    queryKey: ["admin-hype-menu-items", menuRestaurantId],
+    queryFn: () => listAdminHypeRestaurantMenuItems(menuRestaurantId),
+    enabled: Boolean(menuRestaurantId),
+    staleTime: 60_000,
+  })
+  const videoCategories = React.useMemo(
+    () =>
+      layoutQuery.data?.videoCategories?.length
+        ? layoutQuery.data.videoCategories
+        : Object.entries(CATEGORY_LABEL).map(([id, label]) => ({ id, label })),
+    [layoutQuery.data],
+  )
+  const videoCategoryLabel = (id: string) =>
+    videoCategories.find((category) => category.id === id)?.label ?? CATEGORY_LABEL[id] ?? id
   const restaurantsQuery = useQuery({
     queryKey: ["admin-restaurants", "hype-targets"],
     queryFn: () =>
@@ -497,6 +541,8 @@ export function HypePage() {
         </Button>
       </div>
 
+      <HypeLayoutCard />
+
       <Tabs value={tab} onValueChange={(value) => setTab(value as AdminHypeKind)}>
         <TabsList>
           {(Object.keys(KIND_INFO) as AdminHypeKind[]).map((kind) => {
@@ -551,7 +597,7 @@ export function HypePage() {
                                 {status.label}
                               </Badge>
                               {item.kind === "video" ? (
-                                <Badge variant="outline">{CATEGORY_LABEL[item.category]}</Badge>
+                                <Badge variant="outline">{videoCategoryLabel(item.category)}</Badge>
                               ) : null}
                             </div>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -717,11 +763,14 @@ export function HypePage() {
                           value={form.category}
                           onChange={(event) => set({ category: event.target.value as AdminHypeCategory })}
                         >
-                          {(Object.keys(CATEGORY_LABEL) as AdminHypeCategory[]).map((key) => (
-                            <option key={key} value={key}>
-                              {CATEGORY_LABEL[key]}
+                          {videoCategories.map((category) => (
+                            <option key={category.id} value={category.id}>
+                              {category.label}
                             </option>
                           ))}
+                          {!videoCategories.some((category) => category.id === form.category) ? (
+                            <option value={form.category}>{videoCategoryLabel(form.category)} (পুরনো)</option>
+                          ) : null}
                         </select>
                       </div>
                       <div className="grid gap-2">
@@ -767,6 +816,15 @@ export function HypePage() {
                       placeholder="Only 50 orders"
                       onChange={(event) => set({ limitLabel: event.target.value })}
                     />
+                    <Label htmlFor="hype-stock">মোট stock (optional)</Label>
+                    <Input
+                      id="hype-stock"
+                      type="number"
+                      min={0}
+                      value={form.stockTotal}
+                      placeholder="যেমন 50 — দিলে অ্যাপে “X জন নিয়েছে · Y বাকি” দেখাবে"
+                      onChange={(event) => set({ stockTotal: event.target.value })}
+                    />
                   </div>
                 ) : null}
                 {form.kind === "event" ? (
@@ -797,7 +855,7 @@ export function HypePage() {
                   <select
                     className="h-9 rounded-md border bg-background px-3 text-sm"
                     value={form.restaurantId}
-                    onChange={(event) => set({ restaurantId: event.target.value })}
+                    onChange={(event) => set({ restaurantId: event.target.value, menuItemId: "" })}
                   >
                     <option value="">— None —</option>
                     {restaurantOptions.map((restaurant) => (
@@ -812,6 +870,30 @@ export function HypePage() {
                       : "দিলে button চাপলে এই restaurant খুলবে (নিচের link না দিলে)।"}
                   </p>
                 </div>
+
+                {form.restaurantId && (form.kind === "video" || form.kind === "drop") ? (
+                  <div className="grid gap-2">
+                    <Label>খাবার (optional)</Label>
+                    <select
+                      className="h-9 rounded-md border bg-background px-3 text-sm"
+                      value={form.menuItemId}
+                      onChange={(event) => set({ menuItemId: event.target.value })}
+                      disabled={menuItemsQuery.isLoading}
+                    >
+                      <option value="">— শুধু restaurant খুলবে —</option>
+                      {(menuItemsQuery.data ?? []).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.categoryName ? `${item.categoryName} › ` : ""}
+                          {item.name} · ৳{item.price}
+                          {item.archived ? " (বন্ধ)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      বাছলে "Order this" চাপলে restaurant খুলে সরাসরি এই খাবারটা দেখাবে (customize করে cart-এ যোগ)।
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="grid gap-2">
                   <Label htmlFor="hype-website">Website link (optional)</Label>
@@ -877,6 +959,16 @@ export function HypePage() {
                     <p className="text-xs text-muted-foreground">বন্ধ রাখলে app-এ দেখাবে না।</p>
                   </div>
                   <Switch checked={form.isPublished} onCheckedChange={(checked) => set({ isPublished: checked })} />
+                </div>
+
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <Label>📌 Featured (pin)</Label>
+                    <p className="text-xs text-muted-foreground">
+                      চালু করলে Hype-এর “For you”-এর একদম উপরে থাকবে (সর্বোচ্চ ৩টা দেখায়)।
+                    </p>
+                  </div>
+                  <Switch checked={form.isPinned} onCheckedChange={(checked) => set({ isPinned: checked })} />
                 </div>
               </div>
 

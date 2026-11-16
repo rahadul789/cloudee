@@ -63,6 +63,11 @@ export function decorateLiveOrderPush(payload: {
 // Minor steps (Preparing, Packed, rider assigned, live tracking started) only buzz when
 // nothing was sent for this order in the last 10 minutes (e.g. a slow kitchen).
 
+/** Never pushed to the customer, whoever moves the order: "New" (they just placed it) and
+ * "ReadyForPickup" ("Your order is packed…" — noise; the next push is "On the way"). The
+ * tracking screen still shows these steps live. */
+const NEVER_PUSH = new Set(["New", "ReadyForPickup"])
+
 /** Steps the customer always hears about. */
 const CRITICAL = new Set(["Accepted", "PickedUp", "rider_near", "Delivered", "Cancelled", "Rejected"])
 const TERMINAL = new Set(["Delivered", "Cancelled", "Rejected"])
@@ -79,7 +84,7 @@ export function shouldSendLiveOrderPush(params: {
   last?: { at: number; eventKey: string } | null
 }) {
   const { eventKey, now, last } = params
-  if (eventKey === "New") return false // the customer just placed it — nothing to tell
+  if (NEVER_PUSH.has(eventKey)) return false
   if (last && last.eventKey === eventKey) return false // never the same step twice
   if (CRITICAL.has(eventKey)) return true
   if (!last) return true // first word about this order

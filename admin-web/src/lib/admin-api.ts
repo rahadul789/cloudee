@@ -4489,6 +4489,13 @@ export type PlatformContent = {
         backgroundColor: string
         textColor: string
         accentColor: string
+        /** Floating card: image shape, small badge on the image, secondary button text. */
+        imageAspect?: "1:1" | "4:5" | "16:9"
+        badgeLabel?: string
+        dismissLabel?: string
+        /** Schedule window (ISO, "" = no bound). */
+        startsAt?: string
+        endsAt?: string
       }
       howToOrderGuide: {
         isActive: boolean
@@ -4889,6 +4896,7 @@ export type PlatformContent = {
     supportHours: string
     reportLabel: string
     directHelpNote: string
+    socialLinks?: Partial<Record<SocialNetwork, { enabled: boolean; url: string }>>
   }
   helpCenter: {
     categories: Array<{
@@ -9626,7 +9634,8 @@ export async function getAdminWinBackStats(days = 90) {
 
 // ── Hype tab (customer app): drops / events / videos ──
 export type AdminHypeKind = "drop" | "event" | "video" | "poll"
-export type AdminHypeCategory = "food" | "funny" | "local" | "other"
+/** Video category id (admin-managed list; built-ins: food / funny / local / other). */
+export type AdminHypeCategory = string
 
 export type AdminHypeItem = {
   id: string
@@ -9635,6 +9644,7 @@ export type AdminHypeItem = {
   description: string
   imageUrl: string
   restaurantId: string | null
+  menuItemId?: string | null
   restaurantName: string
   ctaLabel: string
   ctaPath: string
@@ -9642,6 +9652,11 @@ export type AdminHypeItem = {
   startsAt: string | null
   endsAt: string | null
   limitLabel: string
+  stockTotal?: number
+  isPinned?: boolean
+  goingCount?: number
+  orderCount?: number
+  grabbedCount?: number
   location: string
   youtubeId: string
   category: AdminHypeCategory
@@ -9669,12 +9684,15 @@ export type AdminHypeItemInput = {
   description?: string
   imageUrl?: string
   restaurantId?: string | null
+  menuItemId?: string | null
   ctaLabel?: string
   ctaPath?: string
   externalUrl?: string
   startsAt?: string | null
   endsAt?: string | null
   limitLabel?: string
+  stockTotal?: number
+  isPinned?: boolean
   location?: string
   youtubeUrl?: string
   category?: AdminHypeCategory
@@ -9896,5 +9914,209 @@ export async function grantAdminRewardTest(customerId: string, action: "spin" | 
       headers: jsonHeaders,
       body: JSON.stringify({ action }),
     })
+  ).data
+}
+
+// ── Friend quiz ("তুমি আমাকে কতটা চেনো?") ──
+export type AdminQuizSettings = {
+  enabled: boolean
+  deliveredPrompt: boolean
+  questionCount: number
+  linkExpiryDays: number
+  notifyOnPlay: boolean
+  submissionsEnabled: boolean
+  showAuthorName: boolean
+  approveRewardCoins: number
+  trustedAutoApprove: boolean
+  trustedThreshold: number
+}
+
+export type AdminQuizQuestion = {
+  id: string
+  text: string
+  category: string
+  isActive: boolean
+  position: number
+  useCount: number
+  source?: "admin" | "customer"
+  authorName?: string
+  options: { id: string; label: string }[]
+}
+
+export type AdminQuizQuestionInput = {
+  text: string
+  category?: string
+  isActive?: boolean
+  position?: number
+  options: string[]
+}
+
+export type AdminQuizStats = {
+  days: number
+  quizzesTotal: number
+  quizzesRecent: number
+  liveQuizzes: number
+  creators: number
+  linkViews: number
+  playsStarted: number
+  playsCompleted: number
+  completionRate: number
+  playsPerQuiz: number
+  makeOwnClicks: number
+  topQuizzes: {
+    code: string
+    shareUrl: string
+    ownerName: string
+    playCount: number
+    viewCount: number
+    makeOwnClicks: number
+    createdAt: string
+    live: boolean
+  }[]
+  recentPlays: {
+    id: string
+    quizCode: string
+    ownerName: string
+    playerName: string
+    score: number
+    total: number
+    completedAt: string | null
+    hidden: boolean
+  }[]
+}
+
+export async function getAdminQuizSettings() {
+  return (await adminRequest<AdminQuizSettings>("/admin/quiz/settings")).data
+}
+
+export async function saveAdminQuizSettings(patch: Partial<AdminQuizSettings>) {
+  return (
+    await adminRequest<AdminQuizSettings>("/admin/quiz/settings", {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(patch),
+    })
+  ).data
+}
+
+export async function listAdminQuizQuestions() {
+  return (await adminRequest<AdminQuizQuestion[]>("/admin/quiz/questions")).data
+}
+
+export async function createAdminQuizQuestion(input: AdminQuizQuestionInput) {
+  return (
+    await adminRequest<{ id: string }>("/admin/quiz/questions", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+  ).data
+}
+
+export async function updateAdminQuizQuestion(id: string, input: Partial<AdminQuizQuestionInput>) {
+  return (
+    await adminRequest<{ id: string }>(`/admin/quiz/questions/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    })
+  ).data
+}
+
+export async function deleteAdminQuizQuestion(id: string) {
+  return (
+    await adminRequest<{ id: string }>(`/admin/quiz/questions/${encodeURIComponent(id)}`, { method: "DELETE" })
+  ).data
+}
+
+export async function getAdminQuizStats(days = 30) {
+  return (await adminRequest<AdminQuizStats>(`/admin/quiz/stats?days=${days}`)).data
+}
+
+export async function setAdminQuizPlayHidden(playId: string, hidden: boolean) {
+  return (
+    await adminRequest<{ id: string; hidden: boolean }>(`/admin/quiz/plays/${encodeURIComponent(playId)}/visibility`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ hidden }),
+    })
+  ).data
+}
+
+export type AdminQuizSubmissionStatus = "pending" | "approved" | "rejected"
+
+export type AdminQuizSubmission = {
+  id: string
+  customerId: string
+  authorName: string
+  authorApprovedCount: number
+  text: string
+  options: string[]
+  category: string
+  status: AdminQuizSubmissionStatus
+  rejectReason: string
+  autoApproved: boolean
+  rewardCoins: number
+  createdAt: string | null
+  reviewedAt: string | null
+  reviewedBy: string
+}
+
+export async function listAdminQuizSubmissions(status: AdminQuizSubmissionStatus = "pending") {
+  return (
+    await adminRequest<{ pendingCount: number; items: AdminQuizSubmission[] }>(
+      `/admin/quiz/submissions?status=${status}`,
+    )
+  ).data
+}
+
+export async function approveAdminQuizSubmission(
+  id: string,
+  edits: { text?: string; options?: string[]; category?: string } = {},
+) {
+  return (
+    await adminRequest<{ id: string; questionId: string; rewardCoins: number }>(
+      `/admin/quiz/submissions/${encodeURIComponent(id)}/approve`,
+      { method: "POST", headers: jsonHeaders, body: JSON.stringify(edits) },
+    )
+  ).data
+}
+
+export async function rejectAdminQuizSubmission(id: string, reason?: string) {
+  return (
+    await adminRequest<{ id: string }>(`/admin/quiz/submissions/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ reason }),
+    })
+  ).data
+}
+
+// ── Hype tab layout: section order + video categories ──
+export type HypeVideoCategory = { id: string; label: string }
+export type HypeLayout = { sectionOrder: string[]; videoCategories: HypeVideoCategory[] }
+
+export async function getAdminHypeLayout() {
+  return (await adminRequest<HypeLayout>("/admin/hype/layout")).data
+}
+
+export async function saveAdminHypeLayout(patch: Partial<HypeLayout>) {
+  return (
+    await adminRequest<Partial<HypeLayout>>("/admin/hype/layout", {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify(patch),
+    })
+  ).data
+}
+
+export type SocialNetwork = "facebook" | "instagram" | "youtube" | "tiktok"
+
+export type AdminHypeMenuItem = { id: string; name: string; categoryName: string; price: number; archived: boolean }
+
+/** A restaurant's dishes for the Hype "Order this → open this item" picker. */
+export async function listAdminHypeRestaurantMenuItems(restaurantId: string) {
+  return (
+    await adminRequest<AdminHypeMenuItem[]>(`/admin/hype/restaurants/${encodeURIComponent(restaurantId)}/menu-items`)
   ).data
 }

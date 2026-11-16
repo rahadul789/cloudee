@@ -1,3 +1,9 @@
+import { reportHypeOrderAttribution } from "@/src/hooks/use-hype-api";
+import { useHypeSeenStore } from "@/src/store/hype-seen-store";
+import { QuizHypeCard } from "@/src/components/quiz/quiz-hype-card";
+import { useCustomerQuizQuery } from "@/src/hooks/use-quiz-api";
+import { DeliveredOrderHero } from "@/src/components/orders/delivered-order-hero";
+import { OrderRewardCard } from "@/src/components/orders/order-reward-card";
 import { Ionicons } from "@expo/vector-icons";
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -430,6 +436,9 @@ export default function OrderTrackingScreen() {
   const isOnline = useIsOnline();
   const order = orderQuery.data;
   const orderStatus = order?.status;
+  // Friend quiz invite on the delivered screen (admin "deliveredPrompt"; hidden once they have a live quiz).
+  const quizHomeQuery = useCustomerQuizQuery(orderStatus === "Delivered");
+  const showQuizPrompt = Boolean(quizHomeQuery.data?.deliveredPrompt && !quizHomeQuery.data?.quiz?.live);
   const [trackingNow, setTrackingNow] = useState(Date.now);
   const trackingSampleAt = order?.riderTracking?.lastUpdatedAt;
   const trackingFocused = order?.riderTracking?.isFocused;
@@ -458,6 +467,17 @@ export default function OrderTrackingScreen() {
     return () => clearInterval(interval);
   }, [orderStatus, isOnline, refetchOrder, trackingSampleAt, trackingFocused, pollMs, refetchIfQuietSeconds]);
   const restaurantId = order?.restaurantId;
+  // Hype attribution: a fresh order at the restaurant the user reached via a video/drop "Order this".
+  useEffect(() => {
+    if (!isJustPlaced || !orderId || !restaurantId) return;
+    void useHypeSeenStore
+      .getState()
+      .hydrate()
+      .then(() => {
+        const intent = useHypeSeenStore.getState().takeOrderIntent(String(restaurantId));
+        if (intent) reportHypeOrderAttribution(orderId, intent.itemId);
+      });
+  }, [isJustPlaced, orderId, restaurantId]);
   const restaurantQuery = useCustomerRestaurantDetailsQuery({
     restaurantId: restaurantId ?? undefined,
   });
@@ -937,9 +957,14 @@ export default function OrderTrackingScreen() {
       ],
     );
   };
-  const orderScratchCard = rewardsQuery.data?.spins.items.find(
-    (card) => card.orderId === orderId && card.status === "unscratched",
-  );
+  const orderSpin = rewardsQuery.data?.spins.items.find((card) => card.orderId === orderId);
+  const deliveredAtIso = order ? getOrderStatusTime(order, "Delivered") : undefined;
+  const deliveredAtMs = deliveredAtIso ? Date.parse(deliveredAtIso) : Number.NaN;
+  // Stamp this delivered order added to the stamp card (shown next to its spin).
+  const stampInfo =
+    order?.status === "Delivered" && rewardsQuery.data?.stamps.enabled
+      ? { completed: rewardsQuery.data.stamps.completed, target: rewardsQuery.data.stamps.target }
+      : null;
 
   const overlays = (
     <>
@@ -1410,6 +1435,22 @@ export default function OrderTrackingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      {/* Sticky header (stays while the page scrolls), same as Cart / Account. */}
+      <AppHeader
+        onBack={handleBack}
+        // Delivered: the order number moves into the "Delivered" card, header stays simple.
+        eyebrow={isDeliveredOrder ? undefined : "Order details"}
+        title={isDeliveredOrder ? "Order details" : formatShortOrderIdLabel(order.orderNumber)}
+        subtitle={restaurantName}
+        right={
+          <View style={[styles.statusPill, { backgroundColor: statusMeta.background }]}>
+            <Ionicons name={statusMeta.icon} size={13} color={statusMeta.color} />
+            <Text style={[styles.statusPillText, { color: statusMeta.color }]}>
+              {statusMeta.label}
+            </Text>
+          </View>
+        }
+      />
       <BelaPullToRefresh
         refreshing={isManualRefreshing}
         onRefresh={handleManualRefresh}
@@ -1418,25 +1459,10 @@ export default function OrderTrackingScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: 32 + Math.max(insets.bottom, 16) },
+          // breathing room under the sticky header
+          { paddingTop: 14, paddingBottom: 32 + Math.max(insets.bottom, 16) },
         ]}
       >
-        <AppHeader
-          inline
-          style={styles.sectionInset}
-          onBack={handleBack}
-          eyebrow="Order details"
-          title={formatShortOrderIdLabel(order.orderNumber)}
-          subtitle={restaurantName}
-          right={
-            <View style={[styles.statusPill, { backgroundColor: statusMeta.background }]}>
-              <Ionicons name={statusMeta.icon} size={13} color={statusMeta.color} />
-              <Text style={[styles.statusPillText, { color: statusMeta.color }]}>
-                {statusMeta.label}
-              </Text>
-            </View>
-          }
-        />
 
         {!isOnline ? (
           <View style={styles.offlineNoticeWrap}>
@@ -1773,70 +1799,33 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {/* Stamp card: the happiest moment to hand out the scratch card this order earned. */}
-        {isDeliveredOrder && orderScratchCard ? (
-          <Pressable
-            onPress={() => router.push("/rewards" as never)}
-            style={({ pressed }) => [live.rewardBanner, styles.sectionInset, pressed ? live.pressed : null]}
-            accessibilityRole="button"
-          >
-            <View style={live.rewardIcon}>
-              <Ionicons name="gift" size={20} color={palette.onPrimary} />
-            </View>
-            <View style={live.rewardCopy}>
-              <Text style={live.rewardTitle}>You earned a spin 🎡</Text>
-              <Text style={live.rewardText}>+1 stamp · your spin unlocks soon</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={palette.onPrimary} />
-          </Pressable>
-        ) : null}
-
         {isDeliveredOrder ? (
-          <View style={styles.deliveredSummaryCard}>
-            <View style={styles.deliveredSummaryTopRow}>
-              <View style={styles.deliveredSummaryCopy}>
-                <View style={styles.deliveredSummaryIcon}>
-                  <Ionicons
-                    name="checkmark-done-outline"
-                    size={18}
-                    color={palette.secondary}
-                  />
-                </View>
-                <View style={styles.deliveredSummaryTextWrap}>
-                  <Text style={styles.deliveredSummaryTitle}>
-                    Delivered successfully
-                  </Text>
-                  <Text style={styles.deliveredSummaryMeta}>
-                    {totalItemCount} item{totalItemCount === 1 ? "" : "s"} from {restaurantName}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.deliveredSummaryTotalBox}>
-                <Text style={styles.deliveredSummaryTotalLabel}>Total</Text>
-                <Text style={styles.deliveredSummaryTotalValue}>
-                  {formatCurrency(order.pricing?.total ?? 0)}
-                </Text>
-                <Pressable
-                  style={[
-                    styles.deliveredReorderButton,
-                    isCurrentOrderReordering ? styles.deliveredReorderButtonDisabled : null,
-                  ]}
-                  disabled={isCurrentOrderReordering}
-                  onPress={() => {
-                    void handleReorder();
-                  }}
-                >
-                  {isCurrentOrderReordering ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="refresh-outline" size={14} color="#fff" />
-                      <Text style={styles.deliveredReorderButtonText}>Reorder</Text>
-                    </>
-                  )}
-                </Pressable>
-              </View>
-            </View>
+          <View style={[styles.sectionInset, deliveredStyles.stack]}>
+            <DeliveredOrderHero
+              orderLabel={formatShortOrderIdLabel(order.orderNumber)}
+              restaurantName={restaurantName}
+              itemCount={totalItemCount}
+              totalLabel={formatCurrency(order.pricing?.total ?? 0)}
+              paymentLabel={order.paymentMethod === "Bkash" ? "Paid via bKash" : "Cash on delivery"}
+              deliveredAtLabel={Number.isFinite(deliveredAtMs) ? formatTimeAmPm(new Date(deliveredAtMs)) : null}
+              reordering={isCurrentOrderReordering}
+              canRate={canReviewOrder}
+              onReorder={() => {
+                void handleReorder();
+              }}
+              onRate={openReviewScreen}
+              onHelp={() => router.push("/support-chat")}
+            />
+            {orderSpin || stampInfo ? (
+              <OrderRewardCard
+                spin={orderSpin ?? null}
+                stamp={stampInfo}
+                onOpen={() => router.push("/rewards" as never)}
+              />
+            ) : null}
+            {showQuizPrompt ? (
+              <QuizHypeCard quiz={null} compact onPress={() => router.push("/quiz" as never)} />
+            ) : null}
           </View>
         ) : null}
 
@@ -1953,31 +1942,6 @@ export default function OrderTrackingScreen() {
           </View>
         ) : null}
 
-        {canReviewOrder ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.reviewCard,
-              styles.rateCtaCard,
-              pressed ? styles.rateCtaCardPressed : null,
-            ]}
-            onPress={openReviewScreen}
-          >
-            <View style={styles.rateCtaIcon}>
-              <Ionicons name="star" size={20} color={palette.amber} />
-            </View>
-            <View style={styles.rateCtaCopy}>
-              <Text style={styles.reviewTitle}>Rate this order</Text>
-              <Text style={styles.reviewHint}>
-                Tell us how your food and delivery felt.
-              </Text>
-            </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={palette.mutedForeground}
-            />
-          </Pressable>
-        ) : null}
       </ScrollView>
       </BelaPullToRefresh>
 
@@ -1985,6 +1949,10 @@ export default function OrderTrackingScreen() {
     </SafeAreaView>
   );
 }
+
+const deliveredStyles = StyleSheet.create({
+  stack: { gap: 12 },
+});
 
 const staleStyles = StyleSheet.create({
   banner: {
