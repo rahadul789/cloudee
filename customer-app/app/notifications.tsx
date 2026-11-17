@@ -1,3 +1,4 @@
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { Ionicons } from "@expo/vector-icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -353,6 +354,17 @@ export default function NotificationsScreen() {
             />
           </View>
         ) : (
+          <BelaPullToRefresh
+            refreshing={isRefreshing}
+            onRefresh={async () => {
+              setIsRefreshing(true);
+              try {
+                await notificationsQuery.refetch();
+              } finally {
+                setIsRefreshing(false);
+              }
+            }}
+          >
           <FlashList
             data={notifications}
             keyExtractor={(item) => item.id}
@@ -362,15 +374,6 @@ export default function NotificationsScreen() {
             ]}
             showsVerticalScrollIndicator={false}
             ItemSeparatorComponent={NotificationSeparator}
-            onRefresh={async () => {
-              setIsRefreshing(true);
-              try {
-                await notificationsQuery.refetch();
-              } finally {
-                setIsRefreshing(false);
-              }
-            }}
-            refreshing={isRefreshing}
             onEndReachedThreshold={0.35}
             onEndReached={() => {
               if (notificationsQuery.hasNextPage && !notificationsQuery.isFetchingNextPage) {
@@ -441,6 +444,7 @@ export default function NotificationsScreen() {
               );
             }}
           />
+          </BelaPullToRefresh>
         )}
       </View>
     </Screen>

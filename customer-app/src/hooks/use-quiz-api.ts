@@ -39,6 +39,8 @@ export type CustomerQuizHome = {
   questionCount: number;
   /** Customers may suggest questions (admin on/off; missing on older backends). */
   submissionsEnabled?: boolean;
+  /** Admin-edited texts (templates). Missing on older backends → built-in defaults. */
+  copy?: { shareMessage?: string; hypeCardTitle?: string; hypeCardSubtitle?: string };
   quiz: OwnerQuiz | null;
 };
 
@@ -118,8 +120,18 @@ export function useCloseQuizMutation() {
 }
 
 /** The message friends see in Messenger / WhatsApp along with the link preview. */
-export function quizShareMessage(quiz: Pick<OwnerQuiz, "shareUrl" | "questions">) {
-  return `দেখি তুই আমাকে কতটা চিনিস 😏🍕\n${quiz.questions.length}টা প্রশ্ন — খেলে দেখ তুই আসল দোস্ত কিনা!\n${quiz.shareUrl}`;
+const DEFAULT_SHARE_MESSAGE = "দেখি তুই আমাকে কতটা চিনিস 😏🍕\n{count}টা প্রশ্ন — খেলে দেখ তুই আসল দোস্ত কিনা!\n{url}";
+const bnDigits = (value: number) => String(value).replace(/\d/g, (digit) => "০১২৩৪৫৬৭৮৯"[Number(digit)]);
+
+/** The message friends get with the link — admin template with {count} / {url} / {name}. */
+export function quizShareMessage(quiz: Pick<OwnerQuiz, "shareUrl" | "questions" | "ownerName">, template?: string) {
+  const base = template?.trim() ? template : DEFAULT_SHARE_MESSAGE;
+  const filled = base
+    .replace(/\{count\}/g, bnDigits(quiz.questions.length))
+    .replace(/\{name\}/g, quiz.ownerName)
+    .replace(/\{url\}/g, quiz.shareUrl);
+  // The link must always be there, even if an edited template forgot {url}.
+  return filled.includes(quiz.shareUrl) ? filled : `${filled}\n${quiz.shareUrl}`;
 }
 
 /** Picks `count` random questions (Fisher–Yates on a copy). */

@@ -76,3 +76,32 @@ describe("suggested quiz questions", () => {
     expect(hasBlockedWords("বালিশ মিষ্টি")).toBe(false)
   })
 })
+
+describe("quiz copy + tiers", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const rules = require("../src/modules/quiz/quiz.rules")
+
+  it("fills placeholders with Bangla digits and keeps unknown ones", () => {
+    expect(rules.renderQuizTemplate("{player} তোমাকে {score}/{total} চেনে! {oops}", { player: "রাকিব", score: 7, total: 10 }))
+      .toBe("রাকিব তোমাকে ৭/১০ চেনে! {oops}")
+  })
+
+  it("falls back to defaults for missing or empty copy", () => {
+    const copy = rules.resolveQuizCopy({ startButton: "  ", shareMessage: "নতুন {url}", correctReactions: [] })
+    expect(copy.shareMessage).toBe("নতুন {url}")
+    expect(copy.startButton).toBe(rules.DEFAULT_QUIZ_COPY.startButton)
+    expect(copy.correctReactions).toEqual(rules.DEFAULT_QUIZ_COPY.correctReactions)
+  })
+
+  it("picks a stable variant per play and always has a 0% tier", () => {
+    const tiers = rules.resolveQuizTiers([
+      { key: "top", minPercent: 80, emoji: "🔥", labels: ["A", "B"] },
+      { key: "low", minPercent: 20, emoji: "🙂", labels: ["C"] },
+    ])
+    expect(tiers[tiers.length - 1].minPercent).toBe(0)
+    const first = rules.quizTitleFor(9, 10, tiers, "play-1")
+    expect(rules.quizTitleFor(9, 10, tiers, "play-1")).toEqual(first)
+    expect(["A", "B"]).toContain(first.label)
+    expect(rules.quizTitleFor(1, 10, tiers, "x").key).toBe("low")
+  })
+})

@@ -34,30 +34,20 @@ function formatLeft(ms: number) {
   return h > 0 ? `${h}h ${m}m` : `${m} min`;
 }
 
+// Same ticket icon as the Hype stamp card. Just "+1 earned" — the full card lives in Rewards.
 function StampStrip({ completed, target }: { completed: number; target: number }) {
   const full = completed >= target;
-  const dots = Math.min(Math.max(target, 1), 10);
   return (
     <View style={styles.stamp}>
       <View style={styles.stampIcon}>
-        <Ionicons name="ribbon" size={20} color={palette.onPrimary} />
+        <Ionicons name="ticket" size={20} color={palette.onPrimary} />
       </View>
       <View style={styles.stampCopy}>
-        <Text style={styles.stampTitle}>
-          {full ? "Stamp card full! 🎁" : "You earned a stamp 🎟️"}
+        <Text style={styles.stampTitle}>+1 stamp earned 📮</Text>
+        <Text style={styles.stampCaption}>
+          {full ? "Your card is full — open your mystery box 🎁" : "Added to your stamp card"}
         </Text>
-        <View style={styles.stampDots}>
-          {Array.from({ length: dots }).map((_, index) => (
-            <View key={index} style={[styles.stampDot, index < completed ? styles.stampDotOn : null]}>
-              {index < completed ? <Ionicons name="checkmark" size={9} color={palette.onPrimary} /> : null}
-            </View>
-          ))}
-          <Text style={styles.stampCount}>
-            {Math.min(completed, target)}/{target}
-          </Text>
-        </View>
       </View>
-      {full ? <Text style={styles.stampClaim}>Mystery box</Text> : null}
     </View>
   );
 }
@@ -188,24 +178,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: palette.primary,
-    transform: [{ rotate: "-8deg" }],
   },
-  stampCopy: { flex: 1, minWidth: 0, gap: 6 },
+  stampCopy: { flex: 1, minWidth: 0, gap: 2 },
   stampTitle: { fontSize: 15, fontWeight: "700", color: "#1A1A1A" },
-  stampDots: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 },
-  stampDot: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#D9A54A",
-    backgroundColor: "rgba(255,255,255,0.6)",
-  },
-  stampDotOn: { backgroundColor: palette.secondary, borderColor: palette.secondary },
-  stampCount: { marginLeft: 4, fontSize: 12.5, fontWeight: "700", color: "#7A4A00" },
-  stampClaim: { fontSize: 12, fontWeight: "700", color: "#7A4A00" },
+  stampCaption: { fontSize: 12.5, color: "#7A4A00" },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
   icon: {
     width: 44,

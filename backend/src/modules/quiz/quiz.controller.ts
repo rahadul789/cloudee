@@ -127,6 +127,20 @@ const settingsSchema = z.object({
   approveRewardCoins: z.coerce.number().int().min(0).max(500).optional(),
   trustedAutoApprove: z.boolean().optional(),
   trustedThreshold: z.coerce.number().int().min(1).max(50).optional(),
+  // Texts (templates). Unknown keys are ignored when merged over the defaults.
+  copy: z.record(z.string(), z.union([z.string().max(400), z.array(z.string().max(120)).max(12)])).optional(),
+  tiers: z
+    .array(
+      z.object({
+        key: z.string().trim().max(30).optional(),
+        minPercent: z.coerce.number().min(0).max(100),
+        emoji: z.string().max(8).optional(),
+        labels: z.array(z.string().trim().max(60)).min(1).max(8),
+      }),
+    )
+    .min(1)
+    .max(6)
+    .optional(),
 })
 
 export const putAdminQuizSettingsController = asyncHandler(async (req: Request, res: Response) => {

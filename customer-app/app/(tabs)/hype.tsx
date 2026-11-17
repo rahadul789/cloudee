@@ -1,7 +1,7 @@
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Animated, Easing, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 import { EmptyStateCard } from "@/src/components/empty-state-card";
@@ -51,6 +51,9 @@ function SectionTitle({ title, action, onAction }: { title: string; action?: str
   );
 }
 
+/** Videos tab row cap (non-virtualized list); the player screen continues past it. */
+const VIDEOS_TAB_MAX = 60;
+
 // Last section order / quiz flag seen this session, so the first-load skeleton matches the feed.
 let lastSectionOrder: string[] | undefined;
 let lastQuizEnabled = false;
@@ -70,7 +73,8 @@ export default function HypeTabScreen() {
   const rewardsQuery = useCustomerRewardsQuery(isFocused);
   const quizEnabled = Boolean(feedQuery.data?.quiz?.enabled);
   // Videos tab pages 10 at a time (the feed itself only carries the rail's first few).
-  const videosListQuery = useHypeVideosInfiniteQuery("all", segment === "videos");
+  // Loaded as soon as Hype is open, so the Videos tab is instant (10 rows, cached 60s).
+  const videosListQuery = useHypeVideosInfiniteQuery("all", isFocused);
   const pagedVideos = useMemo(
     () => videosListQuery.data?.pages.flatMap((page) => page.items) ?? [],
     [videosListQuery.data],
@@ -112,21 +116,29 @@ export default function HypeTabScreen() {
     if (item) trackHypeEvent(item.id, "open");
     setDetailsState(item);
   }, []);
-  // Content eases in (fade + small rise) every time the segment changes.
+  // Kept at 1: switching is instant now (no fade — hiding + fading in showed a blank gap
+  // while a heavy section like "For you" rendered).
   const contentAnim = useRef(new Animated.Value(1)).current;
-  const changeSegment = useCallback(
-    (next: Segment) => {
-      setSegment(next);
-      contentAnim.setValue(0);
-      Animated.timing(contentAnim, {
-        toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    },
-    [contentAnim],
-  );
+  const scrollRef = useRef<ScrollView>(null);
+  // Sections opened once stay mounted (hidden with display:none) → switching back is instant,
+  // no re-render / image re-decode. Like Instagram / YouTube tabs.
+  const [visitedPanes, setVisitedPanes] = useState<Segment[]>(["all"]);
+  if (!visitedPanes.includes(segment)) setVisitedPanes([...visitedPanes, segment]);
+  const segmentSwitchPendingRef = useRef(false);
+  const segmentRef = useRef(segment);
+  segmentRef.current = segment;
+  const changeSegment = useCallback((next: Segment) => {
+    if (next === segmentRef.current) return;
+    segmentSwitchPendingRef.current = true;
+    setSegment(next);
+  }, []);
+  useEffect(() => {
+    if (!segmentSwitchPendingRef.current) return;
+    segmentSwitchPendingRef.current = false;
+    // After the new section is on screen: start it at the top (also keeps pull-to-refresh's
+    // "at the top" check true — a content-height change can move the offset with no scroll event).
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [segment]);
 
   useEffect(() => {
     void getHypeReminderIds().then(setReminders);
@@ -138,14 +150,22 @@ export default function HypeTabScreen() {
   const videos = useMemo(() => feed?.videos ?? [], [feed?.videos]);
   const polls = useMemo(() => feed?.polls ?? [], [feed?.polls]);
 
+  // Pull to refresh: always lands on "For you" and reloads every part of the tab.
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
+    if (segment !== "all") changeSegment("all");
     try {
-      await feedQuery.refetch();
+      await Promise.all([
+        feedQuery.refetch(),
+        // Only what's actually loaded (signed-out users have no quiz / rewards; Videos may never have opened).
+        quizEnabled && signedIn ? quizQuery.refetch() : Promise.resolve(),
+        signedIn ? rewardsQuery.refetch() : Promise.resolve(),
+        videosListQuery.data ? videosListQuery.refetch() : Promise.resolve(),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
-  }, [feedQuery]);
+  }, [changeSegment, feedQuery, quizEnabled, quizQuery, rewardsQuery, segment, signedIn, videosListQuery]);
 
   const openItem = useCallback(
     (item: HypeItem) => {
@@ -244,8 +264,10 @@ export default function HypeTabScreen() {
 
   // One renderer per section so the "For you" feed follows the admin order.
   // skeleton = placeholder while the feed loads (same shape and order as the real thing).
-  const renderSection = (key: HypeSectionKey, skeleton: boolean): ReactNode => {
-    const all = segment === "all";
+  const renderSection = (key: HypeSectionKey, skeleton: boolean, pane: Segment = segment): ReactNode => {
+    const all = pane === "all";
+    // Timers / animations only run in the pane on screen.
+    const paneActive = isFocused && pane === segment;
     // In "For you", pinned items already sit in Featured — don't show them twice.
     const pinnedIds = new Set((feed?.pinned ?? []).map((item) => item.id));
     const unpinned = (item: HypeItem) => !pinnedIds.has(item.id);
@@ -271,7 +293,7 @@ export default function HypeTabScreen() {
                 <HypeDropCard
                   key={item.id}
                   drop={item}
-                  active={isFocused}
+                  active={paneActive}
                   reminded={reminders.has(item.id)}
                   onGrab={() => openItem(item)}
                   onOpenDetails={() => setDetails(item)}
@@ -313,7 +335,7 @@ export default function HypeTabScreen() {
       case "quiz":
         if (!all) return null;
         if (skeleton) return lastQuizEnabled ? <ShimmerBlock style={styles.skeletonQuiz} /> : null;
-        return quizEnabled ? <QuizHypeCard quiz={quizQuery.data?.quiz ?? null} onPress={openQuiz} active={isFocused} /> : null;
+        return quizEnabled ? <QuizHypeCard quiz={quizQuery.data?.quiz ?? null} copy={quizQuery.data?.copy} onPress={openQuiz} active={paneActive} /> : null;
       case "stamps":
         // Stamp teaser comes from rewards (not the feed), so it can show even while the feed loads.
         if (!all || !rewardsQuery.data?.stamps.enabled) return null;
@@ -331,7 +353,7 @@ export default function HypeTabScreen() {
             </View>
           );
         }
-        if (!showVideos || !videos.length) return null;
+        if (!(all || pane === "videos") || !videos.length) return null;
         return (
           <View style={styles.section}>
             <SectionTitle title="Watch & crave" action={all ? "See all" : undefined} onAction={() => changeSegment("videos")} />
@@ -359,13 +381,24 @@ export default function HypeTabScreen() {
                   />
                 ))}
                 {videosListQuery.isFetchingNextPage ? <ActivityIndicator color={palette.mutedForeground} /> : null}
+                {/* This tab isn't virtualized (it shares the Hype ScrollView), so it stops at
+                    VIDEOS_TAB_MAX rows; the player screen's list (virtualized) goes on from there. */}
+                {pagedVideos.length >= VIDEOS_TAB_MAX && videosListQuery.hasNextPage ? (
+                  <Pressable
+                    onPress={() => openVideo(pagedVideos[pagedVideos.length - 1])}
+                    style={styles.moreButton}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.moreText}>Keep watching in the player →</Text>
+                  </Pressable>
+                ) : null}
               </>
             )}
           </View>
         );
       case "drops":
         if (skeleton) return <ShimmerBlock style={styles.skeletonDrop} />;
-        if (!showDrops || !drops.length) return null;
+        if (!(all || pane === "drops") || !drops.length) return null;
         return (
           <View style={styles.section}>
             {!all ? <SectionTitle title="Drops" /> : null}
@@ -373,7 +406,7 @@ export default function HypeTabScreen() {
               <HypeDropCard
                 key={drop.id}
                 drop={drop}
-                active={isFocused}
+                active={paneActive}
                 reminded={reminders.has(drop.id)}
                 onGrab={() => openItem(drop)}
                 onOpenDetails={() => setDetails(drop)}
@@ -396,7 +429,7 @@ export default function HypeTabScreen() {
             </View>
           );
         }
-        if (!showPolls || !polls.length) return null;
+        if (!(all || pane === "polls") || !polls.length) return null;
         return (
           <View style={styles.section}>
             <SectionTitle
@@ -433,7 +466,7 @@ export default function HypeTabScreen() {
             </View>
           );
         }
-        if (!showEvents || !events.length) return null;
+        if (!(all || pane === "events") || !events.length) return null;
         return (
           <View style={styles.section}>
             <SectionTitle
@@ -474,12 +507,14 @@ export default function HypeTabScreen() {
 
       <BelaPullToRefresh refreshing={isRefreshing} onRefresh={handleRefresh}>
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
-          scrollEventThrottle={200}
+          scrollEventThrottle={16}
           onScroll={(event) => {
             // Infinite scroll for the Videos tab: fetch the next 10 near the bottom.
             if (segment !== "videos" || !videosListQuery.hasNextPage || videosListQuery.isFetchingNextPage) return;
+            if (pagedVideos.length >= VIDEOS_TAB_MAX) return; // cap — see the "Keep watching" button
             const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
             if (contentOffset.y + layoutMeasurement.height > contentSize.height - 600) void videosListQuery.fetchNextPage();
           }}
@@ -512,10 +547,14 @@ export default function HypeTabScreen() {
                 },
               ]}
             >
-              {(segment === "all" ? sectionOrder : [segment as HypeSectionKey]).map((key) => {
-                const node = renderSection(key, false);
-                return node ? <View key={key}>{node}</View> : null;
-              })}
+              {visitedPanes.map((pane) => (
+                <View key={pane} style={[styles.pane, pane === segment ? null : styles.paneHidden]}>
+                  {(pane === "all" ? sectionOrder : [pane as HypeSectionKey]).map((key) => {
+                    const node = renderSection(key, false, pane);
+                    return node ? <View key={key}>{node}</View> : null;
+                  })}
+                </View>
+              ))}
               {nothingAtAll || segmentEmpty ? (
                 <EmptyStateCard
                   title="Nothing hyped right now"
@@ -571,6 +610,8 @@ export default function HypeTabScreen() {
 const styles = StyleSheet.create({
   segments: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12 },
   animatedContent: { gap: 22 },
+  pane: { gap: 22 },
+  paneHidden: { display: "none" },
   content: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 140, gap: 22 },
   section: { gap: 10 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

@@ -16,6 +16,12 @@ import {
   generateQuizCode,
   isValidQuizCode,
   quizTitleFor,
+  renderQuizTemplate,
+  resolveQuizCopy,
+  resolveQuizTiers,
+  DEFAULT_QUIZ_TIERS,
+  type QuizCopy,
+  type QuizTier,
   sanitizeQuizName,
   validateSuggestedQuestion,
 } from "./quiz.rules"
@@ -37,9 +43,11 @@ export type QuizSettings = {
   trustedAutoApprove: boolean
   trustedThreshold: number
   seeded: boolean
+  copy: QuizCopy
+  tiers: QuizTier[]
 }
 
-const SETTINGS_DEFAULTS: QuizSettings = {
+const SETTINGS_DEFAULTS: Omit<QuizSettings, "copy" | "tiers"> = {
   enabled: false,
   deliveredPrompt: false,
   questionCount: 10,
@@ -53,6 +61,9 @@ const SETTINGS_DEFAULTS: QuizSettings = {
   seeded: false,
 }
 
+// Result tiers in use (refreshed by every getQuizSettings call, which each entry point makes first).
+let currentTiers: QuizTier[] = DEFAULT_QUIZ_TIERS
+
 // Settings are read on every Hype feed load — keep a short in-memory copy.
 let settingsCache: { value: QuizSettings; at: number } | null = null
 const SETTINGS_TTL_MS = 30_000
@@ -64,11 +75,14 @@ export async function getQuizSettings(fresh = false): Promise<QuizSettings> {
     { $setOnInsert: { key: "default" } },
     { upsert: true, new: true },
   ).lean()
-  const value: QuizSettings = { ...SETTINGS_DEFAULTS }
-  for (const key of Object.keys(SETTINGS_DEFAULTS) as Array<keyof QuizSettings>) {
+  const value = { ...SETTINGS_DEFAULTS } as QuizSettings
+  for (const key of Object.keys(SETTINGS_DEFAULTS) as Array<keyof typeof SETTINGS_DEFAULTS>) {
     const raw = (doc as Record<string, unknown> | null)?.[key]
     if (raw !== undefined && raw !== null) (value as Record<string, unknown>)[key] = raw
   }
+  value.copy = resolveQuizCopy((doc as Record<string, unknown> | null)?.copy)
+  value.tiers = resolveQuizTiers((doc as Record<string, unknown> | null)?.tiers)
+  currentTiers = value.tiers
   settingsCache = { value, at: Date.now() }
   return value
 }
@@ -82,8 +96,13 @@ export async function isQuizEnabled() {
   }
 }
 
-export async function saveQuizSettings(patch: Partial<Omit<QuizSettings, "seeded">>) {
-  await QuizSettingsModel.updateOne({ key: "default" }, { $set: patch }, { upsert: true })
+export async function saveQuizSettings(
+  patch: Partial<Omit<QuizSettings, "seeded" | "copy" | "tiers">> & { copy?: Record<string, unknown>; tiers?: unknown[] },
+) {
+  const set: Record<string, unknown> = { ...patch }
+  if (patch.copy) set.copy = resolveQuizCopy(patch.copy)
+  if (patch.tiers) set.tiers = resolveQuizTiers(patch.tiers)
+  await QuizSettingsModel.updateOne({ key: "default" }, { $set: set }, { upsert: true })
   settingsCache = null
   return getQuizSettings(true)
 }
@@ -146,8 +165,8 @@ function isLive(quiz: Pick<QuizDoc, "status" | "expiresAt">, now = Date.now()) {
   return quiz.status === "active" && new Date(quiz.expiresAt).getTime() > now
 }
 
-function titleView(score: number, total: number) {
-  const title = quizTitleFor(score, total)
+function titleView(score: number, total: number, seed = "") {
+  const title = quizTitleFor(score, total, currentTiers, seed)
   return { titleKey: title.key, title: title.label, titleEmoji: title.emoji }
 }
 
@@ -186,7 +205,7 @@ function ownerQuizView(quiz: QuizDoc, plays: PlayDoc[]) {
       score: play.score,
       total,
       completedAt: play.completedAt,
-      ...titleView(play.score, total),
+      ...titleView(play.score, total, String(play._id)),
       // What they got wrong — the fun part ("রাকিব ভাবে আমি তেহারি পছন্দ করি 😤"). Owner only.
       misses: quiz.questions
         .map((question, questionIndex) => ({ question, questionIndex, given: play.answers[questionIndex] }))
@@ -207,6 +226,12 @@ export async function getCustomerQuizHome(customerId: string) {
     deliveredPrompt: settings.enabled && settings.deliveredPrompt,
     questionCount: settings.questionCount,
     submissionsEnabled: settings.enabled && settings.submissionsEnabled,
+    // Admin-edited texts the app shows (templates; the app fills {count} / {url}).
+    copy: {
+      shareMessage: settings.copy.shareMessage,
+      hypeCardTitle: settings.copy.hypeCardTitle,
+      hypeCardSubtitle: settings.copy.hypeCardSubtitle,
+    },
   }
   if (!settings.enabled || !mongoose.Types.ObjectId.isValid(customerId)) return { ...base, quiz: null }
   const quiz = (await FriendQuizModel.findOne({ customerId, status: "active" })
@@ -329,7 +354,7 @@ function publicBoard(plays: PlayDoc[], total: number, playerKey?: string) {
     score: play.score,
     total,
     isMe: Boolean(playerKey) && play.playerKey === playerKey,
-    ...titleView(play.score, total),
+    ...titleView(play.score, total, String(play._id)),
   }))
 }
 
@@ -346,7 +371,7 @@ async function resultFor(quiz: QuizDoc, play: PlayDoc) {
     score: play.score,
     total,
     rank: better + 1,
-    ...titleView(play.score, total),
+    ...titleView(play.score, total, String(play._id)),
     leaderboard: publicBoard(plays, total, play.playerKey),
   }
 }
@@ -363,11 +388,31 @@ function playState(quiz: QuizDoc, play: PlayDoc | null) {
   }
 }
 
+/** Website texts for one quiz (admin-editable; {name} / {count} already filled). */
+async function publicCopyFor(quiz: QuizDoc) {
+  const { copy } = await getQuizSettings()
+  const vars = { name: quiz.ownerName, count: quiz.questions.length }
+  return {
+    linkTitle: renderQuizTemplate(copy.linkTitle, vars),
+    linkDescription: renderQuizTemplate(copy.linkDescription, vars),
+    introTitle: renderQuizTemplate(copy.introTitle, vars),
+    introText: renderQuizTemplate(copy.introText, vars),
+    startButton: copy.startButton,
+    correctReactions: copy.correctReactions,
+    wrongReactions: copy.wrongReactions,
+    // {score}/{total} are filled on the page once the friend finishes
+    resultShareText: renderQuizTemplate(copy.resultShareText, { name: quiz.ownerName }),
+    makeOwnButton: copy.makeOwnButton,
+    shareFriendsButton: copy.shareFriendsButton,
+  }
+}
+
 export async function getPublicQuiz(code: string, playerKey?: string) {
   const quiz = await findPublicQuiz(code)
   const total = quiz.questions.length
+  const copy = await publicCopyFor(quiz)
   if (!isLive(quiz)) {
-    return { code: quiz.code, ownerName: quiz.ownerName, status: "expired" as const, total, questions: [], me: null, result: null, leaderboard: [], playCount: quiz.playCount ?? 0 }
+    return { code: quiz.code, ownerName: quiz.ownerName, status: "expired" as const, total, questions: [], me: null, result: null, leaderboard: [], playCount: quiz.playCount ?? 0, copy }
   }
   const play = playerKey
     ? ((await QuizPlayModel.findOne({ quizId: quiz._id, playerKey }).lean()) as unknown as PlayDoc | null)
@@ -389,6 +434,7 @@ export async function getPublicQuiz(code: string, playerKey?: string) {
     result: play?.completed ? await resultFor(quiz, play) : null,
     leaderboard: publicBoard(plays, total, playerKey),
     playCount: quiz.playCount ?? 0,
+    copy,
   }
 }
 
@@ -472,13 +518,13 @@ async function notifyQuizOwner(quiz: QuizDoc, play: PlayDoc) {
   )
   if (!claimed.modifiedCount) return
   const total = quiz.questions.length
-  const title = quizTitleFor(play.score, total)
-  const tease = play.score / Math.max(1, total) < 0.4 ? " 😏" : play.score === total ? " 👑" : ""
+  const title = quizTitleFor(play.score, total, settings.tiers, String(play._id))
+  const vars = { player: play.playerName, name: quiz.ownerName, score: play.score, total, emoji: title.emoji, title: title.label }
   await sendPushToCustomer({
     customerId: String(quiz.customerId),
     payload: {
-      title: `${play.playerName} তোমাকে ${play.score}/${total} চেনে!${tease}`,
-      body: `${title.emoji} "${title.label}" — কে কোথায় ভুল করেছে দেখো`,
+      title: renderQuizTemplate(settings.copy.pushTitle, vars),
+      body: renderQuizTemplate(settings.copy.pushBody, vars),
       data: { type: "quiz_play", path: "/quiz" },
     },
   })

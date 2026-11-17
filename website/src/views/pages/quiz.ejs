@@ -47,7 +47,7 @@
           <img class="qz-bela" src="/images/bela-quiz.webp" alt="" width="140" height="140" />
           <h1><%= quiz.ownerName %>-এর quiz-এর সময় শেষ ⏰</h1>
           <p class="qz-muted">ওকে বলো নতুন একটা বানাতে — অথবা তুমি নিজেই বানাও!</p>
-          <a class="qz-btn" href="<%= playStoreUrl %>" data-make-own>এবার তোমারটা বানাও →</a>
+          <a class="qz-btn" href="<%= playStoreUrl %>" data-make-own><%= (quiz.copy && quiz.copy.makeOwnButton) || "এবার তোমারটা বানাও →" %></a>
         </section>
       <% } else { %>
         <div id="qz-app" aria-live="polite"></div>

@@ -6,13 +6,107 @@ export const QUIZ_MIN_QUESTIONS = 5
 export const QUIZ_MAX_QUESTIONS = 15
 export const QUIZ_NAME_MAX = 24
 
-/** Funny title for a friend's score (by share of correct answers, so it works for any length). */
-export function quizTitleFor(score: number, total: number) {
-  const ratio = total > 0 ? score / total : 0
-  if (ratio >= 0.9) return { key: "soulmate", emoji: "👑", label: "আত্মার আত্মীয়" }
-  if (ratio >= 0.7) return { key: "real_friend", emoji: "🤝", label: "আসল দোস্ত" }
-  if (ratio >= 0.4) return { key: "facebook_friend", emoji: "📱", label: "শুধু ফেসবুক ফ্রেন্ড" }
-  return { key: "stranger", emoji: "🚶", label: "রাস্তার অচেনা মানুষ" }
+// ── Admin-editable copy (every text friends / owners see) ──
+// Templates use {placeholders}: {name} owner, {player} friend, {count} questions, {score}/{total},
+// {url} link, {emoji}/{title} result. Numbers are filled in Bangla digits.
+
+export type QuizTier = { key: string; minPercent: number; emoji: string; labels: string[] }
+
+export const DEFAULT_QUIZ_TIERS: QuizTier[] = [
+  { key: "soulmate", minPercent: 90, emoji: "👑", labels: ["আত্মার আত্মীয়", "Ride or die দোস্ত", "তুই তো আমার আরেক আমি"] },
+  { key: "real_friend", minPercent: 70, emoji: "🤝", labels: ["আসল দোস্ত", "Certified বেস্টি", "চা-আড্ডার পার্টনার"] },
+  { key: "facebook_friend", minPercent: 40, emoji: "📱", labels: ["শুধু ফেসবুক ফ্রেন্ড", "Seen দিয়ে রিপ্লাই না দেওয়া বন্ধু", "মাঝে মাঝে মনে পড়া বন্ধু"] },
+  { key: "stranger", minPercent: 0, emoji: "🚶", labels: ["রাস্তার অচেনা মানুষ", "আমাদের কি আগে দেখা হয়েছিল? 🤨", "Who are you, bro?"] },
+]
+
+export const DEFAULT_QUIZ_COPY = {
+  // Messenger / WhatsApp message sent with the link (app share button)
+  shareMessage: "দেখি তুই আমাকে কতটা চিনিস 😏🍕\n{count}টা প্রশ্ন — খেলে দেখ তুই আসল দোস্ত কিনা!\n{url}",
+  // Link preview (Messenger / Facebook)
+  linkTitle: "{name}-কে তুমি কতটা চেনো? 😏",
+  linkDescription: "{count}টা মজার খাবারের প্রশ্ন। খেলো, স্কোর দেখো — তুমি কি আসল দোস্ত? 🍕",
+  // Website (friends)
+  introTitle: "{name}-কে তুমি কতটা চেনো? 😏",
+  introText: "{count}টা মজার খাবারের প্রশ্ন। দেখি তুমি আসল দোস্ত, নাকি শুধু ফেসবুক ফ্রেন্ড!",
+  startButton: "খেলা শুরু করো 🚀",
+  correctReactions: ["বাহ, আসল দোস্ত! ✅", "একদম ঠিক! 🔥", "তুই তো সব জানিস 😎", "সেরা! 🎯"],
+  wrongReactions: ["😱 তুই ওকে চিনিসই না!", "ভুল! 🙈", "এটাও জানতি না? 🙄", "উফ, হলো না 😅"],
+  resultShareText: "{name}-কে আমি {score}/{total} চিনি! তুমি কতটা চেনো? 😏",
+  makeOwnButton: "এবার তোমারটা বানাও → বন্ধুদের চ্যালেঞ্জ দাও",
+  shareFriendsButton: "অন্য বন্ধুদেরও খেলাও 📤",
+  // Push to the quiz owner
+  pushTitle: "{player} তোমাকে {score}/{total} চেনে!",
+  pushBody: "{emoji} \"{title}\" — কে কোথায় ভুল করেছে দেখো",
+  // App Hype card (before the user has a quiz)
+  hypeCardTitle: "তুমি আমাকে কতটা চেনো? 😏",
+  hypeCardSubtitle: "বানাও, দেখো কে আসল দোস্ত",
+}
+
+export type QuizCopy = typeof DEFAULT_QUIZ_COPY
+
+const bnDigits = (value: string) => value.replace(/\d/g, (digit) => "০১২৩৪৫৬৭৮৯"[Number(digit)])
+
+/** Fills {placeholders}; numbers become Bangla digits. Unknown placeholders are left as typed. */
+export function renderQuizTemplate(template: string, vars: Record<string, string | number | undefined>) {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => {
+    const value = vars[key]
+    if (value === undefined || value === null) return match
+    return typeof value === "number" ? bnDigits(String(value)) : String(value)
+  })
+}
+
+/** Merges saved copy over the defaults (missing / empty fields fall back). */
+export function resolveQuizCopy(saved: unknown): QuizCopy {
+  const source = (saved && typeof saved === "object" ? saved : {}) as Record<string, unknown>
+  const out = { ...DEFAULT_QUIZ_COPY } as Record<string, unknown>
+  for (const [key, fallback] of Object.entries(DEFAULT_QUIZ_COPY)) {
+    const value = source[key]
+    if (Array.isArray(fallback)) {
+      const list = Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 12) : []
+      out[key] = list.length ? list : fallback
+    } else if (typeof value === "string" && value.trim()) {
+      out[key] = value.slice(0, 400)
+    }
+  }
+  return out as QuizCopy
+}
+
+/** Saved tiers, sorted high → low, always ending with a 0% tier. */
+export function resolveQuizTiers(saved: unknown): QuizTier[] {
+  const list = Array.isArray(saved) ? saved : []
+  const tiers = list
+    .map((tier, index) => {
+      const raw = tier as Partial<QuizTier>
+      const labels = Array.isArray(raw.labels) ? raw.labels.map((label) => String(label).trim()).filter(Boolean).slice(0, 8) : []
+      return {
+        key: String(raw.key || `tier_${index}`).slice(0, 30),
+        minPercent: Math.max(0, Math.min(100, Math.round(Number(raw.minPercent) || 0))),
+        emoji: String(raw.emoji ?? "").slice(0, 8),
+        labels,
+      }
+    })
+    .filter((tier) => tier.labels.length)
+    .sort((a, b) => b.minPercent - a.minPercent)
+  if (!tiers.length) return DEFAULT_QUIZ_TIERS
+  if (tiers[tiers.length - 1].minPercent > 0) tiers[tiers.length - 1] = { ...tiers[tiers.length - 1], minPercent: 0 }
+  return tiers
+}
+
+function stableIndex(seed: string, length: number) {
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  return length ? hash % length : 0
+}
+
+/**
+ * Funny title for a friend's score (by share of correct answers, so it works for any length).
+ * Each tier can have several variants; `seed` (e.g. the play id) keeps one friend's title stable.
+ */
+export function quizTitleFor(score: number, total: number, tiers: QuizTier[] = DEFAULT_QUIZ_TIERS, seed = "") {
+  const percent = total > 0 ? (score / total) * 100 : 0
+  const tier = tiers.find((item) => percent >= item.minPercent) ?? tiers[tiers.length - 1] ?? DEFAULT_QUIZ_TIERS[3]
+  const label = tier.labels[stableIndex(seed || `${score}/${total}`, tier.labels.length)] ?? tier.labels[0] ?? ""
+  return { key: tier.key, emoji: tier.emoji, label }
 }
 
 // Small blocklist for names shown on a public leaderboard (admin can still delete any play).

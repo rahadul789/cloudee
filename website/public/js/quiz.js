@@ -39,8 +39,11 @@
     index: quiz.me ? quiz.me.answered : 0,
     busy: false,
   };
-  var GOOD = ["বাহ, আসল দোস্ত! ✅", "একদম ঠিক! 🔥", "তুই তো সব জানিস 😎", "সেরা! 🎯"];
-  var BAD = ["😱 তুই ওকে চিনিসই না!", "ভুল! 🙈", "এটাও জানতি না? 🙄", "উফ, হলো না 😅"];
+  // Every text is admin-editable (Friend Quiz → texts); these are only fallbacks.
+  var copy = quiz.copy || {};
+  function text(key, fallback) { return copy[key] || fallback; }
+  var GOOD = (copy.correctReactions && copy.correctReactions.length) ? copy.correctReactions : ["বাহ, আসল দোস্ত! ✅", "একদম ঠিক! 🔥", "তুই তো সব জানিস 😎", "সেরা! 🎯"];
+  var BAD = (copy.wrongReactions && copy.wrongReactions.length) ? copy.wrongReactions : ["😱 তুই ওকে চিনিসই না!", "ভুল! 🙈", "এটাও জানতি না? 🙄", "উফ, হলো না 😅"];
   function pick(list) { return list[Math.floor(Math.random() * list.length)]; }
 
   function esc(value) {
@@ -83,12 +86,12 @@
     app.innerHTML =
       '<section class="qz-card qz-center">' +
       '<img class="qz-bela" src="/images/bela-quiz.webp" alt="" width="132" height="132" />' +
-      "<h1>" + esc(quiz.ownerName) + "-কে তুমি কতটা চেনো? 😏</h1>" +
-      '<p class="qz-muted">' + bn(quiz.total) + "টা মজার খাবারের প্রশ্ন। দেখি তুমি আসল দোস্ত, নাকি শুধু ফেসবুক ফ্রেন্ড!</p>" +
+      "<h1>" + esc(text("introTitle", quiz.ownerName + "-কে তুমি কতটা চেনো? 😏")) + "</h1>" +
+      '<p class="qz-muted">' + esc(text("introText", bn(quiz.total) + "টা মজার খাবারের প্রশ্ন। দেখি তুমি আসল দোস্ত, নাকি শুধু ফেসবুক ফ্রেন্ড!")) + "</p>" +
       '<form id="qz-start" autocomplete="off">' +
       '<input class="qz-input" id="qz-name" maxlength="24" placeholder="তোমার নাম লেখো" aria-label="তোমার নাম" required />' +
       '<p class="qz-error" id="qz-err"></p>' +
-      '<button class="qz-btn" type="submit">খেলা শুরু করো 🚀</button>' +
+      '<button class="qz-btn" type="submit">' + esc(text("startButton", "খেলা শুরু করো 🚀")) + "</button>" +
       "</form></section>" +
       '<section class="qz-card"><div class="qz-board-title">🏆 Leaderboard <span>' +
       (played ? bn(played) + " জন খেলেছে" : "") + "</span></div>" +
@@ -197,7 +200,10 @@
 
   function renderResult(fresh) {
     var result = state.result;
-    var shareText = esc(quiz.ownerName) + "-কে আমি " + bn(result.score) + "/" + bn(result.total) + " চিনি! তুমি কতটা চেনো? 😏";
+    var shareText = text("resultShareText", quiz.ownerName + "-কে আমি {score}/{total} চিনি! তুমি কতটা চেনো? 😏")
+      .replace(/\{score\}/g, bn(result.score))
+      .replace(/\{total\}/g, bn(result.total))
+      .replace(/\{name\}/g, quiz.ownerName);
     app.innerHTML =
       '<section class="qz-card qz-center">' +
       '<img class="qz-bela" src="/images/bela-quiz.webp" alt="" width="132" height="132" />' +
@@ -205,8 +211,8 @@
       '<div class="qz-score">' + bn(result.score) + "<small>/" + bn(result.total) + "</small></div>" +
       '<div class="qz-title">' + esc(result.titleEmoji + " " + result.title) + "</div>" +
       '<div class="qz-rank">Leaderboard-এ তুমি #' + bn(result.rank) + "</div>" +
-      '<a class="qz-btn" href="' + esc(playStoreUrl) + '" data-make-own>এবার তোমারটা বানাও → বন্ধুদের চ্যালেঞ্জ দাও</a>' +
-      '<button class="qz-btn qz-btn-ghost" type="button" id="qz-share">অন্য বন্ধুদেরও খেলাও 📤</button>' +
+      '<a class="qz-btn" href="' + esc(playStoreUrl) + '" data-make-own>' + esc(text("makeOwnButton", "এবার তোমারটা বানাও → বন্ধুদের চ্যালেঞ্জ দাও")) + "</a>" +
+      '<button class="qz-btn qz-btn-ghost" type="button" id="qz-share">' + esc(text("shareFriendsButton", "অন্য বন্ধুদেরও খেলাও 📤")) + "</button>" +
       "</section>" +
       '<section class="qz-card"><div class="qz-board-title">🏆 Leaderboard</div>' +
       boardHtml(result.leaderboard || [], result.total) + "</section>";
@@ -214,11 +220,11 @@
     var share = document.getElementById("qz-share");
     share.addEventListener("click", function () {
       var url = window.location.href.split("?")[0];
-      var text = shareText.replace(/&amp;/g, "&");
+      var message = shareText;
       if (navigator.share) {
-        navigator.share({ title: document.title, text: text, url: url }).catch(function () {});
+        navigator.share({ title: document.title, text: message, url: url }).catch(function () {});
       } else if (navigator.clipboard) {
-        navigator.clipboard.writeText(text + " " + url).then(function () { share.textContent = "লিংক কপি হয়েছে ✅"; });
+        navigator.clipboard.writeText(message + " " + url).then(function () { share.textContent = "লিংক কপি হয়েছে ✅"; });
       }
     });
     if (fresh && result.score / Math.max(1, result.total) >= 0.7) confetti();

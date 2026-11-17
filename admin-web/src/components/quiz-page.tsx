@@ -55,6 +55,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { QuizSubmissionsCard } from "@/components/quiz-submissions-card"
+import { QuizCopyCard } from "@/components/quiz-copy-card"
 
 const CATEGORIES: Record<string, string> = {
   favourite: "🍗 প্রিয় খাবার",
@@ -327,6 +328,8 @@ export function QuizPage() {
         ))}
       </div>
       {stats ? <p className="-mt-3 text-xs text-muted-foreground">শেষ {stats.days} দিনের হিসাব · সব মিলিয়ে {stats.quizzesTotal}টা quiz</p> : null}
+
+      <QuizCopyCard />
 
       <QuizSubmissionsCard trustedThreshold={draft?.trustedThreshold ?? 3} />
 

@@ -242,9 +242,17 @@ export function BelaPullToRefresh({
             (ownOnScroll as ((e: NativeSyntheticEvent<NativeScrollEvent>) => void) | undefined)?.(event);
           }
         : ownOnScroll;
+    // Also record the offset when a drag / fling ENDS. Throttled onScroll can drop the last
+    // "back at the top" event, leaving a stale offset that blocks every later pull until restart.
+    const trackEnd = (own: unknown) => (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!externalScrollYRef) scrollYRef.current = event.nativeEvent.contentOffset.y;
+      (own as ((e: NativeSyntheticEvent<NativeScrollEvent>) => void) | undefined)?.(event);
+    };
     const injected: Record<string, unknown> = {
       refreshControl: undefined,
       onScroll,
+      onScrollEndDrag: trackEnd(childProps.onScrollEndDrag),
+      onMomentumScrollEnd: trackEnd(childProps.onMomentumScrollEnd),
       scrollEventThrottle: (childProps.scrollEventThrottle as number | undefined) ?? 16,
       // Bela draws the pull — no iOS bounce / Android glow fighting it.
       bounces: false,

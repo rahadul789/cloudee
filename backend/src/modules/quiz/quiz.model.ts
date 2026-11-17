@@ -23,6 +23,10 @@ const quizSettingsSchema = new Schema(
     /** After N approved suggestions the next ones go live without review (admin can still remove). */
     trustedAutoApprove: { type: Boolean, default: false },
     trustedThreshold: { type: Number, default: 3, min: 1, max: 50 },
+    /** Admin-edited texts (share message, link preview, web page, reactions, push…). Empty = defaults. */
+    copy: { type: Schema.Types.Mixed, default: undefined },
+    /** Result titles: [{ key, minPercent, emoji, labels[] }] — several variants per tier. */
+    tiers: { type: Schema.Types.Mixed, default: undefined },
     /** Starter questions were inserted once (never re-seed after the admin deletes them). */
     seeded: { type: Boolean, default: false },
   },

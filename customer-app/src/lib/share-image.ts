@@ -1,4 +1,10 @@
-import { StorageAccessFramework, EncodingType, readAsStringAsync, writeAsStringAsync } from "expo-file-system/legacy";
+import {
+  StorageAccessFramework,
+  EncodingType,
+  deleteAsync,
+  readAsStringAsync,
+  writeAsStringAsync,
+} from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import type { RefObject } from "react";
@@ -12,6 +18,12 @@ export async function captureStoryImage(ref: RefObject<View | null>) {
   if (!ref.current) throw new Error("ছবি এখনো তৈরি হয়নি, আবার চেষ্টা করো।");
   // Captured at the device's own pixel density (sharp text); the view itself is 9:16.
   return captureRef(ref, { format: "png", quality: 1, result: "tmpfile" });
+}
+
+/** Removes a captured temp PNG once it's been shared / saved (repeat captures would pile up). */
+export function discardImageFile(uri: string | null) {
+  if (!uri) return;
+  void deleteAsync(uri, { idempotent: true }).catch(() => undefined);
 }
 
 export async function shareImageFile(uri: string, dialogTitle: string) {

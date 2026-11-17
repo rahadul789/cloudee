@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
+
+import { BelaPullToRefresh } from "@/src/components/bela-pull-to-refresh";
 
 import { EmptyStateCard } from "@/src/components/empty-state-card";
 import { QuizShareSheet } from "@/src/components/quiz/quiz-share-sheet";
@@ -24,14 +26,14 @@ function daysLeft(iso: string) {
   return Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 86_400_000)) : 0;
 }
 
-async function shareQuiz(quiz: OwnerQuiz) {
+async function shareQuiz(quiz: OwnerQuiz, template?: string) {
   void trackCustomerEvent({
     eventType: "custom",
     path: "/quiz",
     screenName: "quiz",
     metadata: { action: "quiz_share", quizCode: quiz.code },
   });
-  await Share.share({ message: quizShareMessage(quiz) }).catch(() => undefined);
+  await Share.share({ message: quizShareMessage(quiz, template) }).catch(() => undefined);
 }
 
 function PlayRow({ play }: { play: QuizPlay }) {
@@ -96,13 +98,14 @@ export default function QuizScreen() {
   const data = quizQuery.data;
   const quiz = data?.quiz ?? null;
 
+  const shareTemplate = data?.copy?.shareMessage;
   // Right after creating: open the share sheet once.
   useEffect(() => {
     if (params.created === "1" && quiz && !autoShared.current) {
       autoShared.current = true;
-      void shareQuiz(quiz);
+      void shareQuiz(quiz, shareTemplate);
     }
-  }, [params.created, quiz]);
+  }, [params.created, quiz, shareTemplate]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -148,11 +151,8 @@ export default function QuizScreen() {
   return (
     <Screen>
       <AppHeader title="তুমি আমাকে কতটা চেনো?" subtitle="বন্ধুদের চ্যালেঞ্জ দাও 😏" />
-      <ScrollView
-        contentContainerStyle={styles.body}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.primary} />}
-        showsVerticalScrollIndicator={false}
-      >
+      <BelaPullToRefresh refreshing={refreshing} onRefresh={refresh}>
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {quizQuery.isLoading ? (
           <>
             <ShimmerBlock style={styles.skeletonHero} />
@@ -213,7 +213,7 @@ export default function QuizScreen() {
               {quiz.live ? (
                 <View style={styles.shareRow}>
                   <Pressable
-                    onPress={() => void shareQuiz(quiz)}
+                    onPress={() => void shareQuiz(quiz, data?.copy?.shareMessage)}
                     style={({ pressed }) => [styles.shareButton, pressed ? styles.pressed : null]}
                     accessibilityRole="button"
                   >
@@ -282,6 +282,7 @@ export default function QuizScreen() {
           </Pressable>
         ) : null}
       </ScrollView>
+      </BelaPullToRefresh>
       {quiz ? <QuizShareSheet quiz={quiz} visible={storyOpen} onClose={() => setStoryOpen(false)} /> : null}
     </Screen>
   );

@@ -26,11 +26,12 @@ router.get("/q/:code", async (req, res, next) => {
     }
     const base = siteBase(res);
     const name = quiz?.ownerName || "";
+    // Link preview texts come from admin (Friend Quiz → texts); fallbacks for older backends.
     const title = quiz
-      ? `${name}-কে তুমি কতটা চেনো? 😏`
+      ? quiz.copy?.linkTitle || `${name}-কে তুমি কতটা চেনো? 😏`
       : "Quiz পাওয়া যায়নি | Foodbela";
     const description = quiz
-      ? `${quiz.total}টা মজার খাবারের প্রশ্ন। খেলো, স্কোর দেখো — তুমি কি আসল দোস্ত? 🍕`
+      ? quiz.copy?.linkDescription || `${quiz.total}টা মজার খাবারের প্রশ্ন। খেলো, স্কোর দেখো — তুমি কি আসল দোস্ত? 🍕`
       : "এই quiz-এর লিংকটি আর নেই।";
     const settings = res.locals.websiteSettings || {};
     res.set("Cache-Control", "private, no-store");

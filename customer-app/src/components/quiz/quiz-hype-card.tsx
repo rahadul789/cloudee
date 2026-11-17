@@ -22,8 +22,11 @@ export function QuizHypeCard({
   onPress,
   compact = false,
   active = true,
+  copy,
 }: {
   quiz: OwnerQuiz | null;
+  /** Admin texts for the "make your quiz" state. */
+  copy?: { hypeCardTitle?: string; hypeCardSubtitle?: string };
   onPress: () => void;
   compact?: boolean;
   /** Pauses the little Bela wobble when the screen isn't focused. */
@@ -49,12 +52,12 @@ export function QuizHypeCard({
     ? quiz!.playCount
       ? `${bn(quiz!.playCount)} জন বন্ধু খেলেছে 🔥`
       : "Quiz তৈরি! বন্ধুদের পাঠাও"
-    : "তুমি আমাকে কতটা চেনো? 😏";
+    : copy?.hypeCardTitle || "তুমি আমাকে কতটা চেনো? 😏";
   const detail = live
     ? top[0]
       ? `${top[0].name} এগিয়ে · ${bn(top[0].score)}/${bn(top[0].total)}`
       : "কেউ খেললেই notification পাবে"
-    : "বানাও, দেখো কে আসল দোস্ত";
+    : copy?.hypeCardSubtitle || "বানাও, দেখো কে আসল দোস্ত";
   const cta = live ? "Leaderboard" : "বানাও";
   // The slim card lives on the (English) order details screen → English copy there.
   const shownTitle = compact ? (live ? "Your friend quiz is live 🔥" : "How well do your friends know you? 😏") : title;

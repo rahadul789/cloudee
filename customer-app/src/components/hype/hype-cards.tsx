@@ -316,6 +316,9 @@ export function HypeVideoTile({
   isNew?: boolean;
 }) {
   const thumb = video.imageUrl || youtubeThumbnail(video.youtubeId);
+  // Linked to a restaurant → you can order from this video ("Order dish" when a dish is set).
+  const orderable = Boolean(video.restaurantId);
+  const orderLabel = video.menuItemId ? "Order dish" : "Order";
   if (variant === "rail") {
     return (
       <Pressable onPress={onPress} style={({ pressed }) => [styles.railTile, pressed ? styles.pressed : null]} accessibilityRole="button" accessibilityLabel={`Play ${video.title}`}>
@@ -324,10 +327,20 @@ export function HypeVideoTile({
         <View style={styles.playDot}>
           <Ionicons name="play" size={18} color={palette.onPrimary} />
         </View>
-        {isNew ? (
-          <View style={styles.newBadge}>
-            <View style={styles.newDot} />
-            <Text style={styles.newText}>NEW</Text>
+        {isNew || orderable ? (
+          <View style={styles.railBadges}>
+            {isNew ? (
+              <View style={styles.newBadge}>
+                <View style={styles.newDot} />
+                <Text style={styles.newText}>NEW</Text>
+              </View>
+            ) : null}
+            {orderable ? (
+              <View style={styles.orderBadge}>
+                <Ionicons name="cart" size={11} color={palette.onPrimary} />
+                <Text style={styles.orderBadgeText}>{orderLabel}</Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
         <Text style={styles.railTitle} numberOfLines={2}>
@@ -355,6 +368,13 @@ export function HypeVideoTile({
           <Text style={styles.videoRowMeta}>{compactCount(video.viewCount)} views</Text>
           <Ionicons name="thumbs-up-outline" size={12} color={palette.mutedForeground} style={styles.videoStatGap} />
           <Text style={styles.videoRowMeta}>{compactCount(video.likeCount)}</Text>
+          {/* List: the order badge sits at the right of the stats line (not over the thumbnail). */}
+          {orderable ? (
+            <View style={[styles.orderBadge, styles.orderBadgeInline]}>
+              <Ionicons name="cart" size={10} color={palette.onPrimary} />
+              <Text style={styles.orderBadgeText}>{orderLabel}</Text>
+            </View>
+          ) : null}
         </View>
         {video.restaurantName ? (
           <Text style={styles.videoRowMeta} numberOfLines={1}>
@@ -466,10 +486,19 @@ const styles = StyleSheet.create({
   reactPillDislike: { borderColor: palette.foreground, backgroundColor: palette.surfaceMuted },
   reactText: { fontSize: 12, fontWeight: "700", color: palette.foreground },
   videoStats: { flexDirection: "row", alignItems: "center", gap: 4 },
+  railBadges: { position: "absolute", top: 8, left: 8, gap: 4, alignItems: "flex-start" },
+  orderBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: palette.primary,
+  },
+  orderBadgeInline: { marginLeft: "auto", height: 20 },
+  orderBadgeText: { fontSize: 10, fontWeight: "700", color: palette.onPrimary },
   newBadge: {
-    position: "absolute",
-    top: 8,
-    left: 8,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,

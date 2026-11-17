@@ -9929,7 +9929,29 @@ export type AdminQuizSettings = {
   approveRewardCoins: number
   trustedAutoApprove: boolean
   trustedThreshold: number
+  copy?: AdminQuizCopy
+  tiers?: AdminQuizTier[]
 }
+
+export type AdminQuizCopy = {
+  shareMessage: string
+  linkTitle: string
+  linkDescription: string
+  introTitle: string
+  introText: string
+  startButton: string
+  correctReactions: string[]
+  wrongReactions: string[]
+  resultShareText: string
+  makeOwnButton: string
+  shareFriendsButton: string
+  pushTitle: string
+  pushBody: string
+  hypeCardTitle: string
+  hypeCardSubtitle: string
+}
+
+export type AdminQuizTier = { key: string; minPercent: number; emoji: string; labels: string[] }
 
 export type AdminQuizQuestion = {
   id: string

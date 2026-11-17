@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OwnerQuiz } from "@/src/hooks/use-quiz-api";
 import { trackCustomerEvent } from "@/src/lib/analytics";
 import { appAlert } from "@/src/lib/app-alert";
-import { captureStoryImage, saveImageFile, shareImageFile } from "@/src/lib/share-image";
+import { captureStoryImage, discardImageFile, saveImageFile, shareImageFile } from "@/src/lib/share-image";
 import { palette } from "@/src/theme/palette";
 
 const bela = require("@/assets/bela_mascot.png");
@@ -104,8 +104,9 @@ export function QuizShareSheet({ quiz, visible, onClose }: { quiz: OwnerQuiz; vi
   const run = async (kind: "share" | "save") => {
     if (busy) return;
     setBusy(kind);
+    let uri: string | null = null;
     try {
-      const uri = await captureStoryImage(storyRef);
+      uri = await captureStoryImage(storyRef);
       if (kind === "share") {
         track("quiz_leaderboard_share");
         await shareImageFile(uri, "Leaderboard share করো");
@@ -124,6 +125,9 @@ export function QuizShareSheet({ quiz, visible, onClose }: { quiz: OwnerQuiz; vi
     } catch (error) {
       appAlert("হলো না", error instanceof Error ? error.message : "আবার চেষ্টা করো।");
     } finally {
+      // The share / save is done (the share sheet resolves after the user picks or closes) →
+      // drop the temp PNG so repeated shares don't pile files up in the cache.
+      discardImageFile(uri);
       setBusy(null);
     }
   };

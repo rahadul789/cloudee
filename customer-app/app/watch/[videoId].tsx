@@ -41,7 +41,7 @@ const FALLBACK_CATEGORIES = [
 ];
 const AUTOPLAY_SECONDS = 3;
 
-type Row = { type: "chips" } | { type: "video"; video: HypeItem } | { type: "empty" };
+type Row = { type: "upnext" } | { type: "video"; video: HypeItem } | { type: "empty" };
 
 // Description clamped to 3 lines with a "Show more / Show less" toggle (only when it overflows).
 function VideoDescription({ text }: { text: string }) {
@@ -216,7 +216,7 @@ export default function HypeVideoScreen() {
   };
 
   const rows: Row[] = useMemo(() => {
-    const base: Row[] = [{ type: "chips" }];
+    const base: Row[] = [{ type: "upnext" }];
     if (upNext.length) return base.concat(upNext.map((item) => ({ type: "video", video: item }) as Row));
     if (!listQuery.isLoading) base.push({ type: "empty" });
     return base;
@@ -328,13 +328,40 @@ export default function HypeVideoScreen() {
           ) : null}
         </View>
       ) : null}
+      {/* Category chips: always visible under the player. Kept OUTSIDE the list on purpose —
+          as a FlatList sticky header, Android stopped delivering taps to them once stuck. */}
+      <View style={styles.chipsBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.chips}
+        >
+          {categories.map((item) => {
+            const active = item.id === category;
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => {
+                  setCategory(item.id);
+                  listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                }}
+                hitSlop={4}
+                style={[styles.chip, active ? styles.chipActive : null]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
       <FlatList
         ref={listRef}
         data={rows}
         keyExtractor={(row, index) => (row.type === "video" ? row.video.id : `${row.type}-${index}`)}
         ListHeaderComponent={header}
-        // Chips are the first row → index 1 (the header is index 0) → they stick under the player.
-        stickyHeaderIndices={[1]}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         onEndReachedThreshold={0.6}
@@ -345,37 +372,19 @@ export default function HypeVideoScreen() {
         windowSize={7}
         removeClippedSubviews
         renderItem={({ item: row }) => {
-          if (row.type === "chips") {
+          if (row.type === "upnext") {
             return (
-              <View style={styles.chipsBar}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-                  {categories.map((item) => {
-                    const active = item.id === category;
-                    return (
-                      <Pressable
-                        key={item.id}
-                        onPress={() => setCategory(item.id)}
-                        style={[styles.chip, active ? styles.chipActive : null]}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: active }}
-                      >
-                        <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{item.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-                <View style={styles.upNextRow}>
-                  <Text style={styles.upNext}>Up next</Text>
-                  <View style={styles.autoplay}>
-                    <Text style={styles.autoplayText}>Autoplay</Text>
-                    <Switch
-                      value={autoplay}
-                      onValueChange={setAutoplay}
-                      trackColor={{ false: "#D5D7DB", true: palette.primary }}
-                      thumbColor="#FFFFFF"
-                      accessibilityLabel="Autoplay next video"
-                    />
-                  </View>
+              <View style={styles.upNextRow}>
+                <Text style={styles.upNext}>Up next</Text>
+                <View style={styles.autoplay}>
+                  <Text style={styles.autoplayText}>Autoplay</Text>
+                  <Switch
+                    value={autoplay}
+                    onValueChange={setAutoplay}
+                    trackColor={{ false: "#D5D7DB", true: palette.primary }}
+                    thumbColor="#FFFFFF"
+                    accessibilityLabel="Autoplay next video"
+                  />
                 </View>
               </View>
             );
@@ -493,9 +502,7 @@ const styles = StyleSheet.create({
   orderText: { fontSize: 15.5, fontWeight: "700", color: palette.onPrimary },
   orderSub: { fontSize: 12, color: palette.onPrimary, opacity: 0.75 },
   chipsBar: {
-    gap: 8,
-    paddingTop: 10,
-    paddingBottom: 6,
+    paddingVertical: 8,
     backgroundColor: palette.background,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#ECECEE",
@@ -513,7 +520,15 @@ const styles = StyleSheet.create({
   chipActive: { borderColor: palette.foreground, backgroundColor: palette.foreground },
   chipText: { fontSize: 12.5, fontWeight: "500", color: palette.foreground },
   chipTextActive: { fontWeight: "700", color: "#FFFFFF" },
-  upNextRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
+  upNextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#ECECEE",
+  },
   upNext: { fontSize: 14, fontWeight: "700", color: palette.foreground },
   autoplay: { flexDirection: "row", alignItems: "center", gap: 4 },
   autoplayText: { fontSize: 12.5, fontWeight: "500", color: palette.mutedForeground },
