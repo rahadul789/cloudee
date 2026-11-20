@@ -3989,6 +3989,84 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
     ]),
     getAdminDispatchSettings(),
   ]);
+  // Platform net profit from the DELIVERED orders matching the current filters:
+  // commission (from each order's earning ledger) + markup + delivery fees + platform fee
+  // − platform-funded discounts. Before rider salary (payroll isn't per order).
+  const [profitRow] = await OrderModel.aggregate<{
+    deliveredNetProfit: number;
+    commission: number;
+    markup: number;
+    deliveryIncome: number;
+    platformFees: number;
+    platformDiscountCost: number;
+  }>([
+    { $match: { $and: [query, { status: "Delivered", source: { $ne: "external" } }] } },
+    {
+      $lookup: {
+        from: LedgerEntryModel.collection.name,
+        let: { orderId: "$_id", restaurantId: "$restaurantId" },
+        pipeline: [
+          {
+            $match: {
+              entryType: "earning",
+              $expr: { $and: [{ $eq: ["$restaurantId", "$$restaurantId"] }, { $eq: ["$orderId", "$$orderId"] }] },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              commission: { $sum: { $ifNull: ["$commission", 0] } },
+              platformDiscountCost: { $sum: { $ifNull: ["$platformDiscountCost", 0] } },
+            },
+          },
+        ],
+        as: "ledger",
+      },
+    },
+    {
+      $addFields: {
+        _commission: { $ifNull: [{ $arrayElemAt: ["$ledger.commission", 0] }, 0] },
+        _platformDiscount: {
+          $ifNull: [{ $arrayElemAt: ["$ledger.platformDiscountCost", 0] }, { $ifNull: ["$pricing.platformDiscountCost", 0] }],
+        },
+        _markup: {
+          $max: [
+            0,
+            {
+              $subtract: [
+                { $ifNull: ["$pricing.subtotal", 0] },
+                { $ifNull: ["$pricing.restaurantSubtotal", { $ifNull: ["$pricing.subtotal", 0] }] },
+              ],
+            },
+          ],
+        },
+        _delivery: {
+          $add: [{ $ifNull: ["$pricing.deliveryFee", 0] }, { $ifNull: ["$pricing.urgentDeliveryFee", 0] }],
+        },
+        _platformFee: { $ifNull: ["$pricing.platformFee", 0] },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        commission: { $sum: "$_commission" },
+        markup: { $sum: "$_markup" },
+        deliveryIncome: { $sum: "$_delivery" },
+        platformFees: { $sum: "$_platformFee" },
+        platformDiscountCost: { $sum: "$_platformDiscount" },
+      },
+    },
+    {
+      $addFields: {
+        deliveredNetProfit: {
+          $subtract: [
+            { $add: ["$commission", "$markup", "$deliveryIncome", "$platformFees"] },
+            "$platformDiscountCost",
+          ],
+        },
+      },
+    },
+  ]);
   const restaurantIds = [
     ...new Set(
       rawOrders.map((order) => String(order.restaurantId ?? "")).filter(Boolean),
@@ -4083,6 +4161,15 @@ export async function listAdminOrders(params: AdminOrderListParams = {}) {
     summary: {
       ...summary,
       total,
+      // Platform net profit of the delivered orders in this filter (before rider salary).
+      deliveredNetProfit: Math.round(profitRow?.deliveredNetProfit ?? 0),
+      profitBreakdown: {
+        commission: Math.round(profitRow?.commission ?? 0),
+        markup: Math.round(profitRow?.markup ?? 0),
+        deliveryIncome: Math.round(profitRow?.deliveryIncome ?? 0),
+        platformFees: Math.round(profitRow?.platformFees ?? 0),
+        platformDiscountCost: Math.round(profitRow?.platformDiscountCost ?? 0),
+      },
       onlineRiders: dispatchState.metrics.onlineRiders,
       unassignedReadyOrders: dispatchState.metrics.unassignedReadyOrders,
       staleTracking: 0,
@@ -4952,6 +5039,7 @@ export async function getAdminOrderMonitorDetails(
   // First-order (welcome) discount is stored separately and is platform-funded — it is
   // already inside platformDiscountCost, so only fold it into the displayed `discount`.
   const firstOrderDiscountAmount = numberValue(order.pricing?.firstOrderDiscountAmount);
+  const earnings = await buildAdminOrderEarnings(order, voucherDiscountSplit);
 
   return {
     id: String(order._id ?? ""),
@@ -4962,6 +5050,8 @@ export async function getAdminOrderMonitorDetails(
     restaurantOwnerName: restaurantOwner?.fullName ?? "",
     restaurantOwnerPhone: restaurantOwner?.phone ?? restaurant?.contact?.phone ?? "",
     customerId: order.customerId ?? "",
+    // Who earns what on this order (admin only — never sent to customers or owners).
+    earnings,
     customerName:
       order.customerSnapshot?.name ??
       order.customerSnapshot?.fullName ??
@@ -9029,4 +9119,58 @@ export async function processAdminOperationalAlerts() {
   if (didMutateOrders) {
     invalidateAdminMonitoringCaches();
   }
+}
+
+
+// ── Per-order earnings (admin) ──
+// The restaurant's ACTUAL price (what the owner sees) vs what the customer paid, and the
+// platform's take: commission (from the order's earning ledger) + markup + delivery fees +
+// platform fee − platform-funded discounts. Rider salary is payroll, not per order, so it's
+// not deducted here.
+async function buildAdminOrderEarnings(
+  order: Record<string, any>,
+  voucherDiscountSplit?: { ownerDiscountCost?: number; platformDiscountCost?: number } | null,
+) {
+  const ledger = order._id
+    ? await LedgerEntryModel.findOne({ restaurantId: order.restaurantId, orderId: order._id, entryType: "earning" })
+        .select({ grossAmount: 1, commission: 1, discountCost: 1, platformDiscountCost: 1, netAmount: 1 })
+        .lean()
+    : null;
+  const pricing = order.pricing ?? {};
+  const customerItemsTotal = numberValue(pricing.subtotal);
+  const restaurantPrice = numberValue(pricing.restaurantSubtotal, customerItemsTotal);
+  const markup = Math.max(0, customerItemsTotal - restaurantPrice);
+  const commission = numberValue(ledger?.commission);
+  const ownerDiscountCost = numberValue(
+    ledger?.discountCost,
+    numberValue(pricing.ownerDiscountCost, voucherDiscountSplit?.ownerDiscountCost ?? 0),
+  );
+  const platformDiscountCost = numberValue(
+    ledger?.platformDiscountCost,
+    numberValue(pricing.platformDiscountCost, voucherDiscountSplit?.platformDiscountCost ?? 0),
+  );
+  const restaurantPayable = numberValue(ledger?.netAmount, restaurantPrice - commission - ownerDiscountCost);
+  const deliveryIncome = numberValue(pricing.deliveryFee) + numberValue(pricing.urgentDeliveryFee);
+  const platformFee = numberValue(pricing.platformFee);
+  const platformNet = commission + markup + deliveryIncome + platformFee - platformDiscountCost;
+  const isExternal = order.source === "external";
+  return {
+    pricingModel: pricing.pricingModel === "markup" ? "markup" : "commission",
+    restaurantPrice,
+    customerItemsTotal,
+    markup,
+    commission,
+    commissionPercent: restaurantPrice > 0 ? Math.round((commission / restaurantPrice) * 1000) / 10 : 0,
+    ownerDiscountCost,
+    restaurantPayable,
+    deliveryIncome,
+    platformFee,
+    platformDiscountCost,
+    platformNet,
+    // Only delivered platform orders count as real profit (cancelled = nothing earned;
+    // external/off-platform orders settle separately).
+    counted: order.status === "Delivered" && !isExternal,
+    isExternal,
+    hasLedger: Boolean(ledger),
+  };
 }

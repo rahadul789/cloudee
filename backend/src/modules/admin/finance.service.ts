@@ -404,6 +404,9 @@ function rangeMatchOn(field: string, start: Date, end: Date) {
   return { [field]: { $gte: start, $lte: end } };
 }
 
+/** COD statuses that mean the cash was NOT kept (everything else delivered = collected by the rider). */
+const COD_NOT_COLLECTED_STATUSES = ["failed", "refund_pending", "refunded", "cancelled"];
+
 function deliveredDateExpression() {
   return {
     $ifNull: [
@@ -2068,13 +2071,15 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
               ],
             },
           },
+          // COD: the rider collects the cash AT delivery — a delivered cash order is collected
+          // (admin no longer marks it by hand). Only failed / refunded ones don't count.
           codCollected: {
             $sum: {
               $cond: [
                 {
                   $and: [
                     { $eq: ["$paymentMethod", "Cash"] },
-                    { $eq: ["$paymentStatus", "paid"] },
+                    { $not: [{ $in: ["$paymentStatus", COD_NOT_COLLECTED_STATUSES] }] },
                   ],
                 },
                 { $ifNull: ["$pricing.total", 0] },
@@ -2082,20 +2087,8 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
               ],
             },
           },
-          codUncollected: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$paymentMethod", "Cash"] },
-                    { $ne: ["$paymentStatus", "paid"] },
-                  ],
-                },
-                { $ifNull: ["$pricing.total", 0] },
-                0,
-              ],
-            },
-          },
+          // Kept for API compatibility (admin UI reads it) — always 0 now.
+          codUncollected: { $sum: 0 },
         },
       },
     ]),
@@ -2539,24 +2532,21 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
           .sort({ dateKey: -1, closedAt: -1 })
           .limit(7)
           .lean(),
-    OrderModel.find({
-      status: "Delivered",
-      paymentMethod: "Cash",
-      paymentStatus: { $ne: "paid" },
-      ...orderScopeFilter,
-    })
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .select({
-        orderNumber: 1,
-        restaurantId: 1,
-        riderId: 1,
-        riderSnapshot: 1,
-        paymentStatus: 1,
-        pricing: 1,
-        updatedAt: 1,
-        createdAt: 1,
-      })
-      .lean(),
+    // Nothing waits for a manual "COD collected" mark any more (the rider collects at delivery),
+    // so the pending-COD list is always empty. Shape kept for the admin UI.
+    Promise.resolve(
+      [] as Array<{
+        _id: unknown;
+        orderNumber?: string;
+        restaurantId?: unknown;
+        riderId?: unknown;
+        riderSnapshot?: { name?: string; phone?: string };
+        paymentStatus?: string;
+        pricing?: { total?: number };
+        updatedAt?: Date;
+        createdAt?: Date;
+      }>,
+    ),
     getPlatformPayrollSummary(range.start, range.end, riderScopeFilter),
     PlatformFinanceEntryModel.aggregate<Record<string, any>>([
       { $match: { ...walletAreaFilter, status: "posted", occurredAt: { $gte: range.start, $lte: range.end } } },
@@ -2650,6 +2640,50 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     riderPayrollPending;
   const netPositionAfterLiabilities = estimatedPlatformCash - totalLiabilities;
 
+  // Reconcile per order: every eligible delivered order in range against its own earning ledger
+  // entries. Comparing two separately range-filtered totals gave false "Ledger mismatch" alerts
+  // at the period edges (the ledger dates an entry by deliveredAt / its own createdAt, the order
+  // side by timestamps.Delivered), and for entries whose order fell outside the window.
+  const [orderLedgerRow] = await OrderModel.aggregate<{ orderGross: number; ledgerGross: number }>([
+    { $match: { status: "Delivered", ...orderScopeFilter } },
+    { $addFields: { reportDeliveredAt: deliveredDate } },
+    { $match: rangeMatchOn("reportDeliveredAt", range.start, range.end) },
+    {
+      $match: {
+        paymentStatus: { $nin: ["failed", "refund_pending", "refunded"] },
+        $or: [
+          { paymentStatus: { $in: ["paid", "refund_rejected"] } },
+          { paymentMethod: "Cash" },
+          { paymentMethod: { $in: [null, ""] } },
+        ],
+      },
+    },
+    {
+      $lookup: {
+        from: LedgerEntryModel.collection.name,
+        let: { orderId: "$_id", restaurantId: "$restaurantId" },
+        pipeline: [
+          {
+            $match: {
+              entryType: "earning",
+              $expr: {
+                $and: [{ $eq: ["$restaurantId", "$$restaurantId"] }, { $eq: ["$orderId", "$$orderId"] }],
+              },
+            },
+          },
+          { $group: { _id: null, gross: { $sum: { $ifNull: ["$grossAmount", 0] } } } },
+        ],
+        as: "ledger",
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        orderGross: { $sum: { $ifNull: ["$pricing.restaurantSubtotal", { $ifNull: ["$pricing.subtotal", 0] }] } },
+        ledgerGross: { $sum: { $ifNull: [{ $arrayElemAt: ["$ledger.gross", 0] }, 0] } },
+      },
+    },
+  ]);
   const ledgerGrossAmount = numberValue(ledger.grossAmount);
   const deliveredSubtotalGross = numberValue(delivered.deliveredSubtotalGross);
   // Reconcile against the payout-ELIGIBLE delivered subtotal — the same set the ledger gross counts
@@ -2659,11 +2693,11 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
     delivered.deliveredEligibleSubtotalGross,
   );
   const reconciliationDifference = Math.round(
-    deliveredEligibleSubtotalGross - ledgerGrossAmount,
+    numberValue(orderLedgerRow?.orderGross) - numberValue(orderLedgerRow?.ledgerGross),
   );
   const reconciliationTolerance = Math.max(
     5,
-    Math.round(deliveredEligibleSubtotalGross * 0.005),
+    Math.round(numberValue(orderLedgerRow?.orderGross) * 0.005),
   );
   const alerts: Array<{
     type: "success" | "warning" | "danger" | "info";
@@ -2696,15 +2730,6 @@ export async function getAdminPlatformFinance(params: PlatformFinanceParams = {}
       title: "Refund liability pending",
       message: "Cancelled or rejected bKash orders still need refund review or payout action.",
       amount: refundPendingAmount,
-    });
-  }
-
-  if (numberValue(delivered.codUncollected) > 0) {
-    alerts.push({
-      type: "info",
-      title: "COD collection not marked paid",
-      message: "Delivered cash orders are not fully marked collected yet.",
-      amount: numberValue(delivered.codUncollected),
     });
   }
 
@@ -3282,11 +3307,17 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
       ...orderScopeFilter,
       status: "Delivered",
       paymentMethod: "Cash",
-      paymentStatus: "paid",
+      // Collected by the rider at delivery (older orders may also carry an admin "collected" mark).
+      paymentStatus: { $nin: COD_NOT_COLLECTED_STATUSES },
       $or: [
         { "paymentSnapshot.cashCollectedAt": { $gte: range.start, $lte: range.end } },
         {
           "paymentSnapshot.cashCollectedAt": null,
+          "timestamps.Delivered": { $gte: range.start, $lte: range.end },
+        },
+        {
+          "paymentSnapshot.cashCollectedAt": null,
+          "timestamps.Delivered": null,
           updatedAt: { $gte: range.start, $lte: range.end },
         },
       ],
@@ -3302,6 +3333,7 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
         paymentStatus: 1,
         pricing: 1,
         paymentSnapshot: 1,
+        timestamps: 1,
         updatedAt: 1,
       })
       .lean(),
@@ -3414,7 +3446,7 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
         category: "cod_collection",
         source: "order",
         amount: numberValue(order.pricing?.total),
-        occurredAt: order.paymentSnapshot?.cashCollectedAt ?? order.updatedAt,
+        occurredAt: order.paymentSnapshot?.cashCollectedAt ?? order.timestamps?.Delivered ?? order.updatedAt,
         status: "collected",
         reference: stringValue(order.orderNumber),
         paymentMethod: "Cash",
@@ -3425,7 +3457,7 @@ export async function listAdminMoneyTransactions(params: MoneyTransactionListPar
         restaurantName: stringValue(restaurant?.name, "Restaurant"),
         orderId: objectIdString(order._id),
         orderNumber: stringValue(order.orderNumber),
-        note: stringValue(order.paymentSnapshot?.cashCollectionNote, "COD marked collected"),
+        note: stringValue(order.paymentSnapshot?.cashCollectionNote, "Cash collected by rider on delivery"),
       });
     }),
     ...refundOrders.map((order) => {

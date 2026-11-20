@@ -10,6 +10,7 @@ import { format } from "date-fns"
 import {
   AlertTriangle,
   Ban,
+  UserRound,
   CalendarClock,
   CheckCircle2,
   Bike,
@@ -36,7 +37,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import {
@@ -51,6 +52,7 @@ import {
   updateAdminOrderRefundStatus,
   updateAdminOrderStatus,
   type AdminOrderDetails,
+  type AdminOrderEarnings,
   type AdminOrderListItem,
   type AdminRestaurantOrderDateFilterPreset,
   type AdminRiderAssignmentOption,
@@ -445,6 +447,73 @@ function toOrderTarget(
     riderId: "riderId" in order ? order.riderId : undefined,
     riderName: order.riderName,
   }
+}
+
+// Who earns what on one order — admin only. Restaurant price = what the owner sees.
+function OrderEarningsCard({ earnings }: { earnings: AdminOrderEarnings }) {
+  const rows: Array<{ label: string; value: number; helper?: string; sign?: "+" | "−" }> = [
+    { label: "Restaurant price", value: earnings.restaurantPrice, helper: "What the owner sees for these items" },
+    ...(earnings.markup > 0
+      ? [{ label: "Customer paid for items", value: earnings.customerItemsTotal, helper: `Includes ${formatCurrency(earnings.markup)} markup` }]
+      : []),
+    { label: "Restaurant gets", value: earnings.restaurantPayable, helper: earnings.ownerDiscountCost ? `After commission and ${formatCurrency(earnings.ownerDiscountCost)} owner discount` : "After commission" },
+  ]
+  const income: Array<{ label: string; value: number; negative?: boolean }> = [
+    ...(earnings.pricingModel === "markup"
+      ? [{ label: "Markup", value: earnings.markup }]
+      : [{ label: `Commission${earnings.commissionPercent ? ` (${earnings.commissionPercent}%)` : ""}`, value: earnings.commission }]),
+    { label: "Delivery fee", value: earnings.deliveryIncome },
+    ...(earnings.platformFee ? [{ label: "Platform fee", value: earnings.platformFee }] : []),
+    ...(earnings.platformDiscountCost ? [{ label: "Platform-funded discount", value: earnings.platformDiscountCost, negative: true }] : []),
+  ]
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Earnings on this order</CardTitle>
+        <CardDescription>
+          {earnings.isExternal
+            ? "Off-platform delivery — settled separately, not in platform profit."
+            : earnings.counted
+              ? "Platform profit before rider salary (payroll isn't per order)."
+              : "Not delivered — nothing is earned unless the order is delivered."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">{row.label}</div>
+                {row.helper ? <div className="text-xs text-muted-foreground">{row.helper}</div> : null}
+              </div>
+              <div className="text-sm font-semibold">{formatCurrency(row.value)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Foodbela earns</div>
+          {income.map((row) => (
+            <div key={row.label} className="flex justify-between text-sm">
+              <span>{row.label}</span>
+              <span className={row.negative ? "text-red-600" : ""}>
+                {row.negative ? "−" : "+"}
+                {formatCurrency(row.value)}
+              </span>
+            </div>
+          ))}
+          <div className="mt-1 flex justify-between border-t pt-2 text-sm font-semibold">
+            <span>Net profit</span>
+            <span className={earnings.platformNet < 0 ? "text-red-600" : "text-emerald-700"}>
+              {formatCurrency(earnings.platformNet)}
+            </span>
+          </div>
+          {!earnings.hasLedger && !earnings.isExternal ? (
+            <div className="text-xs text-amber-700">No settlement entry yet — commission shown as ৳0.</div>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 function StatCard({
@@ -891,6 +960,7 @@ function OrderDetailsSheet({
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not extend preparation time"),
   })
+  const navigate = useNavigate()
   const detailsQuery = useQuery({
     queryKey: ["admin-order", orderId],
     queryFn: () => getAdminOrder(orderId),
@@ -1316,6 +1386,8 @@ function OrderDetailsSheet({
                 />
               </div>
 
+              {details.earnings ? <OrderEarningsCard earnings={details.earnings} /> : null}
+
               <Tabs defaultValue="overview" className="gap-4">
                 <TabsList className="flex h-auto w-full flex-wrap justify-start">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -1365,6 +1437,17 @@ function OrderDetailsSheet({
                             Customer location not available on this order.
                           </p>
                         )}
+                        {details.customerId ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => navigate(`/users?customerId=${encodeURIComponent(details.customerId ?? "")}`)}
+                          >
+                            <UserRound className="size-4" />
+                            View customer details
+                          </Button>
+                        ) : null}
                         <MessageCustomerBox
                           orderId={details.id}
                           hasCustomer={Boolean(details.customerId)}
@@ -1977,7 +2060,7 @@ export function OrdersPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
         <StatCard
           label="Filtered orders"
           value={`${summary.total ?? ordersQuery.data?.total ?? 0}`}
@@ -1992,6 +2075,15 @@ export function OrdersPage() {
           label="Delivered revenue"
           value={formatCurrency(summary.deliveredRevenue ?? 0)}
           helper="Delivered orders only"
+        />
+        <StatCard
+          label="Net profit (delivered)"
+          value={formatCurrency(summary.deliveredNetProfit ?? 0)}
+          helper={
+            summary.profitBreakdown
+              ? `Commission ${formatCurrency(summary.profitBreakdown.commission + summary.profitBreakdown.markup)} · Delivery ${formatCurrency(summary.profitBreakdown.deliveryIncome)}${summary.profitBreakdown.platformDiscountCost ? ` · Vouchers −${formatCurrency(summary.profitBreakdown.platformDiscountCost)}` : ""}`
+              : "Before rider salary"
+          }
         />
         <StatCard
           label="Unassigned ready"

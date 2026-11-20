@@ -3783,8 +3783,29 @@ export type AdminCustomerOrderHistoryItem = {
   cancelledAt: string | null
 }
 
+export type AdminOrderEarnings = {
+  pricingModel: "markup" | "commission"
+  /** What the restaurant owner sees as the price of these items. */
+  restaurantPrice: number
+  /** What the customer paid for the items (incl. markup). */
+  customerItemsTotal: number
+  markup: number
+  commission: number
+  commissionPercent: number
+  ownerDiscountCost: number
+  restaurantPayable: number
+  deliveryIncome: number
+  platformFee: number
+  platformDiscountCost: number
+  platformNet: number
+  counted: boolean
+  isExternal: boolean
+  hasLedger: boolean
+}
+
 export type AdminOrderDetails = {
   id: string
+  earnings?: AdminOrderEarnings
   orderNumber: string
   status: string
   paymentMethod: string
@@ -3999,6 +4020,15 @@ export type AdminOrdersListResponse = AdminListResponse<AdminOrderListItem> & {
     cancelledOrders?: number
     refundPending?: number
     deliveredRevenue?: number
+    /** Platform net profit from the delivered orders in this filter (before rider salary). */
+    deliveredNetProfit?: number
+    profitBreakdown?: {
+      commission: number
+      markup: number
+      deliveryIncome: number
+      platformFees: number
+      platformDiscountCost: number
+    }
     onlineRiders?: number
     unassignedReadyOrders?: number
     staleTracking?: number

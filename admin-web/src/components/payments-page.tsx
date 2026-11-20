@@ -212,11 +212,13 @@ function getReconciliationState(transaction: AdminPaymentTransaction) {
   }
 
   if (transaction.paymentMethod === "Cash") {
-    if (transaction.status === "Delivered" && transaction.paymentStatus === "paid") {
+    // The rider collects the cash at delivery — a delivered COD order is collected
+    // (admin no longer marks it by hand). Only failed / refunded / cancelled ones aren't.
+    if (
+      transaction.status === "Delivered" &&
+      !["failed", "refund_pending", "refunded", "cancelled"].includes(String(transaction.paymentStatus))
+    ) {
       return { label: "Cash collected", tone: "success" }
-    }
-    if (transaction.status === "Delivered") {
-      return { label: "Cash due", tone: "warning" }
     }
     return { label: "COD pending", tone: "muted" }
   }

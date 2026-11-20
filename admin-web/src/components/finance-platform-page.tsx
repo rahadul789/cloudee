@@ -811,7 +811,7 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
           </CardHeader>
           <CardContent className="space-y-2">
             <AmountRow label="bKash collected" value={data.cash.onlineCollected} helper="All successful online payments" />
-            <AmountRow label="COD collected" value={data.cash.codCollected} helper={`${formatCurrency(data.cash.codUncollected)} not marked collected`} />
+            <AmountRow label="COD collected" value={data.cash.codCollected} helper="Collected by riders on delivery" />
             <AmountRow label="Wallet credits" value={data.cash.walletCreditAmount} helper="Manual income, COD deposit, adjustments" valueClassName="text-emerald-700" />
             <AmountRow label="Restaurant payouts paid" value={data.cash.payoutsPaid} helper="Completed payout batches" valueClassName="text-rose-700" />
             <AmountRow label="Refunds paid" value={data.cash.refundsPaid} helper="Refunded online orders" valueClassName="text-rose-700" />
@@ -922,18 +922,20 @@ function PlatformFinanceContent({ data }: { data: AdminPlatformFinanceResponse }
           <CardHeader>
             <CardTitle className="text-base">COD reconciliation</CardTitle>
             <CardDescription>
-              Delivered cash orders that are not marked collected yet.
+              Cash orders are collected by the rider at delivery — nothing needs to be marked by hand.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-3 flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-                {formatNumber(data.codReconciliation.pendingCount)} pending
-              </Badge>
-              <Badge variant="outline">
-                {formatCurrency(data.codReconciliation.pendingAmount)} pending cash
-              </Badge>
-            </div>
+            {data.codReconciliation.pendingCount > 0 ? (
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                  {formatNumber(data.codReconciliation.pendingCount)} pending
+                </Badge>
+                <Badge variant="outline">
+                  {formatCurrency(data.codReconciliation.pendingAmount)} pending cash
+                </Badge>
+              </div>
+            ) : null}
             <Table>
               <TableHeader>
                 <TableRow>
